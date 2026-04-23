@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/purl-enrichment-schema.json",
+  "title": "trace PURL enrichment manifest",
+  "description": "A reviewable mapping from nixpkgs attr_path to one or more Package URLs. nixpkgs does not carry PURL metadata natively, so trace maintains this manifest as a SEPARATE, auditable enrichment layer. The graph builder merges entries into snapshot nodes at extract time and records provenance in snapshot.enrichment.purl_mappings_applied — Scout consumes flat purls[] at the node level but the audit trail stays with the snapshot. Deliberately: no inline patching of nixpkgs package expressions. Never-authoritative: Steward does not treat an enriched PURL as different from any other, and Scout records it the same way through the normal purl-exact path.",
+  "type": "object",
+  "required": ["schema_version", "mappings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "notes": { "type": "string" },
+    "mappings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/mapping" }
+    }
+  },
+  "$defs": {
+    "mapping": {
+      "type": "object",
+      "required": ["attr_path", "purls"],
+      "additionalProperties": false,
+      "properties": {
+        "attr_path": { "type": "string", "minLength": 1 },
+        "purls": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/purl_entry" }
+        }
+      }
+    },
+    "purl_entry": {
+      "type": "object",
+      "required": ["value", "source", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "description": "A PURL string. The token `{version}` (literal) is substituted at extract time with the node's extracted version, so manifest entries stay valid across nixpkgs rev bumps. Non-template values pass through verbatim.",
+          "type": "string",
+          "pattern": "^pkg:[^\\s]+$"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["manual", "source-url-heuristic", "repology", "osv-metadata", "other"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        },
+        "notes": { "type": "string" },
+        "reviewed_at": { "type": "string", "format": "date-time" },
+        "reviewed_by": { "type": "string" }
+      }
+    }
+  }
+}

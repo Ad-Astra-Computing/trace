@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/eval-candidate-schema.json",
+  "title": "trace eval corpus candidate",
+  "description": "One JSON-lines entry in `eval/candidates.jsonl`. Validated as each harvested CVE is appended. A candidate's shape is identical to a frozen corpus entry (see `eval/corpus.json`) except that it has NOT yet passed eligibility. Carries `harvested_at` and `harvested_by` so the harvesting provenance stays on the record. If the candidate is later rejected, a corresponding line goes into `eval/rejection-log.jsonl` and this entry stays in candidates.jsonl unchanged — candidates.jsonl is append-only and includes everything ever considered.",
+  "type": "object",
+  "required": [
+    "cve_id",
+    "harvested_at",
+    "harvested_by",
+    "candidate_source",
+    "nixpkgs_rev",
+    "affected_attrs",
+    "axes",
+    "expected_v0_eligibility",
+    "expected_bundle_kind",
+    "expected_upstream_ref_verdict"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "harvested_at": { "type": "string", "format": "date-time" },
+    "harvested_by": { "type": "string", "minLength": 1 },
+    "candidate_source": {
+      "description": "Where the harvester first encountered this candidate. Informational — not a policy input — but later lets reviewers ask whether the corpus was sourced narrowly or broadly.",
+      "type": "string",
+      "enum": ["nixpkgs-git-history", "ghsa", "nvd", "vulnpatch", "osv", "nixpkgs-cve-tracker", "manual"]
+    },
+    "nixpkgs_rev": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "affected_attrs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "historical_fix": {
+      "description": "Ground-truth fix reference. At least one of the listed sub-fields SHOULD be present; candidates without any reachable historical fix are rejected per INCLUSION_RULES.md § Eligibility #3.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "upstream_repo_url": { "type": "string", "format": "uri" },
+        "upstream_commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "upstream_tag_or_release": { "type": "string" },
+        "nixpkgs_fix_commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+      }
+    },
+    "axes": {
+      "type": "object",
+      "required": [
+        "mapping_difficulty",
+        "version_bump_complexity",
+        "passthru_tests",
+        "reproducibility",
+        "rebuild_closure_size",
+        "human_decision_difficulty"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mapping_difficulty": { "type": "string", "enum": ["easy", "medium", "ambiguous"] },
+        "version_bump_complexity": {
+          "type": "string",
+          "enum": ["patch-release", "point-release", "multi-release", "major-jump"]
+        },
+        "passthru_tests": { "type": "string", "enum": ["yes", "minimal", "none"] },
+        "reproducibility": {
+          "type": "string",
+          "enum": [
+            "straightforward",
+            "config-sensitive",
+            "DoS-shaped",
+            "crypto-shaped",
+            "parser-heavy",
+            "kernel-adjacent",
+            "impractical"
+          ]
+        },
+        "rebuild_closure_size": {
+          "type": "string",
+          "enum": ["<50", "50-500", "500-5000", ">5000"]
+        },
+        "human_decision_difficulty": {
+          "type": "string",
+          "enum": ["trivial", "routine", "contentious"]
+        }
+      }
+    },
+    "expected_v0_eligibility": {
+      "type": "string",
+      "enum": ["auto-merge-eligible", "requires-human-review", "advisory-only"]
+    },
+    "expected_bundle_kind": {
+      "type": "string",
+      "enum": ["auto-merge", "human-review-required", "advisory-only"]
+    },
+    "expected_upstream_ref_verdict": {
+      "type": "string",
+      "enum": [
+        "eligible",
+        "eligible-requires-human-review",
+        "ineligible-no-fix-available",
+        "ineligible-major-version-only",
+        "ineligible-cherry-pick-required",
+        "ineligible-low-confidence-mapping",
+        "ineligible-no-upstream-ref"
+      ]
+    },
+    "notes": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "expected_bundle_kind": { "const": "auto-merge" } } },
+      "then": {
+        "properties": {
+          "expected_upstream_ref_verdict": { "const": "eligible" },
+          "expected_v0_eligibility": { "const": "auto-merge-eligible" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "expected_bundle_kind": { "const": "human-review-required" } } },
+      "then": {
+        "properties": { "expected_v0_eligibility": { "const": "requires-human-review" } }
+      }
+    },
+    {
+      "if": { "properties": { "expected_bundle_kind": { "const": "advisory-only" } } },
+      "then": {
+        "properties": { "expected_v0_eligibility": { "const": "advisory-only" } }
+      }
+    }
+  ]
+}

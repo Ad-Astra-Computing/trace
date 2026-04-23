@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/scout-input-schema.json",
+  "title": "trace scout input",
+  "description": "One normalized advisory record as fed to Scout. In production, a feed-ingestion step converts NVD/GHSA/OSV payloads into this shape; for v0 tests the shape is produced by hand. Scout consumes this plus a graph-lookup interface and emits either finding.json or a mapping-failure queue entry. No network; no direct feed parsing inside Scout.",
+  "type": "object",
+  "required": ["feed", "cve_id", "published_at"],
+  "additionalProperties": false,
+  "properties": {
+    "feed": { "type": "string", "enum": ["nvd", "ghsa", "osv"] },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "aliases": {
+      "description": "Other identifiers for the same advisory (e.g. GHSA-xxxx, OSV id). Not used for mapping yet; preserved for provenance.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "published_at": { "type": "string", "format": "date-time" },
+    "severity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low", "none", "unknown"]
+        },
+        "cvss_v3_score": {
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 10 },
+            { "type": "null" }
+          ]
+        },
+        "cvss_v3_vector": { "type": "string" }
+      }
+    },
+    "summary": { "type": "string", "maxLength": 2000 },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "kind": {
+            "type": "string",
+            "enum": ["advisory", "upstream-commit", "release-notes", "blog", "bug-tracker", "other"]
+          }
+        }
+      }
+    },
+    "cpe_matches": {
+      "description": "CPE identifiers from the advisory. Each MAY carry a version range; the version range is preserved in the output but Scout does not yet evaluate it (that is a graph-layer concern once the full graph exists).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cpe"],
+        "additionalProperties": false,
+        "properties": {
+          "cpe": { "type": "string", "pattern": "^cpe:2\\.3:" },
+          "version_range": { "type": "string" }
+        }
+      }
+    },
+    "purl_matches": {
+      "description": "Package URLs from the advisory. Preferred over CPE when both are present — purl-exact is a cleaner match surface for most language ecosystems.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^pkg:" }
+    },
+    "pname_hints": {
+      "description": "Optional fallback hints for pname-heuristic matching when CPE/PURL yield no hits. Usually derived by Scout's caller from the advisory's affected-products list.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "aggregator": {
+      "description": "Optional provenance block recording that this scout-input was produced by normalizing bytes from an aggregator (e.g. Vulnpatch) rather than from direct NVD/GHSA/OSV fetches. Informational; Steward does not consult it. Present only when a feed normalizer emitted this record. feed/source_feeds still reflect the underlying authoritative source so Scout's mapping method and finding source_feeds keep their existing meaning.",
+      "type": "object",
+      "required": ["name", "fetched_at", "request_url", "response_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": ["vulnpatch"]
+        },
+        "fetched_at": { "type": "string", "format": "date-time" },
+        "request_url": { "type": "string", "format": "uri" },
+        "response_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "api_version": { "type": "string" },
+        "primary_source_hash": {
+          "description": "Aggregator's declared hash of the primary underlying source blob.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "underlying_source_hashes": {
+          "description": "Per-feed sha256 values reported by the aggregator. Preserved for replay.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": ["cve_list_v5", "github", "osv", "nixpkgs"]
+              },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        },
+        "epss": {
+          "description": "EPSS prioritization signal. NOT a policy input; queue ordering only.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "percentile": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "cisa_kev": {
+          "description": "CISA KEV signal. NOT a policy input; queue ordering only.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "in_catalog": { "type": "boolean" },
+            "added_date": { "type": "string" },
+            "due_date": { "type": "string" },
+            "known_ransomware_campaign_use": { "type": "string" },
+            "required_action": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

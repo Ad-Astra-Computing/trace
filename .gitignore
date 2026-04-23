@@ -1,0 +1,25 @@
+# Rust build artifacts
+graph/target/
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local venvs / tooling
+.venv/
+.venv-*/
+
+# Design / research / planning docs — deliberately maintained in the working
+# tree but held back from git history until the user says they're ready for
+# future devs. Code-adjacent READMEs (graph/README.md, tests/README.md,
+# fixture READMEs) are NOT excluded — they describe committed code.
+SPEC.md
+docs/
+eval/INCLUSION_RULES.md
+eval/HARVESTING.md
+
+# Private research planning — NEVER commit. See memory entry
+# trace-model-eval-plan-review.md. Redundant with docs/ but listed explicitly
+# so the never-commit rule is visible here too.
+docs/MODEL_EVAL_PLAN.md

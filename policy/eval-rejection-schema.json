@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/eval-rejection-schema.json",
+  "title": "trace eval corpus rejection-log entry",
+  "description": "One JSON-lines entry in `eval/rejection-log.jsonl`. Written when a harvested candidate fails an eligibility rule or is otherwise excluded from the final selection. The rejection log is append-only and preserves the full history of exclusions so a future reviewer asking 'was this corpus cherry-picked?' gets an answer from data. Every rejection cites a structured reason; free-form `notes` are mandatory for `other`.",
+  "type": "object",
+  "required": ["cve_id", "rejected_at", "rejected_by", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "rejected_at": { "type": "string", "format": "date-time" },
+    "rejected_by": { "type": "string", "minLength": 1 },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "no-historical-fix-available",
+        "not-present-in-nixpkgs",
+        "cve-withdrawn-or-rejected",
+        "duplicate-by-pname-version-range",
+        "axis-classification-unclear",
+        "classification-forced-to-fit",
+        "over-represented-bucket",
+        "research-ethics-concern",
+        "other"
+      ]
+    },
+    "notes": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "reason": { "const": "other" } } },
+      "then": {
+        "required": ["notes"],
+        "properties": { "notes": { "minLength": 1 } }
+      }
+    }
+  ]
+}

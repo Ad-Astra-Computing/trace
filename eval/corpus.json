@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0.0",
+  "status": "seed",
+  "required_size": 50,
+  "notes": "Seed container. Real research entries (is_example: false) are harvested via eval/HARVESTING.md into eval/candidates.jsonl, filtered against the frozen rules in eval/INCLUSION_RULES.md, and copied here when selection completes. Rejections land in eval/rejection-log.jsonl. Seed entries below are shape-demonstrators and do not contribute to frozen-corpus composition counts — all carry is_example: true. Transition to status: frozen is gated on SPEC §5a composition rules; see tests/eval/test_corpus.py.",
+  "axes": {
+    "mapping_difficulty": ["easy", "medium", "ambiguous"],
+    "version_bump_complexity": ["patch-release", "point-release", "multi-release", "major-jump"],
+    "passthru_tests": ["yes", "minimal", "none"],
+    "reproducibility": ["straightforward", "config-sensitive", "DoS-shaped", "crypto-shaped", "parser-heavy", "kernel-adjacent", "impractical"],
+    "rebuild_closure_size": ["<50", "50-500", "500-5000", ">5000"],
+    "human_decision_difficulty": ["trivial", "routine", "contentious"]
+  },
+  "entries": [
+    {
+      "cve_id": "CVE-0000-5001",
+      "harvested_at": "2026-04-23T00:00:00Z",
+      "nixpkgs_rev": "0000000000000000000000000000000000000000",
+      "affected_attrs": ["libexample"],
+      "historical_fix": {
+        "upstream_repo_url": "https://example.invalid/libexample",
+        "upstream_commit_sha": "abc1234",
+        "upstream_tag_or_release": "v1.4.8"
+      },
+      "axes": {
+        "mapping_difficulty": "easy",
+        "version_bump_complexity": "patch-release",
+        "passthru_tests": "yes",
+        "reproducibility": "straightforward",
+        "rebuild_closure_size": "<50",
+        "human_decision_difficulty": "trivial"
+      },
+      "expected_v0_eligibility": "auto-merge-eligible",
+      "expected_bundle_kind": "auto-merge",
+      "expected_upstream_ref_verdict": "eligible",
+      "is_example": true,
+      "example_reason": "Demonstrates the happy-path auto-merge entry shape: clean CPE mapping, patch release, existing passthru.tests, small closure, trivial reviewer decision."
+    },
+    {
+      "cve_id": "CVE-0000-5002",
+      "harvested_at": "2026-04-23T00:00:00Z",
+      "nixpkgs_rev": "0000000000000000000000000000000000000000",
+      "affected_attrs": ["libexample"],
+      "historical_fix": {
+        "upstream_repo_url": "https://example.invalid/libexample",
+        "upstream_commit_sha": "feed000",
+        "upstream_tag_or_release": "v2.0.0"
+      },
+      "axes": {
+        "mapping_difficulty": "medium",
+        "version_bump_complexity": "major-jump",
+        "passthru_tests": "minimal",
+        "reproducibility": "config-sensitive",
+        "rebuild_closure_size": "500-5000",
+        "human_decision_difficulty": "contentious"
+      },
+      "expected_v0_eligibility": "requires-human-review",
+      "expected_bundle_kind": "human-review-required",
+      "expected_upstream_ref_verdict": "eligible-requires-human-review",
+      "is_example": true,
+      "example_reason": "Demonstrates the human-review entry shape: major-version-jump with upstream refusing backport; large rebuild closure; contentious decision."
+    },
+    {
+      "cve_id": "CVE-0000-5003",
+      "harvested_at": "2026-04-23T00:00:00Z",
+      "nixpkgs_rev": "0000000000000000000000000000000000000000",
+      "affected_attrs": ["libexample-parser"],
+      "axes": {
+        "mapping_difficulty": "ambiguous",
+        "version_bump_complexity": "multi-release",
+        "passthru_tests": "none",
+        "reproducibility": "impractical",
+        "rebuild_closure_size": ">5000",
+        "human_decision_difficulty": "contentious"
+      },
+      "expected_v0_eligibility": "advisory-only",
+      "expected_bundle_kind": "advisory-only",
+      "expected_upstream_ref_verdict": "ineligible-no-fix-available",
+      "is_example": true,
+      "example_reason": "Demonstrates the advisory-only entry shape: ambiguous CPE mapping, no upstream fix available, no passthru.tests, reproducer impractical. Never advances to Patcher."
+    }
+  ]
+}

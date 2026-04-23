@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/mapping-failure-schema.json",
+  "title": "trace scout mapping-failure queue entry",
+  "description": "Emitted by Scout when no nixpkgs derivation matches an advisory's CPE/PURL/pname identifiers. Lands in the mapping-failures review queue (§2 rule 8). Never advances to Patcher. Human operator decides whether it's a true miss (advisory irrelevant to nixpkgs), a graph-coverage gap, or a feed-normalization bug.",
+  "type": "object",
+  "required": ["schema_version", "cve_id", "source_feed", "attempted_methods", "reason", "replay_critical"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "source_feed": { "type": "string", "enum": ["nvd", "ghsa", "osv"] },
+    "attempted_methods": {
+      "description": "Which lookup methods Scout tried and what identifiers it tried them with. Preserved so a future graph rebuild can retry queue entries deterministically.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["method", "identifiers_tried"],
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": ["cpe-exact", "purl-exact", "pname-heuristic"]
+          },
+          "identifiers_tried": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "hits": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["no-match", "empty-identifier-set"]
+    },
+    "notes": { "type": "string" },
+    "replay_critical": { "type": "boolean", "const": true }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-0000-1002",
+  "current_version": "2.3.1",
+  "target_version": "2.4.0",
+  "fix_tier": "point-release-small-delta",
+  "release_url": "https://example.invalid/libexample/releases/2.4.0",
+  "delta": {
+    "transitive_package_changes": 3,
+    "new_direct_deps": [],
+    "removed_direct_deps": [],
+    "crosses_large_delta_threshold": false,
+    "threshold_policy": "v0-default"
+  },
+  "replay_critical": true,
+  "tag": "v2.4.0",
+  "advisory_urls": ["https://example.invalid/advisory/LIBEXAMPLE-2026-0002"],
+  "changelog_url": "https://example.invalid/libexample/CHANGELOG#v2.4.0",
+  "upstream_fix_commits": [
+    { "repo_url": "https://example.invalid/libexample", "commit_sha": "def5678" }
+  ],
+  "eligibility": { "verdict": "eligible" }
+}

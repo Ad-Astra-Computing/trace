@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/eval-corpus-schema.json",
+  "title": "trace eval corpus",
+  "description": "Top-level manifest at eval/corpus.json. Container for the 50-CVE evaluation corpus per SPEC §5a. The schema enforces per-entry shape, six-axis completeness, and container-level fields (status, required_size). It does NOT enforce corpus-composition rules (bucket minima, eligibility mix, size). Those rules fire only when status == 'frozen' or TRACE_REQUIRE_FULL_CORPUS=1, and are checked by tests/eval/test_corpus.py. A file with status == 'seed' is explicitly permitted to omit composition constraints — it is scaffolding for the future research session, not a substitute for it.",
+  "type": "object",
+  "required": ["schema_version", "status", "required_size", "axes", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "status": {
+      "description": "Lifecycle state. 'seed' = scaffolding with example entries; no composition constraints enforced. 'frozen' = the real corpus; all composition rules enforced and changes require a spec amendment.",
+      "type": "string",
+      "enum": ["seed", "frozen"]
+    },
+    "required_size": {
+      "description": "Minimum entry count required in the frozen corpus. SPEC §5 locks this to 50 for v0.",
+      "type": "integer",
+      "const": 50
+    },
+    "frozen_at": {
+      "description": "ISO-8601 date on which the corpus was frozen. Required when status == 'frozen'.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": { "type": "string" },
+    "axes": {
+      "description": "Explicit declaration of the six SPEC §5a classification axes and the enum values each accepts. Tests cross-check entries against this declaration so a future axis addition is a single-file edit.",
+      "type": "object",
+      "required": [
+        "mapping_difficulty",
+        "version_bump_complexity",
+        "passthru_tests",
+        "reproducibility",
+        "rebuild_closure_size",
+        "human_decision_difficulty"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mapping_difficulty": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["easy", "medium", "ambiguous"] },
+          "minItems": 3, "uniqueItems": true
+        },
+        "version_bump_complexity": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["patch-release", "point-release", "multi-release", "major-jump"] },
+          "minItems": 4, "uniqueItems": true
+        },
+        "passthru_tests": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["yes", "minimal", "none"] },
+          "minItems": 3, "uniqueItems": true
+        },
+        "reproducibility": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "straightforward",
+              "config-sensitive",
+              "DoS-shaped",
+              "crypto-shaped",
+              "parser-heavy",
+              "kernel-adjacent",
+              "impractical"
+            ]
+          },
+          "minItems": 7, "uniqueItems": true
+        },
+        "rebuild_closure_size": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["<50", "50-500", "500-5000", ">5000"] },
+          "minItems": 4, "uniqueItems": true
+        },
+        "human_decision_difficulty": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["trivial", "routine", "contentious"] },
+          "minItems": 3, "uniqueItems": true
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "frozen" } } },
+      "then": { "required": ["frozen_at"] }
+    }
+  ],
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": [
+        "cve_id",
+        "harvested_at",
+        "nixpkgs_rev",
+        "affected_attrs",
+        "axes",
+        "expected_v0_eligibility",
+        "expected_bundle_kind",
+        "expected_upstream_ref_verdict",
+        "is_example"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+        "harvested_at": { "type": "string", "format": "date-time" },
+        "nixpkgs_rev": {
+          "description": "Commit hash of nixpkgs at the vulnerable version.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "affected_attrs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "historical_fix": {
+          "description": "Ground-truth fix reference used as the oracle for eval comparisons. Upstream commit OR nixpkgs commit. Optional during seed; required-ish under frozen (enforced by test).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "upstream_repo_url": { "type": "string", "format": "uri" },
+            "upstream_commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "upstream_tag_or_release": { "type": "string" },
+            "nixpkgs_fix_commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+          }
+        },
+        "axes": {
+          "type": "object",
+          "required": [
+            "mapping_difficulty",
+            "version_bump_complexity",
+            "passthru_tests",
+            "reproducibility",
+            "rebuild_closure_size",
+            "human_decision_difficulty"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "mapping_difficulty": { "type": "string" },
+            "version_bump_complexity": { "type": "string" },
+            "passthru_tests": { "type": "string" },
+            "reproducibility": { "type": "string" },
+            "rebuild_closure_size": { "type": "string" },
+            "human_decision_difficulty": { "type": "string" }
+          }
+        },
+        "expected_v0_eligibility": {
+          "description": "Per SPEC §6 v0 gates. Used by meta-tests to check the 'at least 10 entries expected to fail v0 eligibility' rule.",
+          "type": "string",
+          "enum": ["auto-merge-eligible", "requires-human-review", "advisory-only"]
+        },
+        "expected_bundle_kind": {
+          "type": "string",
+          "enum": ["auto-merge", "human-review-required", "advisory-only"]
+        },
+        "expected_upstream_ref_verdict": {
+          "type": "string",
+          "enum": [
+            "eligible",
+            "eligible-requires-human-review",
+            "ineligible-no-fix-available",
+            "ineligible-major-version-only",
+            "ineligible-cherry-pick-required",
+            "ineligible-low-confidence-mapping",
+            "ineligible-no-upstream-ref"
+          ]
+        },
+        "replay_target": {
+          "description": "Optional pointer to a recorded bundle produced from this entry. Populated after a replay run; empty in seed state.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bundle_id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+            "bundle_dir": { "type": "string" }
+          }
+        },
+        "is_example": {
+          "description": "True for seed/example entries that do not contribute to frozen-corpus composition counts. False for real research entries.",
+          "type": "boolean"
+        },
+        "example_reason": {
+          "description": "Required when is_example is true. Free-form explanation of what this example demonstrates.",
+          "type": "string"
+        },
+        "notes": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "is_example": { "const": true } } },
+          "then": { "required": ["example_reason"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "expected_bundle_kind": { "const": "auto-merge" }
+            }
+          },
+          "then": {
+            "properties": {
+              "expected_upstream_ref_verdict": { "const": "eligible" },
+              "expected_v0_eligibility": { "const": "auto-merge-eligible" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "expected_bundle_kind": { "const": "human-review-required" }
+            }
+          },
+          "then": {
+            "properties": {
+              "expected_v0_eligibility": { "const": "requires-human-review" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "expected_bundle_kind": { "const": "advisory-only" }
+            }
+          },
+          "then": {
+            "properties": {
+              "expected_v0_eligibility": { "const": "advisory-only" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

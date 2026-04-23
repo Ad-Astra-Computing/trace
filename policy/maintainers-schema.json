@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/maintainers-schema.json",
+  "title": "trace maintainers",
+  "description": "Cartographer output at <bundle-dir>/maintainers.json. Records which nixpkgs maintainers own each affected attr_path at the pinned rev. No policy decisions; the list exists so reviewers and downstream rendering can find the right humans.",
+  "type": "object",
+  "required": ["schema_version", "cve_id", "nixpkgs_rev", "attr_paths", "replay_critical"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "nixpkgs_rev": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "attr_paths": {
+      "description": "Keyed by attr_path; value lists the maintainers at the pinned rev. Empty maintainer arrays are permitted and meaningful (attr has no declared maintainer).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["maintainers"],
+        "additionalProperties": false,
+        "properties": {
+          "maintainers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "github": {
+                  "oneOf": [
+                    { "type": "string", "minLength": 1 },
+                    { "type": "null" }
+                  ]
+                },
+                "email": {
+                  "oneOf": [
+                    { "type": "string", "format": "email" },
+                    { "type": "null" }
+                  ]
+                },
+                "name": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "replay_critical": { "type": "boolean", "const": true }
+  }
+}

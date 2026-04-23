@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/ghsa-source-schema.json",
+  "title": "GitHub Security Advisory (GHSA) response",
+  "description": "Shape of a single response from the GitHub advisories API (https://api.github.com/advisories/GHSA-<id>). Recorded from real responses on 2026-04-23. Validates INPUT to the GHSA → scout-input normalizer. Only fields the normalizer actually reads are required; other fields are permitted so upstream additions do not break validation. As with the Vulnpatch source schema, trace does not treat GHSA as authoritative for merge decisions — Scout/Cartographer/UpstreamRefResolver/Steward enforce their own contracts on the normalized output.",
+  "type": "object",
+  "required": ["ghsa_id", "severity"],
+  "additionalProperties": true,
+  "properties": {
+    "ghsa_id": { "type": "string", "pattern": "^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$" },
+    "cve_id": {
+      "description": "GHSAs MAY lack a CVE mapping. When null, the normalizer refuses (trace findings are CVE-keyed).",
+      "oneOf": [
+        { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+        { "type": "null" }
+      ]
+    },
+    "url": { "type": "string", "format": "uri" },
+    "html_url": { "type": "string", "format": "uri" },
+    "summary": { "type": "string" },
+    "description": { "type": "string" },
+    "type": {
+      "type": "string",
+      "enum": ["reviewed", "unreviewed", "malware"]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low", "unknown"]
+    },
+    "published_at": {
+      "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+    },
+    "updated_at": {
+      "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+    },
+    "nvd_published_at": {
+      "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+    },
+    "withdrawn_at": {
+      "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+    },
+    "identifiers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "additionalProperties": true,
+        "properties": {
+          "type": { "type": "string" },
+          "value": { "type": "string" }
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" }
+    },
+    "vulnerabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "package": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "ecosystem": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          },
+          "vulnerable_version_range": { "type": "string" },
+          "first_patched_version": {
+            "oneOf": [{ "type": "string" }, { "type": "null" }]
+          },
+          "vulnerable_functions": { "type": "array" }
+        }
+      }
+    },
+    "cvss": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "vector_string": {
+          "oneOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "score": {
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 10 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "cvss_severities": { "type": "object", "additionalProperties": true },
+    "cwes": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "epss": { "type": "object", "additionalProperties": true },
+    "credits": {
+      "oneOf": [{ "type": "array" }, { "type": "null" }]
+    },
+    "source_code_location": {
+      "oneOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "repository_advisory_url": {
+      "oneOf": [{ "type": "string", "format": "uri" }, { "type": "null" }]
+    },
+    "github_reviewed_at": {
+      "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+    }
+  }
+}

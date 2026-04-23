@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/bundle-schema.json",
+  "title": "trace bundle manifest",
+  "description": "Top-level manifest at <bundle-dir>/bundle.json. Enumerates every artifact in the bundle with a content hash, declares the bundle kind (auto-merge | advisory-only | human-review-required), and lists which file hashes are covered by the Steward signature. Steward validates this document, then verifies every referenced file exists and hashes to the declared value, then validates referenced sub-documents against their own schemas.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "cve_id",
+    "nixpkgs_rev",
+    "kind",
+    "created_at",
+    "policy_version",
+    "files",
+    "signed_manifest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "bundle_id": {
+      "description": "Stable bundle identifier. sha256 of (cve_id || nixpkgs_rev || created_at) hex-encoded, first 16 chars.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "cve_id": {
+      "type": "string",
+      "pattern": "^CVE-\\d{4}-\\d{4,19}$"
+    },
+    "nixpkgs_rev": {
+      "description": "Commit hash of the trace nixpkgs fork at the time this bundle was produced.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "kind": {
+      "description": "Bundle disposition. Determines which files are required and whether Steward may auto-merge.",
+      "type": "string",
+      "enum": ["auto-merge", "advisory-only", "human-review-required"]
+    },
+    "kind_reason": {
+      "description": "Machine-readable reason for non-auto-merge kinds. Required unless kind == auto-merge.",
+      "type": "string",
+      "enum": [
+        "ineligible-no-fix-available",
+        "ineligible-major-version-only",
+        "ineligible-cherry-pick-required",
+        "ineligible-low-confidence-mapping",
+        "ineligible-no-passthru-tests",
+        "ineligible-no-vuln-reproducer",
+        "blast-radius-exceeds-threshold",
+        "major-version-jump-requires-review",
+        "large-sbom-delta",
+        "reviewer-verdict-escalate",
+        "cross-family-pair-unavailable"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_version": {
+      "description": "sha256 of policy/steward.rego at time of bundle creation.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "bundle_schema_version": {
+      "description": "sha256 of this schema file at time of bundle creation. Present in addition to schema_version so Steward can detect schema drift even when the const version tag is unchanged.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "files": {
+      "description": "Every file in the bundle directory, with sha256. Keys are POSIX-style relative paths. Which keys are required depends on kind (see allOf).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sha256", "bytes", "producer_role", "replay_critical"],
+        "additionalProperties": false,
+        "properties": {
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "producer_role": {
+            "type": "string",
+            "enum": [
+              "scout",
+              "cartographer",
+              "upstream-ref-resolver",
+              "patcher",
+              "reproducer",
+              "builder",
+              "reviewer",
+              "steward"
+            ]
+          },
+          "replay_critical": {
+            "description": "If true, this file's exact content is required to reproduce the bundle. Steward refuses replay comparisons where a replay_critical file's hash differs. If false, the file is informational (build logs, human notes).",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "signed_manifest": {
+      "description": "The subset of files covered by bundle.sig. Steward MUST only sign bundles where every replay_critical file is listed here. bundle.sig itself and provenance.jsonl MUST NOT appear (signature cannot cover itself; provenance is append-only and signed separately by Scout-issued action records).",
+      "type": "object",
+      "required": ["algorithm", "signed_files", "signer"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["sigstore-cosign-v1", "minisign-ed25519"]
+        },
+        "signer": {
+          "description": "Identity that produced bundle.sig. For sigstore, the OIDC subject. For minisign, the public key id.",
+          "type": "string",
+          "minLength": 1
+        },
+        "signed_files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["path", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "auto-merge" } } },
+      "then": {
+        "not": { "required": ["kind_reason"] },
+        "properties": {
+          "files": {
+            "required": [
+              "bundle.json",
+              "finding.json",
+              "impact.json",
+              "maintainers.json",
+              "upstream-ref.json",
+              "patch.diff",
+              "patch-rationale.md",
+              "passthru-tests.json",
+              "reproducer.nix",
+              "reproducer-log.txt",
+              "build.json",
+              "review.md",
+              "sbom-delta.json",
+              "replay.json",
+              "provenance.jsonl",
+              "bundle.sig"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "advisory-only" } } },
+      "then": {
+        "required": ["kind_reason"],
+        "properties": {
+          "files": {
+            "required": [
+              "bundle.json",
+              "finding.json",
+              "impact.json",
+              "maintainers.json",
+              "upstream-ref.json",
+              "replay.json",
+              "provenance.jsonl",
+              "bundle.sig"
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["patch.diff"] },
+                { "required": ["patch-rationale.md"] },
+                { "required": ["reproducer.nix"] },
+                { "required": ["reproducer-log.txt"] },
+                { "required": ["passthru-tests.json"] },
+                { "required": ["build.json"] },
+                { "required": ["review.md"] },
+                { "required": ["sbom-delta.json"] }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "human-review-required" } } },
+      "then": {
+        "required": ["kind_reason"],
+        "properties": {
+          "files": {
+            "required": [
+              "bundle.json",
+              "finding.json",
+              "impact.json",
+              "maintainers.json",
+              "upstream-ref.json",
+              "patch.diff",
+              "patch-rationale.md",
+              "passthru-tests.json",
+              "reproducer.nix",
+              "reproducer-log.txt",
+              "build.json",
+              "review.md",
+              "sbom-delta.json",
+              "replay.json",
+              "provenance.jsonl",
+              "bundle.sig"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

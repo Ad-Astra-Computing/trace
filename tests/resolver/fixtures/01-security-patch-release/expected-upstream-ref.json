@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-0000-1001",
+  "current_version": "1.4.7",
+  "target_version": "1.4.8",
+  "fix_tier": "security-patch-release",
+  "release_url": "https://example.invalid/libexample/releases/1.4.8",
+  "delta": {
+    "transitive_package_changes": 0,
+    "new_direct_deps": [],
+    "removed_direct_deps": [],
+    "crosses_large_delta_threshold": false,
+    "threshold_policy": "v0-default"
+  },
+  "replay_critical": true,
+  "tag": "v1.4.8",
+  "advisory_urls": ["https://example.invalid/advisory/LIBEXAMPLE-2026-0001"],
+  "changelog_url": "https://example.invalid/libexample/CHANGELOG#v1.4.8",
+  "upstream_fix_commits": [
+    { "repo_url": "https://example.invalid/libexample", "commit_sha": "abc1234", "message": "fix: CVE-0000-1001" }
+  ],
+  "eligibility": { "verdict": "eligible" }
+}

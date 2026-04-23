@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/replay-schema.json",
+  "title": "trace replay manifest",
+  "description": "Frozen, canonical replay manifest at <bundle-dir>/replay.json. This is the single source of truth for reproducing any role in the bundle. It records: nixpkgs rev, policy version, bundle-schema version, tool manifest, and for each role-invocation the model metadata, prompt hash, input hashes, output hashes, and (if applicable) RNG seed. provenance.jsonl is the append-only per-action log of *what actually happened* (including tool calls, validator checks, retries); replay.json is the *canonical minimal restatement* sufficient to re-run. Steward MUST reject any bundle where provenance.jsonl and replay.json disagree on replay-critical fields: for every model-invocation entry in provenance.jsonl there MUST be exactly one matching entry in replay.json.roles[].invocations with identical role, model_id, prompt.sha256, input sha256 set, and output sha256 set. Discrepancy is a hard reject.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "cve_id",
+    "nixpkgs_rev",
+    "policy_version",
+    "bundle_schema_sha256",
+    "tool_manifest",
+    "routing_config_sha256",
+    "roles",
+    "cross_family_rule_honored"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "bundle_id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "nixpkgs_rev": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "policy_version": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "bundle_schema_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "routing_config_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "tool_manifest": {
+      "description": "Every CLI / tool version the agents could have invoked. Must be exhaustive for replay to be faithful.",
+      "type": "object",
+      "required": ["flake_lock_sha256", "tools"],
+      "additionalProperties": false,
+      "properties": {
+        "flake_lock_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "version"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "cross_family_rule_honored": {
+      "description": "True if Patcher and Reviewer came from different model families, or explicitly false if same-family pair ran because no qualified cross-family pair was available. If false, bundle.kind MUST be human-review-required with kind_reason == cross-family-pair-unavailable.",
+      "type": "boolean"
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/roleRun" }
+    }
+  },
+  "$defs": {
+    "modelFamily": {
+      "type": "string",
+      "enum": [
+        "anthropic",
+        "openai",
+        "google",
+        "meta",
+        "mistral",
+        "deepseek",
+        "qwen",
+        "open-weights-other",
+        "deterministic-no-model"
+      ]
+    },
+    "roleName": {
+      "type": "string",
+      "enum": [
+        "scout",
+        "cartographer",
+        "upstream-ref-resolver",
+        "patcher",
+        "reproducer",
+        "builder",
+        "reviewer",
+        "steward"
+      ]
+    },
+    "hashRef": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "roleRun": {
+      "type": "object",
+      "required": ["role", "invocations"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "$ref": "#/$defs/roleName" },
+        "invocations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/invocation" }
+        }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "required": [
+        "invocation_id",
+        "role",
+        "started_at",
+        "ended_at",
+        "model",
+        "prompt",
+        "inputs",
+        "outputs",
+        "validators_passed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocation_id": {
+          "description": "UUIDv4. MUST match the provenance.jsonl invocation_id for the corresponding model-invocation record.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "role": { "$ref": "#/$defs/roleName" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "ended_at": { "type": "string", "format": "date-time" },
+        "model": {
+          "type": "object",
+          "required": ["family", "vendor", "model_id", "version", "sampling"],
+          "additionalProperties": false,
+          "properties": {
+            "family": { "$ref": "#/$defs/modelFamily" },
+            "vendor": { "type": "string" },
+            "model_id": { "type": "string" },
+            "version": { "type": "string" },
+            "sampling": {
+              "type": "object",
+              "required": ["temperature", "top_p", "max_tokens"],
+              "additionalProperties": false,
+              "properties": {
+                "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+                "top_p": { "type": "number", "minimum": 0, "maximum": 1 },
+                "max_tokens": { "type": "integer", "minimum": 1 },
+                "seed": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "prompt": { "$ref": "#/$defs/hashRef" },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/hashRef" }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/hashRef" }
+        },
+        "rng_seed": { "type": ["integer", "null"] },
+        "validators_passed": {
+          "description": "Names of validators declared in the role contract that passed for this invocation. Missing validator → invocation is invalid and bundle MUST be advisory-only or human-review-required.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "network_policy_applied": {
+          "type": "string",
+          "enum": ["none", "feeds-only", "substituter-only", "unrestricted"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "enum": ["patcher", "reviewer", "reproducer"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "network_policy_applied": { "const": "none" }
+            },
+            "required": ["network_policy_applied"]
+          }
+        }
+      ]
+    }
+  }
+}
