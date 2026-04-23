@@ -190,19 +190,48 @@ def _do_execute(
     replay: dict[str, Any],
     bundle_dir: Path,
 ) -> int:
-    from tools.trace_cli.execute import ExecutionError, HashMismatch, execute
+    from tools.trace_cli.execute import (
+        ExecutionError,
+        HashMismatch,
+        MODEL_BACKED_ROLES,
+        PatcherDispatchRefused,
+        execute,
+    )
+
+    # Model-backed roles (patcher first) need --model. Enforce here before we
+    # even look at replay.json, so the error is about the command line, not
+    # about missing invocation records.
+    if args.role in MODEL_BACKED_ROLES and not args.model:
+        print(
+            f"error: --execute --role {args.role} requires --model <id> "
+            f"(no default live model; explicit by design)",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
 
     role_entry = None
     for entry in replay.get("roles", []):
         if entry.get("role") == args.role:
             role_entry = entry
             break
+
+    # For model-backed fresh runs, a missing role entry is acceptable: we run
+    # the role once against the bundle, synthesising a single invocation. For
+    # deterministic replay, missing entries are still EXIT_NOT_FOUND.
     if role_entry is None:
-        print(
-            f"error: no invocations for role {args.role!r} in replay.json",
-            file=sys.stderr,
-        )
-        return EXIT_NOT_FOUND
+        if args.role in MODEL_BACKED_ROLES:
+            role_entry = {
+                "role": args.role,
+                "invocations": [
+                    {"invocation_id": None, "inputs": [], "outputs": []}
+                ],
+            }
+        else:
+            print(
+                f"error: no invocations for role {args.role!r} in replay.json",
+                file=sys.stderr,
+            )
+            return EXIT_NOT_FOUND
 
     results: list[dict[str, Any]] = []
     for invocation in role_entry["invocations"]:
@@ -212,10 +241,17 @@ def _do_execute(
                 bundle_dir=bundle_dir,
                 invocation=invocation,
                 verify=not args.no_verify,
+                model_id=args.model,
             )
         except HashMismatch as exc:
             print(f"hash-mismatch: {exc}", file=sys.stderr)
             return EXIT_HASH_MISMATCH
+        except PatcherDispatchRefused as exc:
+            # Dispatch refusal is a distinct signal from "bad input": the
+            # bundle is fine, Patcher just must not run on it. Exit non-zero
+            # but with EXIT_INVALID so CI sees it.
+            print(f"dispatch-refused: {exc}", file=sys.stderr)
+            return EXIT_INVALID
         except ExecutionError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return EXIT_INVALID
