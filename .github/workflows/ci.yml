@@ -1,0 +1,170 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Single source of truth for OPA. Pinned, not `latest`. Checksum published by
+# openpolicyagent.org (see .sha256 sidecar) and verified before use in every
+# job. Bump both values together when upgrading.
+env:
+  TRACE_REQUIRE_OPA: "1"
+  OPA_VERSION: "v1.0.1"
+  OPA_LINUX_AMD64_SHA256: "6d81be862e412af910eacfad489e3d77afbfcf4b958ea4e839b7f38c9eec4d87"
+
+  # Three intentional pytest skips are expected under CI:
+  #   1. TRACE_STRICT_HASHES=1 gated test — fixture hashes are placeholders
+  #      until the bundle-production pipeline writes real ones. Will flip to
+  #      required at that milestone.
+  #   2. CVE-0000-9001--advisory-has-patch — schema-invalid, never reaches
+  #      Steward. Expected-to-skip forever.
+  #   3. CVE-0000-9002--auto-merge-missing-reproducer — same reason.
+
+jobs:
+  test:
+    name: schema + steward
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # DeterminateSystems actions pinned by full commit SHA (gold standard
+      # for security/evidence projects). The `# v22` / `# v13` comments
+      # document the human-readable tag so Dependabot has a target to update
+      # against. Resolve a new SHA with:
+      #   git ls-remote https://github.com/DeterminateSystems/<action>.git refs/tags/vN
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Install OPA (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
+          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
+          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/opa"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Preflight — OPA must be present and correct version
+        run: |
+          command -v opa
+          opa version | tee /tmp/opa-version.txt
+          grep -F "Version: ${OPA_VERSION#v}" /tmp/opa-version.txt
+
+      - name: Run tests
+        run: nix develop --command pytest -v
+
+  lint-rego:
+    name: rego fmt + check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OPA (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
+          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
+          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/opa"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Preflight — OPA must be present and correct version
+        run: |
+          command -v opa
+          opa version | tee /tmp/opa-version.txt
+          grep -F "Version: ${OPA_VERSION#v}" /tmp/opa-version.txt
+
+      - name: opa fmt --diff
+        run: opa fmt --diff policy/steward.rego
+
+      - name: opa check
+        run: opa check policy/steward.rego
+
+  graph:
+    # Separate job: Rust toolchain + compile time stay out of the schema/Steward
+    # feedback loop. Rust is NOT in the default devShell (`.#graph` is opt-in
+    # locally); this job installs rustc/cargo via actions-rust-lang toolchain
+    # action and runs only the graph-related tests.
+    name: graph (rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    env:
+      # Pinned Rust toolchain. Crate has no MSRV sensitivity; pinning anyway so
+      # CI output is deterministic. Bump this string to upgrade.
+      RUST_TOOLCHAIN: "1.85.0"
+      # Known 40-hex rev used by the --rev end-to-end test. Any valid hex works;
+      # this is a fixture, not a real commit hash.
+      KNOWN_REV: "abcdef0123456789abcdef0123456789abcdef01"
+      # Fail the job if cargo is missing instead of silently skipping the smoke
+      # layer in tests/graph/test_graph_snapshot.py.
+      TRACE_REQUIRE_CARGO: "1"
+      # Same for nix: the live-extraction tests in tests/graph/test_graph_extract.py
+      # must actually run in CI, not silently skip.
+      TRACE_REQUIRE_NIX: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (pinned)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: ""
+
+      - name: Preflight — rustc + cargo present, pinned version
+        run: |
+          set -euo pipefail
+          command -v rustc
+          command -v cargo
+          rustc --version
+          cargo --version
+          rustc --version | grep -F "${RUST_TOOLCHAIN}"
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            graph/target
+          key: cargo-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('graph/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: cargo test
+        run: cargo test --manifest-path graph/Cargo.toml
+
+      - name: cargo run — emit snapshot with known rev
+        run: |
+          set -euo pipefail
+          cargo run --quiet --manifest-path graph/Cargo.toml -- --rev "${KNOWN_REV}" > /tmp/snapshot.json
+          test -s /tmp/snapshot.json
+          grep -F "\"nixpkgs_rev\": \"${KNOWN_REV}\"" /tmp/snapshot.json
+          grep -F "\"schema_version\": \"1.0.0\"" /tmp/snapshot.json
+
+      # DeterminateSystems actions pinned by full commit SHA (gold standard
+      # for security/evidence projects). The `# v22` / `# v13` comments
+      # document the human-readable tag so Dependabot has a target to update
+      # against. Resolve a new SHA with:
+      #   git ls-remote https://github.com/DeterminateSystems/<action>.git refs/tags/vN
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Python schema validation of the emitted snapshot + cargo smoke tests
+        run: nix develop --command pytest -v tests/graph

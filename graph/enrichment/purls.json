@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "notes": "Seed manifest. Entries are hand-curated. `{version}` is substituted with the node's extracted version at graph-build time. New mappings are added via PR, never auto-merged. Steward treats enriched PURLs identically to native-feed PURLs — provenance lives in the snapshot's enrichment block, not in policy logic.",
+  "mappings": [
+    {
+      "attr_path": "hello",
+      "purls": [
+        {
+          "value": "pkg:gnu/hello@{version}",
+          "source": "manual",
+          "confidence": "high",
+          "notes": "GNU Hello. Single canonical upstream; source URL resolves to ftp.gnu.org/gnu/hello.",
+          "reviewed_at": "2026-04-23T00:00:00Z",
+          "reviewed_by": "trace-seed"
+        }
+      ]
+    }
+  ]
+}

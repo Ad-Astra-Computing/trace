@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-0000-0000",
+  "bundle_id": "0000000000000000",
+  "panelist_id": "panelist-example-01",
+  "reviewed_at": "2026-04-23T00:00:00Z",
+  "decision": "escalate",
+  "confidence": 3,
+  "time_to_decision_seconds": 45,
+  "needed_external_access": false,
+  "missing_evidence": [
+    "no maintainer acknowledgement trail"
+  ],
+  "primary_rejection_reason": "other",
+  "notes": "Example review. Demonstrates the rubric shape for the advisory-only bundle fixture at traces/example/CVE-0000-0000.",
+  "is_example": true,
+  "example_reason": "Seed entry showing the non-merge path with primary_rejection_reason populated; excluded from aggregation by default."
+}

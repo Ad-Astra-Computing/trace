@@ -1,0 +1,17 @@
+[package]
+name = "trace-graph-builder"
+version = "0.0.0"
+edition = "2021"
+description = "trace nixpkgs derivation-graph builder (v0 skeleton)."
+publish = false
+
+[[bin]]
+name = "trace-graph-builder"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3

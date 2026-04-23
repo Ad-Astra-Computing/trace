@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/upstream-ref-schema.json",
+  "title": "trace upstream-ref",
+  "description": "UpstreamRefResolver output at <bundle-dir>/upstream-ref.json. Deterministically (or with LLM-assisted release-notes parsing validated against hard rules) identifies the qualifying upstream fix per §2a of SPEC.md, or records an ineligibility verdict. Patcher treats this document as given truth; Patcher never re-litigates eligibility.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "cve_id",
+    "current_version",
+    "eligibility",
+    "replay_critical"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "current_version": { "type": "string", "minLength": 1 },
+    "target_version": {
+      "description": "The upstream version containing the fix. Required when eligibility.verdict == eligible.",
+      "type": "string"
+    },
+    "fix_tier": {
+      "description": "Classification per §2a. Required when eligibility.verdict == eligible.",
+      "type": "string",
+      "enum": ["security-patch-release", "point-release-small-delta", "major-version-jump"]
+    },
+    "release_url": { "type": "string", "format": "uri" },
+    "tag": { "type": "string" },
+    "advisory_urls": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" }
+    },
+    "changelog_url": { "type": "string", "format": "uri" },
+    "upstream_fix_commits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["repo_url", "commit_sha"],
+        "additionalProperties": false,
+        "properties": {
+          "repo_url": { "type": "string", "format": "uri" },
+          "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "delta": {
+      "description": "Summary of what else changes between current_version and target_version. Required when eligibility.verdict == eligible so Patcher rationale can quote it.",
+      "type": "object",
+      "required": [
+        "transitive_package_changes",
+        "new_direct_deps",
+        "crosses_large_delta_threshold"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "transitive_package_changes": { "type": "integer", "minimum": 0 },
+        "new_direct_deps": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "removed_direct_deps": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "crosses_large_delta_threshold": {
+          "description": "True if the configured threshold (v0 default: >10 transitive changes OR any new direct dep) is exceeded. If true and the bundle proceeds, kind MUST be human-review-required.",
+          "type": "boolean"
+        },
+        "threshold_policy": {
+          "type": "string",
+          "description": "Name of the threshold policy applied, for replay."
+        }
+      }
+    },
+    "eligibility": {
+      "type": "object",
+      "required": ["verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "eligible",
+            "eligible-requires-human-review",
+            "ineligible-no-fix-available",
+            "ineligible-major-version-only",
+            "ineligible-cherry-pick-required",
+            "ineligible-low-confidence-mapping",
+            "ineligible-no-upstream-ref"
+          ]
+        },
+        "verdict_reason": {
+          "description": "Required for any verdict != eligible. Free text citing resolver rules.",
+          "type": "string"
+        },
+        "human_review_trigger": {
+          "description": "Required when verdict == eligible-requires-human-review. Which rule forced human review.",
+          "type": "string",
+          "enum": ["major-version-jump", "large-sbom-delta", "ambiguous-changelog"]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "verdict": { "const": "eligible" } } },
+          "then": { "not": { "required": ["verdict_reason", "human_review_trigger"] } }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "eligible-requires-human-review" } } },
+          "then": { "required": ["verdict_reason", "human_review_trigger"] }
+        },
+        {
+          "if": { "properties": { "verdict": { "pattern": "^ineligible-" } } },
+          "then": { "required": ["verdict_reason"] }
+        }
+      ]
+    },
+    "replay_critical": { "type": "boolean", "const": true }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "eligibility": {
+            "properties": {
+              "verdict": { "enum": ["eligible", "eligible-requires-human-review"] }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["target_version", "fix_tier", "release_url", "delta"]
+      }
+    },
+    {
+      "if": {
+        "required": ["fix_tier"],
+        "properties": {
+          "fix_tier": { "const": "major-version-jump" }
+        }
+      },
+      "then": {
+        "properties": {
+          "eligibility": {
+            "properties": {
+              "verdict": { "const": "eligible-requires-human-review" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

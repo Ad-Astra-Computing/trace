@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/impact-schema.json",
+  "title": "trace impact",
+  "description": "Cartographer output at <bundle-dir>/impact.json. Reports the rebuild blast radius for every affected attr_path in a finding: reverse closure count, closure bucket (matching the eval corpus axis values), sample, and which downstreams the graph has flagged as critical. No policy decisions beyond reporting the `exceeds_threshold` fact; Steward decides what that fact means for bundle.kind (see rule §6 gate 4).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "cve_id",
+    "nixpkgs_rev",
+    "blast_radius_threshold",
+    "threshold_policy",
+    "affected_attr_paths",
+    "reverse_closure_count",
+    "reverse_closure_bucket",
+    "exceeds_threshold",
+    "per_attr",
+    "replay_critical"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "nixpkgs_rev": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "blast_radius_threshold": { "type": "integer", "minimum": 1 },
+    "threshold_policy": {
+      "description": "Name of the threshold policy applied, for replay. v0 default: 'v0-default' (500 reverse-closure derivations).",
+      "type": "string",
+      "minLength": 1
+    },
+    "affected_attr_paths": {
+      "description": "Summary: every attr_path analyzed. Mirrors per_attr[].attr_path.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "reverse_closure_count": {
+      "description": "Union-count of distinct attrs in the reverse closure across all affected_attr_paths. Deduplicated.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "reverse_closure_bucket": {
+      "description": "Bucket per eval-corpus axis. [0,49]='<50'; [50,500]='50-500'; [501,5000]='500-5000'; [5001,+inf)='>5000'.",
+      "type": "string",
+      "enum": ["<50", "50-500", "500-5000", ">5000"]
+    },
+    "reverse_closure_sample": {
+      "description": "Up to N representative attrs from the union reverse closure. N is a Cartographer implementation detail; treat as informational. Not used for policy.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "critical_downstreams": {
+      "description": "Union of attrs flagged as critical across all affected_attr_paths. Used by Steward only to display; does not gate auto-merge in v0.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "exceeds_threshold": {
+      "description": "reverse_closure_count > blast_radius_threshold.",
+      "type": "boolean"
+    },
+    "per_attr": {
+      "description": "Per-attr breakdown. One entry per attr_path in affected_attr_paths.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "attr_path",
+          "drv_path",
+          "reverse_closure_count",
+          "reverse_closure_bucket",
+          "exceeds_threshold"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "attr_path": { "type": "string", "minLength": 1 },
+          "drv_path": { "type": "string", "pattern": "^/nix/store/[a-z0-9]{32}-.+\\.drv$" },
+          "reverse_closure_count": { "type": "integer", "minimum": 0 },
+          "reverse_closure_bucket": {
+            "type": "string",
+            "enum": ["<50", "50-500", "500-5000", ">5000"]
+          },
+          "reverse_closure_sample": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "critical_downstreams": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string" }
+          },
+          "exceeds_threshold": { "type": "boolean" }
+        }
+      }
+    },
+    "replay_critical": { "type": "boolean", "const": true }
+  }
+}

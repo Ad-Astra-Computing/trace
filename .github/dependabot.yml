@@ -1,0 +1,45 @@
+# Dependabot keeps pinned dependencies current without breaking the pinning
+# discipline. PR-only: no silent updates. Reviewer decides whether to merge.
+#
+# Three ecosystems tracked:
+#   github-actions  — CI action version/SHA drift
+#   cargo           — graph crate deps (serde, serde_json so far)
+#   pip (future)    — added when a top-level requirements file exists
+#
+# Caveat on SHA-pinned actions (nix-installer-action, magic-nix-cache-action):
+# Dependabot's github-actions updater handles tag pins (`@v4`) cleanly but is
+# less reliable against full-commit-SHA pins with trailing `# tag` comments.
+# PRs for those may arrive late or not at all. If a privileged Determinate
+# action is more than one major behind, refresh manually:
+#
+#   git ls-remote https://github.com/DeterminateSystems/nix-installer-action.git refs/tags/vN
+#   git ls-remote https://github.com/DeterminateSystems/magic-nix-cache-action.git refs/tags/vN
+#
+# then update both the SHA and the `# vN` comment in ci.yml. Accepted
+# tradeoff: privileged actions get SHA immutability at the cost of slightly
+# more manual maintenance.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  - package-ecosystem: "cargo"
+    directory: "/graph"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "graph"
+      include: "scope"

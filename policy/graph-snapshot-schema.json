@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/graph-snapshot-schema.json",
+  "title": "trace graph snapshot",
+  "description": "Serialized snapshot of a nixpkgs derivation graph at a pinned rev. Produced by the graph-builder (Rust crate at graph/). Consumed by Scout's and Cartographer's replay executors to hydrate their in-memory GraphLookup / CartographerGraph protocols. Node shape is the union of what Scout (identifier lookup) and Cartographer (reverse closure, maintainers, critical downstreams) need, so one snapshot serves both. No version-range evaluation here; node.version is a plain string.",
+  "type": "object",
+  "required": ["schema_version", "nixpkgs_rev", "nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "nixpkgs_rev": {
+      "description": "Commit hash of the trace nixpkgs fork this snapshot was built from.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "generator": {
+      "description": "Name + version of the tool that produced this snapshot. Informational.",
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "enrichment": {
+      "description": "Audit trail for trace-owned metadata merged into node fields (e.g. PURLs). Scout consumes the flattened identifiers on each node; this block exists so the snapshot itself records where each non-native identifier came from. Optional — absent when no enrichment manifests were applied.",
+      "type": "object",
+      "required": ["sources"],
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "description": "Enrichment manifests that contributed to this snapshot. `sha256` is the canonical identifier; `path` is an informational display hint only. The path MAY be absolute, repo-relative, or bare — reviewers rely on the hash for integrity and use path strings only as a diff-time label. Replay and Steward checks never consult `path`.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "Informational. Prefer repo-relative when the builder is invoked from the repo root, but no schema rule enforces this.",
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "description": "Canonical identifier of the manifest bytes. The integrity anchor.",
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "purl_mappings_applied": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["attr_path", "purl", "source", "confidence"],
+            "additionalProperties": false,
+            "properties": {
+              "attr_path": { "type": "string", "minLength": 1 },
+              "purl": { "type": "string", "pattern": "^pkg:" },
+              "template": { "type": "string" },
+              "source": {
+                "type": "string",
+                "enum": ["manual", "source-url-heuristic", "repology", "osv-metadata", "other"]
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["attr_path", "drv_path", "pname", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "attr_path": { "type": "string", "minLength": 1 },
+        "drv_path": {
+          "type": "string",
+          "pattern": "^/nix/store/[a-z0-9]{32}-.+\\.drv$"
+        },
+        "pname": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "cpes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^cpe:2\\.3:" }
+        },
+        "purls": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^pkg:" }
+        },
+        "src_url": { "type": "string", "format": "uri" },
+        "src_hash": { "type": "string" },
+        "reverse_closure": {
+          "description": "Attrs that would rebuild if this node changes, transitively, within the snapshot. Deduplicated and sorted lexicographically so the list is byte-stable across runs with identical inputs. Because the closure is bounded by what's actually in the snapshot, callers must NOT treat an empty list as proof of zero downstream impact — only proof that the sampled subset saw no downstream consumers.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "critical_downstreams": {
+          "description": "Subset of reverse_closure flagged as critical by the graph builder (manual list or heuristic).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "maintainers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "github": {
+                "oneOf": [
+                  { "type": "string", "minLength": 1 },
+                  { "type": "null" }
+                ]
+              },
+              "email": {
+                "oneOf": [
+                  { "type": "string", "format": "email" },
+                  { "type": "null" }
+                ]
+              },
+              "name": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

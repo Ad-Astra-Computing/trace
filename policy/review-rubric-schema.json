@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/review-rubric-schema.json",
+  "title": "trace review rubric entry",
+  "description": "One panelist's review of one bundle, per SPEC §5b. Each file under eval/reviews/*.json is a single review. Aggregation walks the directory. is_example: true entries are excluded from aggregation by default so the seed directory cannot contaminate panel results.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "cve_id",
+    "bundle_id",
+    "panelist_id",
+    "reviewed_at",
+    "decision",
+    "confidence",
+    "time_to_decision_seconds",
+    "needed_external_access",
+    "missing_evidence",
+    "is_example"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "bundle_id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "panelist_id": {
+      "description": "Pseudonymous panelist identifier. Not a real name; a stable token. Required so inter-rater metrics can group multiple reviews by the same reviewer.",
+      "type": "string",
+      "minLength": 1
+    },
+    "panel_id": {
+      "description": "Optional grouping for a given review session / cohort.",
+      "type": "string"
+    },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "decision": {
+      "type": "string",
+      "enum": ["merge", "reject", "escalate"]
+    },
+    "confidence": {
+      "description": "1 = coin-flip, 5 = would stake reputation.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "time_to_decision_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "needed_external_access": {
+      "description": "Did the panelist open a browser tab, rebuild locally, or consult anything outside the bundle to reach a decision?",
+      "type": "boolean"
+    },
+    "missing_evidence": {
+      "description": "Free-form list of what the bundle failed to supply.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "primary_rejection_reason": {
+      "description": "Required when decision != merge. Stable enum so rejection reason can be counted across panels over time.",
+      "type": "string",
+      "enum": [
+        "patch-incorrect",
+        "upstream-ref-weak",
+        "reproducer-unconvincing",
+        "regression-risk",
+        "blast-radius",
+        "version-jump-unjustified",
+        "provenance-gap",
+        "other"
+      ]
+    },
+    "notes": { "type": "string" },
+    "is_example": {
+      "description": "True for seed/example reviews that do not contribute to aggregation. False for real panel reviews.",
+      "type": "boolean"
+    },
+    "example_reason": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "not": { "const": "merge" } } } },
+      "then": { "required": ["primary_rejection_reason"] }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "merge" } } },
+      "then": { "not": { "required": ["primary_rejection_reason"] } }
+    },
+    {
+      "if": { "properties": { "is_example": { "const": true } } },
+      "then": { "required": ["example_reason"] }
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/provenance-line-schema.json",
+  "title": "trace provenance line",
+  "description": "Schema for one line of <bundle-dir>/provenance.jsonl. The file is an append-only JSON-lines log of every action taken during bundle construction: tool calls, model invocations, validator checks, role boundaries. Each line is independently schema-valid. Steward cross-check rule: every line with action_type == model_invocation MUST have a matching entry in replay.json.roles[].invocations with identical invocation_id, role, model.model_id, prompt.sha256, and input/output sha256 sets. Any other disagreement between the two files on replay-critical fields is a hard reject.",
+  "type": "object",
+  "required": ["ts", "seq", "role", "action_type"],
+  "additionalProperties": false,
+  "properties": {
+    "ts": { "type": "string", "format": "date-time" },
+    "seq": {
+      "description": "Monotonic sequence number within this bundle's provenance.jsonl, starting at 0.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "scout",
+        "cartographer",
+        "upstream-ref-resolver",
+        "patcher",
+        "reproducer",
+        "builder",
+        "reviewer",
+        "steward"
+      ]
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "role_enter",
+        "role_exit",
+        "model_invocation",
+        "tool_call",
+        "validator_check",
+        "file_write",
+        "policy_evaluation"
+      ]
+    },
+    "invocation_id": {
+      "description": "Required for model_invocation. MUST match a replay.json invocations[].invocation_id.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "model": {
+      "type": "object",
+      "required": ["family", "model_id"],
+      "additionalProperties": true,
+      "properties": {
+        "family": { "type": "string" },
+        "model_id": { "type": "string" }
+      }
+    },
+    "prompt_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "input_sha256s": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "output_sha256s": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "tool_name": { "type": "string" },
+    "tool_args_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "tool_exit_code": { "type": "integer" },
+    "validator_name": { "type": "string" },
+    "validator_result": { "type": "string", "enum": ["pass", "fail"] },
+    "file_path": { "type": "string" },
+    "file_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "policy_name": { "type": "string" },
+    "policy_result": { "type": "string", "enum": ["allow", "deny"] },
+    "notes": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "action_type": { "const": "model_invocation" } } },
+      "then": {
+        "required": [
+          "invocation_id",
+          "model",
+          "prompt_sha256",
+          "input_sha256s",
+          "output_sha256s"
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "action_type": { "const": "tool_call" } } },
+      "then": { "required": ["tool_name", "tool_args_sha256", "tool_exit_code"] }
+    },
+    {
+      "if": { "properties": { "action_type": { "const": "validator_check" } } },
+      "then": { "required": ["validator_name", "validator_result"] }
+    },
+    {
+      "if": { "properties": { "action_type": { "const": "file_write" } } },
+      "then": { "required": ["file_path", "file_sha256"] }
+    },
+    {
+      "if": { "properties": { "action_type": { "const": "policy_evaluation" } } },
+      "then": { "required": ["policy_name", "policy_result"] }
+    }
+  ]
+}
