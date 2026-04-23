@@ -40,8 +40,13 @@ DETERMINISTIC_ROLES: frozenset[str] = frozenset({
     "upstream-ref-resolver",
 })
 
-NON_DETERMINISTIC_ROLES: frozenset[str] = frozenset({
+# Non-deterministic roles need a model call. Patcher is wired; the others
+# will follow the same pattern when their prompts + runners land.
+MODEL_BACKED_ROLES: frozenset[str] = frozenset({
     "patcher",
+})
+
+REJECTED_NON_DETERMINISTIC_ROLES: frozenset[str] = frozenset({
     "reviewer",
     "reproducer",
 })
@@ -49,6 +54,10 @@ NON_DETERMINISTIC_ROLES: frozenset[str] = frozenset({
 
 class ExecutionError(Exception):
     """Raised for structural problems (missing input, unsupported role, etc.)."""
+
+
+class PatcherDispatchRefused(ExecutionError):
+    """Patcher must not run on advisory-only / ineligible bundles."""
 
 
 class HashMismatch(ExecutionError):
@@ -70,28 +79,56 @@ def execute(
     bundle_dir: Path,
     invocation: dict[str, Any],
     verify: bool = True,
+    *,
+    model_id: str | None = None,
+    adapter_factory: "object | None" = None,
 ) -> dict[str, Any]:
-    """Execute one deterministic stub role for one invocation record.
+    """Execute one role invocation for one replay record.
+
+    Deterministic roles run their stub, verify input/output sha256s,
+    and return a structural report.
+
+    Patcher runs through its runner (agents.patcher.run_patcher) with
+    the supplied model_id + adapter_factory. Hard-fails on advisory-
+    only / ineligible-verdict dispatch guards BEFORE the runner is
+    invoked. On parser failure, no outputs are written and no replay
+    metadata is mutated.
 
     Returns:
-        {
-          "role": str,
-          "invocation_id": str,
-          "outputs": [{"path": str, "declared_sha256": str, "computed_sha256": str, "content": Any}],
-          "input_verification": [{"path": str, "verified": bool}],
-          "verified": bool,
-        }
+        Deterministic roles:
+          {role, invocation_id, outputs[], input_verification[], verified}
+        Patcher:
+          {role, invocation_id, kind, outputs[], input_verification[], verified,
+           patcher_run: {prompt_sha256, user_content_sha256, raw_response_sha256,
+                         model_id, sampling, kind, refusal_rule?, refusal_reason?}}
     """
-    if role in NON_DETERMINISTIC_ROLES:
-        raise ExecutionError(
-            f"role {role!r} is non-deterministic (Patcher/Reviewer/Reproducer) "
-            f"and cannot be --execute'd in v0 replay. No model calls allowed until "
-            f"eval corpus is frozen (see docs/DECISIONS.md 2026-04-23)."
+    if role in MODEL_BACKED_ROLES:
+        if role != "patcher":
+            raise ExecutionError(
+                f"role {role!r} is model-backed but not yet wired for --execute"
+            )
+        if not model_id:
+            raise ExecutionError(
+                "patcher requires explicit --model <id>; no default live model"
+            )
+        return _execute_patcher(
+            bundle_dir=bundle_dir,
+            invocation=invocation,
+            verify=verify,
+            model_id=model_id,
+            adapter_factory=adapter_factory,
         )
+
+    if role in REJECTED_NON_DETERMINISTIC_ROLES:
+        raise ExecutionError(
+            f"role {role!r} is non-deterministic and not yet wired. Patcher is "
+            f"the first to land; Reviewer + Reproducer follow the same pattern."
+        )
+
     if role not in DETERMINISTIC_ROLES:
         raise ExecutionError(
             f"role {role!r} is not supported for --execute in v0 "
-            f"(supported: {sorted(DETERMINISTIC_ROLES)})"
+            f"(supported: {sorted(DETERMINISTIC_ROLES | MODEL_BACKED_ROLES)})"
         )
 
     inputs_by_path: dict[str, Any] = {}
@@ -295,3 +332,215 @@ def _match_and_hash_outputs(
         })
 
     return out
+
+
+# ─── patcher (model-backed) ─────────────────────────────────────────────────
+
+
+PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v1.md"
+
+
+def _execute_patcher(
+    *,
+    bundle_dir: Path,
+    invocation: dict[str, Any],
+    verify: bool,
+    model_id: str,
+    adapter_factory: object | None,
+) -> dict[str, Any]:
+    """Patcher dispatcher: dispatch-guards, load inputs, run, atomic-write.
+
+    Contract (constraints from the session plan):
+      * HARD-FAIL on advisory-only / ineligible bundles before invoking the
+        runner. Patcher must never see a cherry-pick-required upstream-ref.
+      * Malformed model output stops BEFORE any replay mutation is committed.
+        Concretely: run_patcher raises PatcherOutputMalformed; _execute_patcher
+        writes no files and records no invocation metadata — the caller sees
+        EXIT_INVALID with the diagnosis.
+      * Outputs written atomically (temp file + os.replace) so a crash mid-
+        write cannot leave a half-written patch.diff or patch-rationale.md.
+      * Adapter selection is explicit: if model_id is supplied and no factory
+        is provided, AnthropicAdapter is built for claude-* model ids; anything
+        else refuses with a clear error. adapter_factory lets tests inject
+        FakeAdapter.
+    """
+    from agents.patcher import (
+        AnthropicAdapter,
+        PatcherOutputMalformed,
+        run_patcher,
+    )
+
+    # Dispatch guards. These check the bundle itself, not the invocation
+    # record — the bundle is the authoritative state on whether Patcher
+    # should even be invoked.
+    bundle_path = bundle_dir / "bundle.json"
+    if bundle_path.is_file():
+        try:
+            bundle = json.loads(bundle_path.read_text())
+        except Exception as exc:
+            raise ExecutionError(f"failed to read bundle.json: {exc}") from exc
+        kind = bundle.get("kind")
+        if kind == "advisory-only":
+            raise PatcherDispatchRefused(
+                "refuses: bundle.kind=='advisory-only'. Patcher must not "
+                "be invoked on advisory-only bundles per prompts/patcher.v1.md "
+                "refusal rules + SPEC §1.2 separation of concerns."
+            )
+
+    upstream_ref_path = bundle_dir / "upstream-ref.json"
+    if not upstream_ref_path.is_file():
+        raise ExecutionError("patcher requires upstream-ref.json in bundle_dir")
+    upstream_ref = json.loads(upstream_ref_path.read_text())
+    verdict = (upstream_ref.get("eligibility") or {}).get("verdict")
+    if not isinstance(verdict, str):
+        raise ExecutionError(
+            "patcher refuses: upstream-ref.json has no eligibility.verdict"
+        )
+    if verdict.startswith("ineligible-"):
+        raise PatcherDispatchRefused(
+            f"refuses: upstream-ref.eligibility.verdict=={verdict!r}. "
+            f"Ineligible bundles go to the advisory-only path without "
+            f"invoking Patcher."
+        )
+    if verdict not in ("eligible", "eligible-requires-human-review"):
+        raise ExecutionError(
+            f"patcher refuses: upstream-ref.eligibility.verdict=={verdict!r} "
+            f"is not a dispatchable verdict"
+        )
+
+    # Load the other standard inputs.
+    finding_path = bundle_dir / "finding.json"
+    impact_path = bundle_dir / "impact.json"
+    maintainers_path = bundle_dir / "maintainers.json"
+    package_path = bundle_dir / "package.nix"
+    for p in (finding_path, impact_path, maintainers_path, package_path):
+        if not p.is_file():
+            raise ExecutionError(
+                f"patcher requires {p.name} in bundle_dir (missing: {p})"
+            )
+    finding = json.loads(finding_path.read_text())
+    impact = json.loads(impact_path.read_text())
+    maintainers = json.loads(maintainers_path.read_text())
+    package_source = package_path.read_text()
+
+    input_verification: list[dict[str, Any]] = []
+    if verify and invocation.get("inputs"):
+        # When a replay-recorded invocation exists, verify declared inputs
+        # against disk. Fresh runs bypass this (no recorded inputs yet).
+        for ref in invocation["inputs"]:
+            try:
+                _raw, _parsed = _load_input(ref, bundle_dir, verify=True)
+            except HashMismatch:
+                raise
+            except ExecutionError:
+                # Missing-file here is an input-not-present diagnostic,
+                # which is already raised above for the four required files.
+                raise
+            input_verification.append({"path": ref["path"], "verified": True})
+    else:
+        input_verification = [
+            {"path": p.name, "verified": False}
+            for p in (finding_path, upstream_ref_path, impact_path, maintainers_path, package_path)
+        ]
+
+    # Build adapter.
+    if adapter_factory is not None:
+        adapter = adapter_factory(model_id)  # type: ignore[misc]
+    elif model_id.startswith("claude-"):
+        adapter = AnthropicAdapter(model_id)
+    else:
+        raise ExecutionError(
+            f"no adapter wired for model id {model_id!r}. Supply an adapter_factory "
+            f"or pass a claude-* model id (AnthropicAdapter is the only wired path)."
+        )
+
+    inputs = {
+        "finding": finding,
+        "upstream_ref": upstream_ref,
+        "impact": impact,
+        "maintainers": maintainers,
+        "package_source": package_source,
+        "package_source_path": str(package_path.name),
+    }
+
+    # Parse-before-write: if run_patcher raises PatcherOutputMalformed, we
+    # exit without touching any files. The caller sees EXIT_INVALID.
+    try:
+        result = run_patcher(
+            inputs=inputs,
+            adapter=adapter,
+            prompt_path=PATCHER_PROMPT_PATH_DEFAULT,
+        )
+    except PatcherOutputMalformed as exc:
+        raise ExecutionError(f"patcher output malformed: {exc}") from exc
+
+    # Atomic writes. Temp file + os.replace guarantees no half-written artifact.
+    outputs: list[dict[str, Any]] = []
+    if result.kind == "patch":
+        diff_bytes = (result.parsed.patch_diff or "").encode("utf-8")
+        rat_bytes = (result.parsed.patch_rationale_md or "").encode("utf-8")
+        _atomic_write_bytes(bundle_dir / "patch.diff", diff_bytes)
+        _atomic_write_bytes(bundle_dir / "patch-rationale.md", rat_bytes)
+        outputs = [
+            {"path": "patch.diff", "sha256": sha256_hex(diff_bytes), "bytes": len(diff_bytes)},
+            {"path": "patch-rationale.md", "sha256": sha256_hex(rat_bytes), "bytes": len(rat_bytes)},
+        ]
+    else:  # refusal
+        refusal_body = json.dumps(
+            {
+                "rule": result.parsed.refusal_rule,
+                "reason": result.parsed.refusal_reason,
+            },
+            indent=2,
+            sort_keys=True,
+        ).encode("utf-8") + b"\n"
+        _atomic_write_bytes(bundle_dir / "refusal.json", refusal_body)
+        outputs = [
+            {"path": "refusal.json", "sha256": sha256_hex(refusal_body), "bytes": len(refusal_body)},
+        ]
+
+    return {
+        "role": "patcher",
+        "invocation_id": invocation.get("invocation_id"),
+        "kind": result.kind,
+        "outputs": outputs,
+        "input_verification": input_verification,
+        "verified": verify,
+        "patcher_run": {
+            "prompt_sha256": result.prompt_sha256,
+            "user_content_sha256": result.user_content_sha256,
+            "raw_response_sha256": result.raw_response_sha256,
+            "model_id": result.model_response.model_id,
+            "sampling": result.sampling,
+            "kind": result.kind,
+            "refusal_rule": result.parsed.refusal_rule,
+            "refusal_reason": result.parsed.refusal_reason,
+            "adapter": result.model_response.extras.get("adapter"),
+        },
+    }
+
+
+def _atomic_write_bytes(target: Path, data: bytes) -> None:
+    """Write bytes atomically to target via temp file + os.replace."""
+    import os
+    import tempfile
+
+    target_parent = target.parent
+    target_parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=str(target_parent),
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, target)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except Exception:
+            pass
+        raise
