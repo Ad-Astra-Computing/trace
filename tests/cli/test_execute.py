@@ -358,10 +358,12 @@ def test_execute_upstream_ref_resolver(tmp_path, capsys):
 # ─── execute: refusals ─────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("role", ["patcher", "reviewer", "reproducer"])
-def test_execute_refuses_non_deterministic_roles(tmp_path, capsys, role):
+@pytest.mark.parametrize("role", ["reviewer", "reproducer"])
+def test_execute_refuses_reviewer_reproducer_until_wired(tmp_path, capsys, role):
+    """Reviewer + Reproducer stay in the 'not yet wired' bucket. Patcher was
+    in this bucket historically but now has its own wiring (see
+    tests/patcher/test_execute_wiring.py); removed from this parametrize."""
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
-    # Re-label the invocation's role to the model role we want to test refusing.
     replay_path = bundle_dir / "replay.json"
     replay = json.loads(replay_path.read_text())
     replay["roles"][0]["role"] = role
@@ -373,8 +375,25 @@ def test_execute_refuses_non_deterministic_roles(tmp_path, capsys, role):
         capsys,
     )
     assert rc == EXIT_INVALID
-    assert "non-deterministic" in err
-    assert "no model calls" in err.lower() or "model call" in err.lower()
+    assert "not yet wired" in err
+
+
+def test_execute_patcher_without_model_rejected(tmp_path, capsys):
+    """Patcher is the first model-backed role wired for --execute. Without
+    --model it must reject at the CLI layer — no default live model."""
+    bundle_dir, _ = _build_resolver_fixture(tmp_path)
+    replay_path = bundle_dir / "replay.json"
+    replay = json.loads(replay_path.read_text())
+    replay["roles"][0]["role"] = "patcher"
+    replay["roles"][0]["invocations"][0]["role"] = "patcher"
+    replay_path.write_text(json.dumps(replay, indent=2))
+
+    rc, _out, err = _run(
+        ["replay", str(bundle_dir), "--execute", "--role", "patcher"],
+        capsys,
+    )
+    assert rc != EXIT_OK
+    assert "requires --model" in err
 
 
 def test_execute_refuses_builder(tmp_path, capsys):
