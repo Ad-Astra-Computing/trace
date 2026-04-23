@@ -112,6 +112,51 @@ def _build_dispatchable_bundle(
         "attr_paths": {"libexample": {"maintainers": [{"github": "alice"}]}},
     }))
     (bundle_dir / "package.nix").write_text('version = "1.4.7";\n')
+
+    # Minimal replay.json so the patcher replay-metadata writer has a file
+    # to append to. Schema requires non-empty roles[] — seed with a single
+    # deterministic stub invocation so the file is schema-valid pre-Patcher.
+    replay = {
+        "schema_version": "1.0.0",
+        "bundle_id": "0000000000000001",
+        "cve_id": "CVE-0000-0001",
+        "nixpkgs_rev": "0" * 40,
+        "policy_version": "0" * 64,
+        "bundle_schema_sha256": "1" * 64,
+        "routing_config_sha256": "2" * 64,
+        "tool_manifest": {
+            "flake_lock_sha256": "3" * 64,
+            "tools": [{"name": "python", "version": "3.13"}],
+        },
+        "cross_family_rule_honored": True,
+        "roles": [
+            {
+                "role": "upstream-ref-resolver",
+                "invocations": [
+                    {
+                        "invocation_id": "00000000-0000-4000-8000-000000000001",
+                        "role": "upstream-ref-resolver",
+                        "started_at": "2026-04-23T00:00:00Z",
+                        "ended_at": "2026-04-23T00:00:01Z",
+                        "model": {
+                            "family": "deterministic-no-model",
+                            "vendor": "internal",
+                            "model_id": "upstream-ref-resolver-deterministic",
+                            "version": "1.0.0",
+                            "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
+                        },
+                        "prompt": {"path": "prompts/upstream-ref-resolver.v1.md", "sha256": "7" * 64},
+                        "inputs": [{"path": "finding.json", "sha256": "6" * 64}],
+                        "outputs": [{"path": "upstream-ref.json", "sha256": "8" * 64}],
+                        "rng_seed": None,
+                        "validators_passed": ["eligibility-verdict-present"],
+                        "network_policy_applied": "feeds-only",
+                    }
+                ],
+            }
+        ],
+    }
+    (bundle_dir / "replay.json").write_text(json.dumps(replay))
     return bundle_dir
 
 
