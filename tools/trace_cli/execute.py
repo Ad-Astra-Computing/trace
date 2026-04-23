@@ -465,6 +465,7 @@ def _execute_patcher(
 
     # Parse-before-write: if run_patcher raises PatcherOutputMalformed, we
     # exit without touching any files. The caller sees EXIT_INVALID.
+    started_at = _utc_now_iso()
     try:
         result = run_patcher(
             inputs=inputs,
@@ -473,6 +474,7 @@ def _execute_patcher(
         )
     except PatcherOutputMalformed as exc:
         raise ExecutionError(f"patcher output malformed: {exc}") from exc
+    ended_at = _utc_now_iso()
 
     # Atomic writes. Temp file + os.replace guarantees no half-written artifact.
     outputs: list[dict[str, Any]] = []
@@ -499,24 +501,42 @@ def _execute_patcher(
             {"path": "refusal.json", "sha256": sha256_hex(refusal_body), "bytes": len(refusal_body)},
         ]
 
+    patcher_run_meta: dict[str, Any] = {
+        "prompt_sha256": result.prompt_sha256,
+        "user_content_sha256": result.user_content_sha256,
+        "raw_response_sha256": result.raw_response_sha256,
+        "model_id": result.model_response.model_id,
+        "sampling": result.sampling,
+        "kind": result.kind,
+        "refusal_rule": result.parsed.refusal_rule,
+        "refusal_reason": result.parsed.refusal_reason,
+        "adapter": result.model_response.extras.get("adapter"),
+    }
+
+    # Append a canonical replay-shape invocation entry into replay.json. Done
+    # AFTER atomic writes so a partial / malformed parse doesn't pollute
+    # replay history. Only the role/invocation entry is appended; top-level
+    # replay.json fields are left intact.
+    replay_invocation = _build_patcher_invocation(
+        bundle_dir=bundle_dir,
+        patcher_run=patcher_run_meta,
+        outputs=outputs,
+        started_at=started_at,
+        ended_at=ended_at,
+    )
+    _append_patcher_replay_entry(
+        bundle_dir=bundle_dir, invocation=replay_invocation
+    )
+
     return {
         "role": "patcher",
-        "invocation_id": invocation.get("invocation_id"),
+        "invocation_id": replay_invocation["invocation_id"],
         "kind": result.kind,
         "outputs": outputs,
         "input_verification": input_verification,
         "verified": verify,
-        "patcher_run": {
-            "prompt_sha256": result.prompt_sha256,
-            "user_content_sha256": result.user_content_sha256,
-            "raw_response_sha256": result.raw_response_sha256,
-            "model_id": result.model_response.model_id,
-            "sampling": result.sampling,
-            "kind": result.kind,
-            "refusal_rule": result.parsed.refusal_rule,
-            "refusal_reason": result.parsed.refusal_reason,
-            "adapter": result.model_response.extras.get("adapter"),
-        },
+        "patcher_run": patcher_run_meta,
+        "replay_invocation": replay_invocation,
     }
 
 
@@ -544,3 +564,129 @@ def _atomic_write_bytes(target: Path, data: bytes) -> None:
         except Exception:
             pass
         raise
+
+
+# ─── replay metadata writer (patcher) ──────────────────────────────────────
+
+
+def _build_patcher_model_block(patcher_run: dict[str, Any]) -> dict[str, Any]:
+    """Build the model{} field for a Patcher invocation in replay.json.
+
+    Family/vendor are derived from the model_id and the adapter that ran;
+    `fake` adapters map to the deterministic-no-model family so unit tests
+    stay schema-valid.
+    """
+    model_id = patcher_run["model_id"]
+    adapter_kind = patcher_run.get("adapter") or "unknown"
+    if adapter_kind == "fake":
+        family, vendor, version = "deterministic-no-model", "internal", "fake"
+    elif model_id.startswith("claude-"):
+        family, vendor = "anthropic", "anthropic"
+        version = model_id[len("claude-"):] or "unknown"
+    else:
+        family, vendor, version = "open-weights-other", "unknown", "unknown"
+
+    sampling_in = patcher_run.get("sampling") or {}
+    sampling_out: dict[str, Any] = {
+        "temperature": float(sampling_in.get("temperature", 0.0)),
+        "top_p": float(sampling_in.get("top_p", 1.0)),
+        "max_tokens": int(sampling_in.get("max_tokens", 8192)),
+    }
+    if "seed" in sampling_in and sampling_in["seed"] is not None:
+        sampling_out["seed"] = int(sampling_in["seed"])
+
+    return {
+        "family": family,
+        "vendor": vendor,
+        "model_id": model_id,
+        "version": version,
+        "sampling": sampling_out,
+    }
+
+
+def _utc_now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _gen_invocation_id() -> str:
+    import uuid
+    return str(uuid.uuid4())
+
+
+def _file_sha256(path: Path) -> str:
+    return sha256_hex(path.read_bytes())
+
+
+def _build_patcher_invocation(
+    *,
+    bundle_dir: Path,
+    patcher_run: dict[str, Any],
+    outputs: list[dict[str, Any]],
+    started_at: str,
+    ended_at: str,
+) -> dict[str, Any]:
+    """Build a single replay-shape invocation record for a Patcher run."""
+    inputs = []
+    for fname in ("finding.json", "upstream-ref.json", "impact.json", "maintainers.json", "package.nix"):
+        p = bundle_dir / fname
+        if p.is_file():
+            inputs.append({"path": fname, "sha256": _file_sha256(p)})
+
+    invocation = {
+        "invocation_id": _gen_invocation_id(),
+        "role": "patcher",
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "model": _build_patcher_model_block(patcher_run),
+        "prompt": {"path": "prompts/patcher.v1.md", "sha256": patcher_run["prompt_sha256"]},
+        "inputs": inputs,
+        "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
+        "rng_seed": None,
+        "validators_passed": _patcher_validators_for(patcher_run),
+        "network_policy_applied": "none",
+    }
+    return invocation
+
+
+def _patcher_validators_for(patcher_run: dict[str, Any]) -> list[str]:
+    """Names of declared validators that the Patcher output passed.
+
+    Parser-level success implies schema-valid-output. Refusal implies a
+    valid refusal block. These are the structural validators only; the
+    five Patcher scorers (next milestone) compute richer signals against
+    these recorded outputs.
+    """
+    if patcher_run.get("kind") == "refusal":
+        return ["refusal-shape"]
+    return ["schema-valid-output"]
+
+
+def _append_patcher_replay_entry(
+    *,
+    bundle_dir: Path,
+    invocation: dict[str, Any],
+) -> None:
+    """Append a Patcher invocation into replay.json's roles[]."""
+    replay_path = bundle_dir / "replay.json"
+    if not replay_path.is_file():
+        raise ExecutionError(
+            f"replay.json missing in {bundle_dir}; replay-metadata writer requires "
+            f"a pre-existing replay.json with the standard top-level fields. "
+            f"Fresh-on-empty creation is out of scope here."
+        )
+    replay = json.loads(replay_path.read_text())
+
+    roles = replay.setdefault("roles", [])
+    role_entry = None
+    for r in roles:
+        if r.get("role") == "patcher":
+            role_entry = r
+            break
+    if role_entry is None:
+        role_entry = {"role": "patcher", "invocations": []}
+        roles.append(role_entry)
+    role_entry["invocations"].append(invocation)
+
+    body = json.dumps(replay, indent=2, ensure_ascii=False) + "\n"
+    _atomic_write_bytes(replay_path, body.encode("utf-8"))
