@@ -100,9 +100,11 @@ def _sha(path: Path) -> str:
 def test_patcher_run_writes_canonical_replay_artifact(tmp_path):
     bundle_dir = _copy_fixture(tmp_path)
 
-    # Pre-condition: replay.json starts with roles=[].
+    # Pre-condition: replay.json has no `patcher` role yet (seeded with a
+    # single upstream-ref-resolver invocation so roles[] is non-empty per
+    # the replay-schema minItems constraint).
     pre_replay = json.loads((bundle_dir / "replay.json").read_text())
-    assert pre_replay["roles"] == []
+    assert all(r["role"] != "patcher" for r in pre_replay["roles"])
     assert not (bundle_dir / "patch.diff").exists()
     assert not (bundle_dir / "patch-rationale.md").exists()
 
