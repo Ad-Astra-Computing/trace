@@ -14,12 +14,19 @@ __pycache__/
 # tree but held back from git history until the user says they're ready for
 # future devs. Code-adjacent READMEs (graph/README.md, tests/README.md,
 # fixture READMEs) are NOT excluded — they describe committed code.
+# docs/MODEL_EVAL_PLAN.md is intentionally NOT in this list: it is a project
+# artifact and should stay versioned.
 SPEC.md
-docs/
+docs/DECISIONS.md
 eval/INCLUSION_RULES.md
 eval/HARVESTING.md
 
-# Private research planning — NEVER commit. See memory entry
-# trace-model-eval-plan-review.md. Redundant with docs/ but listed explicitly
-# so the never-commit rule is visible here too.
-docs/MODEL_EVAL_PLAN.md
+# Local experiment artifacts, API keys, ad hoc run outputs, scratch
+# scoring dumps — these never belong in git. Add patterns here as the
+# model-facing work starts producing run artifacts.
+.env
+.env.*
+*.env
+/scratch/
+/scratch-*/
+/eval-runs/
