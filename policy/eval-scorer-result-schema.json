@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/eval-scorer-result-schema.json",
+  "title": "trace eval scorer result",
+  "description": "One Patcher scorer's verdict on one (bundle_dir, replay invocation) pair. Each scorer reads ONLY the on-disk Patcher outputs (patch.diff / patch-rationale.md / refusal.json) plus the recorded invocation metadata; nothing reaches into in-memory runner state. The schema also describes the per-bundle composite summary that aggregates the five scorers.",
+  "type": "object",
+  "$defs": {
+    "scorerName": {
+      "type": "string",
+      "enum": [
+        "schema-valid",
+        "upstream-ref-compliance",
+        "unrelated-file-touch-rate",
+        "minimality",
+        "historical-fix-similarity"
+      ]
+    },
+    "scorerResult": {
+      "type": "object",
+      "required": [
+        "scorer_name",
+        "scorer_version",
+        "applies",
+        "advisory",
+        "score",
+        "notes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scorer_name": { "$ref": "#/$defs/scorerName" },
+        "scorer_version": {
+          "description": "Semver of the scorer implementation. Bumped when the scoring formula or the data it consumes changes.",
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "applies": {
+          "description": "False when the scorer was structurally inapplicable (e.g. historical-fix-similarity with no historical_fix recorded). When false, score MUST be null and notes MUST explain the reason.",
+          "type": "boolean"
+        },
+        "advisory": {
+          "description": "True for scorers whose result is informational only and MUST NOT enter the composite merge-ready denominator (e.g. historical-fix-similarity). Composite computation excludes scorers where advisory==true.",
+          "type": "boolean"
+        },
+        "score": {
+          "description": "Higher is better. Range [0,1]. Null iff applies==false.",
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "null" }
+          ]
+        },
+        "notes": {
+          "description": "Short explanation of how the score was derived. Required even on score=1.0.",
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "description": "Optional structured per-scorer breakdown. Schema is scorer-specific.",
+          "type": "object"
+        }
+      }
+    },
+    "scoringRunReport": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "bundle_dir",
+        "invocation_id",
+        "patcher_kind",
+        "scored_at",
+        "scorers",
+        "composite"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "1.0.0" },
+        "bundle_dir": {
+          "description": "Display path; informational. Reviewers rely on the invocation_id + replay sha256s for integrity, not on this string.",
+          "type": "string",
+          "minLength": 1
+        },
+        "invocation_id": {
+          "description": "UUID of the replay invocation being scored.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "patcher_kind": {
+          "description": "Whether the Patcher invocation produced a patch or a refusal. Refusal-shape Patcher invocations score against a different sub-set of scorers (schema-valid only); the rest report applies==false.",
+          "type": "string",
+          "enum": ["patch", "refusal"]
+        },
+        "scored_at": { "type": "string", "format": "date-time" },
+        "scorers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/scorerResult" }
+        },
+        "composite": {
+          "description": "Composite merge-ready signal. Mean of non-advisory scorers where applies==true. Excludes historical-fix-similarity (advisory) and any inapplicable scorers (applies==false).",
+          "type": "object",
+          "required": ["merge_ready_rate", "scorers_in_denominator", "scorers_excluded"],
+          "additionalProperties": false,
+          "properties": {
+            "merge_ready_rate": {
+              "oneOf": [
+                { "type": "number", "minimum": 0, "maximum": 1 },
+                { "type": "null" }
+              ]
+            },
+            "scorers_in_denominator": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/scorerName" }
+            },
+            "scorers_excluded": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["scorer_name", "reason"],
+                "additionalProperties": false,
+                "properties": {
+                  "scorer_name": { "$ref": "#/$defs/scorerName" },
+                  "reason": {
+                    "type": "string",
+                    "enum": ["advisory", "inapplicable", "patcher-refusal"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/scorerResult" },
+    { "$ref": "#/$defs/scoringRunReport" }
+  ]
+}
