@@ -14,6 +14,7 @@
           ps.pytest
           ps.jsonschema
           ps.referencing
+          ps.anthropic
         ]);
       in
       {
