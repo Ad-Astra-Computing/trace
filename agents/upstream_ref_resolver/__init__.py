@@ -1,3 +1,9 @@
+from agents.upstream_ref_resolver.go_mod_vendor import (
+    GoModVendorFailure,
+    GoModVendorRequest,
+    GoModVendorSuccess,
+    prefetch_go_mod_vendor,
+)
 from agents.upstream_ref_resolver.prefetch import (
     PrefetchFailure,
     PrefetchOutcome,
@@ -17,6 +23,9 @@ from agents.upstream_ref_resolver.url_derivation import (
 __all__ = [
     "DerivationOutcome",
     "DerivedTarget",
+    "GoModVendorFailure",
+    "GoModVendorRequest",
+    "GoModVendorSuccess",
     "PrefetchFailure",
     "PrefetchOutcome",
     "PrefetchSuccess",
@@ -24,6 +33,7 @@ __all__ = [
     "SkippedTarget",
     "auto_prefetch_high_confidence",
     "derive_prefetch_targets",
+    "prefetch_go_mod_vendor",
     "prefetch_targets",
     "resolve",
 ]

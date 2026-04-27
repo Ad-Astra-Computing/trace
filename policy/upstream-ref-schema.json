@@ -70,7 +70,16 @@
           "source": {
             "description": "How the hash was acquired, for replay attribution.",
             "type": "string",
-            "enum": ["nix-prefetch-url", "nix-prefetch-git", "github-release-archive", "gitlab-release-archive", "vendor-lockfile-prefetch", "manual-pinned"]
+            "enum": ["nix-prefetch-url", "nix-prefetch-git", "github-release-archive", "gitlab-release-archive", "vendor-lockfile-prefetch", "go-mod-vendor", "manual-pinned"]
+          },
+          "prefetch_kind": {
+            "description": "Mechanism class. `url` is the v0 default (fetch a single artifact at a URL and hash it). `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash; output applies to vendorHash. Future kinds (cargo-vendor, npm-deps, …) will land separately. Defaults to `url` if absent for backward compatibility with the first prefetch_hashes implementations.",
+            "type": "string",
+            "enum": ["url", "go-mod-vendor"]
+          },
+          "derivation_command": {
+            "description": "Exact command (or derivation target) used when prefetch_kind != url. Required when prefetch_kind == go-mod-vendor; lets future replay reproduce the acquisition.",
+            "type": "string"
           },
           "url": {
             "description": "The exact URL the hash was prefetched against, when applicable. Required for source=nix-prefetch-url and source=github-release-archive / gitlab-release-archive.",
@@ -118,7 +127,8 @@
               "missing-target-version",
               "missing-tag",
               "no-derivable-rule",
-              "low-confidence-not-auto-prefetched"
+              "low-confidence-not-auto-prefetched",
+              "go-mod-vendor-prefetch-failed"
             ]
           },
           "required_for_patch": {
