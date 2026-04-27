@@ -91,7 +91,7 @@ def test_success_serialises_to_prefetch_hashes_schema_shape() -> None:
     schema_path = REPO_ROOT / "policy" / "upstream-ref-schema.json"
     schema = json.loads(schema_path.read_text())
     bundle = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "cve_id": "CVE-0000-0000",
         "current_version": "3.6.7",
         "target_version": "3.6.8",
@@ -123,7 +123,7 @@ def test_failure_serialises_to_prefetch_skips_schema_shape() -> None:
     schema_path = REPO_ROOT / "policy" / "upstream-ref-schema.json"
     schema = json.loads(schema_path.read_text())
     bundle = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "cve_id": "CVE-0000-0000",
         "current_version": "3.6.7",
         "target_version": "3.6.8",

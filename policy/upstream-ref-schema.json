@@ -13,7 +13,11 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": {
+      "description": "1.0.0: original (no prefetch_* fields). 1.1.0: adds prefetch_hashes[] / prefetch_failures[] / prefetch_skips[] / prefetch_kind / derivation_command, plus go-mod-vendor source enum value. Bundles that emit any prefetch_* field MUST declare 1.1.0; legacy 1.0.0 bundles are still accepted.",
+      "type": "string",
+      "enum": ["1.0.0", "1.1.0"]
+    },
     "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
     "current_version": { "type": "string", "minLength": 1 },
     "target_version": {
@@ -50,7 +54,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "algorithm", "value", "source", "replay_critical"],
+        "required": ["name", "algorithm", "value", "source", "prefetch_kind", "replay_critical"],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -73,7 +77,7 @@
             "enum": ["nix-prefetch-url", "nix-prefetch-git", "github-release-archive", "gitlab-release-archive", "vendor-lockfile-prefetch", "go-mod-vendor", "manual-pinned"]
           },
           "prefetch_kind": {
-            "description": "Mechanism class. `url` is the v0 default (fetch a single artifact at a URL and hash it). `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash; output applies to vendorHash. Future kinds (cargo-vendor, npm-deps, …) will land separately. Defaults to `url` if absent for backward compatibility with the first prefetch_hashes implementations.",
+            "description": "Mechanism class. `url` fetches a single artifact at a URL and hashes it. `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash (output applies to vendorHash). Future kinds (cargo-vendor, npm-deps, …) will land separately. Required from schema_version 1.1.0 onward; emitters MUST write the field verbatim rather than relying on a default. Consumers reading legacy 1.0.0 bundles (which don't have this field) should treat absence as `url`.",
             "type": "string",
             "enum": ["url", "go-mod-vendor"]
           },
@@ -294,6 +298,21 @@
               "verdict": { "const": "eligible-requires-human-review" }
             }
           }
+        }
+      }
+    },
+    {
+      "description": "Bundles that emit any prefetch_* field MUST declare schema_version 1.1.0. Legacy 1.0.0 bundles cannot use prefetch_* additive fields (the resolver had not yet acquired hashes when the original schema landed).",
+      "if": {
+        "anyOf": [
+          { "required": ["prefetch_hashes"] },
+          { "required": ["prefetch_failures"] },
+          { "required": ["prefetch_skips"] }
+        ]
+      },
+      "then": {
+        "properties": {
+          "schema_version": { "const": "1.1.0" }
         }
       }
     }

@@ -149,7 +149,7 @@ def test_outcome_validates_against_upstream_ref_schema() -> None:
     })
     out = prefetch_targets(targets, prefetch_url_fn=fake)
     upstream_ref = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "cve_id": "CVE-0000-0000",
         "current_version": "1.0.0",
         "target_version": "1.0.1",
