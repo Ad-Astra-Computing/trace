@@ -1,4 +1,5 @@
-from agents.scorers.runner import ScorerRunReport, run_scorers
+from agents.scorers.hash_verifiability import HashVerifiabilityScorer
+from agents.scorers.runner import ScorerRunReport, ScoringRefused, run_scorers
 from agents.scorers.types import (
     SCORER_VERSION,
     Scorer,
@@ -7,9 +8,11 @@ from agents.scorers.types import (
 )
 
 __all__ = [
+    "HashVerifiabilityScorer",
     "Scorer",
     "ScorerResult",
     "ScorerRunReport",
+    "ScoringRefused",
     "SCORER_VERSION",
     "canonical_scorer_names",
     "run_scorers",

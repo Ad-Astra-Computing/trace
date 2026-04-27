@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agents.scorers.hash_verifiability import HashVerifiabilityScorer
 from agents.scorers.historical_fix_similarity import HistoricalFixSimilarityScorer
 from agents.scorers.minimality import MinimalityScorer
 from agents.scorers.schema_valid import SchemaValidScorer
@@ -46,6 +47,7 @@ def _default_scorers() -> list[Scorer]:
     return [
         SchemaValidScorer(),
         UpstreamRefComplianceScorer(),
+        HashVerifiabilityScorer(),
         UnrelatedFileTouchRateScorer(),
         MinimalityScorer(),
         HistoricalFixSimilarityScorer(),
