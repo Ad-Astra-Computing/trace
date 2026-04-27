@@ -78,20 +78,33 @@ class PrefetchSuccess:
 class PrefetchFailure:
     name: str
     reason: str  # one of upstream-ref-schema.prefetch_failures.items.reason enum
+    # required_for_patch defaults True because every prefetch_targets()
+    # caller asked the resolver to acquire this slot in the first place;
+    # if the request was just a probe, the caller should pass False
+    # explicitly. Mirrors the prefetch_skips[] required_for_patch semantic
+    # so Patcher can fire rule 8 against either channel.
+    required_for_patch: bool = True
     url_attempted: str | None = None
     tool: str | None = None
     tool_version: str | None = None
+    attempted_command: str | None = None
     detail: str | None = None
     attempted_at: str | None = None
 
     def to_dict(self) -> dict:
-        d: dict = {"name": self.name, "reason": self.reason}
+        d: dict = {
+            "name": self.name,
+            "reason": self.reason,
+            "required_for_patch": self.required_for_patch,
+        }
         if self.url_attempted is not None:
             d["url_attempted"] = self.url_attempted
         if self.tool is not None:
             d["tool"] = self.tool
         if self.tool_version is not None:
             d["tool_version"] = self.tool_version
+        if self.attempted_command is not None:
+            d["attempted_command"] = self.attempted_command
         if self.detail is not None:
             # Schema caps at 2048 chars; clamp here for safety.
             d["detail"] = self.detail[:2048]

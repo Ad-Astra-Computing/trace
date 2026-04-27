@@ -241,7 +241,11 @@ def test_assemble_runs_go_mod_vendor_when_flag_enabled(tmp_path: Path) -> None:
     assert kinds == {"url", "go-mod-vendor"}
 
 
-def test_assemble_records_gmv_failure_as_prefetch_skip(tmp_path: Path) -> None:
+def test_assemble_records_gmv_failure_as_prefetch_failure(tmp_path: Path) -> None:
+    """A live go-mod-vendor attempt that fails should land in
+    prefetch_failures[] (NOT prefetch_skips[]) with full attribution
+    preserved: attempted_command, detail, attempted_at, and
+    required_for_patch."""
     ri = _resolver_input(tmp_path)
     pkg = _package_nix(tmp_path)
     out = tmp_path / "out"
@@ -265,8 +269,19 @@ def test_assemble_records_gmv_failure_as_prefetch_skip(tmp_path: Path) -> None:
         go_mod_vendor_runner=gmv_runner,
     )
     assert "vendorHash" not in result.prefetch_hashes_grounded
-    skip_descrs = result.prefetch_skips
-    assert any(s == "vendorHash=go-mod-vendor-prefetch-failed" for s in skip_descrs)
+    failure_descrs = result.prefetch_failures
+    assert any(s == "vendorHash=go-mod-vendor-prefetch-failed" for s in failure_descrs)
+    # vendorHash must NOT linger in prefetch_skips[] — the resolver did
+    # attempt and failed, so the entry belongs in prefetch_failures[].
+    assert not any(s.startswith("vendorHash=") for s in result.prefetch_skips)
+    # Disk-side: prefetch_failures[] entry preserves attribution.
+    upstream_ref = json.loads((out / "upstream-ref.json").read_text())
+    pf = next(e for e in upstream_ref["prefetch_failures"] if e["name"] == "vendorHash")
+    assert pf["reason"] == "go-mod-vendor-prefetch-failed"
+    assert pf["required_for_patch"] is True
+    assert pf["attempted_command"]
+    assert pf["attempted_at"]
+    assert "timed out" in pf["detail"]
 
 
 def test_ineligible_verdict_writes_upstream_ref_and_skips_prefetch(tmp_path: Path) -> None:
