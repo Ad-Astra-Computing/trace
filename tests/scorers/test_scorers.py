@@ -52,13 +52,21 @@ impact.json reports reverse_closure_count=42 (<50 bucket); no threshold trigger.
 
 
 def _patch_response() -> str:
+    # Bumps both version and hash. Hash-verifiability requires every hash
+    # attribute present in the original package.nix to be touched after a
+    # version bump (silent omission is a violation), so a minimal-but-
+    # complete synthetic patch must update both.
     return (
         "=== BEGIN patch.diff ===\n"
         "--- a/package.nix\n"
         "+++ b/package.nix\n"
-        "@@ -5 +5 @@\n"
+        "@@ -5,5 +5,5 @@\n"
         '-  version = "1.4.7";\n'
         '+  version = "1.4.8";\n'
+        ' \n'
+        ' src = fetchurl {\n'
+        '-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";\n'
+        '+    hash = "sha256-NewlyComputedSyntheticHashForTestingPurposes=";\n'
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + RATIONALE
@@ -118,6 +126,7 @@ def test_run_scorers_happy_path_synthetic_fixture(tmp_path):
     assert set(by_name) == {
         "schema-valid",
         "upstream-ref-compliance",
+        "hash-verifiability",
         "unrelated-file-touch-rate",
         "minimality",
         "historical-fix-similarity",
@@ -172,14 +181,18 @@ def test_run_scorers_refusal_path(tmp_path):
     # schema-valid still applies and should score 1.0 against the refusal.json
     assert by_name["schema-valid"].applies is True
     assert by_name["schema-valid"].score == 1.0
-    # The other non-advisory scorers report applies=False on refusal
+    # hash-verifiability also applies on refusals (any refusal trivially
+    # satisfies it; a rule-8 refusal is the contract-correct outcome).
+    assert by_name["hash-verifiability"].applies is True
+    assert by_name["hash-verifiability"].score == 1.0
+    # The other patch-shape scorers report applies=False on refusal
     for n in ("upstream-ref-compliance", "unrelated-file-touch-rate", "minimality"):
         assert by_name[n].applies is False
     # Advisory scorer also reports applies=False on refusal
     assert by_name["historical-fix-similarity"].applies is False
 
-    # Composite is just schema-valid since the rest are inapplicable
-    assert report.scorers_in_denominator == ["schema-valid"]
+    # Composite covers schema-valid + hash-verifiability on a refusal
+    assert report.scorers_in_denominator == ["schema-valid", "hash-verifiability"]
     assert report.composite_merge_ready_rate == 1.0
 
 
@@ -337,14 +350,15 @@ def test_historical_fix_similarity_uses_cached_diff_when_present(tmp_path):
     assert r.score == 1.0
 
 
-# ─── meta: scorer set is the locked five, in canonical order ───────────────
+# ─── meta: scorer set is the locked six, in canonical order ────────────────
 
 
-def test_canonical_scorer_names_are_the_locked_five():
+def test_canonical_scorer_names_are_the_locked_six():
     from agents.scorers import canonical_scorer_names
     assert canonical_scorer_names() == (
         "schema-valid",
         "upstream-ref-compliance",
+        "hash-verifiability",
         "unrelated-file-touch-rate",
         "minimality",
         "historical-fix-similarity",

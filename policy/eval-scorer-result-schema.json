@@ -10,6 +10,7 @@
       "enum": [
         "schema-valid",
         "upstream-ref-compliance",
+        "hash-verifiability",
         "unrelated-file-touch-rate",
         "minimality",
         "historical-fix-similarity"

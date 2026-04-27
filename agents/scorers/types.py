@@ -18,10 +18,22 @@ SCORER_VERSION: str = "1.0.0"
 
 
 def canonical_scorer_names() -> tuple[str, ...]:
-    """The five locked Patcher scorer names, in canonical order."""
+    """The locked Patcher scorer names, in canonical order.
+
+    Originally five scorers (locked alongside prompts/patcher.v1.md).
+    `hash-verifiability` was added on 2026-04-27 after the first live
+    run surfaced that surface-contract scorers cannot distinguish
+    "grounded patch" from "patch with lib.fakeHash + missing
+    vendorHash" — both pass schema-valid + upstream-ref-compliance +
+    unrelated-file-touch-rate + minimality. See docs/DECISIONS.md
+    2026-04-27 entry. Old reports still validate against the schema
+    (the new scorer just adds a row); composites are recomputed when
+    rescored.
+    """
     return (
         "schema-valid",
         "upstream-ref-compliance",
+        "hash-verifiability",
         "unrelated-file-touch-rate",
         "minimality",
         "historical-fix-similarity",
