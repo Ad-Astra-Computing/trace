@@ -409,14 +409,14 @@ def test_cli_rejects_patcher_without_model(tmp_path, capsys):
     assert "requires --model" in err
 
 
-# ─── Reviewer / Reproducer still rejected ──────────────────────────────────
+# ─── Reproducer still rejected (Reviewer wired in a later session) ─────────
 
 
-def test_reviewer_still_rejected(tmp_path):
+def test_reproducer_still_rejected(tmp_path):
     bundle_dir = _build_dispatchable_bundle(tmp_path)
     with pytest.raises(ExecutionError, match="not yet wired"):
         execute(
-            role="reviewer",
+            role="reproducer",
             bundle_dir=bundle_dir,
             invocation=_fresh_invocation(),
             verify=False,
@@ -425,5 +425,5 @@ def test_reviewer_still_rejected(tmp_path):
 
 
 def test_model_backed_roles_set_is_stable():
-    """Structural: only patcher in MODEL_BACKED_ROLES for now."""
-    assert MODEL_BACKED_ROLES == frozenset({"patcher"})
+    """Structural: patcher + reviewer wired; reproducer follows."""
+    assert MODEL_BACKED_ROLES == frozenset({"patcher", "reviewer"})
