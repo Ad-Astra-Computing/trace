@@ -14,7 +14,7 @@ Per prompts/patcher.v1.md the only two valid response shapes are:
   (b) a single refusal block:
 
       === BEGIN refusal ===
-      rule: <1-7>
+      rule: <1-8>
       reason: <one-line reason>
       === END refusal ===
 
@@ -26,7 +26,7 @@ deliberately strict:
   * Block order is enforced.
   * The rationale's five required level-2 headings must all be
     present and in the contracted order.
-  * Refusal rule number must be an integer in [1, 7].
+  * Refusal rule number must be an integer in [1, 8].
 
 Returns a structured result on success. Raises PatcherOutputMalformed
 on any violation with a specific diagnosis.
@@ -231,9 +231,9 @@ def _parse_refusal(text: str) -> PatcherParseResult:
             "refusal body's first line must be 'rule: <integer>'"
         )
     rule = int(rule_match.group(1))
-    if rule < 1 or rule > 7:
+    if rule < 1 or rule > 8:
         raise PatcherOutputMalformed(
-            f"refusal rule must be in [1, 7]; got {rule}"
+            f"refusal rule must be in [1, 8]; got {rule}"
         )
 
     reason_match = _REASON_LINE_RE.match(body_lines[1])

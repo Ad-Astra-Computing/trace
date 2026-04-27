@@ -63,6 +63,38 @@ Refusal below), if ANY of the following hold:
    given `nixpkgs_rev` under the affected attr's source path.
 7. The inputs contradict each other (e.g., `finding.json` claims a
    different affected version than `upstream-ref.json.current_version`).
+8. **You cannot ground-truth a cryptographic hash the patch would
+   require.** A hash value is *grounded* only if its character-for-
+   character value appears in `upstream-ref.json` (e.g. under
+   `upstream_fix_commits[].commit_sha`) or in advisory text quoted
+   into this prompt. You MUST NOT emit any hash value that is not
+   grounded. Specifically, the following are FORBIDDEN as hash values
+   in `patch.diff`:
+   - `lib.fakeHash`, `lib.fakeSha256`, `lib.fakeSha512` (symbol forms)
+   - `sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=` (the
+     literal value of `lib.fakeHash`)
+   - any string of the form `sha256-A+=` or `sha512-A+=`
+   - `"0000000000000000000000000000000000000000000000000000000000000000"`
+     (64 zeros, the literal value of `lib.fakeSha256`)
+   - `"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"`
+     (128 zeros, the literal value of `lib.fakeSha512`)
+   - the empty string `""`
+   - any value not literally present in your bundle inputs
+   This rule applies to ALL hash-shaped attributes the patch would
+   touch, including `src.hash`, `src.sha256`, `vendorHash`,
+   `cargoHash`, `npmDepsHash`, `pnpmDepsHash`, `cargoSha256`,
+   `outputHash`, and any other `*Hash` / `*Sha256` / `*Sha512`
+   attribute. If the patch BUMPS a version that requires any such
+   vendor-style hash to change, and you do not have a grounded value
+   for the new hash, you MUST refuse with rule 8 — silently leaving
+   such a hash unchanged is also a refusal trigger, not an acceptable
+   output. Refusal under this rule is per-bundle, not per-hash: one
+   ungrounded hash forces refusal of the whole patch. Before emitting
+   any `=== BEGIN patch.diff ===` block, scan your own draft. If any
+   hash value matches a forbidden pattern above, or if any required
+   hash is absent from the diff but present in the original
+   `package.nix`, output a `=== BEGIN refusal ===` block citing rule
+   8 instead.
 
 Refusal is not failure. Refusal is the correct output when the inputs
 do not authorise a patch. Do not invent; do not patch anyway.
