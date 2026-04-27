@@ -180,6 +180,26 @@ def main(argv: list[str]) -> int:
                        help="override cve_id (default: read from upstream-ref.json)")
     b_fin.add_argument("--format", choices=("human", "json"), default="human")
 
+    e = subs.add_parser("eval", help="cohort-level evaluation tooling")
+    e_subs = e.add_subparsers(dest="eval_cmd", required=True)
+    e_pr = e_subs.add_parser(
+        "patch-rate",
+        help=(
+            "aggregate scoring-report.json files into a cohort report. "
+            "Walks the supplied glob, filters to dispatchable bundles "
+            "(dispatch-guarded cases have no scoring-report.json by "
+            "construction), emits patch_rate + merge-ready-rate mean + "
+            "per-scorer means + per-invocation provenance."
+        ),
+    )
+    e_pr.add_argument("--cohort", required=True,
+                      help="cohort label. Recommended: synthetic | real-single "
+                           "| inner-loop | full-corpus. Free-form strings "
+                           "accepted; the four above are the documented baselines.")
+    e_pr.add_argument("--reports", required=True,
+                      help="glob expression matching scoring-report.json files")
+    e_pr.add_argument("--format", choices=("human", "json"), default="human")
+
     args = parser.parse_args(argv)
     if args.cmd == "replay":
         return _cmd_replay(args)
@@ -193,7 +213,56 @@ def main(argv: list[str]) -> int:
         if args.bundle_cmd == "finalize":
             return _cmd_bundle_finalize(args)
         return EXIT_USAGE
+    if args.cmd == "eval":
+        if args.eval_cmd == "patch-rate":
+            return _cmd_eval_patch_rate(args)
+        return EXIT_USAGE
     return EXIT_USAGE
+
+
+def _cmd_eval_patch_rate(args: argparse.Namespace) -> int:
+    from agents.scorers import (
+        KNOWN_COHORT_LABELS,
+        aggregate_reports,
+        expand_glob,
+    )
+
+    paths = expand_glob(args.reports)
+    if not paths:
+        print(
+            f"error: no scoring-report.json files matched glob {args.reports!r}",
+            file=sys.stderr,
+        )
+        return EXIT_INVALID
+
+    result = aggregate_reports(report_paths=paths, cohort=args.cohort)
+
+    if args.format == "json":
+        payload = result.to_dict()
+        if args.cohort not in KNOWN_COHORT_LABELS:
+            payload["cohort_label_recognised"] = False
+        print(json.dumps(payload, indent=2))
+        return EXIT_OK
+
+    pr = "n/a" if result.patch_rate is None else f"{result.patch_rate:.3f}"
+    mr = "n/a" if result.merge_ready_rate_mean is None else f"{result.merge_ready_rate_mean:.3f}"
+    print(f"cohort:                 {result.cohort}"
+          f"{'' if args.cohort in KNOWN_COHORT_LABELS else ' (free-form label; not in KNOWN_COHORT_LABELS)'}")
+    print(f"aggregated_at:          {result.aggregated_at}")
+    print(f"scoring_reports:        {result.totals['scoring_reports']}")
+    print(f"  parse_errors:         {result.totals['parse_errors']}")
+    print(f"  dispatchable:         {result.totals['dispatchable']}")
+    print(f"  patches:              {result.totals['patches']}")
+    print(f"    at threshold ≥0.95: {result.totals['patches_at_threshold']}")
+    print(f"  refusals:             {result.totals['refusals']}")
+    print(f"patch_rate:             {pr}")
+    print(f"merge-ready rate mean:  {mr}")
+    if result.scorer_means:
+        print("scorer means (over invocations where applies=True):")
+        for name in sorted(result.scorer_means):
+            v = result.scorer_means[name]
+            print(f"  {name:30s} {('n/a' if v is None else f'{v:.3f}')}")
+    return EXIT_OK
 
 
 def _cmd_bundle_finalize(args: argparse.Namespace) -> int:

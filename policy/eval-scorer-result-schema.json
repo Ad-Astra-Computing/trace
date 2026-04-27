@@ -89,6 +89,16 @@
           "type": "string",
           "enum": ["patch", "refusal"]
         },
+        "prompt_sha": {
+          "description": "sha256 of the Patcher prompt the invocation ran under. Lifted from invocation.prompt.sha256 by the runner. Aggregators use this to slice runs by prompt revision.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "model_id": {
+          "description": "Model identifier the Patcher invocation used. Lifted from invocation.model.model_id. Aggregators use this to slice runs by model.",
+          "type": "string",
+          "minLength": 1
+        },
         "scored_at": { "type": "string", "format": "date-time" },
         "scorers": {
           "type": "array",
@@ -99,7 +109,7 @@
         "composite": {
           "description": "Composite merge-ready signal. Mean of non-advisory scorers where applies==true. Excludes historical-fix-similarity (advisory) and any inapplicable scorers (applies==false).",
           "type": "object",
-          "required": ["merge_ready_rate", "scorers_in_denominator", "scorers_excluded"],
+          "required": ["merge_ready_rate", "scorers_in_denominator", "scorers_excluded", "cohort_class"],
           "additionalProperties": false,
           "properties": {
             "merge_ready_rate": {
@@ -126,6 +136,11 @@
                   }
                 }
               }
+            },
+            "cohort_class": {
+              "description": "Mirrors patcher_kind so downstream aggregators can tell at a glance which composite-denominator class this report represents (the patch denominator typically has 5 of 6 scorers; the refusal denominator has 2). 'patch' = Patcher emitted a patch; 'refusal' = Patcher refused, the refusal-shape scorers are in the denominator instead.",
+              "type": "string",
+              "enum": ["patch", "refusal"]
             }
           }
         }
