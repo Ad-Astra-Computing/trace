@@ -172,6 +172,10 @@ def main(argv: list[str]) -> int:
                        help="bundle directory previously produced by assemble")
     b_fin.add_argument("--kind", default="auto-merge",
                        choices=("auto-merge", "advisory-only", "human-review-required"))
+    b_fin.add_argument("--kind-reason", default=None,
+                       help="kind_reason code for non-auto-merge bundles. "
+                            "Defaults derived from upstream-ref.json's "
+                            "eligibility.human_review_trigger when omitted.")
     b_fin.add_argument("--created-at", default=None,
                        help="override created_at timestamp (default: now UTC)")
     b_fin.add_argument("--nixpkgs-rev", default=None,
@@ -272,6 +276,7 @@ def _cmd_bundle_finalize(args: argparse.Namespace) -> int:
         result = finalize_bundle(
             bundle_dir=args.bundle_dir,
             bundle_kind=args.kind,
+            kind_reason=args.kind_reason,
             created_at=args.created_at,
             nixpkgs_rev=args.nixpkgs_rev,
             cve_id=args.cve_id,

@@ -386,6 +386,7 @@ def finalize_bundle(
     *,
     bundle_dir: Path,
     bundle_kind: str = "auto-merge",
+    kind_reason: str | None = None,
     created_at: str | None = None,
     nixpkgs_rev: str | None = None,
     cve_id: str | None = None,
@@ -471,12 +472,31 @@ def finalize_bundle(
     # not meaningful.
     files_block["bundle.json"]["sha256"] = _PLACEHOLDER_HASH
 
-    bundle_doc = {
+    # bundle-schema requires kind_reason on every non-auto-merge bundle.
+    # Default to a sensible value driven by upstream-ref's eligibility
+    # signal so a finalize against a fresh assemble output is schema-
+    # valid out of the box. Caller can override via the --kind-reason
+    # flag when their workflow needs a different code.
+    if bundle_kind != "auto-merge" and kind_reason is None:
+        verdict = (upstream_ref.get("eligibility") or {}).get("verdict", "")
+        trigger = (upstream_ref.get("eligibility") or {}).get("human_review_trigger", "")
+        if trigger == "major-version-jump":
+            kind_reason = "major-version-jump-requires-review"
+        elif trigger == "large-sbom-delta":
+            kind_reason = "large-sbom-delta"
+        elif verdict.startswith("ineligible-"):
+            kind_reason = verdict
+        else:
+            # Last-resort default; the operator should override.
+            kind_reason = "major-version-jump-requires-review"
+
+    bundle_doc: dict[str, Any] = {
         "schema_version": "1.0.0",
         "bundle_id": bundle_id,
         "cve_id": cve_id,
         "nixpkgs_rev": nixpkgs_rev,
         "kind": bundle_kind,
+        **({"kind_reason": kind_reason} if kind_reason else {}),
         "created_at": created_at,
         "policy_version": "0" * 64,
         "bundle_schema_version": "1" * 64,
