@@ -77,7 +77,70 @@
             "type": "string",
             "format": "uri"
           },
+          "tool": {
+            "description": "The exact tool binary name invoked to produce the hash. Optional on manually-pinned entries; required when source matches a live-prefetch enum.",
+            "type": "string",
+            "minLength": 1
+          },
+          "tool_version": {
+            "description": "Version string of the tool, captured at fetch time for replay attribution. Recorded verbatim from `<tool> --version`.",
+            "type": "string"
+          },
+          "fetched_at": {
+            "description": "UTC timestamp (ISO-8601) when the prefetch ran.",
+            "type": "string",
+            "format": "date-time"
+          },
           "replay_critical": { "type": "boolean", "const": true }
+        }
+      }
+    },
+    "prefetch_failures": {
+      "description": "Structured record of prefetch attempts that did NOT produce a usable hash. Recording failures here (instead of on prefetch_hashes[] or omitting silently) lets Patcher's refusal rule 8 fire deterministically while preserving replay attribution. Patcher does NOT read this field; it is for Steward / Reviewer / debugging only. UpstreamRefResolver writes one entry per failed prefetch attempt.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The Nix attribute name the prefetch was for (e.g. 'src.hash').",
+            "type": "string",
+            "minLength": 1
+          },
+          "url_attempted": {
+            "description": "The URL the resolver tried, when applicable.",
+            "type": "string",
+            "format": "uri"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "tool_version": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Structured failure reason. v0 enum is small; extend as new failure modes appear.",
+            "type": "string",
+            "enum": [
+              "url-not-derivable",
+              "tool-not-on-path",
+              "fetch-error-404",
+              "fetch-error-other",
+              "tool-exit-nonzero",
+              "tool-output-unparseable",
+              "ecosystem-not-supported"
+            ]
+          },
+          "detail": {
+            "description": "Free-form additional detail (stderr excerpt, exit code, etc.) for debugging. Truncated to 2 KiB.",
+            "type": "string",
+            "maxLength": 2048
+          },
+          "attempted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       }
     },
