@@ -39,7 +39,7 @@ Definitions used throughout this plan. These align with SPEC §4, SPEC §5a, `do
 
 - **Train / dev / test** — splits of a SEPARATE SFT pool drawn from historical nixpkgs CVEs that do not share a `cve_id` with any entry in the frozen corpus. The separation is enforced by the training data-loader: any overlap rejects the training example at load time and is logged.
 
-- **Scorer** — one of the five Patcher-facing measurement functions: (1) schema-valid output, (2) upstream-ref compliance, (3) unrelated-file touch rate, (4) minimality, (5) historical-fix similarity. Run by the Patcher replay runner against frozen replay outputs. The composite "merge-ready rate" is derived from the five. See "Model-specific metrics" below for definitions.
+- **Scorer** — one of the six Patcher-facing measurement functions: (1) schema-valid output, (2) upstream-ref compliance, (3) hash-verifiability, (4) unrelated-file touch rate, (5) minimality, (6) historical-fix similarity. Run by the Patcher replay runner against frozen replay outputs. Two composite metrics derived from the set: **merge-ready rate** (per-bundle contract-honour score) and **patch_rate** (corpus-level productivity score). See "Model-specific metrics" below for definitions.
 
 - **Dispatch guards** — the two advisory-only entries in the 8-entry Patcher inner-loop subset (`python314` CVE-2025-4517, `xen` CVE-2025-58147). Patcher is never invoked on `ineligible-cherry-pick-required` inputs; these entries verify the pipeline correctly routes them to the advisory-only path WITHOUT invoking Patcher. They are **excluded from the Patcher scorer denominator**; if a Patcher output appears for one of them, that is a dispatch bug to flag, not a Patcher quality signal.
 
@@ -222,15 +222,26 @@ Core metrics:
 - cost
 - latency
 
-Model-specific metrics (the five Patcher scorers; locked alongside `prompts/patcher.v1.md`):
+Model-specific metrics (the six Patcher scorers; locked alongside `prompts/patcher.v1.md`):
 
 - **schema-valid output** — unified diff in `patch.diff` parses cleanly AND `patch-rationale.md` has every SPEC §4 mandatory section. Binary pass/fail. (`rationale completeness` and `structured-output failure rate` from earlier drafts fold into this scorer.)
 - **exact upstream-ref compliance** — rationale cites the exact `upstream-ref.json` target (tag + commit). Refuses cases where `upstream-ref.json` is absent.
+- **hash-verifiability** — every hash-shaped value introduced in `patch.diff` is grounded against `upstream-ref.json.prefetch_hashes[].value` (or, for pre-prefetch bundles, is not on the forbidden-pattern list). Detects silent omission of vendor-style hashes after a version bump. Refusal under rule 8 is treated as a pass. Added 2026-04-27 after the first traefik live run scored 1.0 with a `lib.fakeHash` patch.
 - **unrelated-file touch rate** — fraction of files in `patch.diff` that are not under the affected attr's source path. Lower is better; target is 0.
 - **minimality** — hunk-count + changed-line-count ratio against the historical fix referenced in the corpus entry's `historical_fix`, capped at 1.0.
 - **historical-fix similarity** — unified-diff similarity between `patch.diff` and the corpus entry's `historical_fix.nixpkgs_fix_commit_sha`. Noisy signal useful for trend detection, NOT a hard gate.
 
-Composite **merge-ready rate** (the SPEC §5 ship-gate metric) is derived from these five plus, later, the Reviewer-side scorers.
+Composite **merge-ready rate** is the per-bundle aggregate of the non-advisory scorers that apply (mean over scorers where `applies==True` and `advisory==False`). It measures **contract honour**: did the model produce an outcome that is correct for the inputs it was given? Both "produced a merge-ready patch" and "refused under rule 8 because no grounded evidence was supplied" can score 1.0; both are contract-correct.
+
+Composite **patch_rate** (the SPEC §5 ship-gate metric) is derived from these six plus, later, the Reviewer-side scorers, and measures **patch productivity**: of the dispatchable bundles in scope, how many produced a patch (not a refusal) AND scored ≥0.95 on the per-bundle composite? Definitions:
+
+- **Numerator**: count of (bundle, invocation) pairs where the Patcher produced a `patch` (not `refusal`) AND `composite_merge_ready_rate >= 0.95`.
+- **Denominator**: dispatchable bundles in the scope under measurement (advisory-only / `ineligible-*` cases excluded by the `ScoringRefused` dispatch guard, NOT counted in either numerator or denominator).
+- **Cohort**: a (model, prompt, corpus-subset) tuple. Different cohorts are not directly comparable; comparing patch_rate across model families requires holding prompt + corpus-subset fixed.
+
+Why both metrics exist: per the 2026-04-27 mbedtls A/B (commits `2d5c12d`, `cd17e09`), the per-bundle composite stays at 1.0 across the prefetch_hashes contract upgrade because both refusal-when-no-evidence and patch-when-evidence-supplied are contract-correct. The composite alone cannot distinguish "Patcher produced 0 of 51 patches" from "Patcher produced 51 of 51 patches" so long as every outcome honoured the contract. patch_rate is the productivity counterpart; without it, "1.0 refusal" and "1.0 patch" could be compared as if they meant the same productivity outcome.
+
+The SPEC §5 ship gate is **patch_rate ≥ 0.60** on the dispatchable subset of the frozen corpus, paired with **composite ≥ 0.95** on every patch counted in the numerator. Refusals under any rule do not count toward the gate; an evaluation cohort that produces only refusals fails ship-gate even if every refusal scored 1.0.
 
 ---
 
@@ -310,7 +321,7 @@ Keep the split explicit:
 
 - **freeze the eval corpus** → **done** at commit `f4e9bae` on 2026-04-23. 51 entries, every SPEC §5a composition rule green under `TRACE_REQUIRE_FULL_CORPUS=1`.
 - **define exact `Patcher` train/dev/test split** → **blocked on** harvesting a separate SFT pool per Dataset design § Training-vs-eval data separation. The frozen 51 entries are NOT usable as training data.
-- **define exact scoring and failure categories** → **in progress**; the five Patcher scorers are locked (see Terminology + Model-specific metrics). Failure-category taxonomy lands alongside `policy/eval-scorer-result-schema.json`.
+- **define exact scoring and failure categories** → **in progress**; the six Patcher scorers are locked (see Terminology + Model-specific metrics) and the patch_rate productivity metric is defined alongside per-bundle merge-ready rate. Failure-category taxonomy lands alongside `policy/eval-scorer-result-schema.json`.
 
 Phase 1 prerequisites not yet satisfied (the three actions immediately after this commit):
 
