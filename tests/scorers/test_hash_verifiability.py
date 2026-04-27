@@ -75,17 +75,21 @@ def test_traefik_run1_fails_hash_verifiability(tmp_path: Path) -> None:
 
 
 def test_traefik_run2_passes_as_rule_8_refusal(tmp_path: Path) -> None:
-    """Run 2 = clean refusal under rule 8."""
+    """Run 2 = clean refusal under rule 8 (archived, the live bundle now
+    holds run-4's merge-ready patch — see _second-run-archive/)."""
     bundle = tmp_path / "bundle"
     shutil.copytree(TRAEFIK_BUNDLE, bundle)
-    # The committed bundle currently holds the run-2 refusal.json. Make sure
-    # any patch artifacts from a prior tmp run aren't lingering.
+    # Restore run-2's refusal artifacts from the archive.
+    archive = bundle / "_second-run-archive"
+    assert archive.is_dir(), "test fixture invariant: _second-run-archive/ present"
+    shutil.copyfile(archive / "refusal.json", bundle / "refusal.json")
+    # Drop any patch artifacts that the live bundle currently carries (run 4).
     for stale in ("patch.diff", "patch-rationale.md"):
         p = bundle / stale
         if p.exists():
             p.unlink()
     refusal = bundle / "refusal.json"
-    assert refusal.is_file(), "test fixture invariant: run-2 refusal.json present"
+    assert refusal.is_file(), "test fixture invariant: run-2 refusal.json restored"
     rule = json.loads(refusal.read_text())["rule"]
     assert rule == 8, "test fixture invariant: refusal.json rule == 8"
 
