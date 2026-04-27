@@ -124,9 +124,10 @@ def test_outcome_serialises_to_schema_shape() -> None:
     out = prefetch_targets(targets, prefetch_url_fn=fake)
     h = out.hashes_as_list()[0]
     assert set(h) == {
-        "name", "algorithm", "value", "source", "url",
+        "name", "algorithm", "value", "source", "prefetch_kind", "url",
         "tool", "tool_version", "fetched_at", "replay_critical",
     }
+    assert h["prefetch_kind"] == "url"
     f = out.failures_as_list()[0]
     assert "name" in f and "reason" in f
     assert f["reason"] == "tool-exit-nonzero"

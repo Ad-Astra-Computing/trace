@@ -65,6 +65,7 @@ class PrefetchSuccess:
             "algorithm": self.algorithm,
             "value": self.value,
             "source": self.source,
+            "prefetch_kind": "url",
             "url": self.url,
             "tool": self.tool,
             "tool_version": self.tool_version,

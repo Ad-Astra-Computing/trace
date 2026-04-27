@@ -124,6 +124,40 @@ def main(argv: list[str]) -> int:
         help="skip input+output sha256 verification during --execute",
     )
 
+    b = subs.add_parser("bundle", help="bundle-assembly tooling")
+    b_subs = b.add_subparsers(dest="bundle_cmd", required=True)
+    b_asm = b_subs.add_parser(
+        "assemble",
+        help=(
+            "glue resolver-side pieces into a partial bundle dir. v0: "
+            "runs UpstreamRefResolver + URL derivation + URL prefetch + "
+            "(optionally) go-mod-vendor; writes upstream-ref.json with "
+            "prefetch_hashes[] and prefetch_skips[] populated. Does NOT "
+            "call Patcher and does NOT synthesise Scout/Cartographer."
+        ),
+    )
+    b_asm.add_argument("--input", type=Path, required=True,
+                       help="path to resolver-input.json")
+    b_asm.add_argument("--package", type=Path, required=True,
+                       help="path to package.nix for the affected attr")
+    b_asm.add_argument("--out", type=Path, required=True,
+                       help="output directory (created if missing)")
+    b_asm.add_argument("--finding", type=Path, default=None,
+                       help="optional finding.json to copy in verbatim")
+    b_asm.add_argument("--impact", type=Path, default=None,
+                       help="optional impact.json to copy in verbatim")
+    b_asm.add_argument("--maintainers", type=Path, default=None,
+                       help="optional maintainers.json to copy in verbatim")
+    b_asm.add_argument("--attr", default=None,
+                       help="affected attr_path (e.g. 'traefik'); falls back to "
+                            "resolver-input's attr_path field")
+    b_asm.add_argument("--nixpkgs-rev", default=None,
+                       help="nixpkgs revision for go-mod-vendor pinning")
+    b_asm.add_argument("--go-mod-vendor", action="store_true",
+                       help="run live go-mod-vendor for vendorHash slots "
+                            "(slow; off by default)")
+    b_asm.add_argument("--format", choices=("human", "json"), default="human")
+
     args = parser.parse_args(argv)
     if args.cmd == "replay":
         return _cmd_replay(args)
@@ -131,7 +165,40 @@ def main(argv: list[str]) -> int:
         if args.review_cmd == "summarize":
             return _cmd_review_summarize(args)
         return EXIT_USAGE
+    if args.cmd == "bundle":
+        if args.bundle_cmd == "assemble":
+            return _cmd_bundle_assemble(args)
+        return EXIT_USAGE
     return EXIT_USAGE
+
+
+def _cmd_bundle_assemble(args: argparse.Namespace) -> int:
+    from tools.trace_cli.bundle import assemble_bundle, emit_human_summary
+
+    try:
+        result = assemble_bundle(
+            resolver_input_path=args.input,
+            package_nix_path=args.package,
+            out_dir=args.out,
+            finding_path=args.finding,
+            impact_path=args.impact,
+            maintainers_path=args.maintainers,
+            attr_path=args.attr,
+            nixpkgs_rev=args.nixpkgs_rev,
+            run_go_mod_vendor=args.go_mod_vendor,
+        )
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_INVALID
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        print(f"error: assembly failed: {exc}", file=sys.stderr)
+        return EXIT_INVALID
+
+    if args.format == "json":
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(emit_human_summary(result))
+    return EXIT_OK
 
 
 def _cmd_review_summarize(args: argparse.Namespace) -> int:
