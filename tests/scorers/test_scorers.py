@@ -55,18 +55,26 @@ def _patch_response() -> str:
     # Bumps both version and hash. Hash-verifiability requires every hash
     # attribute present in the original package.nix to be touched after a
     # version bump (silent omission is a violation), so a minimal-but-
-    # complete synthetic patch must update both.
+    # complete synthetic patch must update both. The diff body MUST also
+    # `git apply --check`-clean against the synthetic fixture's
+    # package.nix (schema-valid scorer's strict-apply gate landed
+    # 2026-04-27): @@ headers must match the body's line counts AND
+    # context lines must match the original file's content. Two hunks
+    # (one per attribute) keeps the line-count math local.
     return (
         "=== BEGIN patch.diff ===\n"
         "--- a/package.nix\n"
         "+++ b/package.nix\n"
-        "@@ -5,5 +5,5 @@\n"
+        "@@ -4,3 +4,3 @@\n"
+        '   pname = "libexample";\n'
         '-  version = "1.4.7";\n'
         '+  version = "1.4.8";\n'
         ' \n'
-        ' src = fetchurl {\n'
+        "@@ -8,3 +8,3 @@\n"
+        '     url = "https://example.invalid/libexample-${version}.tar.gz";\n'
         '-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";\n'
         '+    hash = "sha256-NewlyComputedSyntheticHashForTestingPurposes=";\n'
+        '   };\n'
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + RATIONALE
@@ -235,6 +243,33 @@ def _patch_invocation_with(outputs: list[str]) -> dict:
         "invocation_id": "00000000-0000-4000-8000-000000000010",
         "outputs": [{"path": p, "sha256": "0" * 64} for p in outputs],
     }
+
+
+def test_schema_valid_scorer_rejects_patch_that_fails_git_apply(tmp_path):
+    """Strict-apply gate: a unified diff with WRONG @@ line numbers (or no
+    trailing newline) parses fine but `git apply --check` rejects it.
+    Surfaced by the openssl_3 run on 2026-04-27."""
+    bundle_dir = _copy_fixture(tmp_path)
+    # The synthetic fixture's package.nix is 19 lines; the diff below
+    # claims @@ -800,3 +800,3 @@ which is way beyond the file.
+    bad_diff = (
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -800,3 +800,3 @@\n"
+        '-  version = "1.4.7";\n'
+        '+  version = "1.4.8";\n'
+    )
+    (bundle_dir / "patch.diff").write_text(bad_diff)
+    (bundle_dir / "patch-rationale.md").write_text(RATIONALE)
+    s = SchemaValidScorer()
+    r = s.score(
+        bundle_dir=bundle_dir,
+        invocation=_patch_invocation_with(["patch.diff", "patch-rationale.md"]),
+    )
+    assert r.applies is True
+    assert r.score == 0.0, r.notes
+    assert "git apply --check" in r.notes
+    assert r.details["git_apply_check"].startswith("failed:"), r.details
 
 
 def test_schema_valid_scorer_rejects_missing_rationale_heading(tmp_path):
