@@ -133,7 +133,8 @@
               "no-derivable-rule",
               "low-confidence-not-auto-prefetched",
               "go-mod-vendor-prefetch-failed",
-              "fetchzip-prefetch-failed"
+              "fetchzip-prefetch-failed",
+              "closure-captured-version"
             ]
           },
           "required_for_patch": {

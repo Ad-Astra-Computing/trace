@@ -104,6 +104,9 @@ SKIP_REASONS: tuple[str, ...] = (
     "no-derivable-rule",                   # nothing in package.nix or upstream-ref hints at a URL
     "missing-target-version",              # upstream-ref doesn't have target_version
     "missing-tag",                         # github archive needs a tag and the bundle has none
+    "closure-captured-version",            # fetchzip-extraction is a no-op when src is built
+                                           # inside a `common = { version, ... }: …` closure;
+                                           # surfaced by openssl_3 on 2026-04-27
 )
 
 
@@ -145,6 +148,22 @@ _FROMGITHUB_REV_RE = re.compile(r"fetchFromGitHub\s*\{[^}]*?rev\s*=\s*\"(?P<rev>
 _HASH_ATTR_PRESENCE_RE = re.compile(
     r"^\s*(?P<name>" + "|".join(re.escape(n) for n in NON_URL_HASH_ATTRS) + r")\s*=",
     re.MULTILINE,
+)
+
+# Closure-captured-version detector. Fires when package.nix defines a
+# helper function with `version` as one of its arguments, called later
+# with concrete values. Canonical case: openssl/default.nix uses
+#   common = { version, hash, ... }: stdenv.mkDerivation { src = fetchurl
+#       { url = "...${version}/..."; inherit hash; }; ... };
+#   openssl_3 = common { version = "3.0.17"; ... };
+# `overrideAttrs` on the outer derivation does NOT re-trigger evaluation
+# of the closure, so the fetchzip module's `version` override is a
+# no-op. The detector is conservative (fires on `<name> = { version,
+# … }:` followed somewhere by `src = ` or `fetchurl`); false positives
+# just route to manual-pinning, which is the safer fallback anyway.
+_CLOSURE_CAPTURED_VERSION_RE = re.compile(
+    r"\b\w+\s*=\s*\{\s*[^}]*\bversion\b[^}]*\}\s*:",
+    re.DOTALL,
 )
 
 # Nix interpolation tokens we know how to substitute. `${version}` is
@@ -264,6 +283,41 @@ def derive_prefetch_targets(
                     required_for_patch=True,
                     detail="no fetchFromGitHub / fetchurl / fetchzip / gitlab-host / upstream-ref rule matched",
                 ))
+
+        # Closure-captured-version override. When the package defines a
+        # `helper = { version, ... }:` style function, fetchzip's
+        # overrideAttrs approach is a no-op (surfaced by openssl_3 on
+        # 2026-04-27). Replace any src.hash target with a structured
+        # skip so auto_prefetch_high_confidence can't run fetchzip
+        # against it; the operator falls back to manual-pinning.
+        if _CLOSURE_CAPTURED_VERSION_RE.search(package_source):
+            new_targets: list[DerivedTarget] = []
+            displaced = False
+            for t in targets:
+                if t.name == "src.hash":
+                    displaced = True
+                    continue
+                new_targets.append(t)
+            targets = new_targets
+            # Drop any prior src.hash skip; re-add with the more specific reason.
+            skipped = [s for s in skipped if s.name != "src.hash"]
+            skipped.insert(0, SkippedTarget(
+                name="src.hash",
+                reason="closure-captured-version",
+                required_for_patch=True,
+                detail=(
+                    "package.nix defines a `helper = { version, ... }:` "
+                    "style closure that captures `version` at definition "
+                    "time; overrideAttrs on the outer derivation does NOT "
+                    "re-trigger evaluation of the closure, so fetchzip "
+                    "extraction is a no-op. Operator must supply src.hash "
+                    "via manual-pinned source until a closure-aware "
+                    "extraction module lands."
+                ),
+            ))
+            if displaced:
+                # Diagnostic: record that we displaced a derived target.
+                pass
 
     # ── 4. vendor-style hashes detected in package.nix → skipped ─────────
     for m in _HASH_ATTR_PRESENCE_RE.finditer(package_source):

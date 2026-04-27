@@ -163,6 +163,67 @@ def test_skipped_target_serialised_validates_against_schema() -> None:
     assert not errors, errors
 
 
+def test_closure_captured_version_skips_fetchzip() -> None:
+    """openssl-style: `common = { version, hash, ... }:` closure that
+    captures version at definition time. fetchzip's overrideAttrs is a
+    no-op against this shape (surfaced by openssl_3 on 2026-04-27), so
+    src.hash MUST be skipped with reason `closure-captured-version`,
+    not derived as a high-confidence URL target."""
+    pkg = (
+        '{ stdenv, fetchurl, ... }:\n'
+        'let\n'
+        '  common = { version, hash, ... }: stdenv.mkDerivation {\n'
+        '    pname = "openssl"; inherit version;\n'
+        '    src = fetchurl {\n'
+        '      url = "https://example.invalid/openssl-${version}.tar.gz";\n'
+        '      inherit hash;\n'
+        '    };\n'
+        '  };\n'
+        'in {\n'
+        '  openssl_3 = common { version = "3.0.17"; hash = "sha256-…"; };\n'
+        '}\n'
+    )
+    upstream_ref = {
+        **_MIN_UPSTREAM_REF,
+        "current_version": "3.0.17",
+        "target_version": "3.0.18",
+        "tag": "openssl-3.0.18",
+        "upstream_fix_commits": [{
+            "repo_url": "https://github.com/openssl/openssl",
+            "commit_sha": "deadbeef" * 5,
+        }],
+    }
+    out = derive_prefetch_targets(
+        upstream_ref=upstream_ref, package_source=pkg, attr_path="openssl_3",
+    )
+    # No src.hash target: the closure-captured detector displaced any.
+    assert not any(t.name == "src.hash" for t in out.targets), out
+    # src.hash MUST be in skipped[] with the new reason.
+    src_skip = next((s for s in out.skipped if s.name == "src.hash"), None)
+    assert src_skip is not None
+    assert src_skip.reason == "closure-captured-version"
+    assert src_skip.required_for_patch is True
+
+
+def test_simple_package_does_not_trigger_closure_detector() -> None:
+    """A package without a `helper = { version, ... }:` closure must
+    NOT be skipped — the detector should be conservative-but-not-paranoid."""
+    pkg = (
+        '{ stdenv, fetchurl }:\n'
+        'stdenv.mkDerivation rec {\n'
+        '  pname = "lib";\n'
+        '  version = "1.0.0";\n'
+        '  src = fetchurl { url = "https://x.invalid/${version}.tar"; hash = "..."; };\n'
+        '}\n'
+    )
+    out = derive_prefetch_targets(
+        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg, attr_path="lib",
+    )
+    src_targets = [t for t in out.targets if t.name == "src.hash"]
+    assert len(src_targets) == 1, out
+    assert not any(s.reason == "closure-captured-version" for s in out.skipped)
+
+
 def test_missing_target_version_skip_is_not_required_for_patch() -> None:
     """When upstream-ref has no target_version, the resolver can't even
     tell whether the patch path is reachable. The src.hash skip is

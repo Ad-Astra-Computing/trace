@@ -513,20 +513,34 @@ def finalize_bundle(
 
     # bundle-schema requires kind_reason on every non-auto-merge bundle.
     # Default to a sensible value driven by upstream-ref's eligibility
-    # signal so a finalize against a fresh assemble output is schema-
-    # valid out of the box. Caller can override via the --kind-reason
-    # flag when their workflow needs a different code.
+    # signal AND impact.json's blast-radius signal so a finalize against
+    # a fresh assemble output is schema-valid out of the box. Caller can
+    # override via the --kind-reason flag when their workflow needs a
+    # different code. Resolution order:
+    #   1. impact.json.exceeds_threshold == true -> blast-radius-exceeds-threshold
+    #      (trumps trigger because it's a measurable cap signal)
+    #   2. eligibility.human_review_trigger -> matching code
+    #   3. eligibility.verdict starts with "ineligible-" -> verbatim
+    #   4. fallback: major-version-jump-requires-review (operator should override)
     if bundle_kind != "auto-merge" and kind_reason is None:
+        impact_path = bundle_dir / "impact.json"
+        impact_doc: dict = {}
+        if impact_path.is_file():
+            try:
+                impact_doc = json.loads(impact_path.read_text())
+            except json.JSONDecodeError:
+                impact_doc = {}
         verdict = (upstream_ref.get("eligibility") or {}).get("verdict", "")
         trigger = (upstream_ref.get("eligibility") or {}).get("human_review_trigger", "")
-        if trigger == "major-version-jump":
+        if impact_doc.get("exceeds_threshold") is True:
+            kind_reason = "blast-radius-exceeds-threshold"
+        elif trigger == "major-version-jump":
             kind_reason = "major-version-jump-requires-review"
         elif trigger == "large-sbom-delta":
             kind_reason = "large-sbom-delta"
         elif verdict.startswith("ineligible-"):
             kind_reason = verdict
         else:
-            # Last-resort default; the operator should override.
             kind_reason = "major-version-jump-requires-review"
 
     bundle_doc: dict[str, Any] = {
