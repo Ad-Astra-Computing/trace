@@ -64,9 +64,11 @@ class ScorerRunReport:
     composite_merge_ready_rate: float | None
     scorers_in_denominator: list[str]
     scorers_excluded: list[dict[str, str]]
+    prompt_sha: str | None = None  # extracted from invocation.prompt.sha256
+    model_id: str | None = None    # extracted from invocation.model.model_id
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "bundle_dir": self.bundle_dir,
             "invocation_id": self.invocation_id,
@@ -77,8 +79,17 @@ class ScorerRunReport:
                 "merge_ready_rate": self.composite_merge_ready_rate,
                 "scorers_in_denominator": list(self.scorers_in_denominator),
                 "scorers_excluded": [dict(x) for x in self.scorers_excluded],
+                # Mirrors patcher_kind. Aggregators consume this to decide
+                # which denominator class a report represents without
+                # having to re-derive it from scorers_in_denominator.
+                "cohort_class": self.patcher_kind,
             },
         }
+        if self.prompt_sha is not None:
+            d["prompt_sha"] = self.prompt_sha
+        if self.model_id is not None:
+            d["model_id"] = self.model_id
+        return d
 
 
 def run_scorers(
@@ -123,6 +134,8 @@ def run_scorers(
 
     composite = statistics.mean(denom_scores) if denom_scores else None
 
+    prompt_sha = (invocation.get("prompt") or {}).get("sha256")
+    model_id = (invocation.get("model") or {}).get("model_id")
     return ScorerRunReport(
         bundle_dir=str(bundle_dir),
         invocation_id=invocation.get("invocation_id") or "",
@@ -132,6 +145,8 @@ def run_scorers(
         composite_merge_ready_rate=composite,
         scorers_in_denominator=in_denom,
         scorers_excluded=excluded,
+        prompt_sha=prompt_sha if isinstance(prompt_sha, str) else None,
+        model_id=model_id if isinstance(model_id, str) else None,
     )
 
 
