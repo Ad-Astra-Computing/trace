@@ -297,9 +297,21 @@ def _try_fetch_from_github(
 ) -> DerivedTarget | None:
     """github-release-archive rule.
 
-    Fires when package.nix has a fetchFromGitHub block AND the bundle
-    carries a `tag`. Confidence is high because the URL shape is
-    deterministic.
+    Fires when package.nix has a `fetchFromGitHub` block AND the bundle
+    carries a `tag`. Emits MEDIUM confidence (DOWNGRADED from high in
+    the 2026-04-27 uriparser run): `nix-prefetch-url` against the
+    github archive URL is the WRONG TOOL for the hash `fetchFromGitHub`
+    will demand. fetchFromGitHub uses `fetchzip` semantics under the
+    hood (download → unpack → re-archive → hash), so the raw github
+    archive hash diverges from the fetchFromGitHub hash. Until a
+    fetchzip-aware FOD-extraction module lands (next punch-list item),
+    these targets surface for inspection but are NOT auto-prefetched
+    by `auto_prefetch_high_confidence`.
+
+    The rule still fires because the derived URL is useful diagnostic
+    metadata: a future fetchzip-aware module can read the URL and the
+    target version, then run `nix-build` with `lib.fakeHash` to recover
+    the correct hash.
     """
     owner_m = _FROMGITHUB_OWNER_RE.search(package_source)
     repo_m = _FROMGITHUB_REPO_RE.search(package_source)
@@ -326,7 +338,7 @@ def _try_fetch_from_github(
         name="src.hash",
         url=url,
         derivation_rule="github-release-archive",
-        confidence="high",
+        confidence="medium",
     )
 
 

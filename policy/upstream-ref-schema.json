@@ -74,12 +74,12 @@
           "source": {
             "description": "How the hash was acquired, for replay attribution.",
             "type": "string",
-            "enum": ["nix-prefetch-url", "nix-prefetch-git", "github-release-archive", "gitlab-release-archive", "vendor-lockfile-prefetch", "go-mod-vendor", "manual-pinned"]
+            "enum": ["nix-prefetch-url", "nix-prefetch-git", "github-release-archive", "gitlab-release-archive", "vendor-lockfile-prefetch", "go-mod-vendor", "fetchzip-src-extract", "manual-pinned"]
           },
           "prefetch_kind": {
-            "description": "Mechanism class. `url` fetches a single artifact at a URL and hashes it. `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash (output applies to vendorHash). Future kinds (cargo-vendor, npm-deps, …) will land separately. Required from schema_version 1.1.0 onward; emitters MUST write the field verbatim rather than relying on a default. Consumers reading legacy 1.0.0 bundles (which don't have this field) should treat absence as `url`.",
+            "description": "Mechanism class. `url` fetches a single artifact at a URL and hashes it (correct for `fetchurl`-style fetchers; WRONG for `fetchFromGitHub` / `fetchzip` / `fetchgit` because those use fetchzip semantics under the hood). `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash (output applies to `vendorHash`). `fetchzip` runs a Nix-overlay build that overrides `src.hash` to `lib.fakeHash`, expects the FOD-mismatch error, and parses the real hash out of stderr (correct for fetchFromGitHub / fetchzip / fetchgit / equivalent fetchers; output applies to `src.hash`). Future kinds (cargo-vendor, npm-deps, …) will land separately. Required from schema_version 1.1.0 onward; emitters MUST write the field verbatim. Consumers reading legacy 1.0.0 bundles (which don't have this field) should treat absence as `url`.",
             "type": "string",
-            "enum": ["url", "go-mod-vendor"]
+            "enum": ["url", "go-mod-vendor", "fetchzip"]
           },
           "derivation_command": {
             "description": "Exact command (or derivation target) used when prefetch_kind != url. Required when prefetch_kind == go-mod-vendor; lets future replay reproduce the acquisition.",
@@ -132,7 +132,8 @@
               "missing-tag",
               "no-derivable-rule",
               "low-confidence-not-auto-prefetched",
-              "go-mod-vendor-prefetch-failed"
+              "go-mod-vendor-prefetch-failed",
+              "fetchzip-prefetch-failed"
             ]
           },
           "required_for_patch": {
@@ -186,7 +187,8 @@
               "tool-exit-nonzero",
               "tool-output-unparseable",
               "ecosystem-not-supported",
-              "go-mod-vendor-prefetch-failed"
+              "go-mod-vendor-prefetch-failed",
+              "fetchzip-prefetch-failed"
             ]
           },
           "required_for_patch": {

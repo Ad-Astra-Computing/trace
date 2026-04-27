@@ -156,6 +156,12 @@ def main(argv: list[str]) -> int:
     b_asm.add_argument("--go-mod-vendor", action="store_true",
                        help="run live go-mod-vendor for vendorHash slots "
                             "(slow; off by default)")
+    b_asm.add_argument("--fetchzip", action="store_true",
+                       help="run live fetchzip src.hash extraction for "
+                            "fetchFromGitHub / fetchzip / fetchgit packages "
+                            "(slow; off by default). Required when the "
+                            "package uses any fetcher whose hash is NOT "
+                            "the raw download hash.")
     b_asm.add_argument("--format", choices=("human", "json"), default="human")
 
     b_fin = b_subs.add_parser(
@@ -309,6 +315,7 @@ def _cmd_bundle_assemble(args: argparse.Namespace) -> int:
             attr_path=args.attr,
             nixpkgs_rev=args.nixpkgs_rev,
             run_go_mod_vendor=args.go_mod_vendor,
+            run_fetchzip=args.fetchzip,
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)

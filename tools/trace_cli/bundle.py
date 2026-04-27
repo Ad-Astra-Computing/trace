@@ -52,11 +52,15 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 from agents.upstream_ref_resolver import (
+    FetchzipFailure,
+    FetchzipRequest,
+    FetchzipSuccess,
     GoModVendorFailure,
     GoModVendorRequest,
     GoModVendorSuccess,
     PrefetchTarget,
     derive_prefetch_targets,
+    prefetch_fetchzip,
     prefetch_go_mod_vendor,
     prefetch_targets,
     resolve,
@@ -102,8 +106,10 @@ def assemble_bundle(
     attr_path: str | None = None,
     nixpkgs_rev: str | None = None,
     run_go_mod_vendor: bool = False,
+    run_fetchzip: bool = False,
     prefetch_url_fn=None,
     go_mod_vendor_runner=None,
+    fetchzip_runner=None,
 ) -> AssembleResult:
     """Run the resolver-side pipeline end-to-end and write canonical artifacts.
 
@@ -153,6 +159,36 @@ def assemble_bundle(
         ]
         url_outcome = prefetch_targets(prefetch_inputs, prefetch_url_fn=prefetch_url_fn)
 
+        # Optional fetchzip src.hash extraction for medium-confidence
+        # github-release-archive / similar fetcher targets. Auto-prefetch
+        # only fires for HIGH confidence; the fetchzip runner is the
+        # right tool for fetchFromGitHub / fetchzip / fetchgit, where
+        # `nix-prefetch-url`'s hash diverges from what the package's
+        # actual fetcher demands.
+        fz_successes: list[FetchzipSuccess] = []
+        fz_failures: list[FetchzipFailure] = []
+        if run_fetchzip and target_version:
+            for t in derivation.targets:
+                if t.name != "src.hash":
+                    continue
+                if t.confidence == "high":
+                    continue  # already handled by URL prefetch
+                if any(h.name == "src.hash" for h in url_outcome.hashes):
+                    continue  # URL prefetch already grounded src.hash
+                request = FetchzipRequest(
+                    attr_path=attr or "",
+                    target_version=target_version,
+                    nixpkgs_rev=nixpkgs_rev,
+                )
+                outcome = prefetch_fetchzip(
+                    request, command_runner=fetchzip_runner,
+                )
+                if isinstance(outcome, FetchzipSuccess):
+                    fz_successes.append(outcome)
+                else:
+                    fz_failures.append(outcome)
+                break  # one src.hash slot per package
+
         # Optional go-mod-vendor for any vendorHash skip.
         gmv_successes: list[GoModVendorSuccess] = []
         gmv_failures: list[GoModVendorFailure] = []
@@ -190,6 +226,7 @@ def assemble_bundle(
 
         # Compose final upstream-ref.
         ph_entries: list[dict] = [h.to_dict() for h in url_outcome.hashes]
+        ph_entries += [f.to_schema_dict() for f in fz_successes]
         ph_entries += [g.to_schema_dict() for g in gmv_successes]
         any_prefetch_field = False
         if ph_entries:
@@ -200,11 +237,13 @@ def assemble_bundle(
             upstream_ref["prefetch_skips"] = [s.to_schema_dict() for s in remaining_skips]
             skip_descrs = [f"{s.name}={s.reason}" for s in remaining_skips]
             any_prefetch_field = True
-        if url_outcome.failures or gmv_failures:
+        if url_outcome.failures or gmv_failures or fz_failures:
             failures_list = list(url_outcome.failures_as_list())
+            failures_list += [f.to_schema_dict() for f in fz_failures]
             failures_list += [_gmv_failure_to_prefetch_failures_entry(f) for f in gmv_failures]
             upstream_ref.setdefault("prefetch_failures", []).extend(failures_list)
             failure_descrs = [f"{f.name}={f.reason}" for f in url_outcome.failures]
+            failure_descrs += [f"{f.name}={f.reason}" for f in fz_failures]
             failure_descrs += [f"{f.name}={f.reason}" for f in gmv_failures]
             any_prefetch_field = True
         # Schema-version bump: emitting any prefetch_* field requires 1.1.0
