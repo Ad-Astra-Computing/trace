@@ -187,17 +187,26 @@ def assemble_bundle(
         # Compose final upstream-ref.
         ph_entries: list[dict] = [h.to_dict() for h in url_outcome.hashes]
         ph_entries += [g.to_schema_dict() for g in gmv_successes]
+        any_prefetch_field = False
         if ph_entries:
             upstream_ref["prefetch_hashes"] = ph_entries
             grounded_names = [e["name"] for e in ph_entries]
+            any_prefetch_field = True
         if remaining_skips:
             upstream_ref["prefetch_skips"] = [s.to_schema_dict() for s in remaining_skips]
             skip_descrs = [f"{s.name}={s.reason}" for s in remaining_skips]
+            any_prefetch_field = True
         if url_outcome.failures:
             upstream_ref.setdefault("prefetch_failures", []).extend(
                 url_outcome.failures_as_list()
             )
             failure_descrs = [f"{f.name}={f.reason}" for f in url_outcome.failures]
+            any_prefetch_field = True
+        # Schema-version bump: emitting any prefetch_* field requires 1.1.0
+        # per the schema's allOf rule. Resolver itself emits 1.0.0; bundle
+        # assemble is the layer that materialises the additive fields.
+        if any_prefetch_field:
+            upstream_ref["schema_version"] = "1.1.0"
 
     # Write artifacts.
     out_dir.mkdir(parents=True, exist_ok=True)
