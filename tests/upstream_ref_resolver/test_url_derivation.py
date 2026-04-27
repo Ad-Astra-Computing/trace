@@ -113,11 +113,70 @@ def test_traefik_skips_vendor_hash() -> None:
     assert src_targets[0].derivation_rule in (
         "package-url-template", "github-release-archive",
     )
-    # vendorHash MUST be in skipped[] with reason ecosystem-not-url-derivable.
+    # vendorHash MUST be in skipped[] with reason ecosystem-not-url-derivable
+    # AND required_for_patch=True.
     skipped_names = [s.name for s in out.skipped]
     assert "vendorHash" in skipped_names
     vendor = next(s for s in out.skipped if s.name == "vendorHash")
     assert vendor.reason == "ecosystem-not-url-derivable"
+    assert vendor.required_for_patch is True
+
+
+def test_skipped_target_serialises_to_schema_shape() -> None:
+    """SkippedTarget.to_schema_dict() must match upstream-ref-schema's
+    prefetch_skips[] entry shape: name, reason, required_for_patch
+    required; detail optional; nothing else."""
+    s = SkippedTarget(
+        name="vendorHash",
+        reason="ecosystem-not-url-derivable",
+        required_for_patch=True,
+        detail="needs go-mod-vendor prefetch path",
+    )
+    d = s.to_schema_dict()
+    assert set(d) == {"name", "reason", "required_for_patch", "detail"}
+    assert d["name"] == "vendorHash"
+    assert d["reason"] == "ecosystem-not-url-derivable"
+    assert d["required_for_patch"] is True
+    assert d["detail"] == "needs go-mod-vendor prefetch path"
+
+
+def test_skipped_target_serialised_validates_against_schema() -> None:
+    """Round-trip: skipped[] from a real bundle must validate as
+    upstream-ref-schema.json prefetch_skips[]."""
+    from jsonschema import Draft202012Validator
+
+    bundle = _bundle("CVE-2026-25949--traefik")
+    upstream_ref, package_source = _read_bundle_inputs(bundle)
+    out = derive_prefetch_targets(
+        upstream_ref=upstream_ref, package_source=package_source,
+        attr_path="traefik",
+    )
+    schema_path = REPO_ROOT / "policy" / "upstream-ref-schema.json"
+    schema = json.loads(schema_path.read_text())
+    enriched = {
+        **{k: v for k, v in upstream_ref.items() if k != "prefetch_hashes"},
+        "prefetch_skips": [s.to_schema_dict() for s in out.skipped],
+    }
+    validator = Draft202012Validator(schema)
+    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
+             for e in validator.iter_errors(enriched)]
+    assert not errors, errors
+
+
+def test_missing_target_version_skip_is_not_required_for_patch() -> None:
+    """When upstream-ref has no target_version, the resolver can't even
+    tell whether the patch path is reachable. The src.hash skip is
+    informational, not required_for_patch=True."""
+    upstream_ref = dict(_MIN_UPSTREAM_REF)
+    upstream_ref.pop("target_version")
+    out = derive_prefetch_targets(
+        upstream_ref=upstream_ref,
+        package_source='fetchurl { url = "https://x.invalid/${version}.tar.gz"; }',
+    )
+    src_skip = next((s for s in out.skipped if s.name == "src.hash"), None)
+    assert src_skip is not None
+    assert src_skip.reason == "missing-target-version"
+    assert src_skip.required_for_patch is False
 
 
 # ─── synthetic / negative-path cases ───────────────────────────────────────

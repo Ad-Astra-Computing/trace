@@ -95,6 +95,44 @@
         }
       }
     },
+    "prefetch_skips": {
+      "description": "Structured record of hash slots the resolver KNEW it could not prefetch in v0 (as distinct from prefetch_failures[], which records prefetches that were attempted and failed). Patcher reads this field: a slot listed in prefetch_skips[] with required_for_patch=true is an auditable reason to refuse under rule 8 even when the operator hand-populated other prefetch_hashes[] entries. UpstreamRefResolver writes one entry per skipped slot.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "reason", "required_for_patch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The Nix attribute name the slot is for (e.g. 'vendorHash', 'cargoHash').",
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "description": "Why the resolver skipped this slot. Distinct from prefetch_failures[].reason because nothing was attempted.",
+            "type": "string",
+            "enum": [
+              "ecosystem-not-url-derivable",
+              "ecosystem-not-supported",
+              "url-template-too-complex",
+              "missing-target-version",
+              "missing-tag",
+              "no-derivable-rule",
+              "low-confidence-not-auto-prefetched"
+            ]
+          },
+          "required_for_patch": {
+            "description": "True iff the resolver believes a merge-ready patch must update this hash (e.g. vendorHash detected in package.nix when the patch bumps version). When true, Patcher MUST refuse with rule 8 if no grounded value is supplied for the slot via any other channel. False entries are informational.",
+            "type": "boolean"
+          },
+          "detail": {
+            "description": "Free-form additional detail for replay / Steward debugging.",
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      }
+    },
     "prefetch_failures": {
       "description": "Structured record of prefetch attempts that did NOT produce a usable hash. Recording failures here (instead of on prefetch_hashes[] or omitting silently) lets Patcher's refusal rule 8 fire deterministically while preserving replay attribution. Patcher does NOT read this field; it is for Steward / Reviewer / debugging only. UpstreamRefResolver writes one entry per failed prefetch attempt.",
       "type": "array",
