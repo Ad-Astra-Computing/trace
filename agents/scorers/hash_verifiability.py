@@ -169,12 +169,44 @@ class HashVerifiabilityScorer:
         added_lines = _added_lines(diff_text)
         added_text = "\n".join(added_lines)
 
+        # Pull the prefetch_hashes[] table from upstream-ref.json. The Patcher
+        # is permitted to emit a hash value ONLY if it appears in this table.
+        # When the table is PRESENT, the scorer enforces strict matching: any
+        # non-forbidden value not on the list scores as `not-in-prefetch-list`.
+        # When the table is ABSENT (pre-prefetch v0 bundles), the scorer
+        # falls back to forbidden-pattern checking only — anything not
+        # forbidden is accepted as `grounded`. This keeps the three existing
+        # corpus runs (traefik / mbedtls / bind) backward-compatible.
+        upstream_ref_path = bundle_dir / "upstream-ref.json"
+        prefetch_values: set[str] = set()
+        prefetch_table_present = False
+        if upstream_ref_path.is_file():
+            try:
+                upstream_ref = json.loads(upstream_ref_path.read_text())
+            except json.JSONDecodeError:
+                upstream_ref = {}
+            ph = upstream_ref.get("prefetch_hashes")
+            if isinstance(ph, list):
+                prefetch_table_present = True
+                for entry in ph:
+                    v = entry.get("value") if isinstance(entry, dict) else None
+                    if isinstance(v, str) and v:
+                        prefetch_values.add(v)
+
         # Find every hash-shaped assignment introduced in the added lines.
         introduced: list[dict[str, Any]] = []
         for m in _HASH_ASSIGN_RE.finditer(added_text):
             name = m.group("name")
             value = m.group("value").strip()
             verdict = _classify_hash_value(value)
+            # When the prefetch table is present, classify non-forbidden
+            # values strictly against it.
+            if verdict == "grounded" and prefetch_table_present:
+                bare = value.strip('"').strip("'")
+                if bare in prefetch_values:
+                    verdict = "grounded-prefetch"
+                else:
+                    verdict = "not-in-prefetch-list"
             introduced.append({"attr": name, "value": value, "verdict": verdict})
 
         # Detect silent omission: if `version =` was bumped in the diff,
@@ -202,14 +234,15 @@ class HashVerifiabilityScorer:
                 }
                 omitted_attrs = sorted(original_hash_attrs - touched_attrs)
 
-        # Tally: every introduced hash with verdict != "grounded" is a
-        # violation; every omitted hash after a version bump is a
-        # violation. Score is 1 - violations / required_count, floored at
-        # 0. A patch that touches no hashes and bumps no version is
-        # vacuously a pass.
+        # Tally: every introduced hash whose verdict is not in the grounded
+        # set is a violation; every omitted hash after a version bump is a
+        # violation. Score is 1 - violations / required_count, floored at 0.
+        # A patch that touches no hashes and bumps no version is vacuously
+        # a pass.
+        grounded_verdicts = {"grounded", "grounded-prefetch"}
         violations: list[dict[str, Any]] = []
         for entry in introduced:
-            if entry["verdict"] != "grounded":
+            if entry["verdict"] not in grounded_verdicts:
                 violations.append({
                     "kind": entry["verdict"],
                     "attr": entry["attr"],
@@ -250,6 +283,8 @@ class HashVerifiabilityScorer:
             notes=note,
             details={
                 "version_bumped": version_bumped,
+                "prefetch_table_present": prefetch_table_present,
+                "prefetch_values_count": len(prefetch_values),
                 "introduced": introduced,
                 "omitted_attrs": omitted_attrs,
                 "violations": violations,

@@ -224,6 +224,130 @@ def test_no_version_bump_no_hash_no_violation(tmp_path: Path) -> None:
     assert "vacuously" in r.notes
 
 
+def test_prefetch_table_grandfathers_listed_value(tmp_path: Path) -> None:
+    """When upstream-ref.json carries prefetch_hashes[], a value listed there
+    scores as grounded-prefetch (strict-positive grounding)."""
+    diff = (
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -1,2 +1,2 @@\n"
+        '-  version = "1.0.0";\n'
+        '-  hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+        '+  version = "1.0.1";\n'
+        '+  hash = "sha256-Pr3F3tCH3dGr0und3dV4lu3FromUpstreamReleaseXYZ=";\n'
+    )
+    pkg = '  version = "1.0.0";\n  hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "patch.diff").write_text(diff)
+    (bundle / "package.nix").write_text(pkg)
+    (bundle / "upstream-ref.json").write_text(json.dumps({
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-0000-0000",
+        "current_version": "1.0.0",
+        "prefetch_hashes": [
+            {
+                "name": "src.hash",
+                "algorithm": "sha256",
+                "value": "sha256-Pr3F3tCH3dGr0und3dV4lu3FromUpstreamReleaseXYZ=",
+                "source": "nix-prefetch-url",
+                "url": "https://example.invalid/release-1.0.1.tar.gz",
+                "replay_critical": True,
+            },
+        ],
+        "eligibility": {"verdict": "eligible"},
+        "replay_critical": True,
+    }))
+    r = HashVerifiabilityScorer().score(
+        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+    )
+    assert r.applies is True
+    assert r.score == 1.0, r.notes
+    assert r.details is not None
+    assert r.details["prefetch_table_present"] is True
+    introduced = r.details["introduced"]
+    assert any(
+        e["verdict"] == "grounded-prefetch" and e["attr"] == "hash"
+        for e in introduced
+    ), introduced
+
+
+def test_prefetch_table_rejects_unlisted_value(tmp_path: Path) -> None:
+    """When prefetch_hashes[] is present, a value NOT on the list is a
+    not-in-prefetch-list violation (even if it is not on the forbidden list)."""
+    diff = (
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -1,2 +1,2 @@\n"
+        '-  version = "1.0.0";\n'
+        '-  hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+        '+  version = "1.0.1";\n'
+        '+  hash = "sha256-FabricatedButNotForbiddenLookingHashValue42Y=";\n'
+    )
+    pkg = '  version = "1.0.0";\n  hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "patch.diff").write_text(diff)
+    (bundle / "package.nix").write_text(pkg)
+    (bundle / "upstream-ref.json").write_text(json.dumps({
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-0000-0000",
+        "current_version": "1.0.0",
+        "prefetch_hashes": [
+            {
+                "name": "src.hash",
+                "algorithm": "sha256",
+                "value": "sha256-Pr3F3tCH3dGr0und3dV4lu3FromUpstreamReleaseXYZ=",
+                "source": "nix-prefetch-url",
+                "url": "https://example.invalid/release-1.0.1.tar.gz",
+                "replay_critical": True,
+            },
+        ],
+        "eligibility": {"verdict": "eligible"},
+        "replay_critical": True,
+    }))
+    r = HashVerifiabilityScorer().score(
+        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+    )
+    assert r.applies is True
+    assert r.score == 0.0, r.notes
+    kinds = {v["kind"] for v in r.details["violations"]}
+    assert kinds == {"not-in-prefetch-list"}
+
+
+def test_no_prefetch_table_falls_back_to_v0_lenient(tmp_path: Path) -> None:
+    """Pre-prefetch bundles (no prefetch_hashes field) keep v0 behaviour:
+    forbidden patterns flag, anything else passes."""
+    diff = (
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -1,2 +1,2 @@\n"
+        '-  version = "1.0.0";\n'
+        '-  hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+        '+  version = "1.0.1";\n'
+        '+  hash = "sha256-Re4l1stIcL00kingButNotForbiddenPatternXYZ=";\n'
+    )
+    pkg = '  version = "1.0.0";\n  hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "patch.diff").write_text(diff)
+    (bundle / "package.nix").write_text(pkg)
+    # No upstream-ref.json at all (or one without prefetch_hashes).
+    (bundle / "upstream-ref.json").write_text(json.dumps({
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-0000-0000",
+        "current_version": "1.0.0",
+        "eligibility": {"verdict": "eligible"},
+        "replay_critical": True,
+    }))
+    r = HashVerifiabilityScorer().score(
+        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+    )
+    assert r.applies is True
+    assert r.score == 1.0, r.notes
+    assert r.details["prefetch_table_present"] is False
+
+
 def test_non_rule_8_refusal_is_trivial_pass(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     bundle.mkdir()
