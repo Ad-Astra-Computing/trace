@@ -45,6 +45,42 @@
         }
       }
     },
+    "prefetch_hashes": {
+      "description": "Deterministically-acquired ground-truth hashes for the resolved upstream target. UpstreamRefResolver owns hash acquisition (e.g. nix-prefetch-url, gh release archive, locked vendor lockfile prefetch) and writes the values here BEFORE the Patcher is invoked. Patcher may emit a hash value in patch.diff ONLY if that exact value appears under prefetch_hashes[].value; any other hash value triggers refusal rule 8. List-shaped because the set of hash-bearing attributes varies by ecosystem (src.hash, vendorHash, cargoHash, npmDepsHash, pnpmDepsHash, yarnDepsHash, cargoSha256, …).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "algorithm", "value", "source", "replay_critical"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The Nix attribute name this hash belongs to (e.g. 'src.hash', 'vendorHash', 'cargoHash', 'npmDepsHash'). Patcher matches by exact name.",
+            "type": "string",
+            "minLength": 1
+          },
+          "algorithm": {
+            "type": "string",
+            "enum": ["sha256", "sha512", "blake2b-512"]
+          },
+          "value": {
+            "description": "The hash value the Patcher is permitted to emit verbatim. Format follows the algorithm: SRI form for sha256/sha512 (e.g. 'sha256-...=') is the v0 default.",
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "description": "How the hash was acquired, for replay attribution.",
+            "type": "string",
+            "enum": ["nix-prefetch-url", "nix-prefetch-git", "github-release-archive", "gitlab-release-archive", "vendor-lockfile-prefetch", "manual-pinned"]
+          },
+          "url": {
+            "description": "The exact URL the hash was prefetched against, when applicable. Required for source=nix-prefetch-url and source=github-release-archive / gitlab-release-archive.",
+            "type": "string",
+            "format": "uri"
+          },
+          "replay_critical": { "type": "boolean", "const": true }
+        }
+      }
+    },
     "delta": {
       "description": "Summary of what else changes between current_version and target_version. Required when eligibility.verdict == eligible so Patcher rationale can quote it.",
       "type": "object",
