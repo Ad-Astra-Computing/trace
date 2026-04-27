@@ -185,8 +185,20 @@ def test_rejects_refusal_bad_rule_number():
         "reason: off-scale rule number\n"
         "=== END refusal ==="
     )
-    with pytest.raises(PatcherOutputMalformed, match=r"\[1, 7\]"):
+    with pytest.raises(PatcherOutputMalformed, match=r"\[1, 8\]"):
         parse_patcher_output(raw)
+
+
+def test_accepts_refusal_rule_8():
+    raw = (
+        "=== BEGIN refusal ===\n"
+        "rule: 8\n"
+        "reason: vendorHash for v3.6.8 not present in upstream-ref evidence\n"
+        "=== END refusal ==="
+    )
+    r = parse_patcher_output(raw)
+    assert r.kind == "refusal"
+    assert r.refusal_rule == 8
 
 
 def test_rejects_refusal_missing_reason():
