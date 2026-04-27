@@ -174,14 +174,13 @@ def assemble_bundle(
                     # Drop the corresponding skip entry — now grounded.
                     remaining_skips = [s for s in remaining_skips if s.name != skip.name]
                 else:
+                    # Live attempt failed. Drop the skip entry (no longer
+                    # accurate: the resolver DID attempt). The failure
+                    # itself goes into prefetch_failures[] below, full
+                    # attribution preserved.
                     gmv_failures.append(outcome)
-                    # Replace the skip's reason with the structured failure
-                    # so the bundle records WHY the live-prefetch didn't
-                    # produce a hash.
                     remaining_skips = [
-                        (s if s.name != skip.name else
-                         _replace_skip_with_gmv_failure(s, outcome))
-                        for s in remaining_skips
+                        s for s in remaining_skips if s.name != skip.name
                     ]
 
         # Compose final upstream-ref.
@@ -196,11 +195,12 @@ def assemble_bundle(
             upstream_ref["prefetch_skips"] = [s.to_schema_dict() for s in remaining_skips]
             skip_descrs = [f"{s.name}={s.reason}" for s in remaining_skips]
             any_prefetch_field = True
-        if url_outcome.failures:
-            upstream_ref.setdefault("prefetch_failures", []).extend(
-                url_outcome.failures_as_list()
-            )
+        if url_outcome.failures or gmv_failures:
+            failures_list = list(url_outcome.failures_as_list())
+            failures_list += [_gmv_failure_to_prefetch_failures_entry(f) for f in gmv_failures]
+            upstream_ref.setdefault("prefetch_failures", []).extend(failures_list)
             failure_descrs = [f"{f.name}={f.reason}" for f in url_outcome.failures]
+            failure_descrs += [f"{f.name}={f.reason}" for f in gmv_failures]
             any_prefetch_field = True
         # Schema-version bump: emitting any prefetch_* field requires 1.1.0
         # per the schema's allOf rule. Resolver itself emits 1.0.0; bundle
@@ -247,17 +247,19 @@ def assemble_bundle(
     )
 
 
-def _replace_skip_with_gmv_failure(original_skip, failure: GoModVendorFailure):
-    """Translate a v0 'ecosystem-not-url-derivable' skip into the post-
-    go-mod-vendor 'go-mod-vendor-prefetch-failed' skip when the live run
-    didn't recover the hash. Keeps schema-shape clean for Patcher."""
-    from agents.upstream_ref_resolver.url_derivation import SkippedTarget
-    return SkippedTarget(
-        name=failure.name,
-        reason=failure.reason,
-        required_for_patch=failure.required_for_patch,
-        detail=failure.detail,
-    )
+def _gmv_failure_to_prefetch_failures_entry(failure: GoModVendorFailure) -> dict:
+    """Translate a GoModVendorFailure into a schema-shape prefetch_failures[]
+    entry. Preserves attempted_command + attempted_at + required_for_patch,
+    which the previous skip-translation lost."""
+    return {
+        "name": failure.name,
+        "reason": failure.reason,
+        "required_for_patch": failure.required_for_patch,
+        "tool": "nix-build",
+        "attempted_command": failure.attempted_command,
+        "detail": failure.detail[:2048],
+        "attempted_at": failure.attempted_at,
+    }
 
 
 def emit_human_summary(result: AssembleResult) -> str:

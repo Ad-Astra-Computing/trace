@@ -148,11 +148,11 @@
       }
     },
     "prefetch_failures": {
-      "description": "Structured record of prefetch attempts that did NOT produce a usable hash. Recording failures here (instead of on prefetch_hashes[] or omitting silently) lets Patcher's refusal rule 8 fire deterministically while preserving replay attribution. Patcher does NOT read this field; it is for Steward / Reviewer / debugging only. UpstreamRefResolver writes one entry per failed prefetch attempt.",
+      "description": "Structured record of prefetch attempts that did NOT produce a usable hash. Recording failures here (instead of on prefetch_hashes[] or omitting silently) lets Patcher's refusal rule 8 fire deterministically while preserving replay attribution. Patcher reads this field for the same reason it reads prefetch_skips[]: a failure entry with required_for_patch=true is an auditable refusal trigger.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "reason"],
+        "required": ["name", "reason", "required_for_patch"],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -171,6 +171,10 @@
           "tool_version": {
             "type": "string"
           },
+          "attempted_command": {
+            "description": "Exact command (or derivation target) attempted. Mirrors prefetch_hashes[].derivation_command for go-mod-vendor failures so that a translated skip preserves attribution.",
+            "type": "string"
+          },
           "reason": {
             "description": "Structured failure reason. v0 enum is small; extend as new failure modes appear.",
             "type": "string",
@@ -181,8 +185,13 @@
               "fetch-error-other",
               "tool-exit-nonzero",
               "tool-output-unparseable",
-              "ecosystem-not-supported"
+              "ecosystem-not-supported",
+              "go-mod-vendor-prefetch-failed"
             ]
+          },
+          "required_for_patch": {
+            "description": "True iff the resolver believes a merge-ready patch must update this hash (mirrors the prefetch_skips[] semantic). When true, Patcher MUST refuse with rule 8 if no grounded value is supplied for the slot via any other channel.",
+            "type": "boolean"
           },
           "detail": {
             "description": "Free-form additional detail (stderr excerpt, exit code, etc.) for debugging. Truncated to 2 KiB.",
