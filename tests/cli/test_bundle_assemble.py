@@ -514,3 +514,99 @@ def test_finalize_missing_bundle_dir_returns_invalid(tmp_path: Path, capsys) -> 
     ])
     assert rc != 0
     assert "does not exist" in capsys.readouterr().err
+
+
+def test_finalize_derives_blast_radius_kind_reason_from_impact(tmp_path: Path) -> None:
+    """When impact.json has exceeds_threshold=true, finalize should pick
+    `blast-radius-exceeds-threshold` automatically (no --kind-reason
+    needed). Mirrors the openssl_3 case landed 2026-04-27 by hand."""
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    # Provide an impact.json with exceeds_threshold=true.
+    impact = {
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-2025-13878",
+        "nixpkgs_rev": "0" * 40,
+        "blast_radius_threshold": 500,
+        "threshold_policy": "v0-default",
+        "affected_attr_paths": ["bind"],
+        "reverse_closure_count": 8742,
+        "reverse_closure_bucket": ">5000",
+        "reverse_closure_sample": ["x"],
+        "critical_downstreams": [],
+        "exceeds_threshold": True,
+        "per_attr": [{
+            "attr_path": "bind",
+            "drv_path": "/nix/store/00000000000000000000000000000003-bind-9.20.17.drv",
+            "reverse_closure_count": 8742,
+            "reverse_closure_bucket": ">5000",
+            "reverse_closure_sample": ["x"],
+            "critical_downstreams": [],
+            "exceeds_threshold": True,
+        }],
+        "replay_critical": True,
+    }
+    (bundle_dir / "impact.json").write_text(json.dumps(impact, indent=2))
+
+    finalize_bundle(bundle_dir=bundle_dir, bundle_kind="human-review-required")
+    bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
+    assert bundle_json["kind"] == "human-review-required"
+    assert bundle_json["kind_reason"] == "blast-radius-exceeds-threshold"
+
+
+def test_finalize_blast_radius_overrides_human_review_trigger(tmp_path: Path) -> None:
+    """When BOTH impact.exceeds_threshold=true AND eligibility.
+    human_review_trigger=major-version-jump are present, blast radius
+    wins (it is the measurable cap signal)."""
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    # Make impact say exceeds.
+    impact = {
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-2025-13878",
+        "nixpkgs_rev": "0" * 40,
+        "blast_radius_threshold": 500,
+        "threshold_policy": "v0-default",
+        "affected_attr_paths": ["bind"],
+        "reverse_closure_count": 8742,
+        "reverse_closure_bucket": ">5000",
+        "reverse_closure_sample": ["x"],
+        "critical_downstreams": [],
+        "exceeds_threshold": True,
+        "per_attr": [{
+            "attr_path": "bind",
+            "drv_path": "/nix/store/00000000000000000000000000000003-bind-9.20.17.drv",
+            "reverse_closure_count": 8742,
+            "reverse_closure_bucket": ">5000",
+            "reverse_closure_sample": ["x"],
+            "critical_downstreams": [],
+            "exceeds_threshold": True,
+        }],
+        "replay_critical": True,
+    }
+    (bundle_dir / "impact.json").write_text(json.dumps(impact, indent=2))
+    # Make upstream-ref say major-version-jump-trigger.
+    ur_path = bundle_dir / "upstream-ref.json"
+    ur = json.loads(ur_path.read_text())
+    ur["eligibility"] = {
+        "verdict": "eligible-requires-human-review",
+        "verdict_reason": "test",
+        "human_review_trigger": "major-version-jump",
+    }
+    ur_path.write_text(json.dumps(ur, indent=2))
+
+    finalize_bundle(bundle_dir=bundle_dir, bundle_kind="human-review-required")
+    bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
+    # Blast radius wins.
+    assert bundle_json["kind_reason"] == "blast-radius-exceeds-threshold"
+
+
+def test_finalize_explicit_kind_reason_still_wins(tmp_path: Path) -> None:
+    """The --kind-reason flag (in CLI) / kind_reason= kwarg overrides
+    every derivation path. Operator escape hatch."""
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    finalize_bundle(
+        bundle_dir=bundle_dir,
+        bundle_kind="human-review-required",
+        kind_reason="reviewer-verdict-escalate",
+    )
+    bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
+    assert bundle_json["kind_reason"] == "reviewer-verdict-escalate"
