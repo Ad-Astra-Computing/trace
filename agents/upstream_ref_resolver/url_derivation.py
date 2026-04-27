@@ -51,11 +51,35 @@ class DerivedTarget:
 
 @dataclass(frozen=True)
 class SkippedTarget:
-    """A hash slot the derivation found but cannot URL-derive."""
+    """A hash slot the derivation found but cannot URL-derive.
+
+    `required_for_patch` is the resolver's attestation that without a
+    grounded value for this slot, no merge-ready patch is possible. The
+    detector sets it to True for any hash-shaped attribute literally
+    present in the package source (because a version bump invalidates
+    every such attribute), and False for slots reasoned about
+    abstractly (e.g. a missing-target-version skip on src.hash, where
+    the resolver can't even tell whether the patch path is reachable).
+
+    Patcher reads `required_for_patch=True` skips as auditable refusal
+    triggers per refusal rule 8.
+    """
 
     name: str
     reason: str  # see SKIP_REASONS
+    required_for_patch: bool = False
     detail: str | None = None
+
+    def to_schema_dict(self) -> dict:
+        """Serialise into upstream-ref-schema's prefetch_skips[] entry shape."""
+        d: dict = {
+            "name": self.name,
+            "reason": self.reason,
+            "required_for_patch": self.required_for_patch,
+        }
+        if self.detail is not None:
+            d["detail"] = self.detail[:2048]
+        return d
 
 
 @dataclass(frozen=True)
@@ -165,6 +189,7 @@ def derive_prefetch_targets(
         skipped.append(SkippedTarget(
             name="src.hash",
             reason="missing-target-version",
+            required_for_patch=False,
             detail="upstream-ref.json has no target_version; URL derivation requires it",
         ))
         # We still record skipped vendor-style hashes below.
@@ -224,11 +249,19 @@ def derive_prefetch_targets(
         # more specific) or a generic no-derivable-rule.
         if not _has_target_named(targets, "src.hash") and not _has_skipped_named(skipped, "src.hash"):
             if url_template_skip is not None:
-                skipped.append(url_template_skip)
+                # url-template-too-complex / similar — the package DOES
+                # need src.hash, the resolver just can't derive its URL.
+                skipped.append(SkippedTarget(
+                    name=url_template_skip.name,
+                    reason=url_template_skip.reason,
+                    required_for_patch=True,
+                    detail=url_template_skip.detail,
+                ))
             else:
                 skipped.append(SkippedTarget(
                     name="src.hash",
                     reason="no-derivable-rule",
+                    required_for_patch=True,
                     detail="no fetchFromGitHub / fetchurl / fetchzip / gitlab-host / upstream-ref rule matched",
                 ))
 
@@ -240,6 +273,7 @@ def derive_prefetch_targets(
         skipped.append(SkippedTarget(
             name=attr_name,
             reason="ecosystem-not-url-derivable",
+            required_for_patch=True,
             detail=(
                 f"{attr_name} is not URL-derivable in v0; needs an "
                 f"ecosystem-specific prefetch mechanism (Go vendoring, "
