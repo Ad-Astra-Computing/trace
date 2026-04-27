@@ -206,6 +206,44 @@ def test_patcher_happy_path_writes_patch_and_rationale(tmp_path):
     assert pr["adapter"] == "fake"
 
 
+def test_patcher_writer_guarantees_trailing_newline(tmp_path):
+    """Even when the model's response body lacks a trailing newline before
+    the END markers, the atomic-written patch.diff and patch-rationale.md
+    MUST end with `\\n`. Strict tools like `git apply --check` report
+    'corrupt patch' on missing-final-newline; the openssl_3 run on
+    2026-04-27 was the first time this was observed.
+    """
+    # A response with no trailing newline before either END marker.
+    no_trailing_nl = (
+        "=== BEGIN patch.diff ===\n"
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -1,1 +1,1 @@\n"
+        '-  version = "1.4.7";\n'
+        '+  version = "1.4.8";\n'
+        "=== END patch.diff ===\n"
+        "=== BEGIN patch-rationale.md ===\n"
+        "## Upstream reference\nrelease v1.4.8\n## Why this version\nnewest\n"
+        "## Why minimal\nv only\n## Alternatives rejected\n- none\n"
+        "## Downstream risk\nnone\n=== END patch-rationale.md ==="
+    )
+    bundle_dir = _build_dispatchable_bundle(tmp_path)
+    execute(
+        role="patcher",
+        bundle_dir=bundle_dir,
+        invocation=_fresh_invocation(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(no_trailing_nl),
+    )
+    diff_bytes = (bundle_dir / "patch.diff").read_bytes()
+    rat_bytes = (bundle_dir / "patch-rationale.md").read_bytes()
+    assert diff_bytes.endswith(b"\n"), \
+        f"patch.diff must end with \\n; last 10 bytes: {diff_bytes[-10:]!r}"
+    assert rat_bytes.endswith(b"\n"), \
+        f"patch-rationale.md must end with \\n; last 10 bytes: {rat_bytes[-10:]!r}"
+
+
 # ─── happy path: model refusal writes refusal.json (not patch) ─────────────
 
 

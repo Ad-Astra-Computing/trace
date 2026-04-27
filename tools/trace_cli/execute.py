@@ -481,6 +481,18 @@ def _execute_patcher(
     if result.kind == "patch":
         diff_bytes = (result.parsed.patch_diff or "").encode("utf-8")
         rat_bytes = (result.parsed.patch_rationale_md or "").encode("utf-8")
+        # Defensive trailing-newline guarantee. The model frequently
+        # ends its diff body without a final newline (the parser's
+        # lazy-match captures everything up to the END marker; the END
+        # marker eats the model's pre-marker `\n`). Without a trailing
+        # newline `git apply --check` reports "corrupt patch" and the
+        # patch fails to apply via strict tools even though the
+        # permissive `patch` tool fuzzy-applies it. Surfaced by
+        # openssl_3 run on 2026-04-27.
+        if diff_bytes and not diff_bytes.endswith(b"\n"):
+            diff_bytes += b"\n"
+        if rat_bytes and not rat_bytes.endswith(b"\n"):
+            rat_bytes += b"\n"
         _atomic_write_bytes(bundle_dir / "patch.diff", diff_bytes)
         _atomic_write_bytes(bundle_dir / "patch-rationale.md", rat_bytes)
         outputs = [
