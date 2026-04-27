@@ -124,6 +124,21 @@ class AnthropicAdapter:
         self._client = anthropic.Anthropic()
         return self._client
 
+    # Anthropic models that have deprecated the `temperature` (and `top_p`)
+    # request parameters. Sending them returns HTTP 400. Opus 4.7 is the
+    # first family in this bucket; future opus/sonnet model ids will likely
+    # join. Match by prefix so both `claude-opus-4-7` and any dated suffix
+    # (e.g. `claude-opus-4-7-20260301`) are covered.
+    _MODELS_THAT_DEPRECATED_SAMPLING: tuple[str, ...] = (
+        "claude-opus-4-7",
+    )
+
+    def _model_drops_sampling(self) -> bool:
+        return any(
+            self.model_id.startswith(prefix)
+            for prefix in self._MODELS_THAT_DEPRECATED_SAMPLING
+        )
+
     def invoke(
         self,
         *,
@@ -132,14 +147,16 @@ class AnthropicAdapter:
         sampling: dict[str, Any],
     ) -> ModelResponse:
         client = self._ensure_client()
-        msg = client.messages.create(
-            model=self.model_id,
-            max_tokens=int(sampling.get("max_tokens", 8192)),
-            temperature=float(sampling.get("temperature", 0.0)),
-            top_p=float(sampling.get("top_p", 1.0)),
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
-        )
+        kwargs: dict[str, Any] = {
+            "model": self.model_id,
+            "max_tokens": int(sampling.get("max_tokens", 8192)),
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_content}],
+        }
+        if not self._model_drops_sampling():
+            kwargs["temperature"] = float(sampling.get("temperature", 0.0))
+            kwargs["top_p"] = float(sampling.get("top_p", 1.0))
+        msg = client.messages.create(**kwargs)
         # Claude returns a list of content blocks; Patcher expects text-only.
         text_parts: list[str] = []
         for block in getattr(msg, "content", []) or []:

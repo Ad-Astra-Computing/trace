@@ -257,25 +257,37 @@ def _do_execute(
             return EXIT_INVALID
         results.append(result)
 
+    # Patcher (model-backed) outputs have shape {path, sha256, bytes} — no
+    # declared sha to compare against because the content is freshly produced.
+    # Deterministic role outputs have shape {path, declared_sha256,
+    # computed_sha256}. Normalise both into the emit shape so the printer
+    # (and JSON consumers) can handle either path uniformly.
+    def _normalise_output(o: dict[str, Any]) -> dict[str, Any]:
+        if "declared_sha256" in o:
+            return {
+                "path": o["path"],
+                "declared_sha256": o["declared_sha256"],
+                "computed_sha256": o["computed_sha256"],
+                "match": o["declared_sha256"] == o["computed_sha256"],
+            }
+        return {
+            "path": o["path"],
+            "declared_sha256": None,
+            "computed_sha256": o.get("sha256"),
+            "match": None,
+        }
+
     _emit_execute_results(
         {
             "bundle_id": bundle.get("bundle_id"),
             "cve_id": bundle.get("cve_id"),
             "role": args.role,
             "verified": not args.no_verify,
-            "executor": "deterministic-stub",
+            "executor": "deterministic-stub" if args.role not in MODEL_BACKED_ROLES else "model-backed",
             "results": [
                 {
                     "invocation_id": r["invocation_id"],
-                    "outputs": [
-                        {
-                            "path": o["path"],
-                            "declared_sha256": o["declared_sha256"],
-                            "computed_sha256": o["computed_sha256"],
-                            "match": o["declared_sha256"] == o["computed_sha256"],
-                        }
-                        for o in r["outputs"]
-                    ],
+                    "outputs": [_normalise_output(o) for o in r["outputs"]],
                     "input_verification": r["input_verification"],
                 }
                 for r in results
@@ -298,8 +310,16 @@ def _emit_execute_results(report: dict[str, Any], fmt: str) -> None:
     for r in report["results"]:
         print(f"\ninvocation_id: {r['invocation_id']}")
         for o in r["outputs"]:
-            mark = "✓" if o["match"] else "✗"
-            print(f"  {mark} {o['path']}  computed={o['computed_sha256'][:12]}… declared={o['declared_sha256'][:12]}…")
+            if o["match"] is True:
+                mark = "✓"
+            elif o["match"] is False:
+                mark = "✗"
+            else:
+                mark = "·"  # fresh model-backed output: no declared sha to compare
+            computed = (o.get("computed_sha256") or "?")[:12]
+            declared = o.get("declared_sha256")
+            tail = f" declared={declared[:12]}…" if declared else " (fresh)"
+            print(f"  {mark} {o['path']}  computed={computed}…{tail}")
 
 
 def _validate_override_args(args: argparse.Namespace) -> str | None:
