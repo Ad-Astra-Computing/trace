@@ -158,6 +158,28 @@ def main(argv: list[str]) -> int:
                             "(slow; off by default)")
     b_asm.add_argument("--format", choices=("human", "json"), default="human")
 
+    b_fin = b_subs.add_parser(
+        "finalize",
+        help=(
+            "compute file hashes + write bundle.json + replay.json against "
+            "an already-assembled bundle dir. Pairs with `bundle assemble`: "
+            "assemble produces the resolver-side artifacts; finalize "
+            "produces the manifest + replay record so `replay --execute` "
+            "can run downstream against the bundle."
+        ),
+    )
+    b_fin.add_argument("--bundle-dir", type=Path, required=True,
+                       help="bundle directory previously produced by assemble")
+    b_fin.add_argument("--kind", default="auto-merge",
+                       choices=("auto-merge", "advisory-only", "human-review-required"))
+    b_fin.add_argument("--created-at", default=None,
+                       help="override created_at timestamp (default: now UTC)")
+    b_fin.add_argument("--nixpkgs-rev", default=None,
+                       help="override nixpkgs_rev (default: read from impact.json)")
+    b_fin.add_argument("--cve-id", default=None,
+                       help="override cve_id (default: read from upstream-ref.json)")
+    b_fin.add_argument("--format", choices=("human", "json"), default="human")
+
     args = parser.parse_args(argv)
     if args.cmd == "replay":
         return _cmd_replay(args)
@@ -168,8 +190,35 @@ def main(argv: list[str]) -> int:
     if args.cmd == "bundle":
         if args.bundle_cmd == "assemble":
             return _cmd_bundle_assemble(args)
+        if args.bundle_cmd == "finalize":
+            return _cmd_bundle_finalize(args)
         return EXIT_USAGE
     return EXIT_USAGE
+
+
+def _cmd_bundle_finalize(args: argparse.Namespace) -> int:
+    from tools.trace_cli.bundle import emit_finalize_summary, finalize_bundle
+
+    try:
+        result = finalize_bundle(
+            bundle_dir=args.bundle_dir,
+            bundle_kind=args.kind,
+            created_at=args.created_at,
+            nixpkgs_rev=args.nixpkgs_rev,
+            cve_id=args.cve_id,
+        )
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_INVALID
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        print(f"error: finalize failed: {exc}", file=sys.stderr)
+        return EXIT_INVALID
+
+    if args.format == "json":
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(emit_finalize_summary(result))
+    return EXIT_OK
 
 
 def _cmd_bundle_assemble(args: argparse.Namespace) -> int:
