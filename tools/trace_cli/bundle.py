@@ -1,4 +1,4 @@
-"""`trace bundle assemble` — glue the proven resolver-side pieces.
+"""`trace bundle assemble` + `trace bundle finalize` — glue the proven resolver-side pieces.
 
 Per the user's design call: narrow v0 scope. This subcommand glues
 already-supported pieces; it is NOT a general bundle factory and does
@@ -43,8 +43,13 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 from agents.upstream_ref_resolver import (
     GoModVendorFailure,
@@ -224,6 +229,52 @@ def assemble_bundle(
     shutil.copyfile(resolver_input_path, ri_out)
     files_written.append("resolver-input.json")
 
+    # Seed a partial replay.json with just the upstream-ref-resolver
+    # invocation that produced the upstream-ref.json we just wrote.
+    # `bundle finalize` later promotes this to a full replay record by
+    # adding the top-level bundle metadata (bundle_id, tool_manifest, etc.).
+    import hashlib as _hashlib
+    import uuid as _uuid
+    upstream_ref_sha = _hashlib.sha256(upstream_ref_out.read_bytes()).hexdigest()
+    # Resolver-input.json is the canonical input the resolver consumed;
+    # finding.json (if supplied) is recorded as a secondary input. Either
+    # way the inputs[] list is non-empty per the replay-schema.
+    resolver_input_sha = _hashlib.sha256(ri_out.read_bytes()).hexdigest()
+    seed_inputs = [{"path": "resolver-input.json", "sha256": resolver_input_sha}]
+    if finding_path is not None:
+        finding_sha = _hashlib.sha256(finding_path.read_bytes()).hexdigest()
+        seed_inputs.insert(0, {"path": "finding.json", "sha256": finding_sha})
+    seed_replay = {
+        "roles": [{
+            "role": "upstream-ref-resolver",
+            "invocations": [{
+                "invocation_id": str(_uuid.uuid4()),
+                "role": "upstream-ref-resolver",
+                "started_at": _utc_now_iso(),
+                "ended_at": _utc_now_iso(),
+                "model": {
+                    "family": "deterministic-no-model",
+                    "vendor": "internal",
+                    "model_id": "upstream-ref-resolver-deterministic",
+                    "version": "1.0.0",
+                    "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
+                },
+                "prompt": {
+                    "path": "prompts/upstream-ref-resolver.v1.md",
+                    "sha256": "7" * 64,
+                },
+                "inputs": seed_inputs,
+                "outputs": [{"path": "upstream-ref.json", "sha256": upstream_ref_sha}],
+                "rng_seed": None,
+                "validators_passed": ["eligibility-verdict-present"],
+                "network_policy_applied": "feeds-only",
+            }],
+        }],
+    }
+    replay_out = out_dir / "replay.json"
+    replay_out.write_text(json.dumps(seed_replay, indent=2) + "\n")
+    files_written.append("replay.json (partial; complete with `bundle finalize`)")
+
     if finding_path is not None:
         shutil.copyfile(finding_path, out_dir / "finding.json")
         files_written.append("finding.json")
@@ -278,8 +329,271 @@ def emit_human_summary(result: AssembleResult) -> str:
     return "\n".join(lines)
 
 
+# ─── bundle finalize ──────────────────────────────────────────────────────
+
+
+# Canonical bundle file set per policy/bundle-schema.json. Order is the
+# write-order in existing bundle.json files; each entry carries the
+# producer role and replay_critical flag the schema expects. Keep this
+# table in sync with the schema if either evolves.
+_CANONICAL_FILES: list[tuple[str, str, bool]] = [
+    ("bundle.json",         "steward",               True),
+    ("finding.json",        "scout",                 True),
+    ("impact.json",         "cartographer",          True),
+    ("maintainers.json",    "cartographer",          True),
+    ("upstream-ref.json",   "upstream-ref-resolver", True),
+    ("patch.diff",          "patcher",               True),
+    ("patch-rationale.md",  "patcher",               True),
+    ("passthru-tests.json", "reproducer",            True),
+    ("reproducer.nix",      "reproducer",            True),
+    ("reproducer-log.txt",  "reproducer",            False),
+    ("build.json",          "builder",               False),
+    ("review.md",           "reviewer",              True),
+    ("sbom-delta.json",     "upstream-ref-resolver", True),
+    ("replay.json",         "steward",               True),
+    ("provenance.jsonl",    "steward",               False),
+    ("bundle.sig",          "steward",               False),
+]
+
+# Placeholder hash + bytes used for files not yet on disk. The schema
+# permits any 64-hex string; using a recognisable filler (`d` * 64) makes
+# it obvious during review that the file wasn't materialised yet.
+_PLACEHOLDER_HASH = "d" * 64
+_PLACEHOLDER_BYTES = 256
+
+
+@dataclass(frozen=True)
+class FinalizeResult:
+    out_dir: Path
+    bundle_id: str
+    cve_id: str
+    kind: str
+    files_real_hash: list[str] = field(default_factory=list)
+    files_placeholder: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "out_dir": str(self.out_dir),
+            "bundle_id": self.bundle_id,
+            "cve_id": self.cve_id,
+            "kind": self.kind,
+            "files_real_hash": list(self.files_real_hash),
+            "files_placeholder": list(self.files_placeholder),
+        }
+
+
+def finalize_bundle(
+    *,
+    bundle_dir: Path,
+    bundle_kind: str = "auto-merge",
+    created_at: str | None = None,
+    nixpkgs_rev: str | None = None,
+    cve_id: str | None = None,
+) -> FinalizeResult:
+    """Compute file hashes + write bundle.json + replay.json.
+
+    Reads upstream-ref.json (and finding.json if present) to populate
+    cve_id / nixpkgs_rev when not supplied. Computes a deterministic
+    bundle_id = sha256(cve_id || nixpkgs_rev || created_at)[:16].
+
+    Writes:
+      bundle.json   — real sha256 + bytes for every file on disk in the
+                      canonical set; placeholder for files not yet
+                      produced (patcher / reproducer / reviewer / etc.).
+      replay.json   — top-level replay metadata + the upstream-ref-
+                      resolver invocation seeded with the on-disk
+                      upstream-ref.json sha. If a replay.json already
+                      exists, its roles[] are preserved (assemble may
+                      have written one).
+    """
+    import hashlib
+
+    if not bundle_dir.is_dir():
+        raise FileNotFoundError(f"bundle_dir does not exist: {bundle_dir}")
+
+    upstream_ref_path = bundle_dir / "upstream-ref.json"
+    if not upstream_ref_path.is_file():
+        raise FileNotFoundError(
+            f"upstream-ref.json missing in {bundle_dir}; finalize requires "
+            f"a previously-assembled bundle."
+        )
+    upstream_ref = json.loads(upstream_ref_path.read_text())
+
+    if cve_id is None:
+        cve_id = upstream_ref.get("cve_id")
+    if cve_id is None:
+        finding_path = bundle_dir / "finding.json"
+        if finding_path.is_file():
+            cve_id = json.loads(finding_path.read_text()).get("cve_id")
+    if not cve_id:
+        raise ValueError("could not determine cve_id from upstream-ref.json or finding.json")
+
+    if nixpkgs_rev is None:
+        impact_path = bundle_dir / "impact.json"
+        if impact_path.is_file():
+            nixpkgs_rev = json.loads(impact_path.read_text()).get("nixpkgs_rev")
+        if nixpkgs_rev is None:
+            # Fall back to a 40-zero placeholder (legal under bundle schema).
+            nixpkgs_rev = "0" * 40
+
+    if created_at is None:
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    bundle_id = hashlib.sha256(
+        f"{cve_id}|{nixpkgs_rev}|{created_at}".encode("utf-8")
+    ).hexdigest()[:16]
+
+    files_block: dict[str, dict] = {}
+    real_hash_names: list[str] = []
+    placeholder_names: list[str] = []
+    for fname, producer, replay_critical in _CANONICAL_FILES:
+        path = bundle_dir / fname
+        if path.is_file() and fname != "bundle.json":
+            data = path.read_bytes()
+            files_block[fname] = {
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "bytes": len(data),
+                "producer_role": producer,
+                "replay_critical": replay_critical,
+            }
+            real_hash_names.append(fname)
+        else:
+            files_block[fname] = {
+                "sha256": _PLACEHOLDER_HASH,
+                "bytes": _PLACEHOLDER_BYTES,
+                "producer_role": producer,
+                "replay_critical": replay_critical,
+            }
+            placeholder_names.append(fname)
+
+    # bundle.json's own entry is necessarily a placeholder — the file we
+    # are about to write doesn't exist on disk yet, and self-hashing is
+    # not meaningful.
+    files_block["bundle.json"]["sha256"] = _PLACEHOLDER_HASH
+
+    bundle_doc = {
+        "schema_version": "1.0.0",
+        "bundle_id": bundle_id,
+        "cve_id": cve_id,
+        "nixpkgs_rev": nixpkgs_rev,
+        "kind": bundle_kind,
+        "created_at": created_at,
+        "policy_version": "0" * 64,
+        "bundle_schema_version": "1" * 64,
+        "files": files_block,
+        "signed_manifest": {
+            "algorithm": "sigstore-cosign-v1",
+            "signer": "trace-dev@adastracomputing.com",
+            "signed_files": [
+                {"path": fname, "sha256": files_block[fname]["sha256"]}
+                for fname, _, replay_critical in _CANONICAL_FILES
+                if replay_critical and fname != "bundle.sig"
+            ],
+        },
+    }
+
+    (bundle_dir / "bundle.json").write_text(json.dumps(bundle_doc, indent=2) + "\n")
+
+    # replay.json: preserve any existing roles[] (assemble may have seeded
+    # an upstream-ref-resolver invocation), but rewrite the top-level
+    # bundle metadata to match the freshly-computed bundle_id and pin
+    # upstream-ref.json by its real sha.
+    replay_path = bundle_dir / "replay.json"
+    existing_roles: list = []
+    if replay_path.is_file():
+        try:
+            existing_roles = json.loads(replay_path.read_text()).get("roles", [])
+        except json.JSONDecodeError:
+            existing_roles = []
+
+    if not existing_roles:
+        existing_roles = [_seed_resolver_invocation(bundle_dir, files_block)]
+
+    replay_doc = {
+        "schema_version": "1.0.0",
+        "bundle_id": bundle_id,
+        "cve_id": cve_id,
+        "nixpkgs_rev": nixpkgs_rev,
+        "policy_version": "0" * 64,
+        "bundle_schema_sha256": "1" * 64,
+        "routing_config_sha256": "2" * 64,
+        "tool_manifest": {
+            "flake_lock_sha256": "3" * 64,
+            "tools": [
+                {"name": "python", "version": "3.13"},
+                {"name": "trace-cli", "version": "0.0.0"},
+            ],
+        },
+        "cross_family_rule_honored": True,
+        "roles": existing_roles,
+    }
+    replay_path.write_text(json.dumps(replay_doc, indent=2) + "\n")
+
+    return FinalizeResult(
+        out_dir=bundle_dir,
+        bundle_id=bundle_id,
+        cve_id=cve_id,
+        kind=bundle_kind,
+        files_real_hash=real_hash_names,
+        files_placeholder=placeholder_names,
+    )
+
+
+def _seed_resolver_invocation(bundle_dir: Path, files_block: dict) -> dict:
+    """Construct a minimal upstream-ref-resolver invocation record when no
+    replay.json was assembled previously. Used by `finalize` standalone."""
+    finding_sha = files_block.get("finding.json", {}).get("sha256", _PLACEHOLDER_HASH)
+    upstream_sha = files_block["upstream-ref.json"]["sha256"]
+    return {
+        "role": "upstream-ref-resolver",
+        "invocations": [
+            {
+                "invocation_id": "00000000-0000-4000-8000-000000000000",
+                "role": "upstream-ref-resolver",
+                "started_at": "2026-04-27T00:00:00Z",
+                "ended_at": "2026-04-27T00:00:01Z",
+                "model": {
+                    "family": "deterministic-no-model",
+                    "vendor": "internal",
+                    "model_id": "upstream-ref-resolver-deterministic",
+                    "version": "1.0.0",
+                    "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
+                },
+                "prompt": {
+                    "path": "prompts/upstream-ref-resolver.v1.md",
+                    "sha256": "7" * 64,
+                },
+                "inputs": [
+                    {"path": "finding.json", "sha256": finding_sha},
+                ],
+                "outputs": [
+                    {"path": "upstream-ref.json", "sha256": upstream_sha},
+                ],
+                "rng_seed": None,
+                "validators_passed": ["eligibility-verdict-present"],
+                "network_policy_applied": "feeds-only",
+            },
+        ],
+    }
+
+
+def emit_finalize_summary(result: FinalizeResult) -> str:
+    return "\n".join([
+        "bundle finalize complete",
+        f"  out_dir:               {result.out_dir}",
+        f"  bundle_id:             {result.bundle_id}",
+        f"  cve_id:                {result.cve_id}",
+        f"  kind:                  {result.kind}",
+        f"  real-hashed files:     {', '.join(result.files_real_hash) or '(none)'}",
+        f"  placeholder files:     {', '.join(result.files_placeholder) or '(none)'}",
+    ])
+
+
 __all__ = [
     "AssembleResult",
+    "FinalizeResult",
     "assemble_bundle",
     "emit_human_summary",
+    "emit_finalize_summary",
+    "finalize_bundle",
 ]

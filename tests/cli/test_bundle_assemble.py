@@ -23,8 +23,10 @@ from agents.upstream_ref_resolver import (
 )
 from tools.trace_cli.bundle import (
     AssembleResult,
+    FinalizeResult,
     assemble_bundle,
     emit_human_summary,
+    finalize_bundle,
 )
 from tests.schema.validate import REPO_ROOT
 
@@ -349,3 +351,166 @@ def test_assemble_via_cli_entrypoint(tmp_path: Path, capsys) -> None:
     assert payload["eligibility_verdict"] == "ineligible-no-fix-available"
     assert payload["target_version"] is None
     assert "upstream-ref.json" in payload["files_written"]
+
+
+# ─── finalize tests ────────────────────────────────────────────────────────
+
+
+def _assembled_bundle(tmp_path: Path) -> tuple[Path, Path]:
+    """Run assemble against the bind exemplar fixture and return (out_dir, ri_path)."""
+    ri = _resolver_input(tmp_path, **{
+        "cve_id": "CVE-2025-13878",
+        "current_version": "9.20.17",
+        "attr_path": "bind",
+        "candidate_refs": [{
+            "version": "9.20.18",
+            "tag": "v9.20.18",
+            "release_url": "https://downloads.isc.org/isc/bind9/9.20.18/notes",
+            "changelog_url": "https://downloads.isc.org/isc/bind9/9.20.18/changelog",
+            "advisory_urls": ["https://kb.isc.org/docs/cve-2025-13878"],
+            "upstream_fix_commits": [{
+                "repo_url": "https://gitlab.isc.org/isc-projects/bind9",
+                "commit_sha": "0d2e0d8fac7533145533c4e9942322c229a422c3",
+            }],
+            "delta": {
+                "transitive_package_changes": 0,
+                "new_direct_deps": [],
+                "removed_direct_deps": [],
+                "crosses_large_delta_threshold": False,
+                "threshold_policy": "v0-default",
+            },
+            "tier_hint": "security-patch-release",
+        }],
+    })
+    pkg = _package_nix(tmp_path, body=(
+        '{ stdenv, fetchurl }:\n'
+        'stdenv.mkDerivation (finalAttrs: {\n'
+        '  pname = "bind";\n'
+        '  version = "9.20.17";\n'
+        '  src = fetchurl {\n'
+        '    url = "https://downloads.isc.org/isc/bind9/${finalAttrs.version}/bind-${finalAttrs.version}.tar.xz";\n'
+        '    hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+        '  };\n'
+        '})\n'
+    ))
+    out = tmp_path / "out"
+    assemble_bundle(
+        resolver_input_path=ri, package_nix_path=pkg, out_dir=out,
+        prefetch_url_fn=_fake_url_prefetcher({
+            ("https://downloads.isc.org/isc/bind9/9.20.18/bind-9.20.18.tar.xz", "sha256"): (
+                "ok", "sha256-FakeBindRunForFinalizeTestShap3dRightForJSON=", "fake 1.0",
+            ),
+        }),
+    )
+    return out, ri
+
+
+def test_finalize_writes_bundle_json_and_replay_json(tmp_path: Path) -> None:
+    bundle_dir, _ri = _assembled_bundle(tmp_path)
+
+    result = finalize_bundle(bundle_dir=bundle_dir)
+    assert isinstance(result, FinalizeResult)
+    assert result.cve_id == "CVE-2025-13878"
+    assert result.kind == "auto-merge"
+    assert len(result.bundle_id) == 16
+    assert all(c in "0123456789abcdef" for c in result.bundle_id)
+
+    bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
+    replay_json = json.loads((bundle_dir / "replay.json").read_text())
+    assert bundle_json["bundle_id"] == result.bundle_id
+    assert replay_json["bundle_id"] == result.bundle_id
+    # files that are on disk got real hashes; the rest got placeholders.
+    real_files = set(result.files_real_hash)
+    placeholder_files = set(result.files_placeholder)
+    assert real_files & placeholder_files == set()
+    assert "upstream-ref.json" in real_files
+    assert "package.nix" not in bundle_json["files"], (
+        "package.nix is not in the canonical bundle file set; finalize "
+        "should not invent new bundle.json entries."
+    )
+    assert bundle_json["files"]["upstream-ref.json"]["sha256"] != "d" * 64
+
+
+def test_finalize_uses_real_upstream_ref_sha(tmp_path: Path) -> None:
+    """The bundle.json sha for upstream-ref.json must match the on-disk
+    file's actual sha256, not a placeholder."""
+    import hashlib
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    finalize_bundle(bundle_dir=bundle_dir)
+
+    real_sha = hashlib.sha256(
+        (bundle_dir / "upstream-ref.json").read_bytes()
+    ).hexdigest()
+    bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
+    assert bundle_json["files"]["upstream-ref.json"]["sha256"] == real_sha
+
+
+def test_finalize_validates_against_bundle_schema(tmp_path: Path) -> None:
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    finalize_bundle(bundle_dir=bundle_dir)
+    bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
+    schema = json.loads((REPO_ROOT / "policy" / "bundle-schema.json").read_text())
+    validator = Draft202012Validator(schema)
+    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
+             for e in validator.iter_errors(bundle_json)]
+    assert not errors, errors
+
+
+def test_finalize_replay_validates_against_replay_schema(tmp_path: Path) -> None:
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    finalize_bundle(bundle_dir=bundle_dir)
+    replay_json = json.loads((bundle_dir / "replay.json").read_text())
+    schema = json.loads((REPO_ROOT / "policy" / "replay-schema.json").read_text())
+    validator = Draft202012Validator(schema)
+    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
+             for e in validator.iter_errors(replay_json)]
+    assert not errors, errors
+
+
+def test_finalize_bundle_id_is_deterministic(tmp_path: Path) -> None:
+    """Same (cve_id, nixpkgs_rev, created_at) -> same bundle_id."""
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    fixed_ts = "2026-04-27T20:00:00Z"
+    r1 = finalize_bundle(bundle_dir=bundle_dir, created_at=fixed_ts,
+                         nixpkgs_rev="0" * 40)
+    r2 = finalize_bundle(bundle_dir=bundle_dir, created_at=fixed_ts,
+                         nixpkgs_rev="0" * 40)
+    assert r1.bundle_id == r2.bundle_id
+
+
+def test_finalize_preserves_assemble_resolver_invocation(tmp_path: Path) -> None:
+    """Assemble seeded an upstream-ref-resolver invocation. Finalize must
+    keep it (not overwrite with a different fake one)."""
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    pre_replay = json.loads((bundle_dir / "replay.json").read_text())
+    pre_resolver_inv = pre_replay["roles"][0]["invocations"][0]["invocation_id"]
+
+    finalize_bundle(bundle_dir=bundle_dir)
+    post_replay = json.loads((bundle_dir / "replay.json").read_text())
+    post_resolver_inv = post_replay["roles"][0]["invocations"][0]["invocation_id"]
+    assert pre_resolver_inv == post_resolver_inv
+
+
+def test_finalize_via_cli_entrypoint(tmp_path: Path, capsys) -> None:
+    bundle_dir, _ = _assembled_bundle(tmp_path)
+    from tools.trace_cli.cli import main as cli_main
+    rc = cli_main([
+        "bundle", "finalize",
+        "--bundle-dir", str(bundle_dir),
+        "--format", "json",
+    ])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cve_id"] == "CVE-2025-13878"
+    assert len(payload["bundle_id"]) == 16
+    assert "upstream-ref.json" in payload["files_real_hash"]
+
+
+def test_finalize_missing_bundle_dir_returns_invalid(tmp_path: Path, capsys) -> None:
+    from tools.trace_cli.cli import main as cli_main
+    rc = cli_main([
+        "bundle", "finalize",
+        "--bundle-dir", str(tmp_path / "does-not-exist"),
+    ])
+    assert rc != 0
+    assert "does not exist" in capsys.readouterr().err
