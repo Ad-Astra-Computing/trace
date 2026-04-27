@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/reviewer-output-schema.json",
+  "title": "trace model-reviewer parsed output",
+  "description": "Parsed structured form of the model-Reviewer's `review.md`. The Reviewer is the adversarial counterpart to the Patcher; it reads the same bundle inputs the Patcher had PLUS the Patcher's `patch.diff` + `patch-rationale.md`, then issues a verdict + findings. This schema describes what the parser extracts; the canonical artifact on disk is `review.md` (per bundle-schema.json), with a strict heading contract enforced by `agents/reviewer/parser.py`. Distinct from `review-rubric-schema.json`, which describes human panelist reviews under `eval/reviews/*.json`.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "verdict",
+    "reasoning",
+    "findings",
+    "cited_evidence",
+    "cross_family_attestation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "verdict": {
+      "description": "The Reviewer's accept/reject/escalate decision. `accept` = bundle is mergeable as-is. `reject` = bundle MUST NOT merge; the reasoning + findings explain why. `escalate` = beyond the Reviewer's competence or the contract's coverage; needs human review even if Steward would otherwise auto-merge. The verdict is the load-bearing field; everything else justifies it.",
+      "type": "string",
+      "enum": ["accept", "reject", "escalate"]
+    },
+    "reasoning": {
+      "description": "Free-form rationale supporting the verdict. The Reviewer should cite specific bundle artifacts (finding.json fields, upstream-ref.json fields, patch.diff hunks) rather than gesture at concepts. Two-to-six sentences in v1.",
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "description": "Structured list of issues the Reviewer raised. An empty array MUST be paired with verdict=accept; non-empty paired with reject or escalate (not enforced by schema; enforced by reviewer prompt + scorer). Each finding has a severity, a short title, and a citation pointing at where the issue lives.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "title", "citation"],
+        "additionalProperties": false,
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["info", "low", "medium", "high", "blocking"]
+          },
+          "title": {
+            "description": "One-line summary of the issue. Imperative or declarative, no markdown markup.",
+            "type": "string",
+            "minLength": 1
+          },
+          "citation": {
+            "description": "Pointer at the artifact + locus where the issue is observable. Format: `<artifact>:<key=value | line=N | hunk=N>`. Examples: `patch.diff:hunk=1`, `upstream-ref.json:target_version=3.6.8`, `patch-rationale.md:## Why minimal`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "detail": {
+            "description": "Optional extended explanation. Truncated at 2 KiB when serialised.",
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      }
+    },
+    "cited_evidence": {
+      "description": "List of bundle artifacts the Reviewer actually consulted. Used by the evidence-cited scorer to detect Reviewers that issue verdicts without engaging the inputs (`accept` with no citations is a structural fail). Format: `<artifact>` or `<artifact>:<sub-locator>`.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "cross_family_attestation": {
+      "description": "Reviewer's declared model family + attestation that the family differs from the Patcher's. Required because the SPEC §4 cross-family rule forbids same-family Patcher/Reviewer pairs. The actual enforcement happens at replay time via `replay-schema.json`'s `cross_family_rule_honored` boolean; this string is the Reviewer's first-person statement of what family it belongs to and what family it understands the Patcher to be.",
+      "type": "object",
+      "required": ["reviewer_family", "patcher_family_observed", "rule_honored"],
+      "additionalProperties": false,
+      "properties": {
+        "reviewer_family": { "type": "string", "minLength": 1 },
+        "patcher_family_observed": { "type": "string", "minLength": 1 },
+        "rule_honored": { "type": "boolean" }
+      }
+    }
+  }
+}

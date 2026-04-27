@@ -358,11 +358,11 @@ def test_execute_upstream_ref_resolver(tmp_path, capsys):
 # ─── execute: refusals ─────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("role", ["reviewer", "reproducer"])
+@pytest.mark.parametrize("role", ["reproducer"])
 def test_execute_refuses_reviewer_reproducer_until_wired(tmp_path, capsys, role):
-    """Reviewer + Reproducer stay in the 'not yet wired' bucket. Patcher was
-    in this bucket historically but now has its own wiring (see
-    tests/patcher/test_execute_wiring.py); removed from this parametrize."""
+    """Reproducer stays in the 'not yet wired' bucket. Patcher (this
+    session) and Reviewer (next session) have moved to their own
+    wiring; only Reproducer remains."""
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
     replay_path = bundle_dir / "replay.json"
     replay = json.loads(replay_path.read_text())
