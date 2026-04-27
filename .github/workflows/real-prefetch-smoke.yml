@@ -1,0 +1,185 @@
+name: real-prefetch-smoke
+
+# Opt-in cohort. Manual dispatch only. NEVER triggers on push or PR —
+# this workflow shells out to nix-prefetch-url and nix-build (real
+# network), and (when ANTHROPIC_API_KEY is set) makes a live Patcher
+# call against claude-opus-4-7. Each run costs API spend and is intended
+# as a regression smoke for the deterministic-evidence pipeline, not a
+# default gate.
+#
+# Cohort label: `real-ci-smoke`. Aggregator output for this workflow
+# stays under that label so its numbers never get mixed with
+# `inner-loop` or `full-corpus` results.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "Bundle to assemble + score (single value; v0)."
+        required: true
+        default: "bind"
+        type: choice
+        options:
+          - bind
+      run_patcher:
+        description: "Run the live claude-opus-4-7 patcher invocation? (Off = assemble + finalize only.)"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+
+env:
+  # Pinned to match .github/workflows/ci.yml. Bump together.
+  OPA_VERSION: "v1.0.1"
+  OPA_LINUX_AMD64_SHA256: "6d81be862e412af910eacfad489e3d77afbfcf4b958ea4e839b7f38c9eec4d87"
+
+  # Real-network gates. The two pytest cases under tests/upstream_ref_resolver
+  # only run when these are set.
+  TRACE_REAL_PREFETCH: "1"
+  TRACE_REAL_GO_VENDOR: "1"
+
+  # Cohort label for `trace eval patch-rate`. Distinct from inner-loop /
+  # full-corpus so smoke artifacts never get aggregated alongside the
+  # canonical research cohorts.
+  COHORT_LABEL: "real-ci-smoke"
+
+jobs:
+  smoke:
+    name: real prefetch smoke (${{ inputs.bundle }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail-early on missing secrets. The workflow's contract is "we
+      # exercise the real-network paths"; without ANTHROPIC_API_KEY we
+      # cannot score a patch, so refuse to proceed when the run was
+      # requested with run_patcher=true and the key is absent.
+      - name: Verify ANTHROPIC_API_KEY when run_patcher=true
+        if: ${{ inputs.run_patcher == 'true' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+            echo "::error::ANTHROPIC_API_KEY secret is required when run_patcher=true."
+            echo "Either configure the secret in repository settings, or"
+            echo "re-run with run_patcher=false to exercise the resolver-only path."
+            exit 64
+          fi
+          echo "ANTHROPIC_API_KEY is present (length=${#ANTHROPIC_API_KEY})"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Install OPA (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
+          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
+          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/opa"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Real-network gated tests
+        run: |
+          set -euo pipefail
+          # Runs ONLY the two opt-in tests. Default suite already runs in ci.yml;
+          # this job exercises the live nix-prefetch-url + nix-build paths that
+          # the offline suite skips.
+          nix develop --command pytest -v \
+            tests/upstream_ref_resolver/test_prefetch.py::test_real_nix_prefetch_url_smoke \
+            tests/upstream_ref_resolver/test_go_mod_vendor.py::test_real_traefik_go_vendor_smoke
+
+      - name: Set bundle paths
+        id: paths
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          OUT="${RUNNER_TEMP}/real-ci-smoke/${BUNDLE}"
+          mkdir -p "$OUT"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          echo "fixture_dir=tests/fixtures/real-ci/${BUNDLE}" >> "$GITHUB_OUTPUT"
+          # Bind comes from the live bundle on disk — that's the only attr
+          # the v0 fixture covers. Future expansions add their own
+          # tests/fixtures/real-ci/<name>/ + a here-doc copy in this step.
+          cp "traces/example/CVE-2025-13878--bind/package.nix" "$OUT/package.nix"
+          cp "traces/example/CVE-2025-13878--bind/finding.json" "$OUT/finding.json"
+          cp "traces/example/CVE-2025-13878--bind/impact.json" "$OUT/impact.json"
+          cp "traces/example/CVE-2025-13878--bind/maintainers.json" "$OUT/maintainers.json"
+          cp "tests/fixtures/real-ci/${BUNDLE}/resolver-input.json" "$OUT/resolver-input.json"
+
+      - name: trace bundle assemble (live URL prefetch)
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python -m tools.trace_cli bundle assemble \
+            --input "$OUT/resolver-input.json" \
+            --package "$OUT/package.nix" \
+            --finding "$OUT/finding.json" \
+            --impact "$OUT/impact.json" \
+            --maintainers "$OUT/maintainers.json" \
+            --out "$OUT/bundle"
+
+      - name: trace bundle finalize
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python -m tools.trace_cli bundle finalize \
+            --bundle-dir "$OUT/bundle" \
+            --kind auto-merge
+
+      - name: Patcher (live claude-opus-4-7)
+        if: ${{ inputs.run_patcher == 'true' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python -m tools.trace_cli replay \
+            --execute --role patcher --model claude-opus-4-7 \
+            "$OUT/bundle"
+
+      - name: Score the patcher invocation
+        if: ${{ inputs.run_patcher == 'true' }}
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python tests/fixtures/real-ci/score_invocation.py "$OUT/bundle"
+
+      - name: trace eval patch-rate (cohort=real-ci-smoke)
+        if: ${{ inputs.run_patcher == 'true' }}
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python -m tools.trace_cli eval patch-rate \
+            --cohort "${COHORT_LABEL}" \
+            --reports "$OUT/bundle/scoring-report.json" \
+            --format json | tee "$OUT/patch-rate.json"
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: real-ci-smoke-${{ inputs.bundle }}
+          # Always upload whatever made it onto disk so a failed run is
+          # still inspectable. The bundle dir holds upstream-ref.json,
+          # bundle.json, replay.json, plus whichever live-prefetched and
+          # patcher artifacts were produced.
+          path: |
+            ${{ steps.paths.outputs.out }}/bundle/**
+            ${{ steps.paths.outputs.out }}/patch-rate.json
+          if-no-files-found: warn
+          retention-days: 30
