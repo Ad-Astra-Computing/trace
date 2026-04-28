@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "fork": {
+    "owner": "Ad-Astra-Computing",
+    "repo": "nixpkgs",
+    "url": "https://github.com/Ad-Astra-Computing/nixpkgs",
+    "ssh_url": "git@github.com:Ad-Astra-Computing/nixpkgs.git",
+    "upstream": {
+      "owner": "NixOS",
+      "repo": "nixpkgs",
+      "url": "https://github.com/NixOS/nixpkgs"
+    },
+    "default_branch": "master",
+    "tracked_channels": ["nixos-unstable"]
+  },
+  "patch_branch_convention": {
+    "format": "trace/{cve_id}--{attr_path}--{bundle_id_short}",
+    "examples": [
+      "trace/CVE-2025-4598--systemd--366c393b1b1f310b",
+      "trace/CVE-2026-25949--traefik--4eb7e4ed049c5fdc"
+    ],
+    "notes": "bundle_id_short is the first 16 chars of bundle.json.bundle_id (already 16 chars per schema). attr_path uses '/' replaced with '_' if present. CVE id prefix matches the canonical CVE-YYYY-NNNN form. Branch is created from the bundle's nixpkgs_rev (frozen at bundle creation time), patch applied, then pushed."
+  },
+  "pr_convention": {
+    "title_format": "{cve_id}: {attr_path} -> {target_version}",
+    "title_examples": [
+      "CVE-2025-4598: systemd -> 257.6",
+      "CVE-2026-25949: traefik -> 3.6.8"
+    ],
+    "base_branch": "master",
+    "labels": ["trace-bundle", "auto-generated"],
+    "body_includes": [
+      "link to the trace bundle ID + commit",
+      "Steward verdict (auto-merge / human-review-required / advisory-only)",
+      "the bundle's signed_manifest.identity_subject for verifiability",
+      "the Rekor log entry link"
+    ]
+  },
+  "trust_boundary": {
+    "trace_writes_to": "Ad-Astra-Computing/nixpkgs only",
+    "never_writes_to": "NixOS/nixpkgs (upstream is read-only; PRs to upstream are a separate human-driven step)",
+    "notes": "trace produces bundles + opens PRs against the fork. A human reviewer on the trace side decides when (or if) any patch graduates from the fork to upstream. The fork is the staging ground; upstream submission is out of trace's automation scope."
+  }
+}
