@@ -35,8 +35,8 @@ permissions:
 
 env:
   # Pinned to match .github/workflows/ci.yml. Bump together.
+  # See docs/SECURITY_CI_SUPPLY_CHAIN.md for the install trust statement.
   OPA_VERSION: "v1.0.1"
-  OPA_LINUX_AMD64_SHA256: "6d81be862e412af910eacfad489e3d77afbfcf4b958ea4e839b7f38c9eec4d87"
 
   # Real-network gates. The two pytest cases under tests/upstream_ref_resolver
   # only run when these are set.
@@ -83,15 +83,12 @@ jobs:
       - name: Cache Nix store
         uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
 
-      - name: Install OPA (pinned, checksum-verified)
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.local/bin"
-          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
-          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
-          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
-          chmod +x "$HOME/.local/bin/opa"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # See docs/SECURITY_CI_SUPPLY_CHAIN.md. Pinned by full commit SHA.
+      - name: Install OPA
+        uses: open-policy-agent/setup-opa@b2b258e089860efaadaaf71bf6e3aecb4a3eeff1 # v2.4.0
+        with:
+          version: ${{ env.OPA_VERSION }}
+          static: true
 
       - name: Real-network gated tests
         run: |
