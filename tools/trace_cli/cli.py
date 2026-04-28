@@ -538,13 +538,27 @@ def _do_execute(
         execute,
     )
 
-    # Model-backed roles (patcher first) need --model. Enforce here before we
-    # even look at replay.json, so the error is about the command line, not
-    # about missing invocation records.
-    if args.role in MODEL_BACKED_ROLES and not args.model:
+    # Resolve model_id: --model wins; otherwise look it up in
+    # --routing-config; otherwise fail.
+    resolved_model_id: str | None = args.model
+    if (
+        args.role in MODEL_BACKED_ROLES
+        and resolved_model_id is None
+        and args.routing_config is not None
+    ):
+        try:
+            rc = json.loads(args.routing_config.read_text())
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            print(f"error: cannot read --routing-config: {exc}", file=sys.stderr)
+            return EXIT_INVALID
+        spec = rc.get(args.role) if isinstance(rc, dict) else None
+        if isinstance(spec, dict) and isinstance(spec.get("model_id"), str):
+            resolved_model_id = spec["model_id"]
+    if args.role in MODEL_BACKED_ROLES and not resolved_model_id:
         print(
             f"error: --execute --role {args.role} requires --model <id> "
-            f"(no default live model; explicit by design)",
+            f"(or --routing-config containing an entry for {args.role!r}; "
+            f"no default live model; explicit by design)",
             file=sys.stderr,
         )
         return EXIT_USAGE
@@ -581,7 +595,7 @@ def _do_execute(
                 bundle_dir=bundle_dir,
                 invocation=invocation,
                 verify=not args.no_verify,
-                model_id=args.model,
+                model_id=resolved_model_id,
             )
         except HashMismatch as exc:
             print(f"hash-mismatch: {exc}", file=sys.stderr)
@@ -663,18 +677,21 @@ def _emit_execute_results(report: dict[str, Any], fmt: str) -> None:
 
 
 def _validate_override_args(args: argparse.Namespace) -> str | None:
-    if args.routing_config and (args.role or args.model):
-        return "--routing-config is mutually exclusive with --role/--model"
+    # --routing-config is the canonical role-to-model lookup for live runs.
+    # When supplied with --execute and --role, the model_id is resolved
+    # from the config rather than from --model. Supplying --model and
+    # --routing-config together is still ambiguous (which one wins?), so
+    # disallow that explicit conflict.
+    if args.routing_config and args.model:
+        return "--routing-config is mutually exclusive with --model"
     if args.execute:
-        # In execute mode, --role is required; --model is not. Override semantics
-        # (model substitution) are plan-only in v0.
         if not args.role:
             return "--execute requires --role"
-        if args.routing_config:
-            return "--execute is not compatible with --routing-config in v0"
+        # --execute now accepts --routing-config provided --role is given.
+        # The role-specific model_id is looked up from the config.
         return None
-    if args.role and not args.model:
-        return "--role requires --model"
+    if args.role and not args.model and not args.routing_config:
+        return "--role requires --model (or --routing-config)"
     if args.model and not args.role:
         return "--model requires --role (or use --routing-config for multi-role)"
     return None

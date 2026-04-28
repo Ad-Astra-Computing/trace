@@ -83,3 +83,40 @@ def test_routing_config_contains_all_model_backed_roles() -> None:
     assert not missing, (
         f"routing-config missing entries for model-backed roles: {sorted(missing)}"
     )
+
+
+def test_validate_override_args_allows_execute_with_routing_config() -> None:
+    """The CLI now lets `--execute --role X --routing-config <file>`
+    look up the model_id from the config rather than requiring --model.
+    Removes the flag noise users complained about while keeping the
+    exclusive-with-model invariant for ambiguity safety."""
+    from argparse import Namespace
+    from tools.trace_cli.cli import _validate_override_args
+
+    # Happy: --execute --role --routing-config (no --model) — allowed
+    args = Namespace(
+        role="patcher",
+        model=None,
+        routing_config=ROUTING_CONFIG_PATH,
+        execute=True,
+    )
+    assert _validate_override_args(args) is None
+
+    # Disallowed: --routing-config + --model (ambiguity)
+    args2 = Namespace(
+        role="patcher",
+        model="claude-opus-4-7",
+        routing_config=ROUTING_CONFIG_PATH,
+        execute=True,
+    )
+    err = _validate_override_args(args2)
+    assert err is not None and "mutually exclusive" in err
+
+    # Plan-only mode (no --execute) also accepts --role + --routing-config.
+    args3 = Namespace(
+        role="patcher",
+        model=None,
+        routing_config=ROUTING_CONFIG_PATH,
+        execute=False,
+    )
+    assert _validate_override_args(args3) is None
