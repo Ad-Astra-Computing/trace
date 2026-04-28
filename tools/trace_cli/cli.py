@@ -227,6 +227,29 @@ def main(argv: list[str]) -> int:
                       help="glob expression matching review-scoring-report.json files")
     e_rr.add_argument("--format", choices=("human", "json"), default="human")
 
+    e_repro = e_subs.add_parser(
+        "repro-rate",
+        help=(
+            "aggregate repro-scoring-report.json files into a cohort-level "
+            "reproducer report. v0 fields: well-formed rate, vuln-signal-"
+            "recovered rate, proxy-patched-passes rate, passthru-coverage mean, "
+            "proxy rate + reason distribution, refusal rate, signal-specificity "
+            "mean (advisory), provenance per run."
+        ),
+    )
+    e_repro.add_argument(
+        "--cohort", required=True,
+        help="cohort label. Recommended: synthetic | real-single | inner-loop | "
+             "full-corpus | real-ci-smoke. Free-form strings accepted.",
+    )
+    e_repro.add_argument(
+        "--reports", required=True,
+        help="glob expression matching repro-scoring-report.json files",
+    )
+    e_repro.add_argument(
+        "--format", choices=("human", "json"), default="human",
+    )
+
     args = parser.parse_args(argv)
     if args.cmd == "replay":
         return _cmd_replay(args)
@@ -245,8 +268,62 @@ def main(argv: list[str]) -> int:
             return _cmd_eval_patch_rate(args)
         if args.eval_cmd == "review-rate":
             return _cmd_eval_review_rate(args)
+        if args.eval_cmd == "repro-rate":
+            return _cmd_eval_repro_rate(args)
         return EXIT_USAGE
     return EXIT_USAGE
+
+
+def _cmd_eval_repro_rate(args: argparse.Namespace) -> int:
+    from agents.scorers.reproducer_aggregator import (
+        KNOWN_REPRODUCER_COHORT_LABELS,
+        aggregate_reproducer_reports,
+        expand_reproducer_glob,
+    )
+
+    paths = expand_reproducer_glob(args.reports)
+    if not paths:
+        print(
+            f"error: no repro-scoring-report.json files matched glob {args.reports!r}",
+            file=sys.stderr,
+        )
+        return EXIT_INVALID
+
+    result = aggregate_reproducer_reports(report_paths=paths, cohort=args.cohort)
+
+    if args.format == "json":
+        payload = result.to_dict()
+        if args.cohort not in KNOWN_REPRODUCER_COHORT_LABELS:
+            payload["cohort_label_recognised"] = False
+        print(json.dumps(payload, indent=2))
+        return EXIT_OK
+
+    def _fmt(v: float | None) -> str:
+        return "n/a" if v is None else f"{v:.3f}"
+
+    label_note = "" if args.cohort in KNOWN_REPRODUCER_COHORT_LABELS else \
+                 " (free-form label; not in KNOWN_REPRODUCER_COHORT_LABELS)"
+    print(f"cohort:                            {result.cohort}{label_note}")
+    print(f"aggregated_at:                     {result.aggregated_at}")
+    print(f"scoring_reports:                   {result.totals['scoring_reports']}")
+    print(f"  parse_errors:                    {result.totals['parse_errors']}")
+    print(f"  refusals:                        {result.totals['refusals']}")
+    print(f"  proxy:                           {result.totals['proxy']}")
+    print(f"  vuln_signal_eligible:            {result.totals['vuln_signal_eligible']}")
+    print(f"  proxy_eligible:                  {result.totals['proxy_eligible']}")
+    print(f"reproducer_well_formed_rate:       {_fmt(result.reproducer_well_formed_rate)}")
+    print(f"vuln_signal_recovered_rate:       {_fmt(result.vuln_signal_recovered_rate)}")
+    print(f"proxy_patched_passes_rate:         {_fmt(result.proxy_patched_passes_rate)}")
+    print(f"passthru_coverage_mean:            {_fmt(result.passthru_coverage_mean)}")
+    print(f"proxy_rate:                        {_fmt(result.proxy_rate)}")
+    print(f"refusal_rate:                      {_fmt(result.refusal_rate)}")
+    print(f"signal_specificity_mean (advisory):")
+    print(f"                                   {_fmt(result.signal_specificity_mean)}")
+    if result.proxy_reason_distribution:
+        print("proxy_reason_distribution:")
+        for reason in sorted(result.proxy_reason_distribution):
+            print(f"  {reason:42s} {result.proxy_reason_distribution[reason]}")
+    return EXIT_OK
 
 
 def _cmd_eval_review_rate(args: argparse.Namespace) -> int:
