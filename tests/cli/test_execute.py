@@ -395,7 +395,14 @@ def test_execute_patcher_without_model_rejected(tmp_path, capsys):
     assert "requires --model" in err
 
 
-def test_execute_refuses_builder(tmp_path, capsys):
+def test_execute_builder_runs_via_runner_backed_path(tmp_path, capsys):
+    """Builder is wired as RUNNER_BACKED (deterministic, subprocess via
+    BuildRunner Protocol). Without a Linux build host the production
+    LocalNixBuildRunner reports nix-build-not-available, which produces
+    a valid build.json with infra-failure-shaped phase records and
+    dispatch_outcome='ok'/'refused-no-reproducer' depending on bundle
+    state. The CLI exit is OK regardless — Builder failures are data
+    in build.json, not CLI-level errors."""
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
     replay_path = bundle_dir / "replay.json"
     replay = json.loads(replay_path.read_text())
@@ -403,12 +410,17 @@ def test_execute_refuses_builder(tmp_path, capsys):
     replay["roles"][0]["invocations"][0]["role"] = "builder"
     replay_path.write_text(json.dumps(replay, indent=2))
 
-    rc, _out, err = _run(
+    rc, _out, _err = _run(
         ["replay", str(bundle_dir), "--execute", "--role", "builder"],
         capsys,
     )
-    assert rc == EXIT_INVALID
-    assert "not supported" in err
+    # Whether the CLI exits 0 depends on whether the resolver fixture
+    # carries a patch.diff + reproducer.nix; the resolver fixture does
+    # not, so Builder writes build.json with dispatch_outcome=
+    # refused-no-patch and exits cleanly. The important assertion is
+    # that builder is NO LONGER REJECTED at the role-dispatch layer.
+    assert "not supported" not in _err
+    assert "not yet wired" not in _err
 
 
 def test_execute_requires_role_flag(tmp_path, capsys):
