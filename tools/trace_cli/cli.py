@@ -210,6 +210,23 @@ def main(argv: list[str]) -> int:
                       help="glob expression matching scoring-report.json files")
     e_pr.add_argument("--format", choices=("human", "json"), default="human")
 
+    e_rr = e_subs.add_parser(
+        "review-rate",
+        help=(
+            "aggregate review-scoring-report.json files into a cohort-level "
+            "reviewer report. v0 fields: accept/reject/escalate rates, "
+            "evidence-cited mean, attestation-correct rate, reviewer-steward "
+            "disagreement rate, provenance per run."
+        ),
+    )
+    e_rr.add_argument("--cohort", required=True,
+                      help="cohort label. Recommended: synthetic | real-single "
+                           "| inner-loop | full-corpus | real-ci-smoke. Free-form "
+                           "strings accepted.")
+    e_rr.add_argument("--reports", required=True,
+                      help="glob expression matching review-scoring-report.json files")
+    e_rr.add_argument("--format", choices=("human", "json"), default="human")
+
     args = parser.parse_args(argv)
     if args.cmd == "replay":
         return _cmd_replay(args)
@@ -226,8 +243,57 @@ def main(argv: list[str]) -> int:
     if args.cmd == "eval":
         if args.eval_cmd == "patch-rate":
             return _cmd_eval_patch_rate(args)
+        if args.eval_cmd == "review-rate":
+            return _cmd_eval_review_rate(args)
         return EXIT_USAGE
     return EXIT_USAGE
+
+
+def _cmd_eval_review_rate(args: argparse.Namespace) -> int:
+    from agents.scorers.reviewer_aggregator import (
+        KNOWN_REVIEWER_COHORT_LABELS,
+        aggregate_reviewer_reports,
+        expand_review_glob,
+    )
+
+    paths = expand_review_glob(args.reports)
+    if not paths:
+        print(
+            f"error: no review-scoring-report.json files matched glob {args.reports!r}",
+            file=sys.stderr,
+        )
+        return EXIT_INVALID
+
+    result = aggregate_reviewer_reports(report_paths=paths, cohort=args.cohort)
+
+    if args.format == "json":
+        payload = result.to_dict()
+        if args.cohort not in KNOWN_REVIEWER_COHORT_LABELS:
+            payload["cohort_label_recognised"] = False
+        print(json.dumps(payload, indent=2))
+        return EXIT_OK
+
+    def _fmt(v: float | None) -> str:
+        return "n/a" if v is None else f"{v:.3f}"
+
+    label_note = "" if args.cohort in KNOWN_REVIEWER_COHORT_LABELS else \
+                 " (free-form label; not in KNOWN_REVIEWER_COHORT_LABELS)"
+    print(f"cohort:                       {result.cohort}{label_note}")
+    print(f"aggregated_at:                {result.aggregated_at}")
+    print(f"scoring_reports:              {result.totals['scoring_reports']}")
+    print(f"  parse_errors:               {result.totals['parse_errors']}")
+    print(f"  verdicts:                   {result.totals['verdicts']}")
+    print(f"  refusals:                   {result.totals['refusals']}")
+    print(f"  accept / reject / escalate: "
+          f"{result.totals['accept']} / {result.totals['reject']} / {result.totals['escalate']}")
+    print(f"accept_rate:                  {_fmt(result.accept_rate)}")
+    print(f"reject_rate:                  {_fmt(result.reject_rate)}")
+    print(f"escalate_rate:                {_fmt(result.escalate_rate)}")
+    print(f"evidence_cited_mean:          {_fmt(result.evidence_cited_mean)}")
+    print(f"attestation_correct_rate:     {_fmt(result.attestation_correct_rate)}")
+    print(f"reviewer_steward_disagreement_rate (informational):")
+    print(f"                              {_fmt(result.reviewer_steward_disagreement_rate)}")
+    return EXIT_OK
 
 
 def _cmd_eval_patch_rate(args: argparse.Namespace) -> int:
