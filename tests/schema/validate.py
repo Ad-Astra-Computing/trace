@@ -37,6 +37,7 @@ SCHEMA_FILES = {
     "purl_enrichment": POLICY_DIR / "purl-enrichment-schema.json",
     "eval_candidate": POLICY_DIR / "eval-candidate-schema.json",
     "eval_rejection": POLICY_DIR / "eval-rejection-schema.json",
+    "build_output": POLICY_DIR / "build-output-schema.json",
 }
 
 # Maps bundle-relative file name -> schema key
@@ -47,6 +48,7 @@ DOC_TO_SCHEMA = {
     "replay.json": "replay",
     "impact.json": "impact",
     "maintainers.json": "maintainers",
+    "build.json": "build_output",
 }
 
 
