@@ -205,6 +205,82 @@ def test_closure_captured_version_skips_fetchzip() -> None:
     assert src_skip.required_for_patch is True
 
 
+def test_systemd_let_binding_version_capture_skips_fetchzip() -> None:
+    """systemd-style: `let version = "..."; in stdenv.mkDerivation { ... }`.
+    `version` is closed over by the let-binding, NOT by `finalAttrs`,
+    so `overrideAttrs (old: { version = "..."; })` cannot reach the
+    `rev = "v${version}"` template inside `src = fetchFromGitHub { ... }`.
+    Surfaced by the 2026-04-27 systemd prefetch run — overrideAttrs
+    returned the package's existing v257.5 hash regardless of the
+    target_version=257.6 override.
+
+    The detector must catch this shape and route src.hash to
+    `closure-captured-version` so the operator falls back to manual
+    pinning instead of the prefetch evaluator silently shipping the
+    wrong (current) hash."""
+    bundle = _bundle("CVE-2025-4598--systemd")
+    package_source = (bundle / "package.nix").read_text()
+    upstream_ref = {
+        **_MIN_UPSTREAM_REF,
+        "current_version": "257.5",
+        "target_version": "257.6",
+        "tag": "v257.6",
+        "upstream_fix_commits": [{
+            "repo_url": "https://github.com/systemd/systemd",
+            "commit_sha": "00a12c234e2506f5cab683460199575f13c454db",
+        }],
+    }
+    out = derive_prefetch_targets(
+        upstream_ref=upstream_ref, package_source=package_source,
+        attr_path="systemd",
+    )
+    # The github-release-archive rule would otherwise fire from the
+    # local fetchFromGitHub block; the closure-captured detector must
+    # displace it so the prefetch evaluator never runs against a
+    # version-capturing source.
+    assert not any(t.name == "src.hash" for t in out.targets), out
+    src_skip = next((s for s in out.skipped if s.name == "src.hash"), None)
+    assert src_skip is not None
+    assert src_skip.reason == "closure-captured-version"
+    assert src_skip.required_for_patch is True
+    # Detail must mention systemd's let-binding shape, not just openssl's.
+    assert "let" in (src_skip.detail or "")
+
+
+def test_let_version_detector_synthetic_shape() -> None:
+    """Direct synthetic test of the let-binding detector independent of
+    the systemd fixture. Anchors on a minimal package shape that uses
+    `let version = "..."; in stdenv.mkDerivation { src = fetchFromGitHub
+    { rev = "v${version}"; }; }`."""
+    pkg = (
+        '{ stdenv, fetchFromGitHub }:\n'
+        'let\n'
+        '  version = "1.2.3";\n'
+        'in\n'
+        'stdenv.mkDerivation (finalAttrs: {\n'
+        '  pname = "demo"; inherit version;\n'
+        '  src = fetchFromGitHub {\n'
+        '    owner = "demo"; repo = "demo"; rev = "v${version}";\n'
+        '    hash = "sha256-DUMMY";\n'
+        '  };\n'
+        '})\n'
+    )
+    upstream_ref = {
+        **_MIN_UPSTREAM_REF,
+        "current_version": "1.2.3",
+        "target_version": "1.2.4",
+        "tag": "v1.2.4",
+    }
+    out = derive_prefetch_targets(
+        upstream_ref=upstream_ref, package_source=pkg, attr_path="demo",
+    )
+    assert not any(t.name == "src.hash" for t in out.targets), out
+    src_skip = next((s for s in out.skipped if s.name == "src.hash"), None)
+    assert src_skip is not None
+    assert src_skip.reason == "closure-captured-version"
+    assert src_skip.required_for_patch is True
+
+
 def test_simple_package_does_not_trigger_closure_detector() -> None:
     """A package without a `helper = { version, ... }:` closure must
     NOT be skipped — the detector should be conservative-but-not-paranoid."""
@@ -317,20 +393,28 @@ def test_systemd_shape_ignores_non_src_fetchzip() -> None:
         package_source=package_source,
         attr_path="systemd",
     )
-    src_targets = [t for t in out.targets if t.name == "src.hash"]
-    assert len(src_targets) == 1, out
-    t = src_targets[0]
-    assert t.derivation_rule == "github-release-archive"
-    assert t.url == (
-        "https://github.com/systemd/systemd/archive/refs/tags/v257.6.tar.gz"
-    )
-    # The OpenEmbedded helper URL must NEVER appear as a target or skip
-    # for src.hash — it's not the package's source.
+    # Critical for THIS regression: the OpenEmbedded helper URL must
+    # NEVER appear as a target or skip for src.hash — it's not the
+    # package's source. Whether src.hash itself ends up as a target or
+    # a skip is governed by other detectors (closure-captured-version
+    # currently displaces it for systemd-shaped let-binding capture);
+    # this test only asserts the non-src fetchzip fix.
     for target in out.targets:
         assert "openembedded" not in target.url.lower(), target
     for skip in out.skipped:
         if skip.name == "src.hash":
             assert "openembedded" not in (skip.detail or "").lower(), skip
+    # And confirm the github fallback URL or skip detail is what
+    # references systemd, not openembedded.
+    relevant = [
+        t.url for t in out.targets if t.name == "src.hash"
+    ] + [
+        (s.detail or "") for s in out.skipped if s.name == "src.hash"
+    ]
+    assert relevant, out
+    assert any(
+        "systemd" in s or "let" in s for s in relevant
+    ), relevant
 
 
 def test_non_src_fetchzip_alone_does_not_become_src_hash() -> None:
