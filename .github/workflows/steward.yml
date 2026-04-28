@@ -39,6 +39,7 @@ on:
           - bind
           - uriparser
           - libtiff
+          - mruby
 
 permissions:
   contents: read
@@ -139,6 +140,16 @@ jobs:
               # patched libtiff derivations.
               SRC="traces/example/CVE-2024-13978--libtiff"
               REAL_CVE="true"
+              ;;
+            mruby)
+              # Human-review-required bundle (deterministic-no-model corpus
+              # seed for CVE-2025-7207). Reproducer is a refusal under rule
+              # 3 (heap-buffer-overflow silent without ASAN); Steward only
+              # enforces rules 4+5 on this kind. Builder short-circuits on
+              # the existing reproducer-refusal artifact, no fork checkout
+              # needed.
+              SRC="traces/example/CVE-2025-7207--mruby"
+              REAL_CVE="false"
               ;;
             *)
               echo "::error::unknown bundle ${BUNDLE}"; exit 64 ;;
