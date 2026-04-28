@@ -12,13 +12,15 @@ on:
 permissions:
   contents: read
 
-# Single source of truth for OPA. Pinned, not `latest`. Checksum published by
-# openpolicyagent.org (see .sha256 sidecar) and verified before use in every
-# job. Bump both values together when upgrading.
+# Single source of truth for OPA version. Pinned, not `latest`. Install
+# is delegated to the official open-policy-agent/setup-opa action, itself
+# pinned by full commit SHA (see job steps below). The action handles
+# version resolution + checksum verification against the GitHub release
+# manifest, one trust hop further than a bare curl. Bump OPA_VERSION
+# and the setup-opa SHA together; see docs/SECURITY_CI_SUPPLY_CHAIN.md.
 env:
   TRACE_REQUIRE_OPA: "1"
   OPA_VERSION: "v1.0.1"
-  OPA_LINUX_AMD64_SHA256: "6d81be862e412af910eacfad489e3d77afbfcf4b958ea4e839b7f38c9eec4d87"
 
   # Three intentional pytest skips are expected under CI:
   #   1. TRACE_STRICT_HASHES=1 gated test — fixture hashes are placeholders
@@ -49,18 +51,22 @@ jobs:
       - name: Cache Nix store
         uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
 
-      - name: Install OPA (pinned, checksum-verified)
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.local/bin"
-          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
-          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
-          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
-          chmod +x "$HOME/.local/bin/opa"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # setup-opa is the official open-policy-agent install action.
+      # Pinned by full commit SHA (gold standard for security/evidence
+      # projects). The `# v2.4.0` comment documents the human-readable
+      # tag so Dependabot has a target to update against. Resolve a new
+      # SHA with:
+      #   git ls-remote https://github.com/open-policy-agent/setup-opa.git refs/tags/vN.N.N
+      # See docs/SECURITY_CI_SUPPLY_CHAIN.md for the full trust statement.
+      - name: Install OPA
+        uses: open-policy-agent/setup-opa@b2b258e089860efaadaaf71bf6e3aecb4a3eeff1 # v2.4.0
+        with:
+          version: ${{ env.OPA_VERSION }}
+          static: true
 
       - name: Preflight — OPA must be present and correct version
         run: |
+          set -euo pipefail
           command -v opa
           opa version | tee /tmp/opa-version.txt
           grep -F "Version: ${OPA_VERSION#v}" /tmp/opa-version.txt
@@ -77,18 +83,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install OPA (pinned, checksum-verified)
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.local/bin"
-          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
-          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
-          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
-          chmod +x "$HOME/.local/bin/opa"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # setup-opa is the official open-policy-agent install action.
+      # Pinned by full commit SHA (gold standard for security/evidence
+      # projects). The `# v2.4.0` comment documents the human-readable
+      # tag so Dependabot has a target to update against. Resolve a new
+      # SHA with:
+      #   git ls-remote https://github.com/open-policy-agent/setup-opa.git refs/tags/vN.N.N
+      # See docs/SECURITY_CI_SUPPLY_CHAIN.md for the full trust statement.
+      - name: Install OPA
+        uses: open-policy-agent/setup-opa@b2b258e089860efaadaaf71bf6e3aecb4a3eeff1 # v2.4.0
+        with:
+          version: ${{ env.OPA_VERSION }}
+          static: true
 
       - name: Preflight — OPA must be present and correct version
         run: |
+          set -euo pipefail
           command -v opa
           opa version | tee /tmp/opa-version.txt
           grep -F "Version: ${OPA_VERSION#v}" /tmp/opa-version.txt
@@ -178,15 +188,18 @@ jobs:
       # missing opa rather than silently skipping). Two tests under
       # tests/graph/test_enrichment_replay.py also require opa for the
       # steward replay path; install it here as well.
-      - name: Install OPA (pinned, checksum-verified)
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.local/bin"
-          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
-          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
-          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
-          chmod +x "$HOME/.local/bin/opa"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # setup-opa is the official open-policy-agent install action.
+      # Pinned by full commit SHA (gold standard for security/evidence
+      # projects). The `# v2.4.0` comment documents the human-readable
+      # tag so Dependabot has a target to update against. Resolve a new
+      # SHA with:
+      #   git ls-remote https://github.com/open-policy-agent/setup-opa.git refs/tags/vN.N.N
+      # See docs/SECURITY_CI_SUPPLY_CHAIN.md for the full trust statement.
+      - name: Install OPA
+        uses: open-policy-agent/setup-opa@b2b258e089860efaadaaf71bf6e3aecb4a3eeff1 # v2.4.0
+        with:
+          version: ${{ env.OPA_VERSION }}
+          static: true
 
       - name: Python schema validation of the emitted snapshot + cargo smoke tests
         run: nix develop --command pytest -v tests/graph
