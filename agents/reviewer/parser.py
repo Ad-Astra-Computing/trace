@@ -128,6 +128,24 @@ class ReviewerParseResult:
         }
 
 
+_WRAPPING_FENCE_RE = re.compile(
+    r"^```(?:[a-zA-Z0-9_-]*)?\s*\n(?P<body>.*?)\n```\s*$",
+    re.DOTALL,
+)
+
+
+def _strip_wrapping_code_fence(text: str) -> str:
+    """Remove a markdown code fence that wraps the entire response.
+
+    Only fires when ``` is the first AND last non-whitespace token; an
+    embedded fence inside the review body is left alone.
+    """
+    m = _WRAPPING_FENCE_RE.match(text)
+    if m is None:
+        return text
+    return m.group("body").strip()
+
+
 _REVIEW_BLOCK_RE = re.compile(
     r"===\s*BEGIN review\.md\s*===\n(?P<body>.*?)\n===\s*END review\.md\s*===",
     re.DOTALL,
@@ -155,6 +173,12 @@ def parse_reviewer_output(raw: str) -> ReviewerParseResult:
     text = raw.strip()
     if not text:
         raise ReviewerOutputMalformed("model returned empty output")
+    # Strip a wrapping markdown code-fence if present. Some models
+    # (sonnet 4.6 in particular) habitually emit the entire response
+    # inside ```...```. Surfaced by the first live reviewer run on
+    # traefik 2026-04-27. The fence is a formatting artifact, not
+    # contract content; tolerate but only if it wraps THE WHOLE thing.
+    text = _strip_wrapping_code_fence(text)
 
     first = re.search(r"^===\s*BEGIN (review\.md|refusal)\s*===$", text, re.MULTILINE)
     if not first:

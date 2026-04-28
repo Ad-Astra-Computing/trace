@@ -251,6 +251,24 @@ def test_rejects_level_1_heading_in_review() -> None:
         parse_reviewer_output(raw)
 
 
+def test_tolerates_wrapping_code_fence() -> None:
+    """Some models (sonnet 4.6) wrap their entire response in ```...```.
+    The fence is a formatting artifact; the parser strips it iff it
+    wraps the whole response. Surfaced by the first live reviewer run
+    on traefik 2026-04-27."""
+    raw = "```\n" + _accept_review() + "\n```"
+    r = parse_reviewer_output(raw)
+    assert r.kind == "review"
+    assert r.verdict == "accept"
+
+
+def test_does_not_strip_unbalanced_code_fence() -> None:
+    """An unbalanced wrap (only opening ```) must still be rejected;
+    the regex requires both fences."""
+    with pytest.raises(ReviewerOutputMalformed):
+        parse_reviewer_output("```\n" + _accept_review())
+
+
 def test_rejects_findings_out_of_order() -> None:
     """Sections must appear in the contracted order."""
     raw = (
