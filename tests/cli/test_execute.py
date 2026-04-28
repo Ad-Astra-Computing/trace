@@ -358,24 +358,23 @@ def test_execute_upstream_ref_resolver(tmp_path, capsys):
 # ─── execute: refusals ─────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("role", ["reproducer"])
-def test_execute_refuses_reviewer_reproducer_until_wired(tmp_path, capsys, role):
-    """Reproducer stays in the 'not yet wired' bucket. Patcher (this
-    session) and Reviewer (next session) have moved to their own
-    wiring; only Reproducer remains."""
+def test_execute_reproducer_without_model_rejected(tmp_path, capsys):
+    """Reproducer is now model-backed (landed 2026-04-28 step-4).
+    Without `--model` it must reject at the CLI layer — same shape as
+    Patcher and Reviewer; no default live model."""
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
     replay_path = bundle_dir / "replay.json"
     replay = json.loads(replay_path.read_text())
-    replay["roles"][0]["role"] = role
-    replay["roles"][0]["invocations"][0]["role"] = role
+    replay["roles"][0]["role"] = "reproducer"
+    replay["roles"][0]["invocations"][0]["role"] = "reproducer"
     replay_path.write_text(json.dumps(replay, indent=2))
 
     rc, _out, err = _run(
-        ["replay", str(bundle_dir), "--execute", "--role", role],
+        ["replay", str(bundle_dir), "--execute", "--role", "reproducer"],
         capsys,
     )
-    assert rc == EXIT_INVALID
-    assert "not yet wired" in err
+    assert rc != EXIT_OK
+    assert "requires --model" in err
 
 
 def test_execute_patcher_without_model_rejected(tmp_path, capsys):

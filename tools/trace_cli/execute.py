@@ -40,17 +40,17 @@ DETERMINISTIC_ROLES: frozenset[str] = frozenset({
     "upstream-ref-resolver",
 })
 
-# Non-deterministic roles need a model call. Patcher and Reviewer are
-# wired; Reproducer follows the same pattern when its prompt + runner
-# land.
+# Non-deterministic roles need a model call. Patcher, Reviewer, and
+# Reproducer are wired (the latter as of the 2026-04-28 step-4 lock).
+# Builder remains REJECTED until the Linux-builder readiness gate is
+# resolved.
 MODEL_BACKED_ROLES: frozenset[str] = frozenset({
     "patcher",
     "reviewer",
-})
-
-REJECTED_NON_DETERMINISTIC_ROLES: frozenset[str] = frozenset({
     "reproducer",
 })
+
+REJECTED_NON_DETERMINISTIC_ROLES: frozenset[str] = frozenset()
 
 
 class ExecutionError(Exception):
@@ -118,6 +118,14 @@ def execute(
             )
         if role == "reviewer":
             return _execute_reviewer(
+                bundle_dir=bundle_dir,
+                invocation=invocation,
+                verify=verify,
+                model_id=model_id,
+                adapter_factory=adapter_factory,
+            )
+        if role == "reproducer":
+            return _execute_reproducer(
                 bundle_dir=bundle_dir,
                 invocation=invocation,
                 verify=verify,
@@ -1018,6 +1026,338 @@ def _append_reviewer_replay_entry(
             break
     if role_entry is None:
         role_entry = {"role": "reviewer", "invocations": []}
+        roles.append(role_entry)
+    role_entry["invocations"].append(invocation)
+    body = json.dumps(replay, indent=2, ensure_ascii=False) + "\n"
+    _atomic_write_bytes(replay_path, body.encode("utf-8"))
+
+
+# ─── reproducer execution ──────────────────────────────────────────────────
+
+
+REPRODUCER_PROMPT_PATH_DEFAULT = (
+    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v1.md"
+)
+
+
+def _execute_reproducer(
+    *,
+    bundle_dir: Path,
+    invocation: dict[str, Any],
+    verify: bool,
+    model_id: str,
+    adapter_factory: object | None,
+) -> dict[str, Any]:
+    """Reproducer dispatcher: dispatch-guards, load inputs, run, atomic-write.
+
+    Reproducer reads the same bundle inputs the Reviewer had (finding /
+    upstream-ref / impact / maintainers / package.nix / patch.diff /
+    patch-rationale.md). It does NOT touch build.json — that's strictly
+    Builder's territory per the 2026-04-28 architectural split.
+
+    Dispatch guards:
+      * If the bundle's `kind == "advisory-only"` OR the Patcher
+        produced a refusal.json (no patch to reproduce), refuse with
+        Reproducer rule 1 / rule 2.
+      * Cross-family rule (b2b3b2c): if the requested Reproducer model
+        belongs to the SAME family as the Patcher invocation already
+        recorded in replay.json, refuse with a structured error. The
+        executor enforces; the model's own attestation is theatrical
+        (proven fabricated under sonnet across three reviewer runs).
+    """
+    from agents.patcher import AnthropicAdapter
+    from agents.reproducer import ReproducerOutputMalformed, run_reproducer
+
+    bundle_path = bundle_dir / "bundle.json"
+    if bundle_path.is_file():
+        try:
+            bundle = json.loads(bundle_path.read_text())
+        except Exception as exc:
+            raise ExecutionError(f"failed to read bundle.json: {exc}") from exc
+        if bundle.get("kind") == "advisory-only":
+            raise PatcherDispatchRefused(
+                "refuses: bundle.kind=='advisory-only'. Reproducer must not "
+                "be invoked on advisory-only bundles (no patch to reproduce)."
+            )
+
+    refusal_path = bundle_dir / "refusal.json"
+    if refusal_path.is_file():
+        raise PatcherDispatchRefused(
+            "refuses: bundle declares a refusal.json from the Patcher; "
+            "no patch.diff to reproduce. Reproducer dispatch rule 1."
+        )
+
+    diff_path = bundle_dir / "patch.diff"
+    rat_path = bundle_dir / "patch-rationale.md"
+    finding_path = bundle_dir / "finding.json"
+    upstream_ref_path = bundle_dir / "upstream-ref.json"
+    impact_path = bundle_dir / "impact.json"
+    maintainers_path = bundle_dir / "maintainers.json"
+    package_path = bundle_dir / "package.nix"
+    for p in (diff_path, rat_path, finding_path, upstream_ref_path,
+              impact_path, maintainers_path, package_path):
+        if not p.is_file():
+            raise ExecutionError(
+                f"reproducer requires {p.name} in bundle_dir (missing: {p})"
+            )
+
+    # Cross-family rule. Read the most recent patcher invocation's
+    # model.family from replay.json; if the requested reproducer model
+    # would land in the same family, refuse pre-emptively.
+    patcher_family = _read_patcher_family_from_replay(bundle_dir)
+    requested_family = _model_id_family(model_id)
+    if patcher_family and requested_family and patcher_family == requested_family:
+        raise ExecutionError(
+            f"reproducer model_id={model_id!r} is in the same family "
+            f"({requested_family!r}) as the Patcher invocation on file. "
+            f"The Reproducer cross-family rule (DECISIONS 2026-04-28) "
+            f"forbids same-family Patcher/Reproducer pairs. Pick a "
+            f"different model family."
+        )
+
+    finding = json.loads(finding_path.read_text())
+    upstream_ref = json.loads(upstream_ref_path.read_text())
+    impact = json.loads(impact_path.read_text())
+    maintainers = json.loads(maintainers_path.read_text())
+    package_source = package_path.read_text()
+    patch_diff = diff_path.read_text()
+    patch_rationale_md = rat_path.read_text()
+
+    input_verification: list[dict[str, Any]] = []
+    if verify and invocation.get("inputs"):
+        for ref in invocation["inputs"]:
+            try:
+                _raw, _parsed = _load_input(ref, bundle_dir, verify=True)
+            except HashMismatch:
+                raise
+            except ExecutionError:
+                raise
+            input_verification.append({"path": ref["path"], "verified": True})
+    else:
+        input_verification = [
+            {"path": p.name, "verified": False}
+            for p in (finding_path, upstream_ref_path, impact_path,
+                      maintainers_path, package_path, diff_path, rat_path)
+        ]
+
+    if adapter_factory is not None:
+        adapter = adapter_factory(model_id)  # type: ignore[misc]
+    elif model_id.startswith("claude-"):
+        adapter = AnthropicAdapter(model_id)
+    else:
+        raise ExecutionError(
+            f"no adapter wired for reproducer model id {model_id!r}. Supply "
+            f"an adapter_factory or pass a claude-* model id."
+        )
+
+    inputs = {
+        "finding": finding,
+        "upstream_ref": upstream_ref,
+        "impact": impact,
+        "maintainers": maintainers,
+        "package_source": package_source,
+        "package_source_path": package_path.name,
+        "patch_diff": patch_diff,
+        "patch_rationale_md": patch_rationale_md,
+    }
+
+    started_at = _utc_now_iso()
+    try:
+        result = run_reproducer(
+            inputs=inputs,
+            adapter=adapter,
+            prompt_path=REPRODUCER_PROMPT_PATH_DEFAULT,
+        )
+    except ReproducerOutputMalformed as exc:
+        raise ExecutionError(f"reproducer output malformed: {exc}") from exc
+    ended_at = _utc_now_iso()
+
+    outputs: list[dict[str, Any]] = []
+    if result.kind == "reproducer":
+        # Three files + atomic write + trailing-newline guarantee
+        # (mirrors patcher's defensive newline rule).
+        nix_bytes = (result.parsed.raw_reproducer_nix or "").encode("utf-8")
+        log_bytes = (result.parsed.raw_reproducer_log_txt or "").encode("utf-8")
+        json_bytes = (result.parsed.raw_passthru_tests_json or "").encode("utf-8")
+        for buf_name, buf in (
+            ("reproducer.nix", nix_bytes),
+            ("reproducer-log.txt", log_bytes),
+            ("passthru-tests.json", json_bytes),
+        ):
+            if buf and not buf.endswith(b"\n"):
+                buf = buf + b"\n"
+            _atomic_write_bytes(bundle_dir / buf_name, buf)
+            outputs.append({
+                "path": buf_name,
+                "sha256": sha256_hex(buf),
+                "bytes": len(buf),
+            })
+    else:  # refusal
+        refusal_body = json.dumps(
+            {"rule": result.parsed.refusal_rule,
+             "reason": result.parsed.refusal_reason},
+            indent=2, sort_keys=True,
+        ).encode("utf-8") + b"\n"
+        _atomic_write_bytes(bundle_dir / "reproducer-refusal.json", refusal_body)
+        outputs = [{
+            "path": "reproducer-refusal.json",
+            "sha256": sha256_hex(refusal_body),
+            "bytes": len(refusal_body),
+        }]
+
+    reproducer_run_meta: dict[str, Any] = {
+        "prompt_sha256": result.prompt_sha256,
+        "user_content_sha256": result.user_content_sha256,
+        "raw_response_sha256": result.raw_response_sha256,
+        "model_id": result.model_response.model_id,
+        "sampling": result.sampling,
+        "kind": result.kind,
+        "is_proxy": result.parsed.is_proxy,
+        "refusal_rule": result.parsed.refusal_rule,
+        "refusal_reason": result.parsed.refusal_reason,
+        "adapter": result.model_response.extras.get("adapter"),
+    }
+
+    replay_invocation = _build_reproducer_invocation(
+        bundle_dir=bundle_dir,
+        reproducer_run=reproducer_run_meta,
+        outputs=outputs,
+        started_at=started_at,
+        ended_at=ended_at,
+        patcher_family_recorded=patcher_family,
+    )
+    _append_reproducer_replay_entry(
+        bundle_dir=bundle_dir, invocation=replay_invocation,
+    )
+
+    return {
+        "role": "reproducer",
+        "invocation_id": replay_invocation["invocation_id"],
+        "kind": result.kind,
+        "is_proxy": result.parsed.is_proxy,
+        "outputs": outputs,
+        "input_verification": input_verification,
+        "verified": verify,
+        "reproducer_run": reproducer_run_meta,
+        "replay_invocation": replay_invocation,
+    }
+
+
+def _build_reproducer_invocation(
+    *,
+    bundle_dir: Path,
+    reproducer_run: dict[str, Any],
+    outputs: list[dict[str, Any]],
+    started_at: str,
+    ended_at: str,
+    patcher_family_recorded: str | None,
+) -> dict[str, Any]:
+    """Build a single replay-shape invocation record for a Reproducer run.
+
+    Adds two fields beyond the standard reviewer/patcher shape, per
+    `docs/REPRODUCER_V1.md` §8:
+
+      * `patcher_invocation_id` — points at the patcher invocation
+        whose patch.diff this reproducer is verifying. Surfaces the
+        cross-role pairing in the replay record.
+      * `patcher_family_recorded` — the family the executor resolved
+        from that patcher invocation, used to enforce the cross-family
+        rule. Recorded so an auditor can verify the pair was honored
+        without re-resolving the family from model_id.
+
+    `cross_family_rule_honored: true` is set unconditionally because
+    the executor refuses pre-emptively when the rule would be violated;
+    arrival at this builder implies the check passed.
+    """
+    inputs: list[dict[str, Any]] = []
+    for fname in (
+        "finding.json", "upstream-ref.json", "impact.json",
+        "maintainers.json", "package.nix",
+        "patch.diff", "patch-rationale.md",
+    ):
+        p = bundle_dir / fname
+        if p.is_file():
+            inputs.append({"path": fname, "sha256": _file_sha256(p)})
+
+    invocation = {
+        "invocation_id": _gen_invocation_id(),
+        "role": "reproducer",
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "model": _build_reproducer_model_block(reproducer_run),
+        "prompt": {
+            "path": "prompts/reproducer.v1.md",
+            "sha256": reproducer_run["prompt_sha256"],
+        },
+        "inputs": inputs,
+        "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
+        "patcher_invocation_id": _read_latest_patcher_invocation_id(bundle_dir),
+        "patcher_family_recorded": patcher_family_recorded,
+        "cross_family_rule_honored": True,
+        "rng_seed": None,
+        "validators_passed": _reproducer_validators_for(reproducer_run),
+        "network_policy_applied": "none",
+    }
+    return invocation
+
+
+def _build_reproducer_model_block(reproducer_run: dict[str, Any]) -> dict[str, Any]:
+    """Reproducer model block. Reuses the patcher model-block helper
+    because family-derivation rules are identical."""
+    return _build_patcher_model_block({
+        "model_id": reproducer_run["model_id"],
+        "sampling": reproducer_run.get("sampling") or {},
+        "adapter": reproducer_run.get("adapter") or "unknown",
+    })
+
+
+def _reproducer_validators_for(reproducer_run: dict[str, Any]) -> list[str]:
+    if reproducer_run.get("kind") == "refusal":
+        return ["refusal-shape"]
+    return ["schema-valid-output"]
+
+
+def _read_latest_patcher_invocation_id(bundle_dir: Path) -> str | None:
+    """Return the invocation_id of the most recent patcher run, if any."""
+    rj = bundle_dir / "replay.json"
+    if not rj.is_file():
+        return None
+    try:
+        replay = json.loads(rj.read_text())
+    except json.JSONDecodeError:
+        return None
+    for role in replay.get("roles", []):
+        if role.get("role") != "patcher":
+            continue
+        invs = role.get("invocations", [])
+        if not invs:
+            continue
+        return invs[-1].get("invocation_id")
+    return None
+
+
+def _append_reproducer_replay_entry(
+    *,
+    bundle_dir: Path,
+    invocation: dict[str, Any],
+) -> None:
+    """Append a Reproducer invocation into replay.json's roles[]."""
+    replay_path = bundle_dir / "replay.json"
+    if not replay_path.is_file():
+        raise ExecutionError(
+            f"replay.json missing in {bundle_dir}; reproducer requires a "
+            f"pre-existing replay.json (the patcher invocation that "
+            f"produced patch.diff is its anchor)."
+        )
+    replay = json.loads(replay_path.read_text())
+    roles = replay.setdefault("roles", [])
+    role_entry = None
+    for r in roles:
+        if r.get("role") == "reproducer":
+            role_entry = r
+            break
+    if role_entry is None:
+        role_entry = {"role": "reproducer", "invocations": []}
         roles.append(role_entry)
     role_entry["invocations"].append(invocation)
     body = json.dumps(replay, indent=2, ensure_ascii=False) + "\n"
