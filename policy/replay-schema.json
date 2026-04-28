@@ -174,6 +174,31 @@
         "network_policy_applied": {
           "type": "string",
           "enum": ["none", "feeds-only", "substituter-only", "unrestricted"]
+        },
+        "patcher_invocation_id": {
+          "description": "Cross-reference to the patcher invocation this role's invocation depends on. Populated by the Reproducer (per docs/REPRODUCER_V1.md sec.8) and the Builder (per docs/BUILDER_V1.md sec.4). Null when the role is the patcher itself or when no patcher invocation exists in this replay.",
+          "oneOf": [
+            { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+            { "type": "null" }
+          ]
+        },
+        "patcher_family_recorded": {
+          "description": "The model family the executor resolved for the patcher invocation referenced by patcher_invocation_id. Used by auditors to verify the cross-family pairing without re-resolving the family from model_id. Populated by the Reproducer; null when no patcher invocation exists in this replay.",
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "reproducer_invocation_id": {
+          "description": "Cross-reference to the reproducer invocation. Populated by the Builder (per docs/BUILDER_V1.md sec.4); null when no reproducer invocation exists in this replay.",
+          "oneOf": [
+            { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+            { "type": "null" }
+          ]
+        },
+        "cross_family_rule_honored": {
+          "description": "True iff the executor's pre-call cross-family check passed for this invocation. The model's own attestation (e.g. the Reviewer's review.md cross-family attestation block) does NOT contribute to this flag; only the deterministic executor check does.",
+          "type": "boolean"
         }
       },
       "allOf": [
