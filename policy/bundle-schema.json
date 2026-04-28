@@ -152,11 +152,14 @@
               "reproducer.nix",
               "reproducer-log.txt",
               "build.json",
-              "review.md",
               "sbom-delta.json",
               "replay.json",
               "provenance.jsonl",
               "bundle.sig"
+            ],
+            "anyOf": [
+              { "required": ["review.md"] },
+              { "required": ["review-refusal.json"] }
             ]
           }
         }
@@ -187,6 +190,7 @@
                 { "required": ["passthru-tests.json"] },
                 { "required": ["build.json"] },
                 { "required": ["review.md"] },
+                { "required": ["review-refusal.json"] },
                 { "required": ["sbom-delta.json"] }
               ]
             }
@@ -212,11 +216,14 @@
               "reproducer.nix",
               "reproducer-log.txt",
               "build.json",
-              "review.md",
               "sbom-delta.json",
               "replay.json",
               "provenance.jsonl",
               "bundle.sig"
+            ],
+            "anyOf": [
+              { "required": ["review.md"] },
+              { "required": ["review-refusal.json"] }
             ]
           }
         }
