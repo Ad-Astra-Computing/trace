@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-9999-99999",
+  "source_feeds": ["nvd"],
+  "severity": { "rating": "low", "cvss_v3_score": 1.0 },
+  "published_at": "2026-04-28T00:00:00Z",
+  "summary": "Synthetic placeholder finding for the builder.yml smoke fixture. Targets pkgs.hello as the smallest reliably-buildable nixpkgs derivation. Not a real CVE.",
+  "affected": [
+    {
+      "attr_path": "hello",
+      "drv_path": "/nix/store/00000000000000000000000000000000-hello-2.12.1.drv",
+      "pname": "hello",
+      "version": "2.12.1",
+      "confidence": "high"
+    }
+  ],
+  "mapping": {
+    "cpe": ["cpe:2.3:a:gnu:hello:2.12.1:*:*:*:*:*:*:*"],
+    "method": "cpe-exact"
+  },
+  "replay_critical": true
+}
