@@ -29,7 +29,7 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # DeterminateSystems actions pinned by full commit SHA (gold standard
       # for security/evidence projects). The `# v22` / `# v13` comments
@@ -68,7 +68,7 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install OPA (pinned, checksum-verified)
         run: |
@@ -116,7 +116,7 @@ jobs:
       # must actually run in CI, not silently skip.
       TRACE_REQUIRE_NIX: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain (pinned)
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -134,7 +134,7 @@ jobs:
           rustc --version | grep -F "${RUST_TOOLCHAIN}"
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry

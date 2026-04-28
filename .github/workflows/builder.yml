@@ -50,7 +50,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # DeterminateSystems actions pinned by full commit SHA, mirroring
       # the convention in ci.yml + real-prefetch-smoke.yml. Comments
@@ -205,7 +205,7 @@ jobs:
           PY
 
       - name: Upload bundle artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: ${{ always() }}
         with:
           name: builder-smoke-${{ inputs.bundle }}
