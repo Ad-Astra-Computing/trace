@@ -1,0 +1,176 @@
+name: builder-fork
+
+# Builder smoke against the live Ad-Astra-Computing/nixpkgs fork.
+# Manual dispatch only. Promotes builder.yml's synthetic-default.nix
+# smoke into a real-nixpkgs-checkout exercise: clones the fork at the
+# bundle's recorded nixpkgs_rev, applies the patch, runs Builder, and
+# captures the resulting build.json.
+#
+# Differs from builder.yml in two ways:
+#   1. uses one of the in-tree real-CVE bundles (traefik / mbedtls /
+#      bind) rather than the synthetic hello fixture
+#   2. clones the fork at the bundle's nixpkgs_rev so patch-apply
+#      runs against real source (rather than nixpkgs_checkout=None
+#      which skips patch-apply)
+#
+# Scope still locked narrow: manual dispatch, no commit-back, no
+# signing. The fork's role is staging only per
+# policy/nixpkgs-fork.json's trust_boundary; this workflow does NOT
+# push to the fork.
+#
+# References:
+#   * policy/nixpkgs-fork.json — fork target + trust boundary
+#   * docs/BUILDER_V1.md — Builder v1 contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "In-tree bundle to build against the fork."
+        required: true
+        default: "traefik"
+        type: choice
+        options:
+          - traefik
+          - mbedtls
+          - bind
+
+permissions:
+  contents: read
+
+env:
+  TRACE_REQUIRE_NIX: "1"
+  COHORT_LABEL: "real-ci-smoke"
+
+jobs:
+  build-against-fork:
+    name: builder against fork (${{ inputs.bundle }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Resolve in-tree bundle paths + nixpkgs_rev
+        id: resolve
+        run: |
+          set -euo pipefail
+          case "${{ inputs.bundle }}" in
+            traefik) DIR="traces/example/CVE-2026-25949--traefik" ;;
+            mbedtls) DIR="traces/example/CVE-2024-49195--mbedtls" ;;
+            bind)    DIR="traces/example/CVE-2025-13878--bind" ;;
+            *) echo "::error::unknown bundle"; exit 64 ;;
+          esac
+          REV=$(python3 -c "import json; print(json.load(open('$DIR/bundle.json'))['nixpkgs_rev'])")
+          ATTR=$(python3 -c "import json; print(json.load(open('$DIR/finding.json'))['affected'][0]['attr_path'])")
+          echo "bundle_dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs_rev=$REV" >> "$GITHUB_OUTPUT"
+          echo "attr=$ATTR" >> "$GITHUB_OUTPUT"
+          echo "Resolved: dir=$DIR rev=$REV attr=$ATTR"
+
+      - name: Stage bundle
+        id: paths
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          OUT="${RUNNER_TEMP}/builder-fork/${BUNDLE}"
+          mkdir -p "$OUT"
+          cp -R "${{ steps.resolve.outputs.bundle_dir }}/." "$OUT/"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Clone fork at bundle's nixpkgs_rev (partial-clone, no checkout)
+        id: nixpkgs
+        run: |
+          set -euo pipefail
+          REV="${{ steps.resolve.outputs.nixpkgs_rev }}"
+          NIXPKGS="${RUNNER_TEMP}/nixpkgs"
+          # Partial clone keeps history metadata light; --no-checkout
+          # avoids materialising the working tree before we're at the
+          # right rev.
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/Ad-Astra-Computing/nixpkgs.git "$NIXPKGS"
+          cd "$NIXPKGS"
+          git fetch --depth 1 origin "$REV"
+          git checkout "$REV"
+          echo "checkout=$NIXPKGS" >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD
+
+      - name: Run Builder against the fork checkout (live nix-build)
+        id: builder
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          NIXPKGS="${{ steps.nixpkgs.outputs.checkout }}"
+          nix develop --command python3 -u <<PY
+          import json
+          from pathlib import Path
+          from agents.builder import LocalNixBuildRunner
+          from tools.trace_cli.execute import execute
+
+          out = Path("$OUT")
+          fresh = {"invocation_id": None, "inputs": [], "outputs": []}
+          result = execute(
+              role="builder",
+              bundle_dir=out,
+              invocation=fresh,
+              verify=False,
+              build_runner_factory=lambda: LocalNixBuildRunner(),
+              nixpkgs_checkout=Path("$NIXPKGS"),
+          )
+          print(json.dumps({
+              "dispatch_outcome": result["dispatch_outcome"],
+              "outputs": [o["path"] for o in result["outputs"]],
+              "invocation_id": result["invocation_id"],
+          }, indent=2))
+          PY
+
+      - name: Show build.json
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          test -f "$OUT/build.json"
+          cat "$OUT/build.json"
+
+      - name: Validate build.json against schema
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python3 -u <<PY
+          import json, sys
+          from pathlib import Path
+          from jsonschema import Draft202012Validator
+          schema = json.loads(Path("policy/build-output-schema.json").read_text())
+          doc = json.loads(Path("$OUT/build.json").read_text())
+          errors = sorted(
+              Draft202012Validator(schema).iter_errors(doc),
+              key=lambda e: e.path,
+          )
+          if errors:
+              for e in errors:
+                  print(f"  {list(e.absolute_path)}: {e.message}")
+              sys.exit(1)
+          print(f"build.json validates; dispatch_outcome={doc['dispatch_outcome']}")
+          print(f"  patch_apply.applied:    {doc['patch_apply']['applied']}")
+          print(f"  patched_build.outcome:  {doc['patched_build']['outcome']}")
+          print(f"  unpatched.outcome:      {doc['unpatched']['outcome']}")
+          print(f"  patched.outcome:        {doc['patched']['outcome']}")
+          PY
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        if: ${{ always() }}
+        with:
+          name: builder-fork-${{ inputs.bundle }}
+          path: |
+            ${{ steps.paths.outputs.out }}/build.json
+            ${{ steps.paths.outputs.out }}/build.log
+            ${{ steps.paths.outputs.out }}/replay.json
+          if-no-files-found: warn
