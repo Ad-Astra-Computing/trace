@@ -294,6 +294,7 @@ A short closure of "if you change X you must change Y" relationships:
 ## See also
 
 * [`CONCEPTS.md`](CONCEPTS.md), the *what* (this doc's sibling).
+* [`SEED_INDEX.md`](SEED_INDEX.md), one-page map of the real-CVE corpus.
 * [`SPEC.md`](../SPEC.md), v0 framing, kind taxonomy, role boundaries.
 * [`BUILDER_V1.md`](BUILDER_V1.md), [`REPRODUCER_V1.md`](REPRODUCER_V1.md), [`STEWARD_V1.md`](STEWARD_V1.md), [`SIGNING_V1.md`](SIGNING_V1.md), per-role contracts.
 * [`DECISIONS.md`](DECISIONS.md), append-only decision log.
