@@ -9,6 +9,7 @@ import pytest
 
 from agents.scorers.reviewer_scorers import (
     CANONICAL_BUNDLE_ARTIFACTS,
+    ReviewCrossFamilyAttestationScorer,
     ReviewDisagreementScorer,
     ReviewEvidenceCitedScorer,
     ReviewSchemaValidScorer,
@@ -92,6 +93,7 @@ def test_reviewer_scorer_names_are_locked() -> None:
     assert reviewer_scorer_names() == (
         "review-schema-valid",
         "review-evidence-cited",
+        "review-cross-family-attestation",
         "review-disagreement",
     )
 
@@ -261,3 +263,106 @@ def test_disagreement_skipped_on_refusal(tmp_path: Path) -> None:
     )
     assert r.applies is False
     assert r.advisory is True
+
+
+# ─── review-cross-family-attestation (non-advisory, low-weight) ────────────
+
+
+def _seed_replay_with_patcher(bd: Path, patcher_model_id: str) -> None:
+    """Seed replay.json with a single patcher invocation pointing at a
+    given model_id. Used to set up the scorer's reference family."""
+    replay = {
+        "schema_version": "1.0.0",
+        "bundle_id": "0" * 16,
+        "cve_id": "CVE-0000-0000",
+        "nixpkgs_rev": "0" * 40,
+        "policy_version": "0" * 64,
+        "bundle_schema_sha256": "1" * 64,
+        "routing_config_sha256": "2" * 64,
+        "tool_manifest": {"flake_lock_sha256": "3" * 64, "tools": [{"name": "trace-cli", "version": "0"}]},
+        "cross_family_rule_honored": True,
+        "roles": [{
+            "role": "patcher",
+            "invocations": [{
+                "invocation_id": "11111111-1111-4111-8111-111111111111",
+                "role": "patcher",
+                "started_at": "2026-04-27T00:00:00Z",
+                "ended_at": "2026-04-27T00:00:01Z",
+                "model": {
+                    "family": "anthropic",
+                    "vendor": "anthropic",
+                    "model_id": patcher_model_id,
+                    "version": "x",
+                    "sampling": {"temperature": 0.0, "top_p": 1.0, "max_tokens": 1024},
+                },
+                "prompt": {"path": "prompts/patcher.v1.md", "sha256": "f" * 64},
+                "inputs": [{"path": "finding.json", "sha256": "0" * 64}],
+                "outputs": [{"path": "patch.diff", "sha256": "0" * 64}],
+                "rng_seed": None,
+                "validators_passed": ["schema-valid-output"],
+                "network_policy_applied": "none",
+            }],
+        }],
+    }
+    (bd / "replay.json").write_text(json.dumps(replay, indent=2))
+
+
+def test_attestation_matches_when_observed_is_correct(tmp_path: Path) -> None:
+    bd = _build_bundle(tmp_path)
+    _seed_replay_with_patcher(bd, "claude-opus-4-7")
+    # The default _accept_review_md asserts patcher_family_observed=anthropic-opus.
+    (bd / "review.md").write_text(_accept_review_md())
+    r = ReviewCrossFamilyAttestationScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is True
+    assert r.advisory is False
+    assert r.score == 1.0
+    assert r.details["match"] is True
+    assert r.details["patcher_family_recorded"] == "anthropic-opus"
+
+
+def test_attestation_fabricated_yields_zero(tmp_path: Path) -> None:
+    """Reproduces the live-run failure mode: model emits patcher_family_
+    observed=openai-gpt despite the recorded patcher being claude-opus-4-7."""
+    bd = _build_bundle(tmp_path)
+    _seed_replay_with_patcher(bd, "claude-opus-4-7")
+    review = _accept_review_md().replace(
+        "patcher_family_observed: anthropic-opus",
+        "patcher_family_observed: openai-gpt",
+    )
+    (bd / "review.md").write_text(review)
+    r = ReviewCrossFamilyAttestationScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is True
+    assert r.advisory is False
+    assert r.score == 0.0
+    assert r.details["match"] is False
+    assert r.details["patcher_family_observed"] == "openai-gpt"
+    assert r.details["patcher_family_recorded"] == "anthropic-opus"
+
+
+def test_attestation_skipped_on_refusal(tmp_path: Path) -> None:
+    bd = _build_bundle(tmp_path)
+    _seed_replay_with_patcher(bd, "claude-opus-4-7")
+    (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
+    r = ReviewCrossFamilyAttestationScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+    )
+    assert r.applies is False
+    assert r.advisory is False  # non-advisory by design
+    assert r.score is None
+
+
+def test_attestation_skipped_when_no_patcher_in_replay(tmp_path: Path) -> None:
+    """No patcher invocation on file → cannot verify; applies=False."""
+    bd = _build_bundle(tmp_path)
+    # No replay.json at all.
+    (bd / "review.md").write_text(_accept_review_md())
+    r = ReviewCrossFamilyAttestationScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is False
+    assert r.score is None
+    assert "no patcher invocation" in r.notes
