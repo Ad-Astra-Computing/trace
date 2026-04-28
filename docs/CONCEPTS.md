@@ -18,7 +18,7 @@ A nixpkgs PR bot would conflate two failure modes: "this CVE is fixable" and "th
 
 ## The bundle
 
-A bundle is a directory under `traces/example/CVE-XXXX-XXXXX--<attr>/` containing JSON, Markdown, Nix, and (for some CVEs) a binary PoC. The shape is locked in `policy/bundle-schema.json` and `docs/BUILDER_V1.md` §3. A bundle is **frozen** the moment Steward signs it — every replay-critical file is sha256'd into `signed_manifest.signed_files`, and the cosign signature anchors that hash set in the public Rekor transparency log. Mutating any file post-sign breaks verification; auditors can pin to a Rekor log index forever.
+A bundle is a directory under `traces/example/CVE-XXXX-XXXXX--<attr>/` containing JSON, Markdown, Nix, and (for some CVEs) a binary PoC. The shape is locked in `policy/bundle-schema.json` and `docs/BUILDER_V1.md` §3. A bundle is **frozen** the moment Steward signs it, every replay-critical file is sha256'd into `signed_manifest.signed_files`, and the cosign signature anchors that hash set in the public Rekor transparency log. Mutating any file post-sign breaks verification; auditors can pin to a Rekor log index forever.
 
 ---
 
@@ -26,11 +26,11 @@ A bundle is a directory under `traces/example/CVE-XXXX-XXXXX--<attr>/` containin
 
 Each bundle is produced by five roles operating in sequence, each with its own contract doc:
 
-1. **Scout** (`agents/scout/`) — turns a CVE feed entry (NVD / GHSA) into a `finding.json` that names the affected nixpkgs attr, version, drv path, confidence.
-2. **Cartographer** (cross-references nixpkgs structure) — produces `impact.json` (rebuild blast radius) + `maintainers.json`.
-3. **Upstream-ref-resolver** (`agents/upstream_ref_resolver/`) — locates the upstream fix commit(s), classifies fix tier (security-patch-release / point-release-small-delta / major-version-jump), records prefetch hashes in `upstream-ref.json`. Also emits the `eligibility.verdict` that gates auto-merge.
-4. **Patcher** (`agents/patcher/`) — produces `patch.diff` + `patch-rationale.md`. Patcher is a model-backed role.
-5. **Reviewer** (`agents/reviewer/`) — produces `review.md` with verdict `accept` / `reject` / `defer`. Cross-family with Patcher (different model family) per the cross-family rule.
+1. **Scout** (`agents/scout/`), turns a CVE feed entry (NVD / GHSA) into a `finding.json` that names the affected nixpkgs attr, version, drv path, confidence.
+2. **Cartographer** (cross-references nixpkgs structure), produces `impact.json` (rebuild blast radius) + `maintainers.json`.
+3. **Upstream-ref-resolver** (`agents/upstream_ref_resolver/`), locates the upstream fix commit(s), classifies fix tier (security-patch-release / point-release-small-delta / major-version-jump), records prefetch hashes in `upstream-ref.json`. Also emits the `eligibility.verdict` that gates auto-merge.
+4. **Patcher** (`agents/patcher/`), produces `patch.diff` + `patch-rationale.md`. Patcher is a model-backed role.
+5. **Reviewer** (`agents/reviewer/`), produces `review.md` with verdict `accept` / `reject` / `defer`. Cross-family with Patcher (different model family) per the cross-family rule.
 
 In parallel with Patcher/Reviewer, **Reproducer** (`agents/reproducer/`) produces `reproducer.nix` + `reproducer-log.txt` + `passthru-tests.json`: a sandboxed test that discriminates pre-fix from post-fix behaviour via a paired textual signal (SIGNAL_UNPATCHED / SIGNAL_PATCHED). See `docs/REPRODUCER_V1.md` §3.
 
@@ -44,9 +44,9 @@ In parallel with Patcher/Reviewer, **Reproducer** (`agents/reproducer/`) produce
 
 Every bundle declares one of three `kind`s in `bundle.json`. The kind picks which Steward rules apply.
 
-* **`auto-merge`** — Steward enforces all 11 rules. Successful auto-merge produces a signed bundle that downstream automation can merge to upstream nixpkgs without further human review. The strictest path; demands a sandbox-positive Reproducer, a cross-family Patcher/Reviewer pair, an `eligible` upstream verdict, and high-confidence affected-derivation mapping.
-* **`human-review-required`** — Steward enforces rules 4 + 5 only (signed-manifest consistency + provenance/replay agreement). Path for major-version-jumps, low-confidence mappings, or any case where automation should *signal* the issue but human judgment decides the merge. Signed when allowed.
-* **`advisory-only`** — strictest content requirements but never merged automatically; trace publishes the evidence as a public advisory snapshot. Signed when allowed.
+* **`auto-merge`**, Steward enforces all 11 rules. Successful auto-merge produces a signed bundle that downstream automation can merge to upstream nixpkgs without further human review. The strictest path; demands a sandbox-positive Reproducer, a cross-family Patcher/Reviewer pair, an `eligible` upstream verdict, and high-confidence affected-derivation mapping.
+* **`human-review-required`**, Steward enforces rules 4 + 5 only (signed-manifest consistency + provenance/replay agreement). Path for major-version-jumps, low-confidence mappings, or any case where automation should *signal* the issue but human judgment decides the merge. Signed when allowed.
+* **`advisory-only`**, strictest content requirements but never merged automatically; trace publishes the evidence as a public advisory snapshot. Signed when allowed.
 
 Today's corpus has all three: synthetic `hello` (auto-merge), real-CVE `bind` (auto-merge that correctly denies on rule-7 because no reproducer can be produced for a DNS-daemon CVE in sandbox), real-CVE `uriparser` (human-review-required, major-version-jump), real-CVE `libtiff` (auto-merge, deterministic-no-model corpus extension).
 
@@ -79,7 +79,7 @@ Every signed bundle is anchored to a single, locked workflow identity:
 * **subject_regex**: `^https://github\.com/Ad-Astra-Computing/trace/\.github/workflows/steward\.yml@refs/(heads/main|tags/v[0-9][^/]*)$`
 * **oidc_issuer**: `https://token.actions.githubusercontent.com`
 
-Both fields live in `policy/signing-identity.json` and are pinned via cosign `--certificate-identity-regexp` + `--certificate-oidc-issuer` at verify time. The signing path is Sigstore keyless OIDC — no private key — which means the GitHub Actions workflow's OIDC claim *is* the identity. See `docs/SIGNING_V1.md`. Per-entry uniqueness is the Rekor log index; bundle.json carries `signed_manifest.rekor_log_index` + `rekor_uuid` (the latter resolved via Rekor public-API lookup, not the constant Rekor shard logID — see DECISIONS.md 2026-04-28 entry).
+Both fields live in `policy/signing-identity.json` and are pinned via cosign `--certificate-identity-regexp` + `--certificate-oidc-issuer` at verify time. The signing path is Sigstore keyless OIDC, no private key, which means the GitHub Actions workflow's OIDC claim *is* the identity. See `docs/SIGNING_V1.md`. Per-entry uniqueness is the Rekor log index; bundle.json carries `signed_manifest.rekor_log_index` + `rekor_uuid` (the latter resolved via Rekor public-API lookup, not the constant Rekor shard logID, see DECISIONS.md 2026-04-28 entry).
 
 ---
 
@@ -91,11 +91,11 @@ See `docs/DECISIONS.md` *Deliberate non-goals for v0* for the full list. Highlig
 
 ## Where to read next
 
-* **Architecture & directory map** — `docs/ARCHITECTURE.md` (this doc's sibling).
-* **The v0 design itself** — `SPEC.md` (rev 3, 22 April 2026).
-* **Per-role contracts** — `docs/BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`.
-* **What's been decided & why** — `docs/DECISIONS.md` (append-only).
-* **Model qualification methodology** — `docs/MODEL_EVAL_PLAN.md`.
-* **Threat models** — `docs/SECURITY_CI_SUPPLY_CHAIN.md`, `SECURITY_PROMPT_INJECTION.md`.
-* **Schemas** — `policy/*.json` (single source of truth for every file shape).
-* **Steward gate policy** — `policy/steward.rego` (single source of truth for merge gating).
+* **Architecture & directory map**, `docs/ARCHITECTURE.md` (this doc's sibling).
+* **The v0 design itself**, `SPEC.md` (rev 3, 22 April 2026).
+* **Per-role contracts**, `docs/BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`.
+* **What's been decided & why**, `docs/DECISIONS.md` (append-only).
+* **Model qualification methodology**, `docs/MODEL_EVAL_PLAN.md`.
+* **Threat models**, `docs/SECURITY_CI_SUPPLY_CHAIN.md`, `SECURITY_PROMPT_INJECTION.md`.
+* **Schemas**, `policy/*.json` (single source of truth for every file shape).
+* **Steward gate policy**, `policy/steward.rego` (single source of truth for merge gating).
