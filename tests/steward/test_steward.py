@@ -33,6 +33,15 @@ def _fixture_dirs() -> list[Path]:
 
 
 def _build_opa_input(fixture_dir: Path) -> dict:
+    """Assemble the canonical Steward opa input doc per docs/STEWARD_V1.md §1.
+
+    Loads bundle / finding / upstream_ref / replay / provenance plus the
+    v1 additions (build / repro_scoring / review_scoring). Optional fields
+    are OMITTED when their backing file is absent (rather than set to
+    None); Rego treats `input.foo == null` as defined-as-null and
+    `not input.foo` as false on null, but as true on absent. The rules
+    use `not input.build` semantics, so we omit-on-absent to match.
+    """
     def _load_json(name: str) -> dict | None:
         p = fixture_dir / name
         return json.loads(p.read_text()) if p.exists() else None
@@ -45,13 +54,22 @@ def _build_opa_input(fixture_dir: Path) -> dict:
             if line:
                 provenance.append(json.loads(line))
 
-    return {
+    inputs: dict = {
         "bundle": _load_json("bundle.json"),
         "finding": _load_json("finding.json"),
         "upstream_ref": _load_json("upstream-ref.json"),
         "replay": _load_json("replay.json"),
         "provenance": provenance,
     }
+    for opt_field, opt_filename in (
+        ("build", "build.json"),
+        ("repro_scoring", "repro-scoring-report.json"),
+        ("review_scoring", "review-scoring-report.json"),
+    ):
+        loaded = _load_json(opt_filename)
+        if loaded is not None:
+            inputs[opt_field] = loaded
+    return inputs
 
 
 def _run_opa(fixture_input: dict) -> dict:
