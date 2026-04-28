@@ -4,9 +4,9 @@ Agent-owned nixpkgs fork for merge-ready CVE evidence bundles.
 
 **Start here:**
 
-* [docs/CONCEPTS.md](docs/CONCEPTS.md) — what trace is + the key concepts (bundles, roles, kinds, cross-family rule, signing).
-* [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — directory layout + control flow + what pins what.
-* [SPEC.md](SPEC.md) — v0 design, rev 3 (22 April 2026).
+* [docs/CONCEPTS.md](docs/CONCEPTS.md), what trace is + the key concepts (bundles, roles, kinds, cross-family rule, signing).
+* [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), directory layout + control flow + what pins what.
+* [SPEC.md](SPEC.md), v0 design, rev 3 (22 April 2026).
 
 **Deep dives:** per-role contracts under [docs/](docs/) (`BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`), the append-only decision log at [docs/DECISIONS.md](docs/DECISIONS.md), and model-qualification methodology at [docs/MODEL_EVAL_PLAN.md](docs/MODEL_EVAL_PLAN.md).
 

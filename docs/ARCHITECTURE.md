@@ -1,6 +1,6 @@
 # Architecture
 
-Read [`CONCEPTS.md`](CONCEPTS.md) first for the *what*. This doc is the *where* and *how* — directory layout, control flow, contracts at the module level.
+Read [`CONCEPTS.md`](CONCEPTS.md) first for the *what*. This doc is the *where* and *how*, directory layout, control flow, contracts at the module level.
 
 ---
 
@@ -27,7 +27,7 @@ There is no `src/`; trace is Python under `agents/` + `tools/`, plus a Rust grap
 
 ---
 
-## `agents/` — one role per subdir
+## The `agents/` tree (one role per subdir)
 
 Each role subdir is a Python package. Every role's external contract is the file shape it produces; the internal implementation is private.
 
@@ -55,18 +55,18 @@ agents/
 │
 ├── builder/                 The deterministic runtime.
 │   ├── runner.py            Apply patch → patched-build → unpatched.test → patched.test → assemble build.json
-│   └── (no model call — Builder is the runner)
+│   └── (no model call, Builder is the runner)
 │
 ├── feed_normalizers/        GHSA / vulnpatch-CVE → trace-internal feed shape (Scout's input).
 │
 └── scorers/                 Reproducer signal-specificity, review-citation, etc. Advisory in v0.
 ```
 
-Steward has no `agents/steward/` directory — it's a Rego policy (`policy/steward.rego`) plus the dispatch workflow (`.github/workflows/steward.yml`).
+Steward has no `agents/steward/` directory, it's a Rego policy (`policy/steward.rego`) plus the dispatch workflow (`.github/workflows/steward.yml`).
 
 ---
 
-## `tools/trace_cli/` — the CLI surface
+## The `tools/trace_cli/` package (CLI surface)
 
 ```
 tools/trace_cli/
@@ -80,7 +80,7 @@ The CLI is the single entry-point humans (and CI) use. Every role can be invoked
 
 ---
 
-## `policy/` — single source of truth
+## The `policy/` tree (single source of truth)
 
 Schemas (JSON Schema draft 2020-12) for every file in the bundle. Names are predictable: `<file>-schema.json`. The bundle itself is `bundle-schema.json`; per-role outputs have their own. Plus:
 
@@ -96,7 +96,7 @@ Schemas are enforced at bundle-creation time (CLI validators) and at gate time (
 
 ---
 
-## `prompts/` — model-facing contracts
+## The `prompts/` directory (model-facing contracts)
 
 ```
 prompts/
@@ -105,7 +105,7 @@ prompts/
 └── reproducer.v1.md
 ```
 
-Each prompt is the model's contract. The `===  BEGIN ... === / === END ... ===` marker structure, the refusal-shape, the strict no-prose rules — all live here. Versions are explicit (v1, v2) because changing a prompt is a behavioural change to a role; the runner records `prompt.sha256` in `replay.json` so a replay knows which prompt produced an output.
+Each prompt is the model's contract. The `===  BEGIN ... === / === END ... ===` marker structure, the refusal-shape, the strict no-prose rules, all live here. Versions are explicit (v1, v2) because changing a prompt is a behavioural change to a role; the runner records `prompt.sha256` in `replay.json` so a replay knows which prompt produced an output.
 
 There is no Scout / Cartographer / Upstream-ref-resolver prompt because those roles are deterministic-no-model (no LLM call at all in the v0-locked routing).
 
@@ -193,9 +193,9 @@ real-prefetch-smoke.yml Tests the upstream-ref-resolver's prefetch backends.
 ci.yml                  Pytest + lint on every PR.
 ```
 
-`steward.yml` is the only workflow with `id-token: write` permission — it's the only path that produces an OIDC-anchored signature. Verifiers pin against
+`steward.yml` is the only workflow with `id-token: write` permission, it's the only path that produces an OIDC-anchored signature. Verifiers pin against
 `subject_regex = ^https://github\.com/Ad-Astra-Computing/trace/\.github/workflows/steward\.yml@refs/(heads/main|tags/v[0-9][^/]*)$`
-and refuse any signature claiming a different workflow. Mistakenly enabling `id-token: write` on a different workflow doesn't compromise the identity policy — verifiers pin path + ref pattern explicitly.
+and refuse any signature claiming a different workflow. Mistakenly enabling `id-token: write` on a different workflow doesn't compromise the identity policy, verifiers pin path + ref pattern explicitly.
 
 ---
 
@@ -266,15 +266,15 @@ tests/
 
 ---
 
-## `eval/` — model qualification corpus
+## `eval/`, model qualification corpus
 
 Not part of the role chain. The eval harness is how we decide which model goes into `routing-config.json`. See `docs/MODEL_EVAL_PLAN.md` for methodology and `eval/HARVESTING.md` + `eval/INCLUSION_RULES.md` for corpus rules. `corpus.json` + `candidates.jsonl` + `rejection-log.jsonl` are append-only.
 
 ---
 
-## `graph/` — Rust crate
+## `graph/`, Rust crate
 
-Standalone Rust crate that produces nixpkgs graph snapshots (attr-path → drv-path, reverse closures, transitive package deltas) consumed by Cartographer + Scout. Lives in `graph/` because it has its own toolchain (Cargo) and dev shell (`nix develop .#graph`). Not part of the Python role chain at runtime — it produces JSON snapshots that the Python code reads.
+Standalone Rust crate that produces nixpkgs graph snapshots (attr-path → drv-path, reverse closures, transitive package deltas) consumed by Cartographer + Scout. Lives in `graph/` because it has its own toolchain (Cargo) and dev shell (`nix develop .#graph`). Not part of the Python role chain at runtime, it produces JSON snapshots that the Python code reads.
 
 ---
 
@@ -282,20 +282,20 @@ Standalone Rust crate that produces nixpkgs graph snapshots (attr-path → drv-p
 
 A short closure of "if you change X you must change Y" relationships:
 
-* **`prompts/<role>.v1.md`** — versioned. Changing the file content without bumping the filename breaks `replay.json:prompt.sha256` matching across runs. New version → new file.
-* **`policy/steward.rego`** — referenced by `bundle.json:policy_version` (sha256 of the file). Any change to Rego changes every future bundle's `policy_version` value.
-* **`policy/bundle-schema.json`** — referenced by `replay.json:bundle_schema_sha256`. Same property.
-* **`policy/routing-config.json`** — referenced by `replay.json:routing_config_sha256`. Locking a new model means new sha → new replay sha.
-* **`policy/signing-identity.json`** — read by `steward.yml` at sign time and by every verifier at verify time. The subject_regex is the load-bearing field.
-* **`flake.lock`** — referenced by `replay.json:tool_manifest.flake_lock_sha256`. Tool versions are pinned via the flake.
+* **`prompts/<role>.v1.md`**, versioned. Changing the file content without bumping the filename breaks `replay.json:prompt.sha256` matching across runs. New version → new file.
+* **`policy/steward.rego`**, referenced by `bundle.json:policy_version` (sha256 of the file). Any change to Rego changes every future bundle's `policy_version` value.
+* **`policy/bundle-schema.json`**, referenced by `replay.json:bundle_schema_sha256`. Same property.
+* **`policy/routing-config.json`**, referenced by `replay.json:routing_config_sha256`. Locking a new model means new sha → new replay sha.
+* **`policy/signing-identity.json`**, read by `steward.yml` at sign time and by every verifier at verify time. The subject_regex is the load-bearing field.
+* **`flake.lock`**, referenced by `replay.json:tool_manifest.flake_lock_sha256`. Tool versions are pinned via the flake.
 
 ---
 
 ## See also
 
-* [`CONCEPTS.md`](CONCEPTS.md) — the *what* (this doc's sibling).
-* [`SPEC.md`](../SPEC.md) — v0 framing, kind taxonomy, role boundaries.
-* [`BUILDER_V1.md`](BUILDER_V1.md), [`REPRODUCER_V1.md`](REPRODUCER_V1.md), [`STEWARD_V1.md`](STEWARD_V1.md), [`SIGNING_V1.md`](SIGNING_V1.md) — per-role contracts.
-* [`DECISIONS.md`](DECISIONS.md) — append-only decision log.
-* [`MODEL_EVAL_PLAN.md`](MODEL_EVAL_PLAN.md) — model qualification methodology.
-* [`SECURITY_CI_SUPPLY_CHAIN.md`](SECURITY_CI_SUPPLY_CHAIN.md), [`SECURITY_PROMPT_INJECTION.md`](SECURITY_PROMPT_INJECTION.md) — threat models.
+* [`CONCEPTS.md`](CONCEPTS.md), the *what* (this doc's sibling).
+* [`SPEC.md`](../SPEC.md), v0 framing, kind taxonomy, role boundaries.
+* [`BUILDER_V1.md`](BUILDER_V1.md), [`REPRODUCER_V1.md`](REPRODUCER_V1.md), [`STEWARD_V1.md`](STEWARD_V1.md), [`SIGNING_V1.md`](SIGNING_V1.md), per-role contracts.
+* [`DECISIONS.md`](DECISIONS.md), append-only decision log.
+* [`MODEL_EVAL_PLAN.md`](MODEL_EVAL_PLAN.md), model qualification methodology.
+* [`SECURITY_CI_SUPPLY_CHAIN.md`](SECURITY_CI_SUPPLY_CHAIN.md), [`SECURITY_PROMPT_INJECTION.md`](SECURITY_PROMPT_INJECTION.md), threat models.
