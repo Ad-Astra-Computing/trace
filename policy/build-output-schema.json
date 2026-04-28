@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/build-output-schema.json",
+  "title": "trace build.json",
+  "description": "Builder output at <bundle-dir>/build.json. Records what happened when Builder executed patch-apply, patched-build, the two reproducer runs (unpatched + patched), and passthru-tests enumeration. Builder is deterministic; this document carries no model fields. The reproducer scorers in agents/scorers/reproducer_scorers.py consume the unpatched/patched/passthru_tests_ground_truth fields.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "cve_id",
+    "bundle_id",
+    "nixpkgs_rev",
+    "builder_id",
+    "host",
+    "started_at",
+    "ended_at",
+    "patch_apply",
+    "patched_build",
+    "unpatched",
+    "patched",
+    "passthru_tests_ground_truth",
+    "sbom_delta_attempted",
+    "dispatch_outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "bundle_id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "nixpkgs_rev": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "builder_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "host": {
+      "type": "object",
+      "required": ["system", "nix_version", "tool_version"],
+      "additionalProperties": false,
+      "properties": {
+        "system": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "nix_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "tool_version": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "ended_at": { "type": "string", "format": "date-time" },
+
+    "patch_apply": {
+      "type": "object",
+      "required": ["applied"],
+      "additionalProperties": false,
+      "properties": {
+        "applied": { "type": "boolean" },
+        "git_apply_exit_code": {
+          "oneOf": [
+            { "type": "integer" },
+            { "type": "null" }
+          ]
+        },
+        "files_changed": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "post_apply_sha": {
+          "oneOf": [
+            { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            { "type": "null" }
+          ]
+        },
+        "reason": { "type": "string", "maxLength": 2048 }
+      }
+    },
+
+    "patched_build": { "$ref": "#/$defs/buildPhase" },
+    "unpatched":     { "$ref": "#/$defs/buildPhase" },
+    "patched":       { "$ref": "#/$defs/buildPhase" },
+
+    "passthru_tests_ground_truth": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "drv_path", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "drv_path": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "null" }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["passthru.tests", "nixosTests"]
+          }
+        }
+      }
+    },
+
+    "sbom_delta_attempted": { "type": "boolean", "const": false },
+
+    "dispatch_outcome": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "refused-no-patch",
+        "refused-no-reproducer",
+        "patch-apply-failed",
+        "infra-failure"
+      ]
+    }
+  },
+
+  "$defs": {
+    "buildPhase": {
+      "type": "object",
+      "required": ["applied"],
+      "additionalProperties": false,
+      "properties": {
+        "applied": { "type": "boolean" },
+        "outcome": {
+          "oneOf": [
+            { "type": "string", "enum": ["succeeded", "failed", "timed-out", "skipped"] },
+            { "type": "null" }
+          ]
+        },
+        "exit_code": {
+          "oneOf": [
+            { "type": "integer" },
+            { "type": "null" }
+          ]
+        },
+        "drv_path": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "out_path": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "elapsed_seconds": {
+          "oneOf": [
+            { "type": "number", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "stdout_stderr": { "type": "string" },
+        "stdout_stderr_log_sha256": {
+          "oneOf": [
+            { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            { "type": "null" }
+          ]
+        },
+        "stdout_stderr_tail": { "type": "string" },
+        "reason": { "type": "string", "maxLength": 2048 }
+      }
+    }
+  }
+}
