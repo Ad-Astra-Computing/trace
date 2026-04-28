@@ -92,6 +92,7 @@ See `docs/DECISIONS.md` *Deliberate non-goals for v0* for the full list. Highlig
 ## Where to read next
 
 * **Architecture & directory map**, `docs/ARCHITECTURE.md` (this doc's sibling).
+* **One-page corpus map**, `docs/SEED_INDEX.md` (every real-CVE bundle, kind, provenance family, what it demonstrates).
 * **The v0 design itself**, `SPEC.md` (rev 3, 22 April 2026).
 * **Per-role contracts**, `docs/BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`.
 * **What's been decided & why**, `docs/DECISIONS.md` (append-only).
