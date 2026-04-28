@@ -37,6 +37,7 @@ on:
         options:
           - hello
           - bind
+          - uriparser
 
 permissions:
   contents: read
@@ -115,6 +116,14 @@ jobs:
             bind)
               SRC="traces/example/CVE-2025-13878--bind"
               REAL_CVE="true"
+              ;;
+            uriparser)
+              # Human-review-required bundle (major-version-jump). Builder
+              # short-circuits on the existing reproducer-refusal artifact,
+              # so a fork checkout isn't needed; Steward only enforces
+              # rules 4+5 on this kind, both of which are already green.
+              SRC="traces/example/CVE-2025-67899--uriparser"
+              REAL_CVE="false"
               ;;
             *)
               echo "::error::unknown bundle ${BUNDLE}"; exit 64 ;;
