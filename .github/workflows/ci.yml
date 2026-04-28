@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Least-privilege baseline. ci.yml runs deterministic test jobs only;
+# none of them write to the repo or external services, so contents:read
+# is sufficient. The signing workflow (steward.yml) is the single place
+# id-token:write is granted.
+permissions:
+  contents: read
+
 # Single source of truth for OPA. Pinned, not `latest`. Checksum published by
 # openpolicyagent.org (see .sha256 sidecar) and verified before use in every
 # job. Bump both values together when upgrading.
