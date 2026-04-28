@@ -1,0 +1,359 @@
+name: steward
+
+# Steward gate + cosign keyless OIDC signing. Manual dispatch only.
+# v0 sequencing per the 2026-04-28 hand-off: this workflow comes AFTER
+# builder.yml has confirmed LocalNixBuildRunner end-to-end on a
+# GitHub-hosted Linux runner. Adds the signing layer on top of a
+# bundle that already has real Builder outputs.
+#
+# Scope (locked narrow):
+#   * manual dispatch only (workflow_dispatch)
+#   * runs Builder inline first (same staged fixture as builder.yml)
+#     so the smoke is self-contained (no inter-workflow artifact
+#     dance for v0)
+#   * runs the v1 Steward gate via opa against the resulting bundle
+#   * if allow: computes canonical input → signs with cosign keyless
+#     OIDC → populates signed_manifest identity fields → verifies the
+#     signature against policy/signing-identity.json
+#   * if deny: skips signing, reports the deny set, uploads artifacts
+#     for inspection
+#   * does NOT auto-commit, does NOT publish to a remote repository
+#     yet — only writes the signed bundle into the workflow's runner
+#     temp dir + uploads as artifacts
+#
+# References:
+#   * docs/SIGNING_V1.md — locked signing contract
+#   * policy/signing-identity.json — identity policy (verifiers pin)
+#   * policy/steward.rego — 11-rule v1 gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "Staged bundle to gate + sign (single value; v0)."
+        required: true
+        default: "hello"
+        type: choice
+        options:
+          - hello
+
+permissions:
+  contents: read
+  # Required for cosign keyless OIDC. The workflow's GITHUB_TOKEN OIDC
+  # claim is what identifies "the trace Steward CI workflow on main"
+  # to sigstore + Rekor. Without id-token: write, cosign sign-blob
+  # cannot fetch the signing certificate.
+  id-token: write
+
+env:
+  OPA_VERSION: "v1.0.1"
+  OPA_LINUX_AMD64_SHA256: "6d81be862e412af910eacfad489e3d77afbfcf4b958ea4e839b7f38c9eec4d87"
+  COHORT_LABEL: "real-ci-smoke"
+
+jobs:
+  gate-and-sign:
+    name: steward gate + cosign keyless sign (${{ inputs.bundle }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Install OPA (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
+          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
+          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/opa"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install cosign (sigstore)
+        # cosign-installer is the official sigstore action; it sets up
+        # cosign on $PATH. Pinned to a major-version tag here; bump the
+        # tag string when sigstore publishes a new major release. A
+        # Dependabot config update in this repo can pin to a full SHA
+        # like the DeterminateSystems actions do.
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Preflight — toolchain present
+        run: |
+          set -euo pipefail
+          command -v nix-build
+          command -v opa
+          command -v cosign
+          opa version | head -1
+          cosign version | head -3
+
+      - name: Stage bundle
+        id: paths
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          OUT="${RUNNER_TEMP}/steward-smoke/${BUNDLE}"
+          mkdir -p "$OUT"
+          cp -R "tests/fixtures/real-ci/builder/${BUNDLE}/." "$OUT/"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Run Builder against the staged bundle (live nix-build)
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python3 -u <<PY
+          from pathlib import Path
+          from agents.builder import LocalNixBuildRunner
+          from tools.trace_cli.execute import execute
+
+          out = Path("$OUT")
+          fresh_invocation = {"invocation_id": None, "inputs": [], "outputs": []}
+          result = execute(
+              role="builder",
+              bundle_dir=out,
+              invocation=fresh_invocation,
+              verify=False,
+              build_runner_factory=lambda: LocalNixBuildRunner(),
+              nixpkgs_checkout=None,
+          )
+          assert result["dispatch_outcome"] == "ok", (
+              f"Builder dispatch_outcome was {result['dispatch_outcome']!r}; "
+              f"expected 'ok' for the steward.yml smoke. The fixture is supposed "
+              f"to be buildable in this runner environment."
+          )
+          print(f"Builder OK: invocation_id={result['invocation_id']}")
+          PY
+
+      - name: Run Steward gate via opa
+        id: gate
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python3 -u <<PY
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          # Build the opa input doc per docs/STEWARD_V1.md sec.1.
+          # Optional fields (build, repro_scoring, review_scoring) are
+          # omitted when absent so Rego's `not input.foo` semantics work.
+          out = Path("$OUT")
+          def _load(name):
+              p = out / name
+              return json.loads(p.read_text()) if p.exists() else None
+
+          provenance = []
+          prov_path = out / "provenance.jsonl"
+          if prov_path.exists():
+              for line in prov_path.read_text().splitlines():
+                  if line.strip():
+                      provenance.append(json.loads(line))
+
+          inputs = {
+              "bundle": _load("bundle.json"),
+              "finding": _load("finding.json"),
+              "upstream_ref": _load("upstream-ref.json"),
+              "replay": _load("replay.json"),
+              "provenance": provenance,
+          }
+          for opt_field, opt_filename in (
+              ("build", "build.json"),
+              ("repro_scoring", "repro-scoring-report.json"),
+              ("review_scoring", "review-scoring-report.json"),
+          ):
+              loaded = _load(opt_filename)
+              if loaded is not None:
+                  inputs[opt_field] = loaded
+
+          proc = subprocess.run(
+              ["opa", "eval", "--format=json",
+               "--data", "policy/steward.rego", "--stdin-input",
+               "data.trace.steward"],
+              input=json.dumps(inputs),
+              capture_output=True, text=True, check=True,
+          )
+          decision = json.loads(proc.stdout)["result"][0]["expressions"][0]["value"]
+          allow = decision.get("allow", False)
+          deny = decision.get("deny", [])
+
+          print(f"Steward decision: allow={allow}")
+          if deny:
+              print("Deny set:")
+              for d in deny:
+                  print(f"  {d.get('rule_id')}: {d.get('message')}")
+          else:
+              print("Deny set: empty")
+
+          # Emit GITHUB_OUTPUT so the next steps can branch on allow.
+          gh_out = os.environ.get("GITHUB_OUTPUT")
+          if gh_out:
+              with open(gh_out, "a") as f:
+                  f.write(f"allow={'true' if allow else 'false'}\n")
+                  f.write(f"deny_count={len(deny)}\n")
+
+          # Persist the decision into the bundle dir for artifact upload.
+          (out / "steward-decision.json").write_text(
+              json.dumps(decision, indent=2) + "\n"
+          )
+          PY
+
+      - name: Sign bundle (cosign keyless OIDC) — only if Steward allowed
+        if: ${{ steps.gate.outputs.allow == 'true' }}
+        env:
+          # Sign-blob with GitHub Actions OIDC. cosign reads the OIDC
+          # token from the runner-injected env. No private key.
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+
+          # Canonical input for the signature: bundle.json (carries all
+          # replay-critical file hashes via bundle.files[<path>].sha256).
+          # Signing bundle.json transitively attests to every file's
+          # hash that bundle.json declares.
+          CANONICAL="$OUT/bundle.json"
+          test -f "$CANONICAL"
+
+          # cosign sign-blob with --yes (non-interactive) + --bundle to
+          # write the bundle artifact (DSSE envelope + signing cert +
+          # Rekor proof). The --output-certificate flag captures the
+          # signing certificate for downstream identity verification.
+          cosign sign-blob \
+            --yes \
+            --bundle "$OUT/bundle.sig" \
+            --output-certificate "$OUT/cosign-cert.pem" \
+            "$CANONICAL"
+
+          echo "signed bundle.json → $OUT/bundle.sig"
+          ls -la "$OUT/bundle.sig" "$OUT/cosign-cert.pem"
+
+      - name: Populate signed_manifest identity fields
+        if: ${{ steps.gate.outputs.allow == 'true' }}
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python3 -u <<PY
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          out = Path("$OUT")
+          bundle = json.loads((out / "bundle.json").read_text())
+
+          # Extract the OIDC subject + issuer from the signing certificate.
+          cert_pem = (out / "cosign-cert.pem").read_text()
+          # cosign --output-certificate emits a PEM-encoded x509. Parse the
+          # SAN extension via openssl x509 -text.
+          proc = subprocess.run(
+              ["openssl", "x509", "-noout", "-text"],
+              input=cert_pem, capture_output=True, text=True, check=True,
+          )
+          cert_text = proc.stdout
+
+          # Subject: the URI SAN entry (e.g.
+          #   URI:https://github.com/Ad-Astra-Computing/trace/.github/...)
+          subj_match = re.search(r"URI:(\S+)", cert_text)
+          identity_subject = subj_match.group(1) if subj_match else None
+
+          # Issuer: the OIDC issuer extension (1.3.6.1.4.1.57264.1.1).
+          # cosign-cert.pem includes a Fulcio extension with the OIDC
+          # issuer URL; extract it via grep on the raw text.
+          issuer_match = re.search(
+              r"1\.3\.6\.1\.4\.1\.57264\.1\.1[^:]*:[^\n]*?(https://\S+)",
+              cert_text,
+          )
+          identity_issuer = issuer_match.group(1) if issuer_match else (
+              "https://token.actions.githubusercontent.com"
+          )
+
+          bundle.setdefault("signed_manifest", {})
+          bundle["signed_manifest"]["identity_subject"] = identity_subject
+          bundle["signed_manifest"]["identity_issuer"] = identity_issuer
+          bundle["signed_manifest"]["signer"] = identity_subject or "unknown"
+
+          # Rekor coordinates from the cosign --bundle output. cosign's
+          # bundle is a JSON file when --bundle is used; extract the
+          # logIndex + UUID from it.
+          sig_bundle = json.loads((out / "bundle.sig").read_text())
+          rekor_log = sig_bundle.get("rekorBundle", {}).get("Payload", {})
+          if "logIndex" in rekor_log:
+              bundle["signed_manifest"]["rekor_log_index"] = int(rekor_log["logIndex"])
+          # The UUID may live under different keys depending on cosign
+          # version; check a few common locations.
+          rekor_uuid = (
+              rekor_log.get("logID")
+              or sig_bundle.get("rekorBundle", {}).get("UUID")
+              or sig_bundle.get("uuid")
+          )
+          if isinstance(rekor_uuid, str) and re.fullmatch(r"[0-9a-f]+", rekor_uuid):
+              bundle["signed_manifest"]["rekor_uuid"] = rekor_uuid
+
+          (out / "bundle.json").write_text(json.dumps(bundle, indent=2) + "\n")
+          print(f"signed_manifest populated:")
+          print(json.dumps(bundle["signed_manifest"], indent=2))
+          PY
+
+      - name: Verify signature against locked identity policy
+        if: ${{ steps.gate.outputs.allow == 'true' }}
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          # Read the locked identity policy. Verifiers pin against
+          # subject_regex + oidc_issuer from policy/signing-identity.json.
+          SUBJECT_REGEX=$(nix develop --command python3 -c "
+          import json
+          si = json.load(open('policy/signing-identity.json'))
+          print(si['paths']['sigstore-keyless-oidc-github-actions']['subject_regex'])
+          ")
+          OIDC_ISSUER=$(nix develop --command python3 -c "
+          import json
+          si = json.load(open('policy/signing-identity.json'))
+          print(si['paths']['sigstore-keyless-oidc-github-actions']['oidc_issuer'])
+          ")
+          echo "verifying against:"
+          echo "  certificate-identity-regexp: ${SUBJECT_REGEX}"
+          echo "  certificate-oidc-issuer:     ${OIDC_ISSUER}"
+
+          cosign verify-blob \
+            --certificate-identity-regexp "${SUBJECT_REGEX}" \
+            --certificate-oidc-issuer "${OIDC_ISSUER}" \
+            --bundle "$OUT/bundle.sig" \
+            "$OUT/bundle.json"
+          echo "signature verifies under the locked identity policy"
+
+      - name: Skip signing (Steward denied)
+        if: ${{ steps.gate.outputs.allow != 'true' }}
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          echo "::warning::Steward denied; skipping signing."
+          echo "Deny count: ${{ steps.gate.outputs.deny_count }}"
+          echo "See steward-decision.json in the uploaded artifacts."
+          # Exit 0 so the artifacts upload step still runs; a deny is
+          # data, not infra failure.
+
+      - name: Upload bundle + decision artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: steward-smoke-${{ inputs.bundle }}
+          path: |
+            ${{ steps.paths.outputs.out }}/bundle.json
+            ${{ steps.paths.outputs.out }}/build.json
+            ${{ steps.paths.outputs.out }}/replay.json
+            ${{ steps.paths.outputs.out }}/steward-decision.json
+            ${{ steps.paths.outputs.out }}/bundle.sig
+            ${{ steps.paths.outputs.out }}/cosign-cert.pem
+          if-no-files-found: warn
