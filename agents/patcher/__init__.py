@@ -1,4 +1,10 @@
-from agents.patcher.adapter import AnthropicAdapter, FakeAdapter, ModelAdapter, ModelResponse
+from agents.patcher.adapter import (
+    AnthropicAdapter,
+    FakeAdapter,
+    ModelAdapter,
+    ModelResponse,
+    OpenAIAdapter,
+)
 from agents.patcher.parser import (
     PatcherOutputMalformed,
     PatcherParseResult,
@@ -11,6 +17,7 @@ __all__ = [
     "FakeAdapter",
     "ModelAdapter",
     "ModelResponse",
+    "OpenAIAdapter",
     "PatcherOutputMalformed",
     "PatcherParseResult",
     "parse_patcher_output",
