@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "active_path": "sigstore-keyless-oidc-github-actions",
+  "paths": {
+    "sigstore-keyless-oidc-github-actions": {
+      "algorithm": "sigstore-cosign-v1",
+      "oidc_issuer": "https://token.actions.githubusercontent.com",
+      "subject_regex": "^https://github\\.com/Ad-Astra-Computing/trace/\\.github/workflows/steward\\.yml@refs/(heads/main|tags/v[0-9][^/]*)$",
+      "trust_statement": "signed by the Ad Astra Computing trace project's Steward CI workflow on the main branch or a release tag",
+      "verifier_command_template": "cosign verify-blob --certificate-identity-regexp '<subject_regex>' --certificate-oidc-issuer '<oidc_issuer>' --bundle <bundle.sig> <canonical-input>",
+      "rekor": {
+        "public_log_url": "https://rekor.sigstore.dev",
+        "expected_in_signed_manifest": ["rekor_log_index", "rekor_uuid"]
+      }
+    }
+  },
+  "graduation_path": {
+    "label": "ad-astra-held-key",
+    "status": "deferred",
+    "trigger_conditions": [
+      "offline-or-non-github-signing-requirement",
+      "maintainer-requests-organization-held-identity",
+      "ci-platform-continuity-needed-across-moves",
+      "project-graduates-from-research-artifact-to-operational-service"
+    ],
+    "notes": "See docs/SIGNING_V1.md sec.6. Graduation flips active_path to a new entry under paths and adds a corresponding algorithm + key-identity record. v0 sigstore signatures remain verifiable via the original path entry."
+  },
+  "notes": "This document is the single source of truth for the locked identity policy. Verifiers (CLI, downstream auditors, the trace verify command) read subject_regex + oidc_issuer from here rather than hard-coding them. If the Steward workflow path is ever renamed (e.g. .github/workflows/steward.yml -> .github/workflows/merge-gate.yml), update subject_regex here and downstream verifiers refresh from this file. Schema-version 1.0.0 is locked alongside docs/SIGNING_V1.md."
+}

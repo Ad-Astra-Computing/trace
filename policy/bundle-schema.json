@@ -102,7 +102,7 @@
       }
     },
     "signed_manifest": {
-      "description": "The subset of files covered by bundle.sig. Steward MUST only sign bundles where every replay_critical file is listed here. bundle.sig itself and provenance.jsonl MUST NOT appear (signature cannot cover itself; provenance is append-only and signed separately by Scout-issued action records).",
+      "description": "The subset of files covered by bundle.sig. Steward MUST only sign bundles where every replay_critical file is listed here. bundle.sig itself and provenance.jsonl MUST NOT appear (signature cannot cover itself; provenance is append-only and signed separately by Scout-issued action records). For sigstore-cosign-v1 (the v0-locked path per docs/SIGNING_V1.md), identity_subject + identity_issuer + rekor_log_index + rekor_uuid are optional but recommended; verifiers read the locked identity-policy regex from policy/signing-identity.json.",
       "type": "object",
       "required": ["algorithm", "signed_files", "signer"],
       "additionalProperties": false,
@@ -112,9 +112,30 @@
           "enum": ["sigstore-cosign-v1", "minisign-ed25519"]
         },
         "signer": {
-          "description": "Identity that produced bundle.sig. For sigstore, the OIDC subject. For minisign, the public key id.",
+          "description": "Identity that produced bundle.sig. For sigstore-cosign-v1, the OIDC subject string (e.g. 'https://github.com/Ad-Astra-Computing/trace/.github/workflows/steward.yml@refs/heads/main'). For minisign, the public key id.",
           "type": "string",
           "minLength": 1
+        },
+        "identity_subject": {
+          "description": "OIDC subject claim presented at signing time. Carried forward from the cosign signing flow so verifiers can cross-check against policy/signing-identity.json without re-deriving from bundle.sig. Optional but recommended for sigstore-cosign-v1.",
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_issuer": {
+          "description": "OIDC issuer URL the subject was issued by. For GitHub Actions signing this is 'https://token.actions.githubusercontent.com'. Optional; verifiers fall back to policy/signing-identity.json when absent.",
+          "type": "string",
+          "format": "uri"
+        },
+        "rekor_log_index": {
+          "description": "Rekor public-transparency-log entry index returned by `cosign sign-blob`. The durable proof of when this bundle was signed. Optional in v0 because not every signing path produces it; sigstore-cosign-v1 always does.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "rekor_uuid": {
+          "description": "Rekor log entry UUID returned by `cosign sign-blob`. Stable identifier for the entry; pairs with rekor_log_index for retrieval. Optional in v0.",
+          "type": "string",
+          "pattern": "^[0-9a-f]+$",
+          "minLength": 32
         },
         "signed_files": {
           "type": "array",

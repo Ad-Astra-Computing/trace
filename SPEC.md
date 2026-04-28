@@ -321,7 +321,7 @@ Resolved:
 
 Still open:
 1. **Capability routing config v0 defaults**: the first qualified cross-family Patcher/Reviewer pair is determined by eval against the frozen corpus (§5a). No model is named in advance. At least two qualified families must clear the eval bar before v0 ships to honor the monoculture principle (§0.5).
-2. **Signing identity**: sigstore OIDC via GitHub, or Ad Astra-held key? OIDC is easier; held key is more defensible for a research artifact.
+2. ~~**Signing identity**: sigstore OIDC via GitHub, or Ad Astra-held key?~~ → **Sigstore keyless OIDC via GitHub Actions** locked as the v0 default per `docs/SIGNING_V1.md` (2026-04-28). Identity policy in `policy/signing-identity.json`. Ad Astra-held key path documented as the (B) graduation upgrade with explicit trigger conditions; deferred.
 3. **CPE/PURL mapping confidence threshold**: what auto-advance cutoff? Too high and coverage collapses; too low and the queue is noise. Tune against the eval corpus.
 4. **Rebuild-closure threshold**: the 500-derivation number is a guess. Calibrate from the eval corpus before ship.
 5. **Bundle reviewer panel for the north-star metric**: who are the humans that generate the "decision-time + decision-confidence" data? Need at least 3 nixpkgs-literate reviewers willing to participate.
