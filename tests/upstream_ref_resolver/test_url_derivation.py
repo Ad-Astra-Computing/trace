@@ -267,15 +267,95 @@ def test_missing_target_version_is_skipped() -> None:
 
 
 def test_multiple_fetchurl_blocks_too_complex() -> None:
+    """Two src-bound fetchurl blocks (e.g. conditional source selection)
+    must NOT silently pick one — the rule downgrades to a structured
+    skip rather than guessing. Non-src bindings are filtered earlier;
+    see test_systemd_shape_ignores_non_src_fetchzip for that path."""
     pkg = (
         'src = fetchurl { url = "https://a.invalid/${version}.tar"; };\n'
-        'src2 = fetchurl { url = "https://b.invalid/${version}.tar"; };\n'
+        'src = fetchurl { url = "https://b.invalid/${version}.tar"; };\n'
     )
     out = derive_prefetch_targets(
         upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg,
     )
     skipped_reasons = [s.reason for s in out.skipped]
     assert "url-template-too-complex" in skipped_reasons
+
+
+def test_systemd_shape_ignores_non_src_fetchzip() -> None:
+    """Regression for the 2026-04-27 systemd grounding failure.
+
+    systemd's package.nix has TWO fetcher blocks:
+      * `src = fetchFromGitHub { … rev = "v${version}"; … }` — the real source
+      * `oe-core = fetchzip { url = "https://git.openembedded.org/…"; }`
+        — a helper that pulls musl-compat patches
+
+    Before the fix, _try_url_template walked all fetchurl/fetchzip
+    blocks regardless of binding name, found exactly one (oe-core),
+    designated it `src.hash` HIGH confidence, and either prefetched the
+    wrong archive (silent grounding error) or 400'd (the systemd case).
+
+    After the fix: _try_url_template ONLY considers fetchers bound to
+    `src`, so the non-src `oe-core` block is invisible to it. The
+    fetchFromGitHub rule then fires correctly off the `src` block's
+    owner/repo/rev triple.
+    """
+    bundle = _bundle("CVE-2025-4598--systemd")
+    package_source = (bundle / "package.nix").read_text()
+    upstream_ref = {
+        "target_version": "257.6",
+        "tag": "v257.6",
+        "upstream_fix_commits": [
+            {
+                "repo_url": "https://github.com/systemd/systemd",
+                "commit_sha": "00a12c234e2506f5cab683460199575f13c454db",
+            },
+        ],
+    }
+    out = derive_prefetch_targets(
+        upstream_ref=upstream_ref,
+        package_source=package_source,
+        attr_path="systemd",
+    )
+    src_targets = [t for t in out.targets if t.name == "src.hash"]
+    assert len(src_targets) == 1, out
+    t = src_targets[0]
+    assert t.derivation_rule == "github-release-archive"
+    assert t.url == (
+        "https://github.com/systemd/systemd/archive/refs/tags/v257.6.tar.gz"
+    )
+    # The OpenEmbedded helper URL must NEVER appear as a target or skip
+    # for src.hash — it's not the package's source.
+    for target in out.targets:
+        assert "openembedded" not in target.url.lower(), target
+    for skip in out.skipped:
+        if skip.name == "src.hash":
+            assert "openembedded" not in (skip.detail or "").lower(), skip
+
+
+def test_non_src_fetchzip_alone_does_not_become_src_hash() -> None:
+    """Synthetic narrowing of the systemd case: a package whose only
+    fetchurl/fetchzip block is bound to a non-src name (e.g. a patch
+    helper) must not produce a src.hash target via the URL-template
+    rule. Without an upstream github fallback, src.hash records a
+    no-derivable-rule skip."""
+    pkg = (
+        'patches-archive = fetchzip {\n'
+        '  url = "https://git.openembedded.org/openembedded-core/snapshot/'
+        'openembedded-core-deadbeef.tar.gz";\n'
+        '  hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";\n'
+        '};\n'
+    )
+    out = derive_prefetch_targets(
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
+    )
+    assert all(t.name != "src.hash" for t in out.targets), out
+    skip_names = [s.name for s in out.skipped]
+    assert "src.hash" in skip_names
+    src_skip = next(s for s in out.skipped if s.name == "src.hash")
+    assert src_skip.reason == "no-derivable-rule"
+    assert src_skip.required_for_patch is True
 
 
 def test_gitlab_fallback_when_repo_url_is_gitlab() -> None:

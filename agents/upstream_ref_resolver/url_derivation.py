@@ -124,16 +124,25 @@ NON_URL_HASH_ATTRS: tuple[str, ...] = (
 # ─── regex toolkit ────────────────────────────────────────────────────────
 
 
-# `fetchurl { ... url = "https://..."; ... }` — capture the URL string,
-# not the rest of the block. Permissive on whitespace; multiline.
-_FETCHURL_URL_RE = re.compile(
-    r"fetchurl\s*\{[^}]*?url\s*=\s*\"(?P<url>[^\"]+)\"",
+# `src = fetchurl { ... url = "https://..."; ... }` — capture the URL
+# string for fetchers literally bound to the `src` attribute. Anything
+# bound to another name (e.g. systemd's `oe-core = fetchzip { … }` patch
+# helper) is intentionally NOT matched: we will not guess that a
+# secondary fetchzip block is the package's `src`. Surfaced by the
+# 2026-04-27 systemd grounding failure, where the URL-template rule
+# silently designated an OpenEmbedded patches archive as `src.hash`.
+#
+# `src` may be bound at module top-level (`src = …`), inside a
+# `stdenv.mkDerivation { src = …; }` block, or inside `mkDerivation
+# (finalAttrs: { src = …; })`. The regex anchors on the literal token
+# `src` followed by `=` followed by the fetcher invocation, which
+# covers all three idioms.
+_SRC_FETCHURL_URL_RE = re.compile(
+    r"\bsrc\s*=\s*fetchurl\s*\{[^}]*?url\s*=\s*\"(?P<url>[^\"]+)\"",
     re.DOTALL,
 )
-
-# `fetchzip { ... url = "..."; ... }` — same shape.
-_FETCHZIP_URL_RE = re.compile(
-    r"fetchzip\s*\{[^}]*?url\s*=\s*\"(?P<url>[^\"]+)\"",
+_SRC_FETCHZIP_URL_RE = re.compile(
+    r"\bsrc\s*=\s*fetchzip\s*\{[^}]*?url\s*=\s*\"(?P<url>[^\"]+)\"",
     re.DOTALL,
 )
 
@@ -410,10 +419,14 @@ def _try_url_template(
     family; medium if multiple version placeholders are interpolated;
     low if multiple competing fetchurl blocks are present (ambiguous).
     """
+    # Only fetchers literally bound to `src` qualify. A package may
+    # carry additional fetchurl/fetchzip blocks bound to other names
+    # (patch helpers, vendored sub-archives) that must NOT be confused
+    # with the package's source.
     candidates: list[str] = []
-    for m in _FETCHURL_URL_RE.finditer(package_source):
+    for m in _SRC_FETCHURL_URL_RE.finditer(package_source):
         candidates.append(m.group("url"))
-    for m in _FETCHZIP_URL_RE.finditer(package_source):
+    for m in _SRC_FETCHZIP_URL_RE.finditer(package_source):
         candidates.append(m.group("url"))
     if not candidates:
         return None
@@ -421,7 +434,7 @@ def _try_url_template(
         return SkippedTarget(
             name="src.hash",
             reason="url-template-too-complex",
-            detail=f"{len(candidates)} fetchurl/fetchzip URLs found; resolver only auto-derives single-fetcher packages",
+            detail=f"{len(candidates)} src-bound fetchurl/fetchzip URLs found; resolver only auto-derives single-src-fetcher packages",
         )
 
     raw = candidates[0]
