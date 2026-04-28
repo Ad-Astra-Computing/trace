@@ -15,6 +15,7 @@
           ps.jsonschema
           ps.referencing
           ps.anthropic
+          ps.openai
         ]);
       in
       {

@@ -482,13 +482,8 @@ def _execute_patcher(
     # Build adapter.
     if adapter_factory is not None:
         adapter = adapter_factory(model_id)  # type: ignore[misc]
-    elif model_id.startswith("claude-"):
-        adapter = AnthropicAdapter(model_id)
     else:
-        raise ExecutionError(
-            f"no adapter wired for model id {model_id!r}. Supply an adapter_factory "
-            f"or pass a claude-* model id (AnthropicAdapter is the only wired path)."
-        )
+        adapter = _build_adapter_from_model_id(model_id, role_label="patcher")
 
     inputs = {
         "finding": finding,
@@ -846,13 +841,8 @@ def _execute_reviewer(
 
     if adapter_factory is not None:
         adapter = adapter_factory(model_id)  # type: ignore[misc]
-    elif model_id.startswith("claude-"):
-        adapter = AnthropicAdapter(model_id)
     else:
-        raise ExecutionError(
-            f"no adapter wired for reviewer model id {model_id!r}. Supply "
-            f"an adapter_factory or pass a claude-* model id."
-        )
+        adapter = _build_adapter_from_model_id(model_id, role_label="reviewer")
 
     inputs = {
         "finding": finding,
@@ -947,9 +937,37 @@ def _model_id_family(model_id: str) -> str | None:
         return "anthropic-haiku"
     if model_id.startswith("claude-"):
         return "anthropic-other"
-    if model_id.startswith("gpt-"):
+    if model_id.startswith("gpt-") or model_id.startswith("o1-") or model_id.startswith("o3-"):
         return "openai-gpt"
     return None
+
+
+def _build_adapter_from_model_id(model_id: str, *, role_label: str):
+    """Resolve a model_id to a concrete adapter.
+
+    Single source of truth for all three model-backed roles. claude-*
+    routes to AnthropicAdapter; gpt-* / o1-* / o3-* route to
+    OpenAIAdapter (which honors OPENAI_BASE_URL for vLLM / OpenRouter
+    / any OpenAI-compatible server).
+
+    Tests inject FakeAdapter via the role's adapter_factory parameter
+    and bypass this helper entirely.
+    """
+    from agents.patcher import AnthropicAdapter, OpenAIAdapter
+
+    if model_id.startswith("claude-"):
+        return AnthropicAdapter(model_id)
+    if (
+        model_id.startswith("gpt-")
+        or model_id.startswith("o1-")
+        or model_id.startswith("o3-")
+    ):
+        return OpenAIAdapter(model_id)
+    raise ExecutionError(
+        f"no adapter wired for {role_label} model id {model_id!r}. "
+        f"Supply an adapter_factory, or pass a claude-* / gpt-* / "
+        f"o1-* / o3-* model id."
+    )
 
 
 def _read_patcher_family_from_replay(bundle_dir: Path) -> str | None:
@@ -1161,13 +1179,8 @@ def _execute_reproducer(
 
     if adapter_factory is not None:
         adapter = adapter_factory(model_id)  # type: ignore[misc]
-    elif model_id.startswith("claude-"):
-        adapter = AnthropicAdapter(model_id)
     else:
-        raise ExecutionError(
-            f"no adapter wired for reproducer model id {model_id!r}. Supply "
-            f"an adapter_factory or pass a claude-* model id."
-        )
+        adapter = _build_adapter_from_model_id(model_id, role_label="reproducer")
 
     inputs = {
         "finding": finding,
