@@ -211,3 +211,39 @@ def test_signing_identity_oidc_issuer_matches_schema_subject_format() -> None:
     raw = json.loads(SIGNING_IDENTITY_PATH.read_text())
     issuer = raw["paths"]["sigstore-keyless-oidc-github-actions"]["oidc_issuer"]
     assert issuer == "https://token.actions.githubusercontent.com"
+
+
+# ─── steward.yml extraction-shape regressions ─────────────────────────────
+
+
+def test_steward_yml_resolves_rekor_uuid_via_api_not_logid() -> None:
+    """Regression guard for the bug fixed in `dd6fbdc`.
+
+    `cosign sign-blob --bundle` writes a JSON document whose
+    `rekorBundle.Payload.logID` is the Rekor public-instance shard
+    identifier — constant across every entry on that shard. Earlier
+    workflow logic stored that constant in `signed_manifest.rekor_uuid`,
+    which meant every signed bundle reported the same UUID. The per-
+    entry UUID must come from the Rekor public API, queried by
+    `logIndex`. This test reads the workflow and asserts it does so.
+
+    If the workflow regresses to reading `logID` directly into
+    `rekor_uuid`, this test breaks loudly rather than waiting for a
+    human to notice that two unrelated signed bundles share a UUID."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "steward.yml").read_text()
+
+    # The signed_manifest must populate rekor_uuid via the Rekor API.
+    assert "rekor.sigstore.dev/api/v1/log/entries" in workflow, (
+        "rekor_uuid must come from Rekor's per-entry API lookup, not "
+        "from cosign's bundle.sig logID field."
+    )
+
+    # And the deprecated rekor_log['logID'] → rekor_uuid path must not
+    # be present anywhere in the workflow.
+    bad = re.compile(
+        r"rekor_uuid\s*[:=]\s*[^=\n]*logID",
+    )
+    assert not bad.search(workflow), (
+        "Found a regression assigning rekor_log['logID'] into rekor_uuid. "
+        "The logID is the constant Rekor shard ID, not a per-entry UUID."
+    )
