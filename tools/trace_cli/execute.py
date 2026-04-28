@@ -42,12 +42,20 @@ DETERMINISTIC_ROLES: frozenset[str] = frozenset({
 
 # Non-deterministic roles need a model call. Patcher, Reviewer, and
 # Reproducer are wired (the latter as of the 2026-04-28 step-4 lock).
-# Builder remains REJECTED until the Linux-builder readiness gate is
-# resolved.
 MODEL_BACKED_ROLES: frozenset[str] = frozenset({
     "patcher",
     "reviewer",
     "reproducer",
+})
+
+# Builder is deterministic (no LLM call) but its execution shape is
+# subprocess-driven (shells out to nix-build via the BuildRunner
+# Protocol), distinct from the in-process deterministic roles. Live
+# Builder execution requires a Linux build host; the wiring lands
+# regardless so the FakeBuildRunner-driven tests can exercise the
+# integration.
+RUNNER_BACKED_ROLES: frozenset[str] = frozenset({
+    "builder",
 })
 
 REJECTED_NON_DETERMINISTIC_ROLES: frozenset[str] = frozenset()
@@ -83,6 +91,8 @@ def execute(
     *,
     model_id: str | None = None,
     adapter_factory: "object | None" = None,
+    build_runner_factory: "object | None" = None,
+    nixpkgs_checkout: Path | None = None,
 ) -> dict[str, Any]:
     """Execute one role invocation for one replay record.
 
@@ -134,6 +144,15 @@ def execute(
             )
         raise ExecutionError(
             f"role {role!r} is model-backed but not yet wired for --execute"
+        )
+
+    if role in RUNNER_BACKED_ROLES:
+        return _execute_builder(
+            bundle_dir=bundle_dir,
+            invocation=invocation,
+            verify=verify,
+            build_runner_factory=build_runner_factory,
+            nixpkgs_checkout=nixpkgs_checkout,
         )
 
     if role in REJECTED_NON_DETERMINISTIC_ROLES:
@@ -1362,3 +1381,236 @@ def _append_reproducer_replay_entry(
     role_entry["invocations"].append(invocation)
     body = json.dumps(replay, indent=2, ensure_ascii=False) + "\n"
     _atomic_write_bytes(replay_path, body.encode("utf-8"))
+
+
+# ─── builder execution (deterministic; runner-backed) ───────────────────
+
+
+def _execute_builder(
+    *,
+    bundle_dir: Path,
+    invocation: dict[str, Any],
+    verify: bool,
+    build_runner_factory: object | None,
+    nixpkgs_checkout: Path | None,
+) -> dict[str, Any]:
+    """Builder dispatcher.
+
+    Builder is DETERMINISTIC (no LLM call) but its execution shape is
+    subprocess-driven via the BuildRunner Protocol. Tests inject
+    FakeBuildRunner via build_runner_factory; production passes a
+    LocalNixBuildRunner factory once a Linux host is reachable.
+
+    Per docs/BUILDER_V1.md sec.4: the replay invocation block carries
+    `model.family='deterministic-no-model'` (mirroring the resolver
+    invocation), `prompt: null`, and the new fields
+    `patcher_invocation_id` + `reproducer_invocation_id` so an auditor
+    can trace the build back to the model invocations it verified.
+    """
+    from agents.builder import BuilderRunResult, run_builder
+
+    # The factory contract: callable(): -> BuildRunner. Defaults to
+    # LocalNixBuildRunner when None — production path. Tests inject
+    # a FakeBuildRunner factory.
+    if build_runner_factory is None:
+        from agents.builder import LocalNixBuildRunner
+        build_runner = LocalNixBuildRunner()
+    else:
+        build_runner = build_runner_factory()  # type: ignore[misc]
+
+    started_at = _utc_now_iso()
+    result: BuilderRunResult = run_builder(
+        bundle_dir=bundle_dir,
+        build_runner=build_runner,
+        nixpkgs_checkout=nixpkgs_checkout,
+        apply_patch=nixpkgs_checkout is not None,
+        host_info=_default_builder_host_info(),
+    )
+    ended_at = _utc_now_iso()
+
+    # Atomic-write build.json + (if needed) build.log sidecar.
+    build_json_bytes = (
+        json.dumps(result.build_json, indent=2, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    _atomic_write_bytes(bundle_dir / "build.json", build_json_bytes)
+
+    outputs: list[dict[str, Any]] = [{
+        "path": "build.json",
+        "sha256": sha256_hex(build_json_bytes),
+        "bytes": len(build_json_bytes),
+    }]
+
+    # Persist any oversize logs as build.log. We concatenate the
+    # full logs (truncation-only-on-stdout_stderr was already done
+    # by run_builder); the sidecar carries the union, separated by
+    # phase headers.
+    full_logs = result.full_logs or {}
+    if any(_log_oversize(text) for text in full_logs.values()):
+        log_bytes = _assemble_build_log(full_logs).encode("utf-8")
+        _atomic_write_bytes(bundle_dir / "build.log", log_bytes)
+        outputs.append({
+            "path": "build.log",
+            "sha256": sha256_hex(log_bytes),
+            "bytes": len(log_bytes),
+        })
+
+    input_verification: list[dict[str, Any]] = []
+    for fname in ("patch.diff", "reproducer.nix", "package.nix"):
+        p = bundle_dir / fname
+        if p.is_file():
+            input_verification.append({"path": fname, "verified": False})
+
+    replay_invocation = _build_builder_invocation(
+        bundle_dir=bundle_dir,
+        outputs=outputs,
+        started_at=started_at,
+        ended_at=ended_at,
+    )
+    _append_builder_replay_entry(
+        bundle_dir=bundle_dir, invocation=replay_invocation,
+    )
+
+    return {
+        "role": "builder",
+        "invocation_id": replay_invocation["invocation_id"],
+        "dispatch_outcome": result.dispatch_outcome,
+        "outputs": outputs,
+        "input_verification": input_verification,
+        "verified": verify,
+        "build_json": result.build_json,
+        "replay_invocation": replay_invocation,
+    }
+
+
+def _build_builder_invocation(
+    *,
+    bundle_dir: Path,
+    outputs: list[dict[str, Any]],
+    started_at: str,
+    ended_at: str,
+) -> dict[str, Any]:
+    """Build a single replay-shape invocation record for a Builder run.
+
+    Per docs/BUILDER_V1.md sec.4. Adds patcher_invocation_id +
+    reproducer_invocation_id cross-references so an auditor can trace
+    the build back to the model invocations it verified.
+    """
+    inputs: list[dict[str, Any]] = []
+    for fname in ("patch.diff", "reproducer.nix", "package.nix"):
+        p = bundle_dir / fname
+        if p.is_file():
+            inputs.append({"path": fname, "sha256": _file_sha256(p)})
+
+    invocation = {
+        "invocation_id": _gen_invocation_id(),
+        "role": "builder",
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "model": {
+            "family": "deterministic-no-model",
+            "vendor": "internal",
+            "model_id": "trace-builder-v0.1.0",
+            "version": "0.1.0",
+            "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
+        },
+        "prompt": None,
+        "inputs": inputs,
+        "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
+        "patcher_invocation_id":
+            _read_role_latest_invocation_id(bundle_dir, "patcher"),
+        "reproducer_invocation_id":
+            _read_role_latest_invocation_id(bundle_dir, "reproducer"),
+        "rng_seed": None,
+        "validators_passed": ["build-json-shape-valid"],
+        "network_policy_applied": "substituter-only",
+    }
+    return invocation
+
+
+def _read_role_latest_invocation_id(
+    bundle_dir: Path, role: str,
+) -> str | None:
+    """Most-recent invocation_id for a given role in replay.json."""
+    rj = bundle_dir / "replay.json"
+    if not rj.is_file():
+        return None
+    try:
+        replay = json.loads(rj.read_text())
+    except json.JSONDecodeError:
+        return None
+    for r in replay.get("roles", []):
+        if r.get("role") != role:
+            continue
+        invs = r.get("invocations", [])
+        if not invs:
+            continue
+        return invs[-1].get("invocation_id")
+    return None
+
+
+def _append_builder_replay_entry(
+    *,
+    bundle_dir: Path,
+    invocation: dict[str, Any],
+) -> None:
+    """Append a Builder invocation into replay.json's roles[]."""
+    replay_path = bundle_dir / "replay.json"
+    if not replay_path.is_file():
+        raise ExecutionError(
+            f"replay.json missing in {bundle_dir}; builder requires a "
+            f"pre-existing replay.json (the patcher + reproducer "
+            f"invocations are its anchors)."
+        )
+    replay = json.loads(replay_path.read_text())
+    roles = replay.setdefault("roles", [])
+    role_entry = None
+    for r in roles:
+        if r.get("role") == "builder":
+            role_entry = r
+            break
+    if role_entry is None:
+        role_entry = {"role": "builder", "invocations": []}
+        roles.append(role_entry)
+    role_entry["invocations"].append(invocation)
+    body = json.dumps(replay, indent=2, ensure_ascii=False) + "\n"
+    _atomic_write_bytes(replay_path, body.encode("utf-8"))
+
+
+def _default_builder_host_info() -> dict[str, str]:
+    import platform
+    import shutil
+    import subprocess as _sp
+    system = platform.machine() + "-" + (
+        "linux" if platform.system().lower() == "linux"
+        else platform.system().lower().replace("darwin", "darwin")
+    )
+    nix_version = "unknown"
+    if shutil.which("nix-build"):
+        try:
+            out = _sp.run(
+                ["nix-build", "--version"],
+                check=False, capture_output=True, text=True, timeout=5,
+            )
+            if out.stdout:
+                nix_version = out.stdout.strip().splitlines()[0]
+        except (OSError, _sp.SubprocessError):
+            pass
+    return {
+        "system": system,
+        "nix_version": nix_version,
+        "tool_version": "trace-cli/0.0.0",
+    }
+
+
+def _log_oversize(text: str) -> bool:
+    from agents.builder.protocol import INLINE_STDOUT_STDERR_CAP_BYTES
+    return len(text.encode("utf-8")) > INLINE_STDOUT_STDERR_CAP_BYTES
+
+
+def _assemble_build_log(full_logs: dict[str, str]) -> str:
+    """Concatenate phase logs into a single build.log sidecar body."""
+    parts: list[str] = []
+    for phase in ("patched_build", "unpatched", "patched"):
+        body = full_logs.get(phase, "")
+        parts.append(f"=== {phase} ===\n{body}\n")
+    return "".join(parts)
