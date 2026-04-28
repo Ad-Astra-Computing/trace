@@ -133,12 +133,14 @@ class AnthropicAdapter:
     )
 
     # Anthropic models that accept ONLY ONE of `temperature` or `top_p`,
-    # not both. Sending both returns HTTP 400. Sonnet 4.6 is the first
-    # in this bucket; we send `temperature` (the more common knob) and
-    # drop `top_p`. Surfaced by the first live reviewer run on traefik
-    # 2026-04-27.
+    # not both. Sending both returns HTTP 400. Sonnet 4.6 was the first
+    # in this bucket (surfaced by the first live reviewer run on traefik
+    # 2026-04-27); Haiku 4.5 surfaced the same constraint on the first
+    # live reproducer probe on bind 2026-04-29. We send `temperature`
+    # (the more common knob) and drop `top_p`.
     _MODELS_THAT_REJECT_BOTH_SAMPLING_KNOBS: tuple[str, ...] = (
         "claude-sonnet-4-6",
+        "claude-haiku-4-5",
     )
 
     def _model_drops_sampling(self) -> bool:
