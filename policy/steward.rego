@@ -142,3 +142,116 @@ sha_set_from_refs(refs) := s if {
 sha_set_from_list(lst) := s if {
 	s := {h | some h in lst}
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-6: auto-merge requires build.json present (Builder must have run)
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	not input.build
+	decision := {
+		"rule_id": "rule-6-auto-merge-requires-builder-output",
+		"message": "auto-merge requires build.json; Builder has not run for this bundle",
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-7: auto-merge requires build.dispatch_outcome == "ok"
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.build
+	input.build.dispatch_outcome != "ok"
+	decision := {
+		"rule_id": "rule-7-auto-merge-requires-builder-dispatch-ok",
+		"message": sprintf(
+			"auto-merge requires build.dispatch_outcome=ok; got %q",
+			[input.build.dispatch_outcome],
+		),
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-8: auto-merge requires build.patched_build.outcome == "succeeded"
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.build
+	input.build.patched_build.outcome != "succeeded"
+	decision := {
+		"rule_id": "rule-8-auto-merge-requires-patched-build-succeeded",
+		"message": sprintf(
+			"auto-merge requires build.patched_build.outcome=succeeded; got %q",
+			[input.build.patched_build.outcome],
+		),
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-9: auto-merge forbidden on proxy reproducer
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.repro_scoring
+	some scorer in input.repro_scoring.scorers
+	scorer.scorer_name == "repro-schema-valid"
+	scorer.details.is_proxy == true
+	decision := {
+		"rule_id": "rule-9-auto-merge-forbidden-on-proxy-reproducer",
+		"message": "auto-merge forbidden when reproducer declares meta.proxy=true; bundle.kind must be human-review-required",
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-10: auto-merge requires both load-bearing reproducer scorers at 1.0
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.repro_scoring
+	some scorer in input.repro_scoring.scorers
+	scorer.scorer_name == "repro-unpatched-fails"
+	scorer.applies == true
+	scorer.score < 1.0
+	decision := {
+		"rule_id": "rule-10-auto-merge-requires-repro-unpatched-fails",
+		"message": sprintf(
+			"auto-merge requires repro-unpatched-fails=1.0 (or proxy reproducer, gated by rule-9); got score=%v",
+			[scorer.score],
+		),
+	}
+}
+
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.repro_scoring
+	some scorer in input.repro_scoring.scorers
+	scorer.scorer_name == "repro-patched-passes"
+	scorer.applies == true
+	scorer.score < 1.0
+	decision := {
+		"rule_id": "rule-10-auto-merge-requires-repro-patched-passes",
+		"message": sprintf(
+			"auto-merge requires repro-patched-passes=1.0; got score=%v",
+			[scorer.score],
+		),
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-11: auto-merge requires Reviewer verdict == "accept"
+#          (only applies when review-scoring-report.json is present)
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.review_scoring
+	some scorer in input.review_scoring.scorers
+	scorer.scorer_name == "review-schema-valid"
+	scorer.details.verdict != "accept"
+	decision := {
+		"rule_id": "rule-11-auto-merge-requires-reviewer-accept",
+		"message": sprintf(
+			"auto-merge requires Reviewer verdict=accept; got %q",
+			[scorer.details.verdict],
+		),
+	}
+}
