@@ -143,6 +143,42 @@ def prefetch_fetchzip(
     )
 
 
+_PREFETCH_NIXPKGS_CONFIG = '{ config.allowUnsupportedSystem = true; }'
+"""Nixpkgs config for the fetchzip-prefetch evaluator import.
+
+Scope: this module ONLY.
+
+Rationale:
+
+  * Some packages (systemd, util-linux, kernel-adjacent linux-only
+    packages) declare `meta.platforms` that excludes darwin. On a
+    darwin host, importing nixpkgs without this flag makes evaluation
+    refuse with "package is not available on the requested
+    hostPlatform" before any fetch happens.
+  * Setting `config.allowUnsupportedSystem = true` on this single
+    nixpkgs import lets evaluation proceed past that meta-platforms
+    check. We do NOT claim the package builds on darwin — we only
+    need enough of the derivation graph evaluated to identify and
+    instantiate the source fetcher.
+  * The source artifact a fetcher produces is a fixed-output
+    derivation: its NAR hash is determined entirely by URL and unpack
+    semantics, not by the host system. Computing it on darwin yields
+    the same `sha256-...` value Linux would compute. So skipping the
+    meta-platforms gate is sound for THIS purpose specifically.
+  * This is NOT a project-wide nixpkgs-import policy. Other call
+    sites that genuinely care about host platform (Cartographer
+    reverse-closure analysis, future build-eval probes) must continue
+    to evaluate against the host system. The flag is local to this
+    expression — no env variable, no shared helper.
+  * An earlier draft used `system = "x86_64-linux"` here. That
+    correctly bypassed the eval-time check but propagated the system
+    attribute through the entire derivation graph, requiring a Linux
+    builder to materialise even the platform-independent src FOD.
+    `allowUnsupportedSystem` keeps the host system intact, so the FOD
+    builds locally on darwin where it actually runs.
+"""
+
+
 def _build_expression(request: FetchzipRequest) -> str:
     """Construct the Nix expression that triggers a src download with
     a fake hash. Overriding `src` directly to a fresh derivation that
@@ -152,16 +188,25 @@ def _build_expression(request: FetchzipRequest) -> str:
     Building the package itself (vs `-A goModules`) means the full
     src-fetch step runs without unnecessary subsequent build phases —
     the FOD check fires immediately on src materialisation.
+
+    Nixpkgs is imported with `config.allowUnsupportedSystem = true` so
+    linux-only packages (systemd, util-linux, …) still evaluate on a
+    darwin host. We are not claiming the package builds on darwin —
+    we only need the fetcher's FOD value, which is platform-
+    independent. See the docstring on `_PREFETCH_NIXPKGS_CONFIG`.
     """
     parts: list[str] = []
     if request.nixpkgs_rev:
         parts.append(
             f"let pkgs = import (fetchTarball "
             f"\"https://github.com/NixOS/nixpkgs/archive/{request.nixpkgs_rev}.tar.gz\") "
-            f"{{}}; in"
+            f"{_PREFETCH_NIXPKGS_CONFIG}; in"
         )
     else:
-        parts.append("let pkgs = import <nixpkgs> {}; in")
+        parts.append(
+            f"let pkgs = import <nixpkgs> "
+            f"{_PREFETCH_NIXPKGS_CONFIG}; in"
+        )
 
     # Override the version (so the fetcher templates it into the URL/
     # tag) and replace `src` with the SAME derivation but with

@@ -169,6 +169,86 @@ def test_expression_pins_nixpkgs_rev_when_supplied() -> None:
     assert "20bb5d462943a0f38eba2372db9f7a6d9fd22be2" in expr
 
 
+def test_expression_passes_allow_unsupported_system_for_linux_only_packages() -> None:
+    """Regression for the 2026-04-27 systemd grounding failure.
+
+    systemd's `meta.platforms` excludes darwin. On a darwin host,
+    importing nixpkgs with no config flag makes evaluation refuse:
+    "package is not available on the requested hostPlatform".
+
+    Source hashes for fetchFromGitHub / fetchzip / fetchurl / fetchgit
+    are platform-independent fixed-output derivations: the same URL
+    and unpack semantics produce the same NAR hash on any host. So
+    the prefetch evaluator imports nixpkgs with
+    `config.allowUnsupportedSystem = true` to skip the meta-platforms
+    eval-gate without claiming the package itself builds on darwin
+    and without globally loosening unsupported-system checks (no env
+    variable, no shared helper).
+
+    An earlier draft used `system = "x86_64-linux"` here. That
+    correctly bypassed the eval-time check but propagated the system
+    attribute through the entire derivation graph, requiring a Linux
+    builder to materialise even the platform-independent src FOD.
+    `allowUnsupportedSystem` keeps the host system intact so the FOD
+    builds locally where it actually runs."""
+    from agents.upstream_ref_resolver.fetchzip_prefetch import (
+        _build_expression,
+        _PREFETCH_NIXPKGS_CONFIG,
+    )
+    assert "allowUnsupportedSystem = true" in _PREFETCH_NIXPKGS_CONFIG
+    # Crucial: must NOT pin system — that would propagate to the FOD drv.
+    assert "system =" not in _PREFETCH_NIXPKGS_CONFIG
+
+    # No nixpkgs_rev — config still applied to the <nixpkgs> import.
+    expr_unpinned = _build_expression(
+        FetchzipRequest(attr_path="systemd", target_version="257.6")
+    )
+    assert "config.allowUnsupportedSystem = true" in expr_unpinned
+    assert "import <nixpkgs>" in expr_unpinned
+    # We must NOT be pinning system; that's the whole point of the
+    # B′ revision over the earlier x86_64-linux attempt.
+    assert 'system = "x86_64-linux"' not in expr_unpinned
+
+    # With nixpkgs_rev — config still applied to the fetchTarball import.
+    expr_pinned = _build_expression(
+        FetchzipRequest(
+            attr_path="systemd", target_version="257.6",
+            nixpkgs_rev="adfe0268d8b621c68f0b060fc2e801b5196b5f6a",
+        )
+    )
+    assert "config.allowUnsupportedSystem = true" in expr_pinned
+    assert "fetchTarball" in expr_pinned
+    assert "adfe0268d8b621c68f0b060fc2e801b5196b5f6a" in expr_pinned
+    assert 'system = "x86_64-linux"' not in expr_pinned
+    # And it must still target src (the override semantics didn't change).
+    assert "src = old.src.overrideAttrs" in expr_pinned
+    assert 'version = "257.6"' in expr_pinned
+
+
+@pytest.mark.skipif(
+    os.environ.get("TRACE_REAL_FETCHZIP") != "1",
+    reason="real-network/build test; set TRACE_REAL_FETCHZIP=1 to enable",
+)
+def test_real_systemd_fetchzip_resolves_on_darwin_host() -> None:
+    """End-to-end regression for the 2026-04-27 systemd grounding failure.
+
+    systemd is Linux-only (`meta.platforms` excludes darwin). On a
+    darwin host the prefetch evaluator must still recover the v257.6
+    src.hash because the fix pins the eval `system` to x86_64-linux.
+
+    The expected real value (per the historical nixpkgs fix at
+    a68c049d03b8) is `sha256-Myb/ra7NQTDzN7B9jn8svbhTrLSfiqWaSxREe/nDyYo=`,
+    which is what fetchFromGitHub demands at build time."""
+    request = FetchzipRequest(
+        attr_path="systemd", target_version="257.6",
+        nixpkgs_rev="adfe0268d8b621c68f0b060fc2e801b5196b5f6a",
+    )
+    out = prefetch_fetchzip(request)
+    assert isinstance(out, FetchzipSuccess), getattr(out, "detail", "")
+    assert out.value == "sha256-Myb/ra7NQTDzN7B9jn8svbhTrLSfiqWaSxREe/nDyYo="
+    assert out.tool == "nix-build"
+
+
 def test_parse_fod_hash_mismatch_extracts_modern_format() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _parse_fod_hash_mismatch
     stderr = (
