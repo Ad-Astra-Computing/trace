@@ -145,6 +145,7 @@ def run_builder(
         patch_apply = _apply_patch(
             patch_diff_path=patch_diff_path,
             nixpkgs_checkout=nixpkgs_checkout,
+            attr=attr,
         )
         if not patch_apply.get("applied"):
             return _patch_apply_failed_result(
@@ -303,8 +304,17 @@ def _apply_patch(
     *,
     patch_diff_path: Path,
     nixpkgs_checkout: Path,
+    attr: str | None,
 ) -> dict[str, Any]:
     """Apply patch.diff to nixpkgs_checkout via `git apply`.
+
+    The patch.diff in a bundle uses bundle-relative paths
+    (e.g. `--- a/package.nix`), not nixpkgs-rooted paths. The Builder
+    resolves the affected attr's package directory inside the
+    nixpkgs checkout (via the `pkgs/by-name/<aa>/<attr>/` convention,
+    falling back to `nix eval` lookup) and passes
+    `git apply --directory=<resolved>` so `a/package.nix` becomes
+    `<resolved>/package.nix` at apply time.
 
     `git apply --check` runs first; only when the dry-run passes does
     the real apply commit the working-tree mutation. files_changed is
@@ -313,8 +323,24 @@ def _apply_patch(
     diff_text = patch_diff_path.read_text()
     files_changed = _extract_changed_files(diff_text)
 
+    package_dir_rel = _resolve_attr_package_dir(nixpkgs_checkout, attr)
+    if package_dir_rel is None:
+        return {
+            "applied": False,
+            "git_apply_exit_code": None,
+            "files_changed": files_changed,
+            "post_apply_sha": None,
+            "reason": (
+                f"could not resolve package directory for attr={attr!r} "
+                f"inside the nixpkgs checkout. Tried pkgs/by-name/<aa>/<attr>/ "
+                f"and nix eval --raw <checkout>#<attr>.meta.position; both "
+                f"returned no result."
+            ),
+        }
+
+    apply_args = ["git", "apply", f"--directory={package_dir_rel}"]
     check = subprocess.run(
-        ["git", "apply", "--check", str(patch_diff_path)],
+        [*apply_args, "--check", str(patch_diff_path)],
         cwd=str(nixpkgs_checkout),
         check=False, capture_output=True, text=True,
     )
@@ -324,10 +350,13 @@ def _apply_patch(
             "git_apply_exit_code": check.returncode,
             "files_changed": files_changed,
             "post_apply_sha": None,
-            "reason": (check.stderr or check.stdout or "git apply --check failed")[:2048],
+            "reason": (
+                f"git apply --check --directory={package_dir_rel} failed: "
+                + (check.stderr or check.stdout or "(no stderr)")
+            )[:2048],
         }
     real = subprocess.run(
-        ["git", "apply", str(patch_diff_path)],
+        [*apply_args, str(patch_diff_path)],
         cwd=str(nixpkgs_checkout),
         check=False, capture_output=True, text=True,
     )
@@ -340,12 +369,68 @@ def _apply_patch(
             "reason": (real.stderr or real.stdout or "git apply failed")[:2048],
         }
     rev = _git_head_sha(nixpkgs_checkout)
+    # Re-prefix files_changed with the resolved package directory so
+    # build.json's record matches the actual nixpkgs-relative paths.
+    files_changed_prefixed = [
+        f"{package_dir_rel}/{p}" for p in files_changed
+    ]
     return {
         "applied": True,
         "git_apply_exit_code": 0,
-        "files_changed": files_changed,
+        "files_changed": files_changed_prefixed,
         "post_apply_sha": rev,
     }
+
+
+def _resolve_attr_package_dir(
+    nixpkgs_checkout: Path, attr: str | None,
+) -> str | None:
+    """Return the path of the package directory for `attr` relative to
+    `nixpkgs_checkout`, or None if it cannot be resolved.
+
+    Tries in order:
+      1. `pkgs/by-name/<aa>/<attr>/package.nix`        (current convention)
+      2. `pkgs/by-name/<a>/<attr>/package.nix`         (single-char dir)
+      3. `nix eval --raw <checkout>#<attr>.meta.position`  (legacy paths)
+
+    Returns the directory portion of whichever resolution succeeds first.
+    """
+    if not attr:
+        return None
+    aa = attr[:2].lower()
+    candidates = [
+        Path("pkgs") / "by-name" / aa / attr,
+        Path("pkgs") / "by-name" / attr[:1].lower() / attr,
+    ]
+    for rel in candidates:
+        if (nixpkgs_checkout / rel / "package.nix").is_file():
+            return str(rel).replace("\\", "/")
+
+    # Fallback: use `nix eval` to find meta.position (legacy paths
+    # outside pkgs/by-name). This is best-effort — if nix is unavailable
+    # or the eval fails, return None and let the caller record the
+    # patch-apply-failed reason.
+    flake_ref = f"{nixpkgs_checkout.resolve()}#{attr}.meta.position"
+    try:
+        proc = subprocess.run(
+            ["nix", "eval", "--raw", flake_ref],
+            check=False, capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    position = (proc.stdout or "").strip()
+    # `meta.position` is `<absolute path>:<line>`. Strip the line suffix.
+    file_path_str = position.rsplit(":", 1)[0]
+    if not file_path_str:
+        return None
+    file_path = Path(file_path_str)
+    try:
+        rel = file_path.parent.relative_to(nixpkgs_checkout.resolve())
+    except ValueError:
+        return None
+    return str(rel).replace("\\", "/")
 
 
 def _patch_apply_skipped(reason: str) -> dict[str, Any]:
