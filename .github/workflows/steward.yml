@@ -216,11 +216,14 @@ jobs:
           set -euo pipefail
           OUT="${{ steps.paths.outputs.out }}"
 
-          # Canonical input for the signature: bundle.json (carries all
-          # replay-critical file hashes via bundle.files[<path>].sha256).
-          # Signing bundle.json transitively attests to every file's
-          # hash that bundle.json declares.
-          CANONICAL="$OUT/bundle.json"
+          # Canonical input for the signature: a frozen pre-sign snapshot
+          # of bundle.json. We sign this immutable copy so the signature
+          # remains valid forever, regardless of any post-sign metadata
+          # mutations on bundle.json itself (e.g. populating
+          # signed_manifest.identity_subject + rekor_log_index).
+          # Downstream verifiers verify against bundle.canonical.json.
+          CANONICAL="$OUT/bundle.canonical.json"
+          cp "$OUT/bundle.json" "$CANONICAL"
           test -f "$CANONICAL"
 
           # cosign sign-blob with --yes (non-interactive) + --bundle to
@@ -233,8 +236,8 @@ jobs:
             --output-certificate "$OUT/cosign-cert.pem" \
             "$CANONICAL"
 
-          echo "signed bundle.json → $OUT/bundle.sig"
-          ls -la "$OUT/bundle.sig" "$OUT/cosign-cert.pem"
+          echo "signed bundle.canonical.json → $OUT/bundle.sig"
+          ls -la "$OUT/bundle.canonical.json" "$OUT/bundle.sig" "$OUT/cosign-cert.pem"
 
       - name: Populate signed_manifest identity fields
         if: ${{ steps.gate.outputs.allow == 'true' }}
@@ -314,14 +317,17 @@ jobs:
         run: |
           set -euo pipefail
           OUT="${{ steps.paths.outputs.out }}"
-          # Read the locked identity policy. Verifiers pin against
+          # Read the locked identity policy via plain python3 (the
+          # ubuntu-latest runner ships python3; using `nix develop --command`
+          # would mix the dev-shell startup banner into stdout and
+          # contaminate the captured variable). Verifiers pin against
           # subject_regex + oidc_issuer from policy/signing-identity.json.
-          SUBJECT_REGEX=$(nix develop --command python3 -c "
+          SUBJECT_REGEX=$(python3 -c "
           import json
           si = json.load(open('policy/signing-identity.json'))
           print(si['paths']['sigstore-keyless-oidc-github-actions']['subject_regex'])
           ")
-          OIDC_ISSUER=$(nix develop --command python3 -c "
+          OIDC_ISSUER=$(python3 -c "
           import json
           si = json.load(open('policy/signing-identity.json'))
           print(si['paths']['sigstore-keyless-oidc-github-actions']['oidc_issuer'])
@@ -330,11 +336,16 @@ jobs:
           echo "  certificate-identity-regexp: ${SUBJECT_REGEX}"
           echo "  certificate-oidc-issuer:     ${OIDC_ISSUER}"
 
+          # Verify against the FROZEN canonical snapshot, not bundle.json.
+          # The post-sign metadata population mutates bundle.json (adding
+          # signed_manifest.identity_subject + rekor coordinates), so the
+          # signature, made over the pre-mutation bundle.json content,
+          # must verify against the snapshot we kept at sign time.
           cosign verify-blob \
             --certificate-identity-regexp "${SUBJECT_REGEX}" \
             --certificate-oidc-issuer "${OIDC_ISSUER}" \
             --bundle "$OUT/bundle.sig" \
-            "$OUT/bundle.json"
+            "$OUT/bundle.canonical.json"
           echo "signature verifies under the locked identity policy"
 
       - name: Skip signing (Steward denied)
@@ -355,6 +366,7 @@ jobs:
           name: steward-smoke-${{ inputs.bundle }}
           path: |
             ${{ steps.paths.outputs.out }}/bundle.json
+            ${{ steps.paths.outputs.out }}/bundle.canonical.json
             ${{ steps.paths.outputs.out }}/build.json
             ${{ steps.paths.outputs.out }}/replay.json
             ${{ steps.paths.outputs.out }}/steward-decision.json
