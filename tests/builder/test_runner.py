@@ -258,18 +258,9 @@ def test_refused_no_reproducer_when_reproducer_refused(tmp_path: Path) -> None:
 # ─── patch-apply-failed ───────────────────────────────────────────────────
 
 
-def test_patch_apply_failed_real_git(tmp_path: Path) -> None:
-    """Use a real `git init`'d directory with a working tree that does
-    NOT match the patch's expected pre-image; `git apply --check` will
-    refuse, the dispatcher records patch-apply-failed."""
-    if not _git_on_path():
-        pytest.skip("git not on PATH")
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
+def _init_git_checkout(checkout: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=str(checkout), check=True)
-    # Create a working-tree file that doesn't match the patch's pre-image.
-    (checkout / "package.nix").write_text("# something completely different\n")
-    subprocess.run(["git", "add", "."], cwd=str(checkout), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(checkout), check=True)
     subprocess.run(
         ["git",
          "-c", "user.email=t@example.com",
@@ -278,6 +269,20 @@ def test_patch_apply_failed_real_git(tmp_path: Path) -> None:
          "commit", "-q", "-m", "init"],
         cwd=str(checkout), check=True,
     )
+
+
+def test_patch_apply_failed_when_package_dir_unresolvable(tmp_path: Path) -> None:
+    """When neither pkgs/by-name/<aa>/<attr>/package.nix nor a nix-eval
+    fallback can locate the affected attr's package directory in the
+    nixpkgs checkout, _apply_patch returns 'could not resolve' before
+    invoking `git apply`. dispatch_outcome=patch-apply-failed."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    # No pkgs/by-name/de/demo structure here.
+    (checkout / "README.md").write_text("# unrelated\n")
+    _init_git_checkout(checkout)
 
     bundle = _scaffold_bundle(tmp_path)
     runner = FakeBuildRunner(response=_ok_outcome())
@@ -288,12 +293,100 @@ def test_patch_apply_failed_real_git(tmp_path: Path) -> None:
     assert result.dispatch_outcome == "patch-apply-failed"
     bj = result.build_json
     assert bj["patch_apply"]["applied"] is False
-    assert bj["patch_apply"]["git_apply_exit_code"] != 0
+    assert bj["patch_apply"]["git_apply_exit_code"] is None
+    assert "could not resolve package directory" in bj["patch_apply"]["reason"]
     assert bj["patched_build"]["outcome"] == "skipped"
-    assert bj["unpatched"]["outcome"] == "skipped"
     _assert_valid(bj)
-    # No BuildRunner calls since patch-apply failed.
     assert runner.calls == []
+
+
+def test_patch_apply_failed_when_diff_mismatches_real_git(tmp_path: Path) -> None:
+    """Resolution succeeds (pkgs/by-name/de/demo/package.nix exists) but
+    the file's content doesn't match the patch's expected pre-image.
+    `git apply --check --directory=pkgs/by-name/de/demo` refuses; the
+    dispatcher records patch-apply-failed with a non-zero exit code."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    checkout = tmp_path / "checkout"
+    pkg_dir = checkout / "pkgs" / "by-name" / "de" / "demo"
+    pkg_dir.mkdir(parents=True)
+    # Working-tree content does NOT match the patch's pre-image.
+    (pkg_dir / "package.nix").write_text("# something completely different\n")
+    _init_git_checkout(checkout)
+
+    bundle = _scaffold_bundle(tmp_path)
+    runner = FakeBuildRunner(response=_ok_outcome())
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=checkout, apply_patch=True,
+    )
+    assert result.dispatch_outcome == "patch-apply-failed"
+    bj = result.build_json
+    assert bj["patch_apply"]["applied"] is False
+    # git apply exited non-zero (real git failure, not a resolution miss).
+    assert isinstance(bj["patch_apply"]["git_apply_exit_code"], int)
+    assert bj["patch_apply"]["git_apply_exit_code"] != 0
+    assert "git apply --check --directory=pkgs/by-name/de/demo" in bj["patch_apply"]["reason"]
+    _assert_valid(bj)
+    assert runner.calls == []
+
+
+def test_patch_apply_succeeds_against_pkgs_by_name_structure(tmp_path: Path) -> None:
+    """Resolution succeeds AND the file's content matches the patch's
+    pre-image. The Builder's --directory=pkgs/by-name/de/demo invocation
+    applies cleanly. patch_apply.applied=True; files_changed records
+    the nixpkgs-rooted path."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    checkout = tmp_path / "checkout"
+    pkg_dir = checkout / "pkgs" / "by-name" / "de" / "demo"
+    pkg_dir.mkdir(parents=True)
+    # Working-tree content DOES match the patch's pre-image
+    # ("version = \"1.0.0\";\n") so `git apply` succeeds.
+    (pkg_dir / "package.nix").write_text('version = "1.0.0";\n')
+    _init_git_checkout(checkout)
+
+    bundle = _scaffold_bundle(tmp_path)
+    runner = FakeBuildRunner(responses=[
+        _ok_outcome(),  # patched_build
+        _ok_outcome(),  # unpatched reproducer run
+        _ok_outcome(),  # patched reproducer run
+        _ok_outcome(),  # passthru-tests enumeration
+    ])
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=checkout, apply_patch=True,
+    )
+    bj = result.build_json
+    assert bj["patch_apply"]["applied"] is True, bj["patch_apply"]
+    assert bj["patch_apply"]["git_apply_exit_code"] == 0
+    assert bj["patch_apply"]["files_changed"] == ["pkgs/by-name/de/demo/package.nix"]
+    # Confirm the patch actually mutated the working tree.
+    actual_post = (pkg_dir / "package.nix").read_text()
+    assert actual_post == 'version = "1.0.1";\n'
+    _assert_valid(bj)
+
+
+def test_resolve_attr_package_dir_returns_none_for_missing_attr(tmp_path: Path) -> None:
+    """Direct unit test of the resolver helper: missing attr → None."""
+    from agents.builder.runner import _resolve_attr_package_dir
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    # No nix on PATH guaranteed in this scenario, but even if there is,
+    # an empty checkout has no nix flake to evaluate.
+    assert _resolve_attr_package_dir(checkout, None) is None
+    assert _resolve_attr_package_dir(checkout, "") is None
+
+
+def test_resolve_attr_package_dir_finds_pkgs_by_name(tmp_path: Path) -> None:
+    """Direct unit test: pkgs/by-name/<aa>/<attr>/package.nix → returns
+    the relative directory path."""
+    from agents.builder.runner import _resolve_attr_package_dir
+    checkout = tmp_path / "checkout"
+    pkg_dir = checkout / "pkgs" / "by-name" / "tr" / "traefik"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "package.nix").write_text("dummy")
+    assert _resolve_attr_package_dir(checkout, "traefik") == "pkgs/by-name/tr/traefik"
 
 
 def _git_on_path() -> bool:
