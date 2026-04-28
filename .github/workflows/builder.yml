@@ -1,0 +1,216 @@
+name: builder
+
+# Linux-runner Builder smoke. Manual dispatch only. NEVER triggers on
+# push or PR — this workflow shells out to `nix-build` against a real
+# Nix install on a GitHub-hosted Linux runner, with the explicit goal
+# of confirming `LocalNixBuildRunner` end-to-end (Nix install →
+# subprocess plumbing → build.json shape → replay.json append) before
+# we layer signed outputs and commit-back behaviour on top.
+#
+# Scope (locked narrow per the 2026-04-28 builder/steward sequencing
+# decision):
+#   * manual dispatch only
+#   * runs `LocalNixBuildRunner` against ONE staged bundle
+#     (tests/fixtures/real-ci/builder/<bundle>/)
+#   * produces build.json
+#   * uploads artifacts
+#   * does NOT auto-commit, does NOT sign
+#
+# The companion `steward.yml` (forthcoming) will consume bundles that
+# have real Builder outputs and add the cosign sign-blob path.
+#
+# Cohort label: `real-ci-smoke` matches the pattern set by
+# real-prefetch-smoke.yml so artifacts from this workflow never get
+# mixed with `inner-loop` or `full-corpus` cohorts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "Staged bundle to build (single value; v0)."
+        required: true
+        default: "hello"
+        type: choice
+        options:
+          - hello
+
+permissions:
+  contents: read
+
+env:
+  COHORT_LABEL: "real-ci-smoke"
+  TRACE_REQUIRE_NIX: "1"
+
+jobs:
+  build:
+    name: builder smoke (${{ inputs.bundle }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # DeterminateSystems actions pinned by full commit SHA, mirroring
+      # the convention in ci.yml + real-prefetch-smoke.yml. Comments
+      # document the human-readable tag for Dependabot to update.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Preflight — nix-build present
+        run: |
+          set -euo pipefail
+          command -v nix-build
+          nix-build --version | tee /tmp/nix-version.txt
+
+      - name: Set bundle paths
+        id: paths
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          OUT="${RUNNER_TEMP}/builder-smoke/${BUNDLE}"
+          mkdir -p "$OUT"
+          # Copy the staged fixture into a fresh runner-temp directory
+          # so we can write build.json + build.log into the bundle dir
+          # without polluting the checkout.
+          cp -R "tests/fixtures/real-ci/builder/${BUNDLE}/." "$OUT/"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      - name: Run Builder against the staged bundle
+        id: builder
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          # Drive Builder via execute() directly. The CLI doesn't yet
+          # expose --nixpkgs-checkout / --build-runner-factory; that's
+          # follow-on polish. For this smoke, a small inline Python
+          # script hands LocalNixBuildRunner to execute() via the
+          # build_runner_factory parameter.
+          nix develop --command python3 -u <<PY
+          import json
+          import sys
+          from pathlib import Path
+          from agents.builder import LocalNixBuildRunner
+          from tools.trace_cli.execute import execute
+
+          out = Path("$OUT")
+          fresh_invocation = {"invocation_id": None, "inputs": [], "outputs": []}
+          result = execute(
+              role="builder",
+              bundle_dir=out,
+              invocation=fresh_invocation,
+              verify=False,
+              build_runner_factory=lambda: LocalNixBuildRunner(),
+              # nixpkgs_checkout=None: patch-apply is skipped; patched-build
+              # runs nix-build -A <attr> against the bundle's default.nix
+              # which re-exports pkgs.hello from <nixpkgs>. See
+              # tests/fixtures/real-ci/builder/hello/README.md.
+              nixpkgs_checkout=None,
+          )
+          print(json.dumps({
+              "dispatch_outcome": result["dispatch_outcome"],
+              "outputs": [o["path"] for o in result["outputs"]],
+              "invocation_id": result["invocation_id"],
+          }, indent=2))
+
+          # Surface the dispatch outcome via $GITHUB_OUTPUT so a later
+          # step / a follow-on Steward workflow can branch on it.
+          import os
+          gh_output = os.environ.get("GITHUB_OUTPUT")
+          if gh_output:
+              with open(gh_output, "a") as f:
+                  f.write(f"dispatch_outcome={result['dispatch_outcome']}\n")
+                  f.write(f"invocation_id={result['invocation_id']}\n")
+
+          # Builder's CLI surface returns 0 on dispatch_outcome=ok or any
+          # explicit refusal (refused-no-patch / refused-no-reproducer /
+          # patch-apply-failed); failures are recorded as data in
+          # build.json. The smoke MUST NOT fail the workflow on a recorded
+          # build failure — that's data we want to upload + inspect — but
+          # MUST fail on infra issues (nix-build not on PATH, Python
+          # import error, etc.). The execute() call above raises on infra
+          # errors; arrival here means the build.json was written and is
+          # ready for inspection.
+          PY
+
+      - name: Show build.json
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          test -f "$OUT/build.json"
+          echo "=== build.json ==="
+          cat "$OUT/build.json"
+          echo
+          if [[ -f "$OUT/build.log" ]]; then
+            echo "=== build.log (first 200 lines) ==="
+            head -200 "$OUT/build.log"
+          fi
+
+      - name: Validate build.json against build-output-schema
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python3 -u <<PY
+          import json, sys
+          from pathlib import Path
+          from jsonschema import Draft202012Validator
+          schema = json.loads(Path("policy/build-output-schema.json").read_text())
+          doc = json.loads(Path("$OUT/build.json").read_text())
+          v = Draft202012Validator(schema)
+          errors = sorted(v.iter_errors(doc), key=lambda e: e.path)
+          if errors:
+              for e in errors:
+                  print(f"  {list(e.absolute_path)}: {e.message}")
+              sys.exit(1)
+          print(f"build.json validates against schema; dispatch_outcome={doc['dispatch_outcome']}")
+          print(f"  patch_apply.applied:        {doc['patch_apply']['applied']}")
+          print(f"  patched_build.outcome:      {doc['patched_build']['outcome']}")
+          print(f"  unpatched.outcome:          {doc['unpatched']['outcome']}")
+          print(f"  patched.outcome:            {doc['patched']['outcome']}")
+          PY
+
+      - name: Inspect replay.json append
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          nix develop --command python3 -u <<PY
+          import json, sys
+          from pathlib import Path
+          replay = json.loads(Path("$OUT/replay.json").read_text())
+          builder_roles = [r for r in replay["roles"] if r["role"] == "builder"]
+          if len(builder_roles) != 1:
+              print(f"expected exactly one builder role, got {len(builder_roles)}")
+              sys.exit(1)
+          inv = builder_roles[0]["invocations"][-1]
+          required = {
+              "invocation_id", "role", "started_at", "ended_at",
+              "model", "prompt", "inputs", "outputs",
+              "patcher_invocation_id", "reproducer_invocation_id",
+              "rng_seed", "validators_passed", "network_policy_applied",
+          }
+          missing = required - set(inv.keys())
+          if missing:
+              print(f"replay invocation missing required fields: {sorted(missing)}")
+              sys.exit(1)
+          assert inv["model"]["family"] == "deterministic-no-model"
+          assert inv["prompt"] is None
+          assert inv["network_policy_applied"] == "substituter-only"
+          assert inv["validators_passed"] == ["build-json-shape-valid"]
+          print(f"replay invocation OK: {inv['invocation_id']}")
+          PY
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: builder-smoke-${{ inputs.bundle }}
+          path: |
+            ${{ steps.paths.outputs.out }}/build.json
+            ${{ steps.paths.outputs.out }}/build.log
+            ${{ steps.paths.outputs.out }}/replay.json
+          if-no-files-found: warn
