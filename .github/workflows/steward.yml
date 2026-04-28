@@ -38,6 +38,7 @@ on:
           - hello
           - bind
           - uriparser
+          - libtiff
 
 permissions:
   contents: read
@@ -129,6 +130,15 @@ jobs:
               # rules 4+5 on this kind, both of which are already green.
               SRC="traces/example/CVE-2025-67899--uriparser"
               REAL_CVE="false"
+              ;;
+            libtiff)
+              # Auto-merge bundle: deterministic-no-model attribution,
+              # real upstream backport (CVE-2024-13978), real PoC. Builder
+              # needs the fork checkout to apply patch.diff and run the
+              # reproducer.nix sandbox-positive test against unpatched +
+              # patched libtiff derivations.
+              SRC="traces/example/CVE-2024-13978--libtiff"
+              REAL_CVE="true"
               ;;
             *)
               echo "::error::unknown bundle ${BUNDLE}"; exit 64 ;;
