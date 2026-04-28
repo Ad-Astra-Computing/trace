@@ -8,7 +8,7 @@
     "family": "anthropic-sonnet"
   },
   "reproducer": {
-    "model_id": "claude-sonnet-4-6",
+    "model_id": "claude-sonnet-4-5-20250929",
     "family": "anthropic-sonnet"
   }
 }

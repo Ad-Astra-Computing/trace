@@ -7,7 +7,7 @@ model pairings. These tests assert two invariants:
   2. Encodes the 2026-04-28 lock decisions:
        patcher    → claude-opus-4-7   (anthropic-opus)
        reviewer   → claude-sonnet-4-6 (anthropic-sonnet)
-       reproducer → claude-sonnet-4-6 (anthropic-sonnet, cross-family
+       reproducer → claude-sonnet-4-5-20250929 (anthropic-sonnet, cross-family
                                        with patcher mechanically satisfied)
 
 If any model_id changes here, the matching DECISIONS.md entry must be
@@ -47,8 +47,11 @@ def test_routing_config_encodes_locked_pairings() -> None:
     )
     assert raw["reviewer"]["family"] == "anthropic-sonnet"
 
-    assert raw["reproducer"]["model_id"] == "claude-sonnet-4-6", (
-        "Reproducer default is claude-sonnet-4-6 per DECISIONS 2026-04-28."
+    assert raw["reproducer"]["model_id"] == "claude-sonnet-4-5-20250929", (
+        "Reproducer model is claude-sonnet-4-5-20250929 per the 2026-04-29 "
+        "amendment: sonnet 4.5 is the first qualified anthropic-side "
+        "Reproducer model for refusal-capable cases on bind. Earlier 4.6 "
+        "default failed the strict-output contract via preamble drift."
     )
     assert raw["reproducer"]["family"] == "anthropic-sonnet"
 
