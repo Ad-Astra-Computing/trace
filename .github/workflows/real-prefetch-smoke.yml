@@ -57,7 +57,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Fail-early on missing secrets. The workflow's contract is "we
       # exercise the real-network paths"; without ANTHROPIC_API_KEY we
@@ -170,7 +170,7 @@ jobs:
             --format json | tee "$OUT/patch-rate.json"
 
       - name: Upload bundle artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: ${{ always() }}
         with:
           name: real-ci-smoke-${{ inputs.bundle }}
