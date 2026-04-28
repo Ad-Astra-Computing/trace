@@ -226,7 +226,7 @@ Implementations locked for v0:
 - **`FakeBuildRunner`** — returns a caller-supplied `BuildOutcome`. Used in the unit suite. No Nix dependency.
 - **`LocalNixBuildRunner`** — shells out to `nix-build` on `$PATH`. Produces a `BuildOutcome` from the subprocess return; truncates `stdout_stderr` per §3's 64 KiB rule. Deferred until a Linux host is reachable.
 
-Future implementations: `RemoteSSHBuildRunner` (perdurabo-shaped), `GitHubActionsBuildRunner` (CI-shaped). Out of scope for v1.
+Future implementations: `RemoteSSHBuildRunner` (delegates to a remote Linux host over SSH), `GitHubActionsBuildRunner` (CI-shaped). Out of scope for v1.
 
 ---
 
