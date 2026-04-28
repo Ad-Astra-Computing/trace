@@ -110,22 +110,35 @@ The model's predicted execution log. Two sections, separated by line markers:
 ```
 === unpatched ===
 <predicted stdout/stderr from running `test` against the unpatched derivation>
-SIGNAL: <verbatim substring that proves the vuln triggered>
+SIGNAL_UNPATCHED: <verbatim substring that proves the vuln triggered>
 EXIT: <integer exit code>
 
 === patched ===
 <predicted stdout/stderr from running `test` against the patched derivation>
-SIGNAL_ABSENT: <verbatim substring; describes what is NOT in the patched output>
+SIGNAL_PATCHED: <verbatim substring that demonstrates the vuln no longer triggers>
 EXIT: <integer exit code>
 ```
 
+The two signals are **paired and asymmetric**: `SIGNAL_UNPATCHED` is a substring whose **presence** in the unpatched run proves the vuln triggered. `SIGNAL_PATCHED` is a substring whose **presence** in the patched run proves the vuln did not trigger. Both must be substrings the test produces explicitly (e.g., a `printf "vuln-triggered: ..."` line on the unpatched path and a `printf "rejected-malformed-input: ..."` line on the patched path). Builder verifies presence on both sides — the test's own output names what it observed, and the model commits in advance to what those names will be.
+
 Locked properties:
 
-- The `SIGNAL:` line in `=== unpatched ===` names a substring that MUST appear in the actual unpatched run's output (verified by Builder).
-- The `SIGNAL_ABSENT:` line in `=== patched ===` names the same kind of substring but asserts it does NOT appear in the patched run's output.
-- The two `EXIT:` lines record predicted exit codes. Builder records actual exit codes; mismatch is a scorer signal but not a refusal trigger (the model is allowed to be wrong about the exit code; the signal-substring presence/absence is the real oracle).
+- `SIGNAL_UNPATCHED` MUST appear in the actual unpatched run's output. Builder verifies; absence is a scorer failure (`repro-unpatched-fails: 0.0`).
+- `SIGNAL_PATCHED` MUST appear in the actual patched run's output. Builder verifies; absence is a scorer failure (`repro-patched-passes: 0.0`).
+- **Length bounds.** Each signal substring MUST be ≥ 24 characters and ≤ 200 characters. Shorter than 24 chars is gameable noise (`error`, `failed`, `denied`, `assertion failure`); longer than 200 chars is brittle (whitespace drift, locale-dependent formatting). Bounds enforced by the runner before write.
+- **Semantic specificity.** Each signal MUST be semantically tied to the **CVE-class outcome**, not to generic build / runtime tokens. The runner rejects (parser refusal, no write) any signal whose entire content matches a generic-token pattern. The forbidden generic-token list, locked here:
+  - `error`, `error:`, `failed`, `failure`, `assertion failed`, `aborted`, `core dumped`
+  - `success`, `ok`, `passed`, `done`, `complete`
+  - `exit code 0`, `exit code 1`, `exit status 0`, `exit status 1`
+  - the empty string
+  - any substring composed only of whitespace and one of the tokens above
+
+  These rules are floor checks. The `repro-signal-specificity` scorer (advisory, §9) goes further and downgrades signals whose body is too generic relative to the CVE description.
+
+- **Distinct signals.** `SIGNAL_UNPATCHED` and `SIGNAL_PATCHED` must NOT be substrings of each other. Identical signals or substring-prefix relationships defeat the discrimination contract.
+- The two `EXIT:` lines record predicted exit codes. Builder records actual exit codes; mismatch is a scorer signal but not a refusal trigger (the model is allowed to be wrong about the exit code; the signal-substring presence is the real oracle).
 - The model is permitted to write a brief one-paragraph commentary above each `=== unpatched ===` / `=== patched ===` marker, explaining what the test does. Beyond that, no prose; no rationale section like patch-rationale's five headings.
-- The signal-substring CHOICE matters. A signal that's also present in unrelated builds is a weak oracle. The model should choose the most CVE-specific substring it can — function name + error class, kernel oops trace fragment, parser-rejection message, etc.
+- The signal-substring CHOICE matters. The model should choose the most CVE-specific text it can — function name + observed misbehaviour, parser-rejection message naming the malformed input class, sandboxed kernel oops fragment, etc. The `repro-signal-specificity` scorer (§9) is advisory but its trends are reported in the cohort aggregate.
 
 ### 3.3. `passthru-tests.json`
 
@@ -152,11 +165,11 @@ Locked properties:
 
 A bundle's Reproducer output is **well-formed** for v0 when ALL of the following hold:
 
-1. The three files parse and validate against the §3 shape.
+1. The three files parse and validate against the §3 shape, including the `SIGNAL_UNPATCHED` / `SIGNAL_PATCHED` length bounds, semantic-specificity floor checks, and distinct-signals rule.
 2. `reproducer.nix` evaluates without error against the bundle's pinned nixpkgs (Builder's job to verify).
 3. The `test` derivation runs to completion in BOTH the unpatched and patched paths (Builder's job to verify).
-4. The unpatched run's stdout/stderr contains the `SIGNAL:` substring named in `reproducer-log.txt`.
-5. The patched run's stdout/stderr does NOT contain the `SIGNAL_ABSENT:` substring named in `reproducer-log.txt`.
+4. The unpatched run's stdout/stderr contains the `SIGNAL_UNPATCHED` substring named in `reproducer-log.txt`.
+5. The patched run's stdout/stderr contains the `SIGNAL_PATCHED` substring named in `reproducer-log.txt`.
 6. The `passthru-tests.json` enumeration is consistent with the actual passthru.tests / nixosTests defined for the affected attr at `nixpkgs_rev` (Builder cross-checks).
 
 The first axis is a **model-output well-formedness** check (the runner verifies §3.1–§3.3 shape before write). The remaining axes are **execution checks** that Builder runs and records into `build.json`. Reproducer scoring (§9) reflects both layers.
@@ -167,10 +180,10 @@ The first axis is a **model-output well-formedness** check (the runner verifies 
 
 A Reproducer output is a **failure** (not a refusal — refusal is §6) when ANY of the following hold:
 
-- The output parses as the §3 shape but the unpatched run's actual stdout/stderr does NOT contain the named `SIGNAL:` substring → the test does not exercise the vuln.
-- The patched run's actual stdout/stderr DOES contain the named `SIGNAL_ABSENT:` substring → the patch does not actually fix the CVE, OR the signal is not specific enough.
+- The output parses as the §3 shape but the unpatched run's actual stdout/stderr does NOT contain the named `SIGNAL_UNPATCHED` substring → the test does not exercise the vuln.
+- The patched run's actual stdout/stderr does NOT contain the named `SIGNAL_PATCHED` substring → the patch did not produce the expected fixed-state evidence, OR the test failed before reaching the assertion.
 - `reproducer.nix` evaluates but raises at `test` execution time on the unpatched path due to setup error (missing dependency, malformed expression body, etc.).
-- The `test` derivation passes against BOTH unpatched AND patched paths — i.e., the test does not discriminate. This is the most common failure mode and the most insidious: the test "looks vuln-specific" but actually only checks something the patch didn't change.
+- Both signals appear in BOTH runs — i.e., the test does not discriminate. This is the most common failure mode and the most insidious: the test "looks vuln-specific" but actually only checks something the patch didn't change.
 
 Failure cases are recorded in `build.json` with an explicit reason. Bundles with failed reproducers are NOT eligible for `bundle.kind=auto-merge`. They downgrade to `human-review-required`. They are not advisory-only — the patch may still be correct; only the Reproducer's verification path is broken.
 
@@ -205,15 +218,59 @@ No reproducer.nix. No log. No passthru-tests.json. Steward routes the bundle to 
 
 ## 7. Proxy tests (the bounded compromise)
 
-Sometimes a CVE admits no full-chain reproducer in the sandbox but DOES admit a meaningful proxy: "verify the patched function rejects malformed input X" rather than "verify the full attack chain." Proxy tests are allowed in v0, with locked constraints:
+Some CVEs admit no full-chain reproducer in the sandbox but DO admit a meaningful constrained test: "verify the patched function rejects malformed input X" rather than "verify the full attack chain." Proxy tests are allowed in v0 but **discouraged**: refusal under §6 is the preferred output when a full reproducer is infeasible. A proxy is acceptable ONLY when it provides **meaningful constrained evidence** of the fix, not as a convenience to avoid the harder refusal path.
 
-- The reproducer.nix MUST set a top-level attribute `meta.proxy = true;` on the `test` derivation.
-- The reproducer-log.txt MUST include a third section `=== proxy ===` explaining: (a) why the full reproducer is infeasible, (b) what the proxy actually verifies, (c) what gap the proxy leaves uncovered.
-- Bundles with `proxy: true` reproducers are NOT eligible for `bundle.kind=auto-merge`. They downgrade to `human-review-required` with `kind_reason: reproducer-is-proxy`.
-- The Steward gate enforces this downgrade; the Reproducer's claim alone does not.
-- The Reviewer is then expected to weigh the proxy's specificity in its accept/reject decision.
+The contract treats proxies as a narrow, well-labeled compromise. The reproducer.nix MUST set the following attributes on the `test` derivation:
 
-Proxy is the SECOND-best output. Refusal under §6 is acceptable when even a proxy is not feasible. Generic build-passes-as-proxy is NOT acceptable; it is a §5 failure case.
+```nix
+test = pkgs.runCommand "..." { } ''
+  ...
+'' // {
+  meta = {
+    proxy = true;
+    proxy_reason = "<one of the locked enum values below>";
+    why_not_full_repro = "<one-paragraph explanation>";
+    expected_limitations = "<one-paragraph explanation>";
+  };
+};
+```
+
+Locked properties:
+
+- **`meta.proxy = true`** — required boolean. Single source of truth that this is a proxy, not a full reproducer.
+- **`meta.proxy_reason`** — required, MUST be one of the locked enum values:
+  - `sandbox-cannot-trigger` — the full chain requires capabilities the build sandbox forbids (kernel privilege, network, hardware feature, multi-process timing).
+  - `chain-requires-public-poc` — a full chain exists but requires a payload only published in an external PoC repo the bundle does not carry; only the post-patch rejection path is locally verifiable.
+  - `pre-fix-build-uncrashable-in-sandbox` — the unpatched code crashes the sandbox itself or the host (kernel oops, heap corruption out-of-process); only the patched-rejection path is testable.
+  - `attack-surface-not-locally-instrumentable` — the vuln triggers via a system service / IPC surface that cannot be brought up inside `runCommand`. Localhost-only proxy of the same parser/handler is feasible.
+  - `cve-class-needs-fixture-corpus` — the vuln class (parser bug, codec, regex backtracking) needs a fixture set the bundle does not carry; a representative sub-fixture proves the patched-state behaviour.
+
+  Any other reason is NOT a permitted proxy under v1. If none of these enum values apply, the correct output is a §6 refusal.
+
+- **`meta.why_not_full_repro`** — required, one-paragraph string. Names the specific blocker, citing the bundle artifact, vuln class, or sandbox limitation. Generic restatement of the enum value is insufficient; the explanation must be specific to THIS CVE.
+- **`meta.expected_limitations`** — required, one-paragraph string. Names what the proxy DOES NOT prove. E.g., "this proxy verifies the parser now rejects the malformed length-prefix; it does not verify the integer-overflow path the unpatched parser would have hit downstream — that path is unreachable in any sandbox we can construct."
+
+The reproducer-log.txt MUST include a third section `=== proxy ===` after `=== patched ===`, restating `proxy_reason`, `why_not_full_repro`, and `expected_limitations` as plain text so they survive in a non-Nix-eval context (Reviewer reads the log; Steward parses the log).
+
+**Steward gate.**
+
+- Bundles with `meta.proxy = true` are NOT eligible for `bundle.kind=auto-merge`. They downgrade to `human-review-required` with `kind_reason: reproducer-is-proxy`.
+- The Steward enforces this downgrade by reading `meta.proxy` from `reproducer.nix` (or from the proxy section of `reproducer-log.txt` as a fallback). The Reproducer's claim alone does not gate the bundle; Steward's mechanical check does.
+- A proxy reproducer that fails to populate any of the four required `meta` fields is treated as a §5 failure (malformed proxy claim), not a valid proxy.
+
+**Reviewer expectation.** The Reviewer is required to read the proxy section, weigh `expected_limitations` against the CVE description, and either accept (the proxy is a meaningful constrained test for this CVE class) or reject (the proxy is too narrow to support the patch's claim). Proxy bundles have a heightened Reviewer-engagement burden documented here so it surfaces in reviewer.v1's next additive update.
+
+**Refusal preferred over weak proxy.**
+
+- Generic build-passes-as-proxy is NOT acceptable; it is a §5 failure case.
+- A proxy whose `expected_limitations` reads "this test is essentially equivalent to a build-pass check" is NOT acceptable; refuse under §6.5 instead.
+- A proxy whose `proxy_reason` does not match any of the locked enum values is NOT acceptable; refuse under §6.5 instead.
+- The model SHOULD prefer refusal when the only available proxy would carry an `expected_limitations` paragraph that subsumes the actual fix. The contract says: a refusal that names the gap is more useful than a proxy that does not honestly cover it.
+
+**Reporting.**
+
+- The cohort aggregator (forthcoming) tracks `proxy_rate` (fraction of reproducers labeled proxy) as a non-advisory metric. Trend over time is the signal: a rising proxy_rate without a corresponding rise in CVE-class diversity is evidence of contract drift. The acceptable proxy_rate floor is not locked here; it will be revisited once a baseline run produces a proxy_rate number across the corpus.
+- Per-bundle `proxy_reason` distribution is recorded in the aggregator's provenance list so future analysis can see which sandbox-limitation classes drive proxies.
 
 ---
 
@@ -264,22 +321,27 @@ The v0 Reproducer scorer set, locked alongside this contract:
 
 | scorer | applies | advisory | what it measures |
 |---|---|---|---|
-| `repro-schema-valid` | parsed | no | reproducer.nix parses as Nix; reproducer-log.txt has the two required sections (or three if proxy); passthru-tests.json is a JSON array of well-shaped entries. Pre-Builder. |
-| `repro-unpatched-fails` | parsed AND build.json present | no | Builder ran the test against the unpatched path; the named SIGNAL substring appeared in the output; exit code is non-zero or signal is on stderr (per the test's own contract). |
-| `repro-patched-passes` | parsed AND build.json present | no | Builder ran the test against the patched path; the named SIGNAL_ABSENT substring did NOT appear; exit is whatever the test claims. |
+| `repro-schema-valid` | parsed | no | reproducer.nix parses as Nix; reproducer-log.txt has the two required sections (or three if proxy); SIGNAL_UNPATCHED + SIGNAL_PATCHED satisfy length bounds, generic-token floor, and distinct-signals rule; passthru-tests.json is a JSON array of well-shaped entries; if proxy, all four `meta.proxy*` fields present and `proxy_reason` matches the locked enum. Pre-Builder. |
+| `repro-unpatched-fails` | parsed AND build.json present AND not proxy | no | Builder ran the test against the unpatched path; the SIGNAL_UNPATCHED substring appeared in stdout/stderr. |
+| `repro-patched-passes` | parsed AND build.json present | no | Builder ran the test against the patched path; the SIGNAL_PATCHED substring appeared in stdout/stderr. Applies even for proxy reproducers (the proxy still has to demonstrate its constrained patched-state evidence). |
 | `repro-passthru-recorded` | parsed | no | passthru-tests.json contains every passthru.tests / nixosTests attr defined for the affected attr at nixpkgs_rev. Builder enumerates ground truth; scorer compares. Empty-array is valid only if the package truly has no such tests. |
-| `repro-signal-specificity` | parsed AND build.json present | yes (advisory) | The named SIGNAL substring is sufficiently CVE-specific. Heuristic: substring length ≥ 16 chars AND substring includes a word from the CVE description AND substring is not a generic build-system token (`error:`, `failed`, `assertion`). Advisory because heuristic, not gating. |
+| `repro-signal-specificity` | parsed AND build.json present | yes (advisory) | Both signals are sufficiently CVE-specific. Heuristic stack: length ≥ 24 (already a §3.2 floor — scorer raises the floor to ≥ 32 for advisory), at least one signal includes a word from `finding.json.summary` of length ≥ 5 chars OR a function/symbol name from any `upstream_fix_commits[].message`, neither signal matches an extended generic-token pattern. Advisory because heuristic, not gating. |
 
-`repro-unpatched-fails` and `repro-patched-passes` are the load-bearing pair. Both must score 1.0 for the bundle to be auto-merge-eligible. Steward consumes these directly; Reviewer is expected to read them as evidence in its accept/reject.
+`repro-unpatched-fails` and `repro-patched-passes` are the load-bearing pair. For non-proxy bundles, both must score 1.0 for the bundle to be auto-merge-eligible. Steward consumes these directly; Reviewer is expected to read them as evidence in its accept/reject.
 
-A proxy reproducer (§7) automatically scores `repro-unpatched-fails: applies=false, advisory note: proxy test, see meta.proxy`. Proxy bundles are gated downstream regardless of scorer outcome.
+For proxy reproducers (§7):
+- `repro-unpatched-fails` records `applies=false` with a notes string `"proxy test (proxy_reason=<enum>); unpatched-path evidence is by design out of scope"`.
+- `repro-patched-passes` still applies and is non-advisory: a proxy that cannot demonstrate even its constrained patched-state evidence is a §5 failure.
+- `repro-schema-valid` enforces the four required `meta.proxy*` fields. A proxy that omits any of them scores 0.0 here.
 
 The aggregator (forthcoming, mirroring `agents/scorers/aggregator.py` and `agents/scorers/reviewer_aggregator.py`) will surface:
 
 - `reproducer_well_formed_rate` (repro-schema-valid mean)
-- `vuln_signal_recovered_rate` (repro-unpatched-fails AND repro-patched-passes both 1.0, per bundle)
+- `vuln_signal_recovered_rate` (repro-unpatched-fails AND repro-patched-passes both 1.0, per non-proxy bundle)
+- `proxy_patched_passes_rate` (repro-patched-passes 1.0 across proxy bundles only — measures whether proxies, when used, at least carry their narrower claim)
 - `passthru_coverage_mean` (repro-passthru-recorded mean)
-- `proxy_rate` (fraction of reproducers labeled proxy)
+- `proxy_rate` (fraction of reproducers labeled proxy; non-advisory; trend over time is the contract-drift signal)
+- `proxy_reason_distribution` (per-`proxy_reason` counts; informational)
 - `refusal_rate` (fraction of reproducer-refusals)
 - `signal_specificity_mean` (advisory)
 
