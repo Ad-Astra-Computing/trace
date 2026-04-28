@@ -1,0 +1,14 @@
+{
+  "patcher": {
+    "model_id": "claude-opus-4-7",
+    "family": "anthropic-opus"
+  },
+  "reviewer": {
+    "model_id": "claude-sonnet-4-6",
+    "family": "anthropic-sonnet"
+  },
+  "reproducer": {
+    "model_id": "claude-sonnet-4-6",
+    "family": "anthropic-sonnet"
+  }
+}
