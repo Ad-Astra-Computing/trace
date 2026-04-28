@@ -352,21 +352,41 @@ jobs:
           bundle["signed_manifest"]["signer"] = identity_subject or "unknown"
 
           # Rekor coordinates from the cosign --bundle output. cosign's
-          # bundle is a JSON file when --bundle is used; extract the
-          # logIndex + UUID from it.
+          # bundle is a JSON file when --bundle is used; the rekorBundle
+          # carries logIndex + logID. logID is the Rekor public-instance
+          # shard identifier (constant across every entry on that shard),
+          # NOT a per-entry UUID. The per-entry UUID is exposed by the
+          # Rekor public API at /api/v1/log/entries?logIndex=<N> as the
+          # single map key in the returned object. We query it here so
+          # downstream auditors can dereference the entry directly.
+          import urllib.request
+          import urllib.parse
           sig_bundle = json.loads((out / "bundle.sig").read_text())
           rekor_log = sig_bundle.get("rekorBundle", {}).get("Payload", {})
           if "logIndex" in rekor_log:
-              bundle["signed_manifest"]["rekor_log_index"] = int(rekor_log["logIndex"])
-          # The UUID may live under different keys depending on cosign
-          # version; check a few common locations.
-          rekor_uuid = (
-              rekor_log.get("logID")
-              or sig_bundle.get("rekorBundle", {}).get("UUID")
-              or sig_bundle.get("uuid")
-          )
-          if isinstance(rekor_uuid, str) and re.fullmatch(r"[0-9a-f]+", rekor_uuid):
-              bundle["signed_manifest"]["rekor_uuid"] = rekor_uuid
+              log_index = int(rekor_log["logIndex"])
+              bundle["signed_manifest"]["rekor_log_index"] = log_index
+              # Lookup the per-entry UUID via Rekor public API.
+              api = "https://rekor.sigstore.dev/api/v1/log/entries"
+              url = api + "?" + urllib.parse.urlencode({"logIndex": log_index})
+              try:
+                  with urllib.request.urlopen(url, timeout=15) as r:
+                      payload = json.loads(r.read().decode("utf-8"))
+                  uuids = list(payload.keys())
+                  if len(uuids) == 1 and re.fullmatch(r"[0-9a-f]{64,}", uuids[0]):
+                      bundle["signed_manifest"]["rekor_uuid"] = uuids[0]
+                  else:
+                      print(
+                          f"::warning::Rekor lookup for logIndex={log_index} "
+                          f"returned unexpected shape (keys={uuids!r}); leaving "
+                          f"rekor_uuid unset"
+                      )
+              except Exception as exc:  # noqa: BLE001
+                  print(
+                      f"::warning::Rekor UUID lookup failed for logIndex="
+                      f"{log_index}: {exc!r}. Entry remains uniquely "
+                      f"identifiable by log_index."
+                  )
 
           (out / "bundle.json").write_text(json.dumps(bundle, indent=2) + "\n")
           print(f"signed_manifest populated:")
