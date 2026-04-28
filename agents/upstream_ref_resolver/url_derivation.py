@@ -159,21 +159,59 @@ _HASH_ATTR_PRESENCE_RE = re.compile(
     re.MULTILINE,
 )
 
-# Closure-captured-version detector. Fires when package.nix defines a
-# helper function with `version` as one of its arguments, called later
-# with concrete values. Canonical case: openssl/default.nix uses
-#   common = { version, hash, ... }: stdenv.mkDerivation { src = fetchurl
-#       { url = "...${version}/..."; inherit hash; }; ... };
-#   openssl_3 = common { version = "3.0.17"; ... };
-# `overrideAttrs` on the outer derivation does NOT re-trigger evaluation
-# of the closure, so the fetchzip module's `version` override is a
-# no-op. The detector is conservative (fires on `<name> = { version,
-# … }:` followed somewhere by `src = ` or `fetchurl`); false positives
-# just route to manual-pinning, which is the safer fallback anyway.
-_CLOSURE_CAPTURED_VERSION_RE = re.compile(
+# Closure-captured-version detectors. Both fire on shapes where the
+# package source closes over `version` at definition time, so an
+# `overrideAttrs (old: { version = "..."; })` on the outer derivation
+# does NOT re-trigger evaluation of the captured `version` and the
+# fetchzip-prefetch returns the existing src.hash instead of the target
+# version's hash. False positives just route to manual-pinning, which
+# is the safer fallback anyway.
+#
+# Two shapes covered:
+#
+#   (i) function-parameter capture — `name = { version, ... }: ...`.
+#   Canonical case: openssl/default.nix
+#       common = { version, hash, ... }: stdenv.mkDerivation { src =
+#         fetchurl { url = "...${version}/..."; inherit hash; }; ... };
+#       openssl_3 = common { version = "3.0.17"; ... };
+#
+#   (ii) top-level let-binding capture — `let version = "..."; in
+#   stdenv.mkDerivation { src = fetchFromGitHub { rev = "v${version}"; ... }; }`.
+#   Canonical case: systemd/default.nix
+#       let version = "257.5"; in
+#       stdenv.mkDerivation (finalAttrs: { ...
+#         src = fetchFromGitHub { rev = "v${version}"; ... }; });
+#   `version` is captured by the let-binding, not by `finalAttrs`, so
+#   `overrideAttrs (old: { version = "..."; })` is inert against the
+#   `rev = "v${version}"` template. Surfaced by the 2026-04-27 systemd
+#   prefetch run (returned v257.5's hash with `version = "257.6"`
+#   override applied).
+_CLOSURE_CAPTURED_VERSION_FN_PARAM_RE = re.compile(
     r"\b\w+\s*=\s*\{\s*[^}]*\bversion\b[^}]*\}\s*:",
     re.DOTALL,
 )
+# Find every `let ... in` block (the body may contain its own `;`s
+# from sibling bindings).
+_LET_IN_BLOCK_RE = re.compile(r"\blet\b(.+?)\bin\b", re.DOTALL)
+# A `version = "literal";` binding inside a let-block. The negative
+# lookbehind keeps `someAttr.version = …` and `myversion = …` out.
+_LET_VERSION_BINDING_RE = re.compile(
+    r"(?<![.\w])version\s*=\s*\"[^\"]+\"\s*;"
+)
+
+
+def _has_closure_captured_version(package_source: str) -> bool:
+    """True if package.nix captures `version` in a way that defeats
+    overrideAttrs-based version overrides on the prefetch path.
+
+    See the regex docstrings above for the two shapes covered.
+    """
+    if _CLOSURE_CAPTURED_VERSION_FN_PARAM_RE.search(package_source):
+        return True
+    for m in _LET_IN_BLOCK_RE.finditer(package_source):
+        if _LET_VERSION_BINDING_RE.search(m.group(1)):
+            return True
+    return False
 
 # Nix interpolation tokens we know how to substitute. `${version}` is
 # the canonical form; nixpkgs idiom also uses `${finalAttrs.version}`,
@@ -293,13 +331,16 @@ def derive_prefetch_targets(
                     detail="no fetchFromGitHub / fetchurl / fetchzip / gitlab-host / upstream-ref rule matched",
                 ))
 
-        # Closure-captured-version override. When the package defines a
-        # `helper = { version, ... }:` style function, fetchzip's
-        # overrideAttrs approach is a no-op (surfaced by openssl_3 on
-        # 2026-04-27). Replace any src.hash target with a structured
-        # skip so auto_prefetch_high_confidence can't run fetchzip
-        # against it; the operator falls back to manual-pinning.
-        if _CLOSURE_CAPTURED_VERSION_RE.search(package_source):
+        # Closure-captured-version override. When the package closes
+        # over `version` at definition time — either via a function
+        # parameter (`helper = { version, ... }:`, openssl_3 on
+        # 2026-04-27) or via a top-level `let version = "...";` binding
+        # (systemd on 2026-04-27) — fetchzip's overrideAttrs approach
+        # is a no-op against the captured value. Replace any src.hash
+        # target with a structured skip so auto_prefetch_high_confidence
+        # can't run fetchzip against it; the operator falls back to
+        # manual-pinning.
+        if _has_closure_captured_version(package_source):
             new_targets: list[DerivedTarget] = []
             displaced = False
             for t in targets:
@@ -315,12 +356,16 @@ def derive_prefetch_targets(
                 reason="closure-captured-version",
                 required_for_patch=True,
                 detail=(
-                    "package.nix defines a `helper = { version, ... }:` "
-                    "style closure that captures `version` at definition "
-                    "time; overrideAttrs on the outer derivation does NOT "
-                    "re-trigger evaluation of the closure, so fetchzip "
-                    "extraction is a no-op. Operator must supply src.hash "
-                    "via manual-pinned source until a closure-aware "
+                    "package.nix captures `version` at definition time "
+                    "— either via a `helper = { version, ... }:` "
+                    "function parameter (openssl-style) or via a "
+                    "top-level `let version = \"...\"; in ...` binding "
+                    "(systemd-style). overrideAttrs on the outer "
+                    "derivation does NOT re-trigger evaluation of the "
+                    "captured value, so fetchzip extraction returns the "
+                    "package's existing src.hash regardless of the "
+                    "target version. Operator must supply src.hash via "
+                    "manual-pinned source until a closure-aware "
                     "extraction module lands."
                 ),
             ))
