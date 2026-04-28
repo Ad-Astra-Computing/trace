@@ -17,9 +17,9 @@ implementation depends on the host environment:
     `nix-build` on `$PATH`. Captures stdout+stderr, truncates per
     the `docs/BUILDER_V1.md` §3 64 KiB rule, returns a `BuildOutcome`.
 
-Future implementations: `RemoteSSHBuildRunner` (perdurabo-shaped),
-`GitHubActionsBuildRunner` (CI-shaped). All conform to the same
-Protocol surface.
+Future implementations: `RemoteSSHBuildRunner` (delegates to a remote
+Linux host over SSH), `GitHubActionsBuildRunner` (CI-shaped). All
+conform to the same Protocol surface.
 
 The Protocol shape is deliberately minimal. The runner orchestrates;
 the BuildRunner just executes one nix-build invocation at a time and
