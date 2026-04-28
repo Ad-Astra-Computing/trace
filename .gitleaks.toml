@@ -1,0 +1,25 @@
+# Gitleaks configuration for trace.
+#
+# Extends the upstream default ruleset, then adds path allow-lists for
+# directories that contain public CVE/GHSA data. Those files are
+# checksums, commit SHAs, and advisory IDs — high-entropy strings that
+# look like secrets but are not. We allow-list paths rather than ruleids
+# so a real secret pasted into one of these files would still fire on
+# any non-path-derived rule we add later.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public CVE/GHSA fixtures and harvest corpora"
+paths = [
+  # Curated CVE harvest. Contains nixpkgs commit SHAs, upstream commit
+  # SHAs, and CVE/GHSA identifiers — nothing secret.
+  '''eval/candidates\.jsonl''',
+  '''eval/corpus\.json''',
+  '''eval/rejection-log\.jsonl''',
+
+  # Feed-normalizer test fixtures: GHSA + vulnpatch JSON pulled from
+  # public advisories. High-entropy IDs and SHAs, no secrets.
+  '''tests/feed_normalizers/fixtures/.*''',
+]

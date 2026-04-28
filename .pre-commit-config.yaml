@@ -1,0 +1,40 @@
+# Pre-commit hook configuration for trace.
+#
+# Local-only secret scanning while the repo is private. GitHub's free
+# secret scanning only runs on public repos, so we want the safety net
+# at commit time before any accidental key paste reaches origin.
+#
+# Install: `pre-commit install` (writes .git/hooks/pre-commit).
+# All-files run: `pre-commit run --all-files`.
+#
+# Every hook is pinned to a release tag whose SHA has been verified
+# against the upstream API. Never use @main / @master / @latest.
+
+repos:
+  # Secret scanning. gitleaks is the de-facto standard; .gitleaks.toml
+  # in the repo root configures path allow-lists for known-safe public
+  # CVE/GHSA fixtures.
+  - repo: https://github.com/gitleaks/gitleaks
+    # v8.30.1 — commit 83d9cd684c87d95d656c1458ef04895a7f1cbd8e
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # Hygiene + accident catchers from the canonical pre-commit-hooks
+  # repo. v6.0.0 — commit 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        # Exclude byte-faithful captures: feed-normalizer fixtures are
+        # verbatim upstream API JSON, and traces/example/* are example
+        # bundle outputs that reproducers consume as-is. Both are
+        # data, not source, and must not be silently rewritten.
+        exclude: |
+          (?x)^(
+            tests/feed_normalizers/fixtures/.*|
+            traces/example/.*
+          )$

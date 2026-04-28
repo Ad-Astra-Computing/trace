@@ -386,4 +386,3 @@ Stop if:
 - Fine-tuning is most likely to help on style, discipline, and contract adherence.
 - Fine-tuning is less likely to close gaps in deep exploit reasoning or difficult reproducer synthesis.
 - Success on one role is enough to justify the work; parity across all roles is not required.
-
