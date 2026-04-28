@@ -93,8 +93,13 @@ jobs:
           command -v nix-build
           command -v opa
           command -v cosign
-          opa version | head -1
-          cosign version | head -3
+          # Capture-then-head: avoids SIGPIPE 141 under pipefail when
+          # `head` closes its stdin before the producer finishes writing.
+          # Hit this on run 25075360259 — bind got lucky on 25074542863.
+          OPA_VERSION_OUT="$(opa version)"
+          printf '%s\n' "$OPA_VERSION_OUT" | head -1
+          COSIGN_VERSION_OUT="$(cosign version 2>&1)"
+          printf '%s\n' "$COSIGN_VERSION_OUT" | head -3
 
       - name: Stage bundle
         id: paths
