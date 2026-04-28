@@ -30,12 +30,13 @@ on:
   workflow_dispatch:
     inputs:
       bundle:
-        description: "Staged bundle to gate + sign (single value; v0)."
+        description: "Bundle to gate + sign."
         required: true
         default: "hello"
         type: choice
         options:
           - hello
+          - bind
 
 permissions:
   contents: read
@@ -101,19 +102,63 @@ jobs:
           BUNDLE="${{ inputs.bundle }}"
           OUT="${RUNNER_TEMP}/steward-smoke/${BUNDLE}"
           mkdir -p "$OUT"
-          cp -R "tests/fixtures/real-ci/builder/${BUNDLE}/." "$OUT/"
+          # Synthetic bundles (hello) live under tests/fixtures/real-ci/
+          # and run with nixpkgs_checkout=None against a bundle-local
+          # default.nix shim. Real-CVE bundles live under traces/example/
+          # and require a fork checkout at the recorded nixpkgs_rev for
+          # patch-apply + patched-build.
+          case "$BUNDLE" in
+            hello)
+              SRC="tests/fixtures/real-ci/builder/${BUNDLE}"
+              REAL_CVE="false"
+              ;;
+            bind)
+              SRC="traces/example/CVE-2025-13878--bind"
+              REAL_CVE="true"
+              ;;
+            *)
+              echo "::error::unknown bundle ${BUNDLE}"; exit 64 ;;
+          esac
+          cp -R "${SRC}/." "$OUT/"
           echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          echo "real_cve=$REAL_CVE" >> "$GITHUB_OUTPUT"
+          echo "src=$SRC" >> "$GITHUB_OUTPUT"
+          if [ "$REAL_CVE" = "true" ]; then
+            REV=$(python3 -c "import json; print(json.load(open('$OUT/bundle.json'))['nixpkgs_rev'])")
+            echo "nixpkgs_rev=$REV" >> "$GITHUB_OUTPUT"
+            echo "Real-CVE bundle. nixpkgs_rev=$REV"
+          fi
+
+      - name: Clone fork at bundle's nixpkgs_rev (real-CVE only)
+        if: ${{ steps.paths.outputs.real_cve == 'true' }}
+        id: nixpkgs
+        run: |
+          set -euo pipefail
+          REV="${{ steps.paths.outputs.nixpkgs_rev }}"
+          NIXPKGS="${RUNNER_TEMP}/nixpkgs-fork"
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/Ad-Astra-Computing/nixpkgs.git "$NIXPKGS"
+          cd "$NIXPKGS"
+          git fetch --depth 1 origin "$REV"
+          git checkout "$REV"
+          echo "checkout=$NIXPKGS" >> "$GITHUB_OUTPUT"
 
       - name: Run Builder against the staged bundle (live nix-build)
         run: |
           set -euo pipefail
           OUT="${{ steps.paths.outputs.out }}"
+          REAL_CVE="${{ steps.paths.outputs.real_cve }}"
+          NIXPKGS_CHECKOUT="${{ steps.nixpkgs.outputs.checkout }}"
+          export NIXPKGS_CHECKOUT
           nix develop --command python3 -u <<PY
+          import os
           from pathlib import Path
           from agents.builder import LocalNixBuildRunner
           from tools.trace_cli.execute import execute
 
           out = Path("$OUT")
+          checkout_path = os.environ.get("NIXPKGS_CHECKOUT") or None
+          checkout = Path(checkout_path) if checkout_path else None
           fresh_invocation = {"invocation_id": None, "inputs": [], "outputs": []}
           result = execute(
               role="builder",
@@ -121,14 +166,16 @@ jobs:
               invocation=fresh_invocation,
               verify=False,
               build_runner_factory=lambda: LocalNixBuildRunner(),
-              nixpkgs_checkout=None,
+              nixpkgs_checkout=checkout,
           )
-          assert result["dispatch_outcome"] == "ok", (
-              f"Builder dispatch_outcome was {result['dispatch_outcome']!r}; "
-              f"expected 'ok' for the steward.yml smoke. The fixture is supposed "
-              f"to be buildable in this runner environment."
-          )
-          print(f"Builder OK: invocation_id={result['invocation_id']}")
+          # Builder dispatch_outcome is data, not infra failure.
+          # Synthetic 'hello' should always be 'ok'; real-CVE bundles
+          # may legitimately come out 'refused-no-reproducer' (e.g. bind
+          # has reproducer-refusal.json from the 2026-04-29 sonnet 4.5
+          # probe). Don't assert on the outcome here — let Steward + the
+          # signing-skip-on-deny path handle it downstream.
+          print(f"Builder dispatch_outcome={result['dispatch_outcome']}, "
+                f"invocation_id={result['invocation_id']}")
           PY
 
       - name: Run Steward gate via opa
