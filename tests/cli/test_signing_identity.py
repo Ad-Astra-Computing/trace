@@ -55,6 +55,36 @@ def test_signing_identity_locks_v0_choice() -> None:
     assert "steward\\.yml" in sigstore["subject_regex"]
 
 
+def test_subject_regex_resolves_to_an_actual_workflow_on_disk() -> None:
+    """If the Steward workflow is renamed or moved, `subject_regex` must
+    be updated in lockstep. Otherwise verifiers reject every signature
+    against the new path even though the policy file says they shouldn't.
+
+    This test extracts the workflow path implied by the regex and asserts
+    a file exists at that path. Regex changes that don't correspond to a
+    real workflow file fail loudly here.
+    """
+    raw = json.loads(SIGNING_IDENTITY_PATH.read_text())
+    pattern = raw["paths"]["sigstore-keyless-oidc-github-actions"]["subject_regex"]
+    # Pull `<workflow-path>` out of `^https://github.com/<owner>/<repo>/<workflow-path>@refs/...$`
+    m = re.search(
+        r"trace/(\\\.github/workflows/[^@]+\\\.yml)@refs",
+        pattern,
+    )
+    assert m, (
+        "subject_regex shape changed; expected '...trace/<workflow-path>@refs/...' "
+        f"got: {pattern!r}"
+    )
+    # Unescape the regex segment back to a literal filesystem path
+    workflow_path = m.group(1).replace(r"\.", ".").replace(r"\/", "/")
+    abs_path = REPO_ROOT / workflow_path
+    assert abs_path.is_file(), (
+        f"signing-identity subject_regex points at {workflow_path!r} but "
+        f"no file exists at {abs_path}. Either restore the workflow or "
+        f"update subject_regex in policy/signing-identity.json."
+    )
+
+
 def test_subject_regex_matches_expected_paths() -> None:
     """The locked subject_regex MUST accept main-branch and release-tag
     runs of the Steward workflow, and MUST reject everything else."""
