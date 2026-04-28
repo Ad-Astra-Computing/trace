@@ -247,13 +247,19 @@ jobs:
           import subprocess
           from pathlib import Path
 
+          import base64
           out = Path("$OUT")
           bundle = json.loads((out / "bundle.json").read_text())
 
           # Extract the OIDC subject + issuer from the signing certificate.
-          cert_pem = (out / "cosign-cert.pem").read_text()
-          # cosign --output-certificate emits a PEM-encoded x509. Parse the
-          # SAN extension via openssl x509 -text.
+          # cosign 2.4.x's --output-certificate writes a base64-encoded PEM.
+          # Earlier cosign versions wrote raw PEM. Detect which form we got
+          # and decode if needed.
+          cert_raw = (out / "cosign-cert.pem").read_text().strip()
+          if cert_raw.startswith("-----BEGIN"):
+              cert_pem = cert_raw
+          else:
+              cert_pem = base64.b64decode(cert_raw).decode("ascii")
           proc = subprocess.run(
               ["openssl", "x509", "-noout", "-text"],
               input=cert_pem, capture_output=True, text=True, check=True,
