@@ -166,5 +166,20 @@ jobs:
       - name: Cache Nix store
         uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
 
+      # The graph job inherits TRACE_REQUIRE_OPA=1 from the workflow-level
+      # env (set so the schema+steward job's Steward tests fail loudly on
+      # missing opa rather than silently skipping). Two tests under
+      # tests/graph/test_enrichment_replay.py also require opa for the
+      # steward replay path; install it here as well.
+      - name: Install OPA (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          url="https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
+          curl -fsSL -o "$HOME/.local/bin/opa" "$url"
+          echo "${OPA_LINUX_AMD64_SHA256}  $HOME/.local/bin/opa" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/opa"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Python schema validation of the emitted snapshot + cargo smoke tests
         run: nix develop --command pytest -v tests/graph
