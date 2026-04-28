@@ -172,7 +172,20 @@ def test_known_cohort_labels_are_locked() -> None:
 # ─── CLI dispatch ──────────────────────────────────────────────────────────
 
 
-def test_cli_review_rate_runs_against_two_live_reports(capsys) -> None:
+def test_cli_review_rate_runs_against_live_reports(capsys) -> None:
+    """Aggregates over every committed live `review-scoring-report.json`
+    under `traces/example/**`. As the live-run set grows, the assertions
+    track the global state rather than pinning a fixed report count.
+    Invariants that should hold for the lifetime of the trace project:
+      * `attestation_correct_rate == 0.0` — every committed review under
+        claude-sonnet-4-6 fabricates `patcher_family_observed` (third
+        observation locked in 2026-04-28; treat any future change as a
+        finding worth investigating, not a test failure).
+      * `accept_rate + reject_rate + escalate_rate == 1.0` — totals
+        consistency.
+      * `evidence_cited_mean == 1.0` — every committed live review
+        cited only canonical bundle artifacts.
+    """
     from tools.trace_cli.cli import main as cli_main
     rc = cli_main([
         "eval", "review-rate",
@@ -183,10 +196,15 @@ def test_cli_review_rate_runs_against_two_live_reports(capsys) -> None:
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["cohort"] == "real-single"
-    assert payload["totals"]["verdicts"] == 2
-    assert payload["accept_rate"] == 0.5
-    assert payload["reject_rate"] == 0.5
+    assert payload["totals"]["verdicts"] >= 2
+    rates = (
+        payload["accept_rate"] or 0.0,
+        payload["reject_rate"] or 0.0,
+        payload["escalate_rate"] or 0.0,
+    )
+    assert abs(sum(rates) - 1.0) < 1e-9, rates
     assert payload["attestation_correct_rate"] == 0.0
+    assert payload["evidence_cited_mean"] == 1.0
 
 
 def test_cli_review_rate_empty_glob_returns_invalid(capsys) -> None:
