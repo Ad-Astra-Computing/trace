@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/nvd-source-schema.json",
+  "title": "trace nvd source",
+  "description": "Subset of NVD JSON 2.0 API response shape that trace's nvd→scout-input normalizer depends on. Validates a single CVE record (services.nvd.nist.gov/rest/json/cves/2.0?cveId=...) at the .vulnerabilities[0].cve level. The full NVD response is wider; we only validate fields trace consumes so changes to peripheral fields (e.g. cveTags, vulnStatus enum extensions) don't break ingestion.",
+  "type": "object",
+  "required": ["id", "published", "descriptions", "references"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^CVE-\\d{4}-\\d{4,19}$"
+    },
+    "published": { "type": "string", "format": "date-time" },
+    "lastModified": { "type": "string" },
+    "descriptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["lang", "value"],
+        "properties": {
+          "lang": { "type": "string" },
+          "value": { "type": "string" }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "cvssMetricV31": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "cvssData": {
+                "type": "object",
+                "properties": {
+                  "baseScore": { "type": "number", "minimum": 0, "maximum": 10 },
+                  "baseSeverity": { "type": "string" },
+                  "vectorString": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "cvssMetricV30": { "type": "array" },
+        "cvssMetricV2": { "type": "array" }
+      }
+    },
+    "configurations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cpeMatch": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "criteria": { "type": "string", "pattern": "^cpe:2\\.3:" },
+                      "vulnerable": { "type": "boolean" },
+                      "versionStartIncluding": { "type": "string" },
+                      "versionStartExcluding": { "type": "string" },
+                      "versionEndIncluding": { "type": "string" },
+                      "versionEndExcluding": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
