@@ -36,7 +36,7 @@ gh run download <run-id> --name steward-smoke-<bundle> --dir ./artifact
 trace bundle verify ./artifact
 ```
 
-cosign must be on PATH. The artifact dir must contain `bundle.canonical.json` (the frozen pre-sign snapshot — the actual signed bytes) and `bundle.sig`. Background and the full identity-pinning rationale: [docs/SIGNING_V1.md](docs/SIGNING_V1.md) §5.
+cosign must be on PATH. The artifact dir must contain `bundle.canonical.json` (the frozen pre-sign snapshot, the actual signed bytes) and `bundle.sig`. Background and the full identity-pinning rationale: [docs/SIGNING_V1.md](docs/SIGNING_V1.md) §5.
 
 ## Pre-commit hooks
 
