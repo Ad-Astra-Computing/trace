@@ -27,6 +27,17 @@ pytest
 
 The Rust graph crate has its own shell, opt-in via `nix develop .#graph`.
 
+## Verifying a signed bundle
+
+Every bundle Steward signs anchors a Rekor transparency-log entry to a locked workflow identity (`policy/signing-identity.json`). Verify a downloaded artifact with:
+
+```sh
+gh run download <run-id> --name steward-smoke-<bundle> --dir ./artifact
+trace bundle verify ./artifact
+```
+
+cosign must be on PATH. The artifact dir must contain `bundle.canonical.json` (the frozen pre-sign snapshot — the actual signed bytes) and `bundle.sig`. Background and the full identity-pinning rationale: [docs/SIGNING_V1.md](docs/SIGNING_V1.md) §5.
+
 ## Pre-commit hooks
 
 Local hooks run a secret scanner (gitleaks) plus light hygiene checks.
