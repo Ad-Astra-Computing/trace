@@ -1,2 +1,3 @@
 {"schema_version":"1.0.0","run_at":"2026-04-29T16:53:48Z","window_since":"2026-04-29T15:53:48Z","window_source":"no-cursor:default-1h","run_id":"25122194870","discovered":19,"processed":19,"actions":{"skipped-irrelevant":19},"resolver_verdicts":{}}
 {"schema_version":"1.0.0","run_at":"2026-04-29T18:47:29Z","window_since":"2026-04-29T17:47:29Z","window_source":"no-cursor:default-1h","run_id":"25127497760","discovered":5,"processed":5,"actions":{"skipped-irrelevant":5},"resolver_verdicts":{}}
+{"schema_version":"1.0.0","run_at":"2026-04-29T20:20:50Z","window_since":"2026-04-29T18:47:29Z","window_source":"cursor:2026-04-29T18:47:29Z","run_id":"25131758099","discovered":38,"processed":38,"actions":{"skipped-irrelevant":38},"resolver_verdicts":{}}
