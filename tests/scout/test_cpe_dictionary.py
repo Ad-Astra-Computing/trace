@@ -98,22 +98,66 @@ def test_fetch_includes_api_key_when_provided() -> None:
     assert headers.get("apiKey") == "abc-123"
 
 
-def test_fetch_rate_limit_propagates() -> None:
+def test_fetch_rate_limit_propagates_after_retries_exhausted() -> None:
     fn = MagicMock(return_value=(429, b"", {"Retry-After": "60"}))
     with pytest.raises(FeedRateLimit):
-        list(fetch_all_cpe_pages(http=fn))
+        list(fetch_all_cpe_pages(http=fn, max_retries_per_page=0, sleep=lambda _: None))
 
 
-def test_fetch_5xx_propagates_as_transient() -> None:
+def test_fetch_5xx_propagates_after_retries_exhausted() -> None:
     fn = MagicMock(return_value=(503, b"", {}))
     with pytest.raises(FeedTransientError):
-        list(fetch_all_cpe_pages(http=fn))
+        list(fetch_all_cpe_pages(http=fn, max_retries_per_page=0, sleep=lambda _: None))
 
 
-def test_fetch_url_error_maps_to_transient() -> None:
+def test_fetch_url_error_propagates_after_retries_exhausted() -> None:
     fn = MagicMock(side_effect=urllib.error.URLError("connection reset"))
     with pytest.raises(FeedTransientError):
-        list(fetch_all_cpe_pages(http=fn))
+        list(fetch_all_cpe_pages(http=fn, max_retries_per_page=0, sleep=lambda _: None))
+
+
+def test_fetch_retries_transient_then_succeeds() -> None:
+    """A read timeout on one page should retry, not kill the whole walk."""
+    page = _build_page([], total=0, start=0, per_page=10000)
+    fn = MagicMock(side_effect=[
+        (503, b"", {}),
+        TimeoutError("read timed out"),
+        (200, page, {}),
+    ])
+    sleeps: list[float] = []
+    pages = list(fetch_all_cpe_pages(
+        http=fn, max_retries_per_page=3, backoff_schedule=(1, 2, 4),
+        sleep=sleeps.append,
+    ))
+    assert len(pages) == 1
+    assert fn.call_count == 3
+    assert sleeps == [1.0, 2.0]
+
+
+def test_fetch_retries_rate_limit_with_retry_after() -> None:
+    page = _build_page([], total=0, start=0, per_page=10000)
+    fn = MagicMock(side_effect=[
+        (429, b"", {"Retry-After": "7"}),
+        (200, page, {}),
+    ])
+    sleeps: list[float] = []
+    list(fetch_all_cpe_pages(
+        http=fn, max_retries_per_page=3, sleep=sleeps.append,
+    ))
+    assert sleeps == [7.0]
+
+
+def test_fetch_retries_capped_at_max_retries() -> None:
+    """After max_retries+1 failures on the same page, the error surfaces."""
+    fn = MagicMock(return_value=(503, b"", {}))
+    sleeps: list[float] = []
+    with pytest.raises(FeedTransientError):
+        list(fetch_all_cpe_pages(
+            http=fn, max_retries_per_page=2, backoff_schedule=(1, 2, 4),
+            sleep=sleeps.append,
+        ))
+    assert fn.call_count == 3  # initial + 2 retries
+    assert sleeps == [1.0, 2.0]
 
 
 # ─── build_product_index ────────────────────────────────────────────────────
