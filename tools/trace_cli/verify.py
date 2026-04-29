@@ -1,4 +1,4 @@
-"""`trace bundle verify` — local verification of a signed CI artifact.
+"""`trace bundle verify`: local verification of a signed CI artifact.
 
 Verifies that a downloaded artifact bundle from a Steward workflow run
 carries a valid sigstore-keyless-OIDC signature anchored to the workflow
@@ -7,8 +7,8 @@ identity locked in `policy/signing-identity.json`.
 # Inputs
 
 The artifact directory MUST contain:
-  * `bundle.canonical.json`  — the frozen pre-sign snapshot. The signed bytes.
-  * `bundle.sig`             — cosign sign-blob output (DSSE envelope + Rekor proof).
+  * `bundle.canonical.json`: the frozen pre-sign snapshot. The signed bytes.
+  * `bundle.sig`: cosign sign-blob output (DSSE envelope + Rekor proof).
 
 `bundle.json` (post-sign mutation) is NOT what got signed; verifying against
 it fails because Steward populates identity_subject + rekor coordinates
@@ -100,7 +100,7 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
     if not canonical.is_file():
         return _emit_error(args.format, EXIT_NOT_FOUND,
                            f"bundle.canonical.json missing under {artifact_dir}. "
-                           f"This is the frozen pre-sign snapshot — without it "
+                           f"This is the frozen pre-sign snapshot; without it "
                            f"the signature cannot be verified. Did the artifact "
                            f"come from a Steward run that allowed (signed) the "
                            f"bundle? Denied runs do not produce a canonical.")

@@ -1,7 +1,7 @@
 """Tests for `trace bundle verify`.
 
 These tests exercise the verifier's input-validation paths and the policy
-read. They do NOT shell out to a real cosign — that would require fixture
+read. They do NOT shell out to a real cosign; that would require fixture
 artifacts with valid Sigstore signatures, which can only be produced by an
 end-to-end CI run. Instead, we mock subprocess.run to assert the verifier
 constructs the expected cosign invocation given the locked identity policy.

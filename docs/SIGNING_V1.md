@@ -115,7 +115,7 @@ gh run download <run-id> --name steward-smoke-<bundle> --dir ./artifact
 trace bundle verify ./artifact
 ```
 
-The `<artifact-dir>` must contain `bundle.canonical.json` (the frozen pre-sign snapshot — the actual signed bytes) and `bundle.sig`. `bundle.json` itself is the post-sign-mutation copy carrying populated `signed_manifest.identity_subject` + Rekor coordinates, and is **not** what verification runs against; the canonical snapshot is. cosign must be on PATH; trace's dev shell does not bundle it because verifiers are typically external. Source code: `tools/trace_cli/verify.py`. Failure modes: `EXIT_NOT_FOUND` (artifact / canonical / sig / cosign / policy missing), `EXIT_VERIFY_FAILED` (cosign returned non-zero — identity mismatch, bad signature, Rekor inclusion-proof failure, etc.).
+The `<artifact-dir>` must contain `bundle.canonical.json` (the frozen pre-sign snapshot, the actual signed bytes) and `bundle.sig`. `bundle.json` itself is the post-sign-mutation copy carrying populated `signed_manifest.identity_subject` + Rekor coordinates, and is **not** what verification runs against; the canonical snapshot is. cosign must be on PATH; trace's dev shell does not bundle it because verifiers are typically external. Source code: `tools/trace_cli/verify.py`. Failure modes: `EXIT_NOT_FOUND` (artifact / canonical / sig / cosign / policy missing), `EXIT_VERIFY_FAILED` (cosign returned non-zero on identity mismatch, bad signature, Rekor inclusion-proof failure, etc.).
 
 ---
 
