@@ -193,6 +193,9 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import verify as _verify_module
     _verify_module.add_parser(b_subs)
 
+    from tools.trace_cli import pr_snippet as _pr_snippet_module
+    _pr_snippet_module.add_parser(b_subs)
+
     e = subs.add_parser("eval", help="cohort-level evaluation tooling")
     e_subs = e.add_subparsers(dest="eval_cmd", required=True)
     e_pr = e_subs.add_parser(
@@ -269,6 +272,9 @@ def main(argv: list[str]) -> int:
             from tools.trace_cli import verify as _verify_module
             from pathlib import Path as _Path
             return _verify_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+        if args.bundle_cmd == "pr-snippet":
+            from tools.trace_cli import pr_snippet as _pr_snippet_module
+            return _pr_snippet_module.run(args)
         return EXIT_USAGE
     if args.cmd == "eval":
         if args.eval_cmd == "patch-rate":
