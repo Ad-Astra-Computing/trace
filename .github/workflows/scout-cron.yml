@@ -197,29 +197,17 @@ jobs:
           GRAPH_SNAPSHOT: ${{ steps.snapshot.outputs.path }}
         run: |
           set -euo pipefail
-          : > out/run-summary.jsonl
-          while read -r cve_id; do
-            [[ -z "$cve_id" ]] && continue
-            echo "::group::$cve_id"
-            poll_rc=0
-            poll_out=$(nix develop --command python -m agents.scout.poll_cli \
-              "$cve_id" \
-              --graph-snapshot "$GRAPH_SNAPSHOT" \
-              --inbox inbox) || poll_rc=$?
-            echo "$poll_out"
-            action=$(echo "$poll_out" | jq -r '.action // "unknown"')
-            if [[ "$action" == "written" ]]; then
-              export PROCESS_CVE_ID="$cve_id"
-              process_out=$(nix develop --command python -m agents.scout.process_cli)
-              echo "$process_out"
-              echo "$process_out" >> out/run-summary.jsonl
-            else
-              echo "$poll_out" >> out/run-summary.jsonl
-            fi
-            echo "::endgroup::"
-          done < out/cve-ids.capped.txt
+          # batch_cli loops in-process so we pay the nix-shell + python
+          # interpreter boot cost once instead of once per CVE.
+          # Per-CVE exceptions are isolated: one bad fetch does not
+          # stop the batch (those land as action=error in the JSONL).
+          nix develop --command python -m agents.scout.batch_cli \
+            --cve-ids-file out/cve-ids.capped.txt \
+            --graph-snapshot "$GRAPH_SNAPSHOT" \
+            --inbox inbox \
+            --output-jsonl out/run-summary.jsonl
           echo "Run summary:"
-          cat out/run-summary.jsonl | jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})'
+          jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})' out/run-summary.jsonl
 
       - name: Advance discovery cursor
         # Only advance on the schedule path. workflow_dispatch with an
