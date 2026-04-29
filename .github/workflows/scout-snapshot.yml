@@ -26,12 +26,13 @@ on:
 
 permissions:
   contents: read
+  id-token: write  # FlakeHub OIDC for the Determinate Nix installer
 
 jobs:
   build:
     name: nixpkgs graph snapshot
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v6

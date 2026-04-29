@@ -47,7 +47,8 @@ on:
 
 permissions:
   contents: read
-  actions: read  # gh run download for the snapshot artifact
+  actions: read    # gh run download for the snapshot artifact
+  id-token: write  # FlakeHub OIDC for the Determinate Nix installer
 
 jobs:
   cron:
@@ -74,23 +75,38 @@ jobs:
           if [[ -n "$OVERRIDE" ]]; then
             if [[ ! -f "$OVERRIDE" ]]; then
               echo "::error::graph snapshot override not found at $OVERRIDE"
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "reason=override-missing:$OVERRIDE" >> "$GITHUB_OUTPUT"
               exit 64
             fi
             echo "Using committed snapshot at $OVERRIDE"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
             echo "path=$OVERRIDE" >> "$GITHUB_OUTPUT"
-          else
-            run_id=$(gh run list --workflow=scout-snapshot.yml --status=success --limit 1 --json databaseId --jq '.[0].databaseId')
-            if [[ -z "$run_id" || "$run_id" == "null" ]]; then
-              echo "::error::no successful scout-snapshot run found; trigger that workflow first"
-              exit 64
-            fi
-            echo "Downloading snapshot artifact from scout-snapshot run $run_id"
-            gh run download "$run_id" --name nixpkgs-snapshot --dir snapshot
-            echo "path=snapshot/nixpkgs-snapshot.json" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          run_id=$(gh run list --workflow=scout-snapshot.yml --status=success --limit 1 --json databaseId --jq '.[0].databaseId' || true)
+          if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+            # No successful snapshot yet (first deploy / snapshot down).
+            # Surface a clean skip in the step summary instead of
+            # failing the whole cron and burning a no-data alert.
+            echo "::warning::no successful scout-snapshot run found yet; skipping discover/poll/process"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no-snapshot-artifact" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Downloading snapshot artifact from scout-snapshot run $run_id"
+          if ! gh run download "$run_id" --name nixpkgs-snapshot --dir snapshot; then
+            echo "::warning::scout-snapshot artifact found (run $run_id) but download failed; skipping"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=artifact-download-failed:$run_id" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "path=snapshot/nixpkgs-snapshot.json" >> "$GITHUB_OUTPUT"
 
       - name: Discover CVEs
         id: discover
+        if: steps.snapshot.outputs.ready == 'true'
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           LOOKBACK_HOURS: ${{ inputs.lookback_hours || '1' }}
@@ -110,6 +126,7 @@ jobs:
           echo "Processing $capped (cap=$MAX_CVES)."
 
       - name: Poll + process each CVE
+        if: steps.snapshot.outputs.ready == 'true'
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           GRAPH_SNAPSHOT: ${{ steps.snapshot.outputs.path }}
@@ -145,8 +162,20 @@ jobs:
           LOOKBACK_HOURS: ${{ inputs.lookback_hours || '1' }}
           DISCOVERED: ${{ steps.discover.outputs.total }}
           PROCESSED: ${{ steps.discover.outputs.capped }}
+          SNAPSHOT_READY: ${{ steps.snapshot.outputs.ready }}
+          SNAPSHOT_SKIP_REASON: ${{ steps.snapshot.outputs.reason }}
         run: |
           set -euo pipefail
+          if [[ "$SNAPSHOT_READY" != "true" ]]; then
+            {
+              echo "## Scout cron skipped"
+              echo ""
+              echo "Reason: \`${SNAPSHOT_SKIP_REASON:-unknown}\`."
+              echo ""
+              echo "Trigger \`scout-snapshot.yml\` (Actions tab → run workflow) to populate the artifact, or commit a snapshot and pass its path via the \`graph_snapshot\` input."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [[ ! -f out/run-summary.jsonl ]]; then
             echo "## Scout cron run" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
