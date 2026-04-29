@@ -177,7 +177,10 @@ jobs:
 
           nix develop --command python -m agents.scout.discover_cli \
             --since "$SINCE" --until "$UNTIL" \
-            > out/cve-ids.txt
+            > out/cve-ids.raw.txt
+          # Defensive grep: any future stdout pollution (banner, warning,
+          # whatever) gets dropped before it can corrupt the poll loop.
+          grep -E '^CVE-[0-9]{4}-[0-9]{4,19}$' out/cve-ids.raw.txt > out/cve-ids.txt || true
 
           total=$(wc -l < out/cve-ids.txt | tr -d ' ')
           echo "total=$total" >> "$GITHUB_OUTPUT"
