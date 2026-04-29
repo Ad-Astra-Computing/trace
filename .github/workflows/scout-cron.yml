@@ -50,6 +50,13 @@ permissions:
   actions: read    # gh run download for the snapshot artifact
   id-token: write  # FlakeHub OIDC for the Determinate Nix installer
 
+concurrency:
+  # Serialize cron runs so the cursor file isn't written by two
+  # in-flight jobs at the same time. cancel-in-progress=false:
+  # let the running job finish and queue the new one.
+  group: scout-cron
+  cancel-in-progress: false
+
 jobs:
   cron:
     name: scout discover + poll + process
@@ -63,6 +70,20 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v20
         with:
           determinate: true
+
+      - name: Restore discovery cursor
+        id: cursor-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: state/scout-cursor.json
+          # GitHub Actions cache keys are immutable, so each successful
+          # run writes a new key (scout-cursor-v1-<run_id>) and we pull
+          # the freshest match via the restore-keys prefix. The primary
+          # `key` here is intentionally unique-per-run so it never
+          # primary-matches.
+          key: scout-cursor-v1-restore-${{ github.run_id }}
+          restore-keys: |
+            scout-cursor-v1-
 
       - name: Resolve snapshot
         id: snapshot
@@ -109,17 +130,58 @@ jobs:
         if: steps.snapshot.outputs.ready == 'true'
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          LOOKBACK_HOURS: ${{ inputs.lookback_hours || '1' }}
+          LOOKBACK_HOURS: ${{ inputs.lookback_hours || '' }}
           MAX_CVES: ${{ inputs.max_cves || '50' }}
         run: |
           set -euo pipefail
-          mkdir -p inbox out
+          mkdir -p inbox out state
+          UNTIL=$(date -u +%FT%TZ)
+          # Window resolution priority:
+          #   1. Explicit lookback_hours input (workflow_dispatch override).
+          #   2. Cursor file from the last successful run (state/scout-cursor.json).
+          #   3. Default 1 hour lookback (matches the hourly schedule).
+          # Caps: if cursor is older than 7 days (cron offline a long time),
+          # clamp to 7 days to keep the NVD response tractable. Surface a
+          # warning so the gap is visible in the run summary.
+          if [[ -n "$LOOKBACK_HOURS" ]]; then
+            SINCE=$(date -u -d "$LOOKBACK_HOURS hours ago" +%FT%TZ)
+            window_source="explicit-lookback:${LOOKBACK_HOURS}h"
+          elif [[ -s state/scout-cursor.json ]]; then
+            cursor_iso=$(jq -r '.last_run_utc // empty' state/scout-cursor.json)
+            if [[ -z "$cursor_iso" ]]; then
+              SINCE=$(date -u -d '1 hour ago' +%FT%TZ)
+              window_source="cursor-empty:default-1h"
+            else
+              cursor_epoch=$(date -u -d "$cursor_iso" +%s)
+              now_epoch=$(date -u +%s)
+              max_lookback=$((7 * 24 * 3600))
+              age=$((now_epoch - cursor_epoch))
+              if (( age > max_lookback )); then
+                SINCE=$(date -u -d '7 days ago' +%FT%TZ)
+                window_source="cursor-stale:${age}s>7d"
+                echo "::warning::cursor is $age seconds old (>7d); clamped to 7-day lookback"
+              else
+                SINCE=$cursor_iso
+                window_source="cursor:${cursor_iso}"
+              fi
+            fi
+          else
+            SINCE=$(date -u -d '1 hour ago' +%FT%TZ)
+            window_source="no-cursor:default-1h"
+          fi
+
+          echo "Window: $SINCE -> $UNTIL (source: $window_source)"
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          echo "until=$UNTIL" >> "$GITHUB_OUTPUT"
+          echo "window_source=$window_source" >> "$GITHUB_OUTPUT"
+
           nix develop --command python -m agents.scout.discover_cli \
-            --lookback-hours "$LOOKBACK_HOURS" \
+            --since "$SINCE" --until "$UNTIL" \
             > out/cve-ids.txt
+
           total=$(wc -l < out/cve-ids.txt | tr -d ' ')
           echo "total=$total" >> "$GITHUB_OUTPUT"
-          echo "Discovered $total CVE ids in the last $LOOKBACK_HOURS hours."
+          echo "Discovered $total CVE ids."
           head -n "$MAX_CVES" out/cve-ids.txt > out/cve-ids.capped.txt
           capped=$(wc -l < out/cve-ids.capped.txt | tr -d ' ')
           echo "capped=$capped" >> "$GITHUB_OUTPUT"
@@ -156,12 +218,39 @@ jobs:
           echo "Run summary:"
           cat out/run-summary.jsonl | jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})'
 
+      - name: Advance discovery cursor
+        # Only advance on the schedule path. workflow_dispatch with an
+        # explicit lookback_hours override is one-off (often replaying
+        # a window) and must not clobber the schedule's cursor.
+        if: steps.snapshot.outputs.ready == 'true' && github.event_name == 'schedule'
+        env:
+          UNTIL: ${{ steps.discover.outputs.until }}
+        run: |
+          set -euo pipefail
+          mkdir -p state
+          jq -n --arg ts "$UNTIL" \
+            '{schema_version: "1.0.0", last_run_utc: $ts}' \
+            > state/scout-cursor.json
+          echo "Cursor advanced to $UNTIL"
+
+      - name: Save discovery cursor
+        if: steps.snapshot.outputs.ready == 'true' && github.event_name == 'schedule'
+        uses: actions/cache/save@v4
+        with:
+          path: state/scout-cursor.json
+          # Cache keys are immutable per branch; use the run id so each
+          # successful run pushes a new entry. Restore key (above) is
+          # the stable prefix and gets the freshest match.
+          key: scout-cursor-v1-${{ github.run_id }}
+
       - name: Render step summary
         if: always()
         env:
-          LOOKBACK_HOURS: ${{ inputs.lookback_hours || '1' }}
           DISCOVERED: ${{ steps.discover.outputs.total }}
           PROCESSED: ${{ steps.discover.outputs.capped }}
+          WINDOW_SINCE: ${{ steps.discover.outputs.since }}
+          WINDOW_UNTIL: ${{ steps.discover.outputs.until }}
+          WINDOW_SOURCE: ${{ steps.discover.outputs.window_source }}
           SNAPSHOT_READY: ${{ steps.snapshot.outputs.ready }}
           SNAPSHOT_SKIP_REASON: ${{ steps.snapshot.outputs.reason }}
         run: |
@@ -191,7 +280,7 @@ jobs:
           {
             echo "## Scout cron run"
             echo ""
-            echo "- Window: last \`${LOOKBACK_HOURS}\` hour(s)"
+            echo "- Window: \`${WINDOW_SINCE}\` -> \`${WINDOW_UNTIL}\` (source: \`${WINDOW_SOURCE:-unknown}\`)"
             echo "- Discovered: **${DISCOVERED:-0}**"
             echo "- Processed: **${PROCESSED:-0}**"
             echo ""
