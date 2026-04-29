@@ -1,0 +1,86 @@
+name: scout-cpe-dictionary
+
+# Build a product-keyed CPE index from NVD's /cpes/2.0 endpoint and
+# upload it as an artifact. scout-snapshot consumes this index when
+# enriching GraphMatch records so Scout can match CPEs vendor-aware
+# (cpe-exact, high confidence) instead of bouncing through the
+# vendor-agnostic cpe-product fallback.
+#
+# Triggers:
+#   * workflow_dispatch: on demand.
+#   * schedule: weekly on Sundays at 06:23 UTC. NVD's CPE dictionary
+#     is large (~1.7M entries) but slow-changing; weekly is enough
+#     for trace's relevance filter.
+#
+# Cost shape: with NVD_API_KEY (50 req / 30 s) the full walk takes
+# ~1-2 minutes. Anonymous (5 req / 30 s) takes ~15-20 minutes; the
+# 60-min job timeout absorbs that.
+#
+# Output: cpe-index.json artifact, ~30-50 MB, retention 30 days.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: "Cap on pages fetched (10000 CPEs/page). Empty = walk all."
+        required: false
+        type: string
+        default: ""
+  schedule:
+    - cron: "23 6 * * 0"
+
+permissions:
+  contents: read
+  id-token: write  # FlakeHub OIDC for the Determinate Nix installer
+
+jobs:
+  build:
+    name: cpe dictionary index
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v20
+        with:
+          determinate: true
+
+      - name: Build CPE index
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          MAX_PAGES: ${{ inputs.max_pages || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          if [[ -n "$MAX_PAGES" ]]; then
+            extra=("--max-pages" "$MAX_PAGES")
+          else
+            extra=()
+          fi
+          nix develop --command python -m agents.scout.cpe_dictionary_cli \
+            --out out/cpe-index.json "${extra[@]}"
+          products=$(jq 'length' out/cpe-index.json)
+          cpes=$(jq '[.[] | length] | add' out/cpe-index.json)
+          size=$(wc -c < out/cpe-index.json | tr -d ' ')
+          echo "Built CPE index: $products products, $cpes CPEs, $size bytes."
+
+      - name: Sanity check
+        run: |
+          set -euo pipefail
+          for required in libtiff openssl curl; do
+            if ! jq -e --arg p "$required" 'has($p)' out/cpe-index.json > /dev/null; then
+              echo "::error::CPE index missing required product '$required'; aborting"
+              exit 1
+            fi
+          done
+          echo "Sanity check passed."
+
+      - name: Upload CPE index
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpe-index
+          path: out/cpe-index.json
+          if-no-files-found: error
+          retention-days: 30

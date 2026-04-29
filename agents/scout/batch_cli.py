@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from agents.scout.cpe_dictionary import enrich_records_with_cpes, read_index
 from agents.scout.graph_lookup import CannedGraphLookup
 from agents.scout.poller import poll_one
 from agents.scout.processor import process_entry
@@ -48,6 +49,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--graph-snapshot", required=True, type=Path)
     parser.add_argument("--inbox", required=True, type=Path)
     parser.add_argument("--output-jsonl", required=True, type=Path)
+    parser.add_argument(
+        "--cpe-index",
+        type=Path,
+        default=None,
+        help=(
+            "Optional NVD CPE product index (built by "
+            "agents.scout.cpe_dictionary_cli). When present, snapshot "
+            "records are enriched with real CPEs before the graph is "
+            "built so Scout's relevance filter and scan match cpe-exact "
+            "instead of cpe-product fallback."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.cve_ids_file.is_file():
@@ -62,6 +75,21 @@ def main(argv: list[str] | None = None) -> int:
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"error: graph snapshot malformed: {e}", file=sys.stderr)
         return _EXIT_USAGE
+
+    if args.cpe_index is not None:
+        try:
+            cpe_index = read_index(args.cpe_index)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"error: --cpe-index unreadable: {e}", file=sys.stderr)
+            return _EXIT_USAGE
+        before = sum(len(r.cpes) for r in records)
+        records = enrich_records_with_cpes(records, cpe_index)
+        after = sum(len(r.cpes) for r in records)
+        print(
+            f"enriched snapshot with {after - before} CPEs from {args.cpe_index} "
+            f"(now {after} total across {len(records)} records)",
+            file=sys.stderr,
+        )
 
     graph = CannedGraphLookup(records)
     nvd_api_key = os.environ.get("NVD_API_KEY") or None
