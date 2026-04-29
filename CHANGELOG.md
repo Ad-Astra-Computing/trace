@@ -49,7 +49,7 @@ The remaining genuine CI gap is **live API + live nix-build** on every push. Bot
 What this milestone deliberately does **not** ship:
 
 * Auto-merge real-CVE-signed bundle. Gated on (a) sandbox-positive Reproducer corpus extension AND (b) v1 Hydra / large-runner / pre-warmed-cache infrastructure clearing Builder's 30-min saturation point.
-* Live-model CI integration. `test_full_chain` runs the entire role chain end-to-end with FakeAdapter substituting the API transport; every other code path is real. A live-model variant on every push needs budgeted Anthropic secrets + rate-limit handling.
+* ~~Live-model CI integration.~~ **Closed 28 April 2026** at the transport layer: `.github/workflows/live-anthropic-smoke.yml` + `tests/integration/test_live_anthropic_smoke.py` pair runs one round-trip against `claude-haiku-4-5-20251001` on manual dispatch. First green run: [25086008154](https://github.com/Ad-Astra-Computing/trace/actions/runs/25086008154), 1.24s test exec, <\$0.001 cost. Live-model CI on **every push** remains gated on Anthropic adding per-workspace budget caps (account-wide today; uncapped CI churn would accrue real cost).
 * Live-build CI integration. `FakeBuildRunner` substitutes `nix-build`. A live variant needs a Linux runner with sufficient disk and a >30-min time budget, which is the same constraint as the v1 Hydra graduation criterion.
 * Bundle signing on every push. Today's `ci.yml` does not sign; signing lives behind `workflow_dispatch` on `.github/workflows/steward.yml`. Auto-signing on every push would mint hundreds of Rekor entries for development churn; the manual-dispatch boundary is deliberate.
 * Direct upstreaming to nixpkgs. Bundles are evidence; humans pick what to upstream and when.
