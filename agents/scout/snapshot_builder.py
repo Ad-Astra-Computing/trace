@@ -48,8 +48,11 @@ def build_snapshot(
     nixpkgs: str = _DEFAULT_NIXPKGS,
     runner: RunnerFn | None = None,
     timeout_s: int = _DEFAULT_TIMEOUT_S,
+    with_drv_paths: bool = True,
 ) -> list[GraphMatch]:
     cmd = ["nix-env", "-qaP", "--json", "-f", nixpkgs]
+    if with_drv_paths:
+        cmd.append("--drv-path")
     runner_fn = runner or _default_runner
 
     try:
@@ -83,9 +86,11 @@ def build_snapshot(
         version = info.get("version")
         if not isinstance(version, str):
             version = ""
+        drv_path_raw = info.get("drvPath")
+        drv_path = drv_path_raw if isinstance(drv_path_raw, str) and drv_path_raw else f"attr:{attr_path}"
         records.append(GraphMatch(
             attr_path=attr_path,
-            drv_path=f"attr:{attr_path}",
+            drv_path=drv_path,
             pname=pname_raw.lower(),
             version=version,
         ))

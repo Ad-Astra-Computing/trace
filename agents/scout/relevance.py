@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from agents.scout.graph_lookup import GraphLookup
+from agents.scout.graph_lookup import GraphLookup, cpe_product_of
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,16 @@ def is_relevant_to_nixpkgs(
     for cpe in cpes:
         if graph.find_by_cpe(cpe):
             return RelevanceDecision(True, f"cpe-hit:{cpe}", "cpe", cpe)
+
+    for cpe in cpes:
+        product = cpe_product_of(cpe)
+        if product and graph.find_by_cpe_product(product):
+            return RelevanceDecision(
+                True,
+                f"cpe-product-hit:{product} (vendor-agnostic; from {cpe})",
+                "cpe-product",
+                cpe,
+            )
 
     for purl in purls:
         if graph.find_by_purl(purl):

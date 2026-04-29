@@ -125,6 +125,27 @@ def test_pname_match_is_case_insensitive_for_filter() -> None:
     assert decision.relevant is True
 
 
+def test_cpe_product_fallback_hits_when_full_cpe_misses() -> None:
+    """A snapshot built without a CPE dictionary indexes records by pname
+    only. When a CVE quotes `cpe:2.3:a:libtiff:libtiff:...` and the snapshot
+    has a record with pname=libtiff, the relevance filter must still hit
+    via the cpe-product fallback (vendor-agnostic). This is what unblocks
+    the cron loop on real nixpkgs surfaces without a paid NVD dictionary."""
+    snapshot_record = GraphMatch(
+        attr_path="libtiff",
+        drv_path="attr:libtiff",
+        pname="libtiff",
+        version="4.7.1",
+        cpes=(),
+    )
+    graph = CannedGraphLookup([snapshot_record])
+    record = _input(cpe_matches=[{"cpe": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*"}])
+    decision = is_relevant_to_nixpkgs(record, graph)
+    assert decision.relevant is True
+    assert decision.layer == "cpe-product"
+    assert "vendor-agnostic" in decision.reason
+
+
 def test_decision_is_a_relevance_decision() -> None:
     graph = CannedGraphLookup([_LIBTIFF])
     decision = is_relevant_to_nixpkgs(_input(), graph)

@@ -83,14 +83,50 @@ def test_build_lowercases_pname() -> None:
     assert libressl.pname == "libressl"
 
 
-def test_drv_path_placeholder_synthetic() -> None:
-    """`nix-env -qaP --json` does not emit drvPath; we synthesise a
-    stable placeholder so GraphMatch's required-string contract holds.
-    Explicit prefix prevents collisions with real /nix/store/... paths."""
+def test_drv_path_real_when_present_in_json() -> None:
+    """When the runner used --drv-path, nix-env emits a real drvPath
+    field. The builder threads it through verbatim so downstream
+    Patcher/Builder agents have a real /nix/store/... reference."""
     runner = _runner_returning(_FIXTURE.read_bytes())
     records = build_snapshot(runner=runner)
     libtiff = next(r for r in records if r.attr_path == "libtiff")
-    assert libtiff.drv_path == "attr:libtiff"
+    assert libtiff.drv_path == "/nix/store/md65ryqwhx17sh1vpcdy5v4146k8f5ld-libtiff-4.7.1.drv"
+
+
+def test_drv_path_placeholder_when_field_absent() -> None:
+    """When the JSON entry has no drvPath (with_drv_paths=False, or an
+    older nix-env), the builder synthesises a stable placeholder so
+    GraphMatch's required-string contract holds. Explicit prefix
+    prevents collisions with real /nix/store/... paths."""
+    runner = _runner_returning(_FIXTURE.read_bytes())
+    records = build_snapshot(runner=runner)
+    openssl = next(r for r in records if r.attr_path == "openssl")
+    assert openssl.drv_path == "attr:openssl"
+
+
+def test_default_cmd_includes_drv_path_flag() -> None:
+    """`--drv-path` must be in the default command so the runtime
+    snapshot picks up real drv paths without callers needing to
+    remember to ask."""
+    seen: dict[str, Any] = {}
+
+    def runner(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"{}", stderr=b"")
+
+    build_snapshot(runner=runner)
+    assert "--drv-path" in seen["cmd"]
+
+
+def test_with_drv_paths_false_omits_flag() -> None:
+    seen: dict[str, Any] = {}
+
+    def runner(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"{}", stderr=b"")
+
+    build_snapshot(runner=runner, with_drv_paths=False)
+    assert "--drv-path" not in seen["cmd"]
 
 
 def test_version_preserved() -> None:
