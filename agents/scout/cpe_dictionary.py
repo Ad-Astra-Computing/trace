@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from agents.scout.feed_client import (
     FeedDecodeError,
@@ -42,14 +43,24 @@ _NVD_BASE = "https://services.nvd.nist.gov/rest/json/cpes/2.0"
 _USER_AGENT = "trace-scout/0.1 (+https://github.com/Ad-Astra-Computing/trace)"
 _PAGE_SIZE = 10000
 _CPE_PRODUCT_RE = re.compile(r"^cpe:2\.3:[^:]+:[^:]+:([^:]+):")
+_DEFAULT_MAX_RETRIES = 3
+_DEFAULT_BACKOFF = (5, 15, 30)
 
 
 def fetch_all_cpe_pages(
     *,
     http: HttpFn | None = None,
     api_key: str | None = None,
+    max_retries_per_page: int = _DEFAULT_MAX_RETRIES,
+    backoff_schedule: tuple[int, ...] = _DEFAULT_BACKOFF,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> Iterator[dict[str, Any]]:
     """Yield each /cpes/2.0 response page until totalResults is exhausted.
+
+    Per-page transient failures (5xx, timeouts, rate limits) are retried
+    with backoff so a 169-page anonymous walk doesn't get killed by a
+    single slow response. After max_retries_per_page exhausted attempts
+    on the same page, the underlying error is re-raised.
 
     Caller is responsible for parsing each page (parse_cpe_page) and
     aggregating into an index (build_product_index)."""
@@ -59,23 +70,14 @@ def fetch_all_cpe_pages(
 
     start_index = 0
     while True:
-        url = _build_url(start_index)
-        status, body, resp_headers = _call(http, url, headers)
-
-        if status == 429:
-            raise FeedRateLimit(_parse_retry_after(resp_headers))
-        if status >= 500:
-            raise FeedTransientError(f"CPE dictionary returned {status}")
-        if status != 200:
-            raise FeedDecodeError(f"CPE dictionary returned unexpected status {status}")
-
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError as e:
-            raise FeedDecodeError(f"CPE page is not valid JSON: {e}") from e
-
-        if not isinstance(payload, dict):
-            raise FeedDecodeError("CPE page payload is not an object")
+        payload = _fetch_one_page_with_retry(
+            http=http,
+            url=_build_url(start_index),
+            headers=headers,
+            max_retries=max_retries_per_page,
+            backoff_schedule=backoff_schedule,
+            sleep=sleep,
+        )
 
         yield payload
 
@@ -84,6 +86,47 @@ def fetch_all_cpe_pages(
         start_index += results_per_page
         if start_index >= total:
             return
+
+
+def _fetch_one_page_with_retry(
+    *,
+    http: HttpFn | None,
+    url: str,
+    headers: dict[str, str],
+    max_retries: int,
+    backoff_schedule: tuple[int, ...],
+    sleep: Callable[[float], None],
+) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            status, body, resp_headers = _call(http, url, headers)
+            if status == 429:
+                raise FeedRateLimit(_parse_retry_after(resp_headers))
+            if status >= 500:
+                raise FeedTransientError(f"CPE dictionary returned {status}")
+            if status != 200:
+                raise FeedDecodeError(f"CPE dictionary returned unexpected status {status}")
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError as e:
+                raise FeedDecodeError(f"CPE page is not valid JSON: {e}") from e
+            if not isinstance(payload, dict):
+                raise FeedDecodeError("CPE page payload is not an object")
+            return payload
+        except FeedRateLimit as e:
+            last_error = e
+            if attempt >= max_retries:
+                raise
+            sleep(float(e.retry_after or 30))
+        except FeedTransientError as e:
+            last_error = e
+            if attempt >= max_retries:
+                raise
+            idx = min(attempt, len(backoff_schedule) - 1)
+            sleep(float(backoff_schedule[idx]))
+    assert last_error is not None
+    raise last_error
 
 
 def parse_cpe_page(payload: dict[str, Any]) -> list[str]:
