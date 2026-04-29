@@ -35,14 +35,23 @@ Reads `subject_regex` and `oidc_issuer` from `policy/signing-identity.json`; ver
 
 **Test suite.** 651 passing, 24 skipped (network-gated). CI green across `rego fmt + check`, `schema + steward`, and `graph (rust)` jobs.
 
-**Honest CI coverage boundary.** Agent tests (Patcher / Reviewer / Reproducer parsers, adapters, execute-wiring; 185 passing, 17 skipped) all mock the model API surface. CI runs **zero live model invocations**. The model-attested bundles under `traces/example/` (uriparser, mbedtls, openssl_3, systemd, traefik, bind) were produced by local dev runs against the real Anthropic API; CI replays them through Steward's gate-and-sign path. The signing path is end-to-end CI-verified. The agent *invocation* path is not. A future CI integration running a deterministic-no-model end-to-end flow that produces a bundle from scratch (no API key required) is the next logical milestone.
+**Honest CI coverage boundary.** Re-examined after a "did we test the agents in CI?" challenge:
+
+* `tests/integration/test_full_chain.py` runs every push. It scaffolds a fresh bundle, executes Patcher → Reviewer → Reproducer → Builder → Steward end-to-end, and asserts Steward allows. Each role's runner, parser, replay writer, provenance writer, and scorer code paths execute for real; cross-family rule enforcement is verified; the bundle output validates against schemas + Rego policy.
+* What's mocked at that test boundary: the model API transport (`FakeAdapter` returns pre-canned response strings instead of hitting Anthropic) and the nix-build transport (`FakeBuildRunner` returns canned exit codes). Everything *between* "response text arrives" and "Steward verdict" is the real production code.
+* What's NOT in CI on every push: live Anthropic API calls; live `nix-build`; bundle signing (Steward's signing-and-Rekor path is exercised by manual `workflow_dispatch` on `.github/workflows/steward.yml`, not by `ci.yml`; four such dispatches across `hello`, `bind`, `uriparser`, `libtiff` form the v0 signing ledger).
+* The model-attested bundles under `traces/example/` (uriparser, mbedtls, openssl_3, systemd, traefik, bind) were produced by local dev runs against the real Anthropic API; CI replays them through the integration tests' static-fixture validators. The agent *runner* code path that produces those bundles is exercised end-to-end on every CI push via `test_full_chain` with FakeAdapter substituting only the API transport.
+
+The remaining genuine CI gap is **live API + live nix-build** on every push. Both are non-trivial: live API requires budgeted secrets and rate-limit handling; live nix-build requires a Linux runner with sufficient disk + 30-min+ time budget (the libtiff Builder-saturation deny on run 25077946199 is the concrete proof).
 
 ### Current v0 boundaries
 
 What this milestone deliberately does **not** ship:
 
 * Auto-merge real-CVE-signed bundle. Gated on (a) sandbox-positive Reproducer corpus extension AND (b) v1 Hydra / large-runner / pre-warmed-cache infrastructure clearing Builder's 30-min saturation point.
-* Live-model CI integration. Today's CI mocks every API call; bundles enter CI pre-built from local dev. End-to-end deterministic-no-model bundle production *from scratch* under CI is the cheapest next step (no API key required, real exercise of the executor pipeline).
+* Live-model CI integration. `test_full_chain` runs the entire role chain end-to-end with FakeAdapter substituting the API transport; every other code path is real. A live-model variant on every push needs budgeted Anthropic secrets + rate-limit handling.
+* Live-build CI integration. `FakeBuildRunner` substitutes `nix-build`. A live variant needs a Linux runner with sufficient disk and a >30-min time budget, which is the same constraint as the v1 Hydra graduation criterion.
+* Bundle signing on every push. Today's `ci.yml` does not sign; signing lives behind `workflow_dispatch` on `.github/workflows/steward.yml`. Auto-signing on every push would mint hundreds of Rekor entries for development churn; the manual-dispatch boundary is deliberate.
 * Direct upstreaming to nixpkgs. Bundles are evidence; humans pick what to upstream and when.
 * Hydra integration. Deferred to v1 when Builder saturates Actions (libtiff already saturates; the criterion landed concretely on 28 April 2026).
 * Novel-vulnerability discovery. Separate lane, separate guardrails, deferred.
