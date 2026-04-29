@@ -46,7 +46,7 @@ on:
     - cron: "17 * * * *"
 
 permissions:
-  contents: read
+  contents: write  # commit the longitudinal run record to data/
   actions: read    # gh run download for the snapshot artifact
   id-token: write  # FlakeHub OIDC for the Determinate Nix installer
 
@@ -327,6 +327,67 @@ jobs:
             fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Append longitudinal run record
+        # Schedule-only: each scheduled cron contributes one aggregated
+        # row to data/scout-runs.jsonl on main. Manual workflow_dispatch
+        # runs are operational replays and do not pollute the time series.
+        if: steps.snapshot.outputs.ready == 'true' && github.event_name == 'schedule'
+        env:
+          WINDOW_SINCE: ${{ steps.discover.outputs.since }}
+          WINDOW_UNTIL: ${{ steps.discover.outputs.until }}
+          WINDOW_SOURCE: ${{ steps.discover.outputs.window_source }}
+          DISCOVERED: ${{ steps.discover.outputs.total }}
+          PROCESSED: ${{ steps.discover.outputs.capped }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          if [[ -f out/merged.json ]]; then
+            actions=$(jq '[group_by(.action)[] | select(.[0].action != null) | {(.[0].action): length}] | add // {}' out/merged.json)
+            verdicts=$(jq '[group_by(.resolver_status)[] | select(.[0].resolver_status != null) | {(.[0].resolver_status): length}] | add // {}' out/merged.json)
+          else
+            actions='{}'
+            verdicts='{}'
+          fi
+          record=$(jq -cn \
+            --arg run_at "$WINDOW_UNTIL" \
+            --arg since "$WINDOW_SINCE" \
+            --arg source "$WINDOW_SOURCE" \
+            --arg run_id "$RUN_ID" \
+            --argjson discovered "${DISCOVERED:-0}" \
+            --argjson processed "${PROCESSED:-0}" \
+            --argjson actions "$actions" \
+            --argjson verdicts "$verdicts" \
+            '{
+               schema_version: "1.0.0",
+               run_at: $run_at,
+               window_since: $since,
+               window_source: $source,
+               run_id: $run_id,
+               discovered: $discovered,
+               processed: $processed,
+               actions: $actions,
+               resolver_verdicts: $verdicts
+             }')
+          echo "$record" >> data/scout-runs.jsonl
+          # Race-tolerant push: if main moved while we ran, rebase our
+          # one-line append on top. The data file is append-only so the
+          # rebase is conflict-free in practice.
+          git config user.name "scout-cron[bot]"
+          git config user.email "scout-cron[bot]@users.noreply.github.com"
+          git add data/scout-runs.jsonl
+          git commit -m "data(scout): cron run ${WINDOW_UNTIL} [skip ci]"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin main && git push origin HEAD:main; then
+              echo "pushed run record on attempt $attempt"
+              exit 0
+            fi
+            echo "push attempt $attempt failed; retrying"
+            sleep $((attempt * 5))
+          done
+          echo "::warning::failed to push longitudinal run record after 3 attempts; data point lost"
+          exit 0  # do not fail the cron over an aux push
 
       - name: Upload inbox + run summary
         if: always()
