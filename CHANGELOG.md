@@ -35,11 +35,14 @@ Reads `subject_regex` and `oidc_issuer` from `policy/signing-identity.json`; ver
 
 **Test suite.** 651 passing, 24 skipped (network-gated). CI green across `rego fmt + check`, `schema + steward`, and `graph (rust)` jobs.
 
+**Honest CI coverage boundary.** Agent tests (Patcher / Reviewer / Reproducer parsers, adapters, execute-wiring; 185 passing, 17 skipped) all mock the model API surface. CI runs **zero live model invocations**. The model-attested bundles under `traces/example/` (uriparser, mbedtls, openssl_3, systemd, traefik, bind) were produced by local dev runs against the real Anthropic API; CI replays them through Steward's gate-and-sign path. The signing path is end-to-end CI-verified. The agent *invocation* path is not. A future CI integration running a deterministic-no-model end-to-end flow that produces a bundle from scratch (no API key required) is the next logical milestone.
+
 ### Current v0 boundaries
 
 What this milestone deliberately does **not** ship:
 
 * Auto-merge real-CVE-signed bundle. Gated on (a) sandbox-positive Reproducer corpus extension AND (b) v1 Hydra / large-runner / pre-warmed-cache infrastructure clearing Builder's 30-min saturation point.
+* Live-model CI integration. Today's CI mocks every API call; bundles enter CI pre-built from local dev. End-to-end deterministic-no-model bundle production *from scratch* under CI is the cheapest next step (no API key required, real exercise of the executor pipeline).
 * Direct upstreaming to nixpkgs. Bundles are evidence; humans pick what to upstream and when.
 * Hydra integration. Deferred to v1 when Builder saturates Actions (libtiff already saturates; the criterion landed concretely on 28 April 2026).
 * Novel-vulnerability discovery. Separate lane, separate guardrails, deferred.
