@@ -38,15 +38,19 @@
 
           shellHook = ''
             export TRACE_ROOT="$PWD"
-            echo "trace dev shell"
-            echo "  python: $(python3 --version)"
-            echo "  pytest: $(pytest --version 2>&1 | head -1)"
-            if command -v opa >/dev/null 2>&1; then
-              echo "  opa:    $(opa version | head -1)"
-            else
-              echo "  opa:    NOT ON PATH (Steward tests will skip)"
-              echo "          install: curl -fsSL https://openpolicyagent.org/downloads/latest/opa_$(uname -s | tr A-Z a-z)_$(uname -m | sed s/x86_64/amd64/)_static -o ~/.local/bin/opa && chmod +x ~/.local/bin/opa"
-            fi
+            # Banner -> stderr so `nix develop --command python ... > file.txt`
+            # captures only the program's output, not the shell hello.
+            {
+              echo "trace dev shell"
+              echo "  python: $(python3 --version)"
+              echo "  pytest: $(pytest --version 2>&1 | head -1)"
+              if command -v opa >/dev/null 2>&1; then
+                echo "  opa:    $(opa version | head -1)"
+              else
+                echo "  opa:    NOT ON PATH (Steward tests will skip)"
+                echo "          install: curl -fsSL https://openpolicyagent.org/downloads/latest/opa_$(uname -s | tr A-Z a-z)_$(uname -m | sed s/x86_64/amd64/)_static -o ~/.local/bin/opa && chmod +x ~/.local/bin/opa"
+              fi
+            } >&2
           '';
         };
 
