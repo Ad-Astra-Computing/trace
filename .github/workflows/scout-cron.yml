@@ -71,18 +71,21 @@ jobs:
         with:
           determinate: true
 
-      - name: Restore discovery cursor
-        id: cursor-restore
+      - name: Restore scout state (cursor + retry queue)
+        id: state-restore
         uses: actions/cache/restore@v4
         with:
-          path: state/scout-cursor.json
-          # GitHub Actions cache keys are immutable, so each successful
-          # run writes a new key (scout-cursor-v1-<run_id>) and we pull
-          # the freshest match via the restore-keys prefix. The primary
-          # `key` here is intentionally unique-per-run so it never
-          # primary-matches.
-          key: scout-cursor-v1-restore-${{ github.run_id }}
+          # state/ holds two files written by this workflow:
+          #   scout-cursor.json   discovery watermark (last_run_utc)
+          #   scout-retry.jsonl   transient-failure retry queue
+          # Both persist across runs via this single cache.
+          path: state
+          # Cache keys are immutable; each successful run writes a new
+          # scout-state-v1-<run_id> key and we pull the freshest match
+          # via the restore-keys prefix.
+          key: scout-state-v1-restore-${{ github.run_id }}
           restore-keys: |
+            scout-state-v1-
             scout-cursor-v1-
 
       - name: Resolve snapshot
@@ -180,11 +183,31 @@ jobs:
             > out/cve-ids.raw.txt
           # Defensive grep: any future stdout pollution (banner, warning,
           # whatever) gets dropped before it can corrupt the poll loop.
-          grep -E '^CVE-[0-9]{4}-[0-9]{4,19}$' out/cve-ids.raw.txt > out/cve-ids.txt || true
+          grep -E '^CVE-[0-9]{4}-[0-9]{4,19}$' out/cve-ids.raw.txt > out/cve-ids.discovered.txt || true
+
+          # Prepend the retry queue (oldest first) so transient failures
+          # from prior runs get a chance before they age out, then the
+          # newly-discovered window. awk dedupes preserving first-seen
+          # order (older retries beat newer rediscoveries).
+          if [[ -f state/scout-retry.jsonl ]]; then
+            nix develop --command python -m agents.scout.retry_cli emit \
+              --queue state/scout-retry.jsonl \
+              > out/cve-ids.retry.txt
+          else
+            : > out/cve-ids.retry.txt
+          fi
+
+          retry_count=$(wc -l < out/cve-ids.retry.txt | tr -d ' ')
+          discovered=$(wc -l < out/cve-ids.discovered.txt | tr -d ' ')
+          cat out/cve-ids.retry.txt out/cve-ids.discovered.txt \
+            | awk '!seen[$0]++' \
+            > out/cve-ids.txt
 
           total=$(wc -l < out/cve-ids.txt | tr -d ' ')
+          echo "discovered=$discovered" >> "$GITHUB_OUTPUT"
+          echo "retry_count=$retry_count" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"
-          echo "Discovered $total CVE ids."
+          echo "Discovered $discovered new CVE ids; queued $retry_count retries; $total to process."
           head -n "$MAX_CVES" out/cve-ids.txt > out/cve-ids.capped.txt
           capped=$(wc -l < out/cve-ids.capped.txt | tr -d ' ')
           echo "capped=$capped" >> "$GITHUB_OUTPUT"
@@ -209,6 +232,21 @@ jobs:
           echo "Run summary:"
           jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})' out/run-summary.jsonl
 
+      - name: Update retry queue
+        if: always() && steps.snapshot.outputs.ready == 'true' && hashFiles('out/run-summary.jsonl') != ''
+        env:
+          UNTIL: ${{ steps.discover.outputs.until }}
+        run: |
+          set -euo pipefail
+          mkdir -p state
+          : > state/scout-retry.jsonl  # ensure file exists for first-run case
+          nix develop --command python -m agents.scout.retry_cli update \
+            --queue state/scout-retry.jsonl \
+            --run-summary out/run-summary.jsonl \
+            --run-at "$UNTIL" \
+            --max-attempts 3
+          echo "Retry queue size: $(wc -l < state/scout-retry.jsonl | tr -d ' ')"
+
       - name: Advance discovery cursor
         # Only advance on the schedule path. workflow_dispatch with an
         # explicit lookback_hours override is one-off (often replaying
@@ -224,20 +262,22 @@ jobs:
             > state/scout-cursor.json
           echo "Cursor advanced to $UNTIL"
 
-      - name: Save discovery cursor
-        if: steps.snapshot.outputs.ready == 'true' && github.event_name == 'schedule'
+      - name: Save scout state
+        # Save on schedule (advances cursor) AND on workflow_dispatch
+        # (retry queue may have changed). The cache key is per-run so
+        # this never overwrites; restore picks the freshest by prefix.
+        if: steps.snapshot.outputs.ready == 'true'
         uses: actions/cache/save@v4
         with:
-          path: state/scout-cursor.json
-          # Cache keys are immutable per branch; use the run id so each
-          # successful run pushes a new entry. Restore key (above) is
-          # the stable prefix and gets the freshest match.
-          key: scout-cursor-v1-${{ github.run_id }}
+          path: state
+          key: scout-state-v1-${{ github.run_id }}
 
       - name: Render step summary
         if: always()
         env:
-          DISCOVERED: ${{ steps.discover.outputs.total }}
+          DISCOVERED: ${{ steps.discover.outputs.discovered }}
+          RETRY_COUNT: ${{ steps.discover.outputs.retry_count }}
+          QUEUED_TOTAL: ${{ steps.discover.outputs.total }}
           PROCESSED: ${{ steps.discover.outputs.capped }}
           WINDOW_SINCE: ${{ steps.discover.outputs.since }}
           WINDOW_UNTIL: ${{ steps.discover.outputs.until }}
@@ -272,8 +312,9 @@ jobs:
             echo "## Scout cron run"
             echo ""
             echo "- Window: \`${WINDOW_SINCE}\` -> \`${WINDOW_UNTIL}\` (source: \`${WINDOW_SOURCE:-unknown}\`)"
-            echo "- Discovered: **${DISCOVERED:-0}**"
-            echo "- Processed: **${PROCESSED:-0}**"
+            echo "- Discovered: **${DISCOVERED:-0}** (new in window)"
+            echo "- Retries: **${RETRY_COUNT:-0}** (queued from prior runs)"
+            echo "- Queued total: **${QUEUED_TOTAL:-0}**, processed **${PROCESSED:-0}** (cap)"
             echo ""
             echo "### Per-CVE outcomes"
             echo ""
