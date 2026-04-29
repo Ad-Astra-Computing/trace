@@ -1,0 +1,12 @@
+[
+  {
+    "attr_path": "libtiff",
+    "drv_path": "/nix/store/0000000000000000000000000000000000000000-libtiff-4.7.0.drv",
+    "pname": "libtiff",
+    "version": "4.7.0",
+    "cpes": ["cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*"],
+    "purls": [],
+    "src_url": null,
+    "src_hash": null
+  }
+]
