@@ -46,8 +46,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
+          # --no-drv-paths: GitHub free-tier ubuntu-latest OOMs (exit 143)
+          # during full nixpkgs eval when nix-env materialises drvPath for
+          # ~99k attrs. drv_path falls back to "attr:<attr>" placeholder
+          # which is documented as acceptable; downstream agents that need
+          # real drv paths resolve them at use time on a checked-out tree.
           nix develop --command python -m agents.scout.snapshot_cli \
-            --out out/nixpkgs-snapshot.json
+            --out out/nixpkgs-snapshot.json \
+            --no-drv-paths
           attrs=$(jq 'length' out/nixpkgs-snapshot.json)
           size=$(wc -c < out/nixpkgs-snapshot.json | tr -d ' ')
           echo "Built snapshot with $attrs attrs ($size bytes)."

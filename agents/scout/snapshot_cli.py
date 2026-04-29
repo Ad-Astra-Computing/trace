@@ -49,10 +49,24 @@ def main(argv: list[str] | None = None) -> int:
         default=1800,
         help="Subprocess timeout in seconds (default: 1800 = 30 min).",
     )
+    parser.add_argument(
+        "--no-drv-paths",
+        action="store_true",
+        help=(
+            "Skip nix-env --drv-path. Drv paths fall back to "
+            "'attr:<attr>' placeholders. Use when memory-constrained "
+            "(GitHub free-tier runner OOMs on full nixpkgs eval with "
+            "drv-path on)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
-        records = build_snapshot(nixpkgs=args.nixpkgs, timeout_s=args.timeout_s)
+        records = build_snapshot(
+            nixpkgs=args.nixpkgs,
+            timeout_s=args.timeout_s,
+            with_drv_paths=not args.no_drv_paths,
+        )
     except SnapshotBuildError as e:
         print(f"snapshot build failed: {e}", file=sys.stderr)
         return _EXIT_BUILD_FAILED
