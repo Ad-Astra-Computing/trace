@@ -1,0 +1,65 @@
+name: live-anthropic-smoke
+
+# Live Anthropic API transport smoke test. Manual dispatch only; never
+# triggers on push or PR to keep account-wide API spend predictable
+# (Anthropic does not offer per-workspace budget caps).
+#
+# Sends one tiny prompt to claude-haiku-4-5-20251001 (cheapest locked
+# model), max_tokens=16, asserts the response is non-empty. Cost per
+# run: <$0.001. Account-wide budget; budget for this workflow accrues
+# against any other Anthropic spend on the same account.
+#
+# Why not on every push: account-wide budget means uncapped CI churn
+# accumulates real cost. Manual dispatch lets a human decide when to
+# spend.
+#
+# Why this exists: tests/integration/test_full_chain.py covers the
+# entire role chain on every push using FakeAdapter (offline). This
+# workflow verifies ONLY the transport layer that FakeAdapter
+# substitutes for, so the live-API path can't silently rot between
+# manual dispatches of the bigger real-prefetch-smoke or steward
+# workflows.
+#
+# Required secret: ANTHROPIC_API_KEY. Workflow fails fast if absent.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: live anthropic transport smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify ANTHROPIC_API_KEY is present
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+            echo "::error::ANTHROPIC_API_KEY secret is required."
+            echo "Set it under repo Settings → Secrets and variables → Actions."
+            exit 64
+          fi
+          echo "ANTHROPIC_API_KEY is present (length=${#ANTHROPIC_API_KEY})"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v20
+        with:
+          determinate: true
+
+      - name: Run live transport smoke
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TRACE_REAL_ANTHROPIC: "1"
+        run: |
+          set -euo pipefail
+          nix develop --command pytest -v tests/integration/test_live_anthropic_smoke.py
