@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/dossier-source-schema.json",
+  "title": "trace vulnpatch dossier source",
+  "description": "Subset of the cve.vulnpatch.dev /api/v1/cve/:id/dossier response shape that trace's dossier→scout-input normalizer depends on. Validates the .data sub-object (the API wraps it in {success, data, timestamp}). The dossier is an aggregator: per the existing trust boundary (DECISIONS 2026-04-23, vulnpatch_cve.py), normalizer output records 'feed' as the underlying authoritative source (nvd/ghsa/osv), with aggregator metadata in the optional aggregator block on scout-input.",
+  "type": "object",
+  "required": ["cveId", "canonical", "provenance"],
+  "properties": {
+    "cveId": {
+      "type": "string",
+      "pattern": "^CVE-\\d{4}-\\d{4,19}$"
+    },
+    "canonical": {
+      "type": "object",
+      "required": ["id", "publishedAt", "description"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "publishedAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "severity": { "type": "string" },
+        "cvssScore": { "type": ["number", "null"] },
+        "cvssVector": { "type": "string" },
+        "affectedPackages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "ecosystem": { "type": "string" },
+              "fixedVersion": { "type": ["string", "null"] },
+              "source": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "sources": {
+      "description": "Raw aggregator-collected source payloads keyed by source name. trace consumes 'nvd' when present (existing nvd-source-schema applies to that nested object).",
+      "type": "object",
+      "properties": {
+        "nvd": { "type": ["object", "null"] },
+        "github": { "type": ["object", "null"] },
+        "osv": { "type": ["object", "null"] },
+        "cve_list_v5": { "type": ["object", "null"] },
+        "epss": { "type": ["object", "null"] }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source"],
+        "properties": {
+          "source": { "type": "string" },
+          "label": { "type": "string" },
+          "present": { "type": "boolean" },
+          "hash": { "type": ["string", "null"] },
+          "url": { "type": "string", "format": "uri" },
+          "fetchedAt": { "type": "string" }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "properties": {
+        "score": { "type": "number" },
+        "grade": { "type": "string" }
+      }
+    },
+    "agentHints": {
+      "type": "object",
+      "properties": {
+        "summary": { "type": "string" },
+        "affectedPackages": { "type": "array" },
+        "knownFixedVersions": { "type": "array" },
+        "recommendedActions": { "type": "array" },
+        "needsIngest": { "type": "boolean" },
+        "needsTriage": { "type": "boolean" },
+        "safeForAutomation": { "type": "boolean" }
+      }
+    },
+    "links": {
+      "type": "object",
+      "properties": {
+        "html": { "type": "string", "format": "uri" },
+        "api": { "type": "string", "format": "uri" },
+        "dossier": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}

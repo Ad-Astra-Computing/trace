@@ -79,7 +79,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "enum": ["vulnpatch"]
+          "enum": ["vulnpatch", "vulnpatch-dossier"]
         },
         "fetched_at": { "type": "string", "format": "date-time" },
         "request_url": { "type": "string", "format": "uri" },
