@@ -8,7 +8,13 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ## Unreleased
 
-### Public-readiness milestone (28 April 2026)
+(none)
+
+---
+
+## v0.1.0 — 28 April 2026
+
+### Public-readiness milestone
 
 The first milestone where an external reviewer can audit a trace bundle end-to-end without reading the CI workflow source. Repository graduates from research scaffolding to public-auditable artifact flow.
 
