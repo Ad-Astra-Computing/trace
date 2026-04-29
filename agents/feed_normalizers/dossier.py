@@ -122,13 +122,23 @@ def _extract_severity(canonical: dict[str, Any]) -> dict[str, Any]:
 
 _REF_KIND_BY_HOST = (
     ("github.com/advisories", "advisory"),
+    ("/commit/", "upstream-commit"),
     ("github.com", "upstream-commit"),
     ("gitlab.com", "upstream-commit"),
     ("nvd.nist.gov", "advisory"),
     ("cve.org", "advisory"),
     ("cve.vulnpatch.dev", "advisory"),
-    ("issue", "bug-tracker"),
+    ("/issues/", "bug-tracker"),
 )
+
+
+_NVD_TAG_TO_KIND: dict[str, str] = {
+    "Patch": "upstream-commit",
+    "Issue Tracking": "bug-tracker",
+    "Release Notes": "release-notes",
+    "Vendor Advisory": "advisory",
+    "Third Party Advisory": "advisory",
+}
 
 
 def _classify_url(url: str) -> str:
@@ -138,9 +148,18 @@ def _classify_url(url: str) -> str:
     return "other"
 
 
+def _classify_nvd_ref(url: str, tags: list[str]) -> str:
+    for tag in tags:
+        if tag in _NVD_TAG_TO_KIND:
+            return _NVD_TAG_TO_KIND[tag]
+    return _classify_url(url)
+
+
 def _extract_references(response: dict[str, Any]) -> list[dict[str, str]]:
-    """Build references[] from the dossier's links + provenance. Dedupe
-    on URL."""
+    """Build references[] from the dossier's links, provenance, and
+    embedded sources.nvd.nvdReferences. Tag-based classification wins
+    for NVD references (Patch -> upstream-commit etc.); host-based
+    fallback otherwise. Dedupe on URL."""
     seen: set[str] = set()
     refs: list[dict[str, str]] = []
     links = response.get("links") or {}
@@ -154,6 +173,15 @@ def _extract_references(response: dict[str, Any]) -> list[dict[str, str]]:
         if url and url not in seen:
             seen.add(url)
             refs.append({"url": url, "kind": _classify_url(url)})
+    sources = response.get("sources") or {}
+    nvd = sources.get("nvd") if isinstance(sources, dict) else None
+    if isinstance(nvd, dict):
+        for entry in nvd.get("nvdReferences") or []:
+            url = entry.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            refs.append({"url": url, "kind": _classify_nvd_ref(url, entry.get("tags") or [])})
     return refs
 
 
