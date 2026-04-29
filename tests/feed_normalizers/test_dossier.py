@@ -141,6 +141,19 @@ def test_references_include_canonical_link() -> None:
     assert any("cve.vulnpatch.dev" in u or "cve.org" in u or "nvd.nist.gov" in u for u in urls)
 
 
+def test_nvd_patch_tag_lifts_commit_url_as_upstream_commit() -> None:
+    """sources.nvd.nvdReferences[] entries tagged 'Patch' MUST surface
+    as kind='upstream-commit' so the Scout processor can extract them
+    as candidate fix commits. Regression: dossier normalizer was
+    previously only walking top-level links/provenance and silently
+    dropping NVD's per-source references."""
+    out = _normalize_call()
+    refs = out.get("references", [])
+    upstream_commits = [r for r in refs if r["kind"] == "upstream-commit"]
+    gitlab_commits = [r for r in upstream_commits if "gitlab.com" in r["url"] and "/commit/" in r["url"]]
+    assert gitlab_commits, f"expected gitlab.com /commit/ URL with kind=upstream-commit, got {refs!r}"
+
+
 def test_falls_back_to_ghsa_when_nvd_absent() -> None:
     """If a dossier has no sources.nvd but does have sources.github, the
     feed flips to 'ghsa' to keep authoritative-source attribution
