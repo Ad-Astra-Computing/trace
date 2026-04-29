@@ -1,0 +1,41 @@
+{
+  "libtiff": {
+    "name": "libtiff-4.7.1",
+    "outputName": "bin",
+    "outputs": {"bin": null, "dev": null, "out": null},
+    "pname": "libtiff",
+    "system": "aarch64-darwin",
+    "version": "4.7.1"
+  },
+  "openssl": {
+    "name": "openssl-3.5.4",
+    "outputName": "bin",
+    "outputs": {"bin": null, "dev": null, "out": null},
+    "pname": "openssl",
+    "system": "aarch64-darwin",
+    "version": "3.5.4"
+  },
+  "python311Packages.requests": {
+    "name": "python3.11-requests-2.32.3",
+    "outputName": "out",
+    "outputs": {"out": null},
+    "pname": "python3.11-requests",
+    "system": "aarch64-darwin",
+    "version": "2.32.3"
+  },
+  "broken-no-pname": {
+    "name": "weird-1.0",
+    "outputName": "out",
+    "outputs": {"out": null},
+    "system": "aarch64-darwin",
+    "version": "1.0"
+  },
+  "LibreSSL": {
+    "name": "libressl-3.9.2",
+    "outputName": "out",
+    "outputs": {"out": null},
+    "pname": "LibreSSL",
+    "system": "aarch64-darwin",
+    "version": "3.9.2"
+  }
+}

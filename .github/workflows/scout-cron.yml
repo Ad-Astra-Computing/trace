@@ -1,21 +1,24 @@
 name: scout-cron
 
 # Scout cron: discover -> poll -> process for every CVE published in
-# the chosen window. Manual dispatch at v0; once a real graph snapshot
-# builder lands, this becomes the hourly entrypoint.
+# the chosen window. Manual dispatch at v0; on a future iteration this
+# becomes the hourly entrypoint.
 #
 # Inputs:
 #   lookback_hours   How far back to query NVD's pubStartDate. Default: 24.
-#   graph_snapshot   Path to a JSON graph snapshot in the repo. Default:
-#                    the libtiff smoke fixture (limits work to one attr).
+#   graph_snapshot   Optional override path to a snapshot in the repo.
+#                    When empty (the default), the workflow downloads the
+#                    most recent successful nixpkgs-snapshot artifact
+#                    produced by .github/workflows/scout-snapshot.yml.
 #   max_cves         Cap on per-run CVE count. Default: 50.
 #
 # Steps:
-#   1. discover_cli prints CVE ids one per line.
-#   2. For each (capped at max_cves): poll_cli writes inbox/<CVE>/...
+#   1. Resolve graph snapshot (override path or latest snapshot artifact).
+#   2. discover_cli prints CVE ids one per line.
+#   3. For each (capped at max_cves): poll_cli writes inbox/<CVE>/...
 #      then a small inline process step calls process_entry to produce
 #      finding.json + resolver-input.json + upstream-ref.json.
-#   3. Inbox is uploaded as an artifact for inspection.
+#   4. Inbox is uploaded as an artifact for inspection.
 #
 # Anonymous-first; NVD_API_KEY (optional secret) lifts rate limits.
 
@@ -28,10 +31,10 @@ on:
         type: number
         default: 24
       graph_snapshot:
-        description: "Path to graph snapshot JSON in the repo"
+        description: "Path to graph snapshot JSON in the repo (overrides downloaded artifact)"
         required: false
         type: string
-        default: "tests/scout/fixtures/graph-snapshot-smoke.json"
+        default: ""
       max_cves:
         description: "Cap on per-run CVE count (avoids surprise API spend)"
         required: false
@@ -40,6 +43,7 @@ on:
 
 permissions:
   contents: read
+  actions: read  # gh run download for the snapshot artifact
 
 jobs:
   cron:
@@ -55,12 +59,30 @@ jobs:
         with:
           determinate: true
 
-      - name: Validate snapshot
+      - name: Resolve snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERRIDE: ${{ inputs.graph_snapshot }}
         run: |
           set -euo pipefail
-          if [[ ! -f "${{ inputs.graph_snapshot }}" ]]; then
-            echo "::error::graph snapshot not found at ${{ inputs.graph_snapshot }}"
-            exit 64
+          mkdir -p snapshot
+          if [[ -n "$OVERRIDE" ]]; then
+            if [[ ! -f "$OVERRIDE" ]]; then
+              echo "::error::graph snapshot override not found at $OVERRIDE"
+              exit 64
+            fi
+            echo "Using committed snapshot at $OVERRIDE"
+            echo "path=$OVERRIDE" >> "$GITHUB_OUTPUT"
+          else
+            run_id=$(gh run list --workflow=scout-snapshot.yml --status=success --limit 1 --json databaseId --jq '.[0].databaseId')
+            if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+              echo "::error::no successful scout-snapshot run found; trigger that workflow first"
+              exit 64
+            fi
+            echo "Downloading snapshot artifact from scout-snapshot run $run_id"
+            gh run download "$run_id" --name nixpkgs-snapshot --dir snapshot
+            echo "path=snapshot/nixpkgs-snapshot.json" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Discover CVEs
@@ -84,7 +106,7 @@ jobs:
       - name: Poll + process each CVE
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          GRAPH_SNAPSHOT: ${{ inputs.graph_snapshot }}
+          GRAPH_SNAPSHOT: ${{ steps.snapshot.outputs.path }}
         run: |
           set -euo pipefail
           : > out/run-summary.jsonl
