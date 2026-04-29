@@ -1,5 +1,6 @@
 {
   "libtiff": {
+    "drvPath": "/nix/store/md65ryqwhx17sh1vpcdy5v4146k8f5ld-libtiff-4.7.1.drv",
     "name": "libtiff-4.7.1",
     "outputName": "bin",
     "outputs": {"bin": null, "dev": null, "out": null},

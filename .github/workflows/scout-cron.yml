@@ -40,6 +40,10 @@ on:
         required: false
         type: number
         default: 50
+  schedule:
+    # Hourly at :17 (offset from snapshot 06:13 so the early-morning
+    # cron has the freshest snapshot available).
+    - cron: "17 * * * *"
 
 permissions:
   contents: read
@@ -63,7 +67,7 @@ jobs:
         id: snapshot
         env:
           GH_TOKEN: ${{ github.token }}
-          OVERRIDE: ${{ inputs.graph_snapshot }}
+          OVERRIDE: ${{ inputs.graph_snapshot || '' }}
         run: |
           set -euo pipefail
           mkdir -p snapshot
@@ -89,19 +93,21 @@ jobs:
         id: discover
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          LOOKBACK_HOURS: ${{ inputs.lookback_hours || '1' }}
+          MAX_CVES: ${{ inputs.max_cves || '50' }}
         run: |
           set -euo pipefail
           mkdir -p inbox out
           nix develop --command python -m agents.scout.discover_cli \
-            --lookback-hours "${{ inputs.lookback_hours }}" \
+            --lookback-hours "$LOOKBACK_HOURS" \
             > out/cve-ids.txt
           total=$(wc -l < out/cve-ids.txt | tr -d ' ')
           echo "total=$total" >> "$GITHUB_OUTPUT"
-          echo "Discovered $total CVE ids in the last ${{ inputs.lookback_hours }} hours."
-          head -n "${{ inputs.max_cves }}" out/cve-ids.txt > out/cve-ids.capped.txt
+          echo "Discovered $total CVE ids in the last $LOOKBACK_HOURS hours."
+          head -n "$MAX_CVES" out/cve-ids.txt > out/cve-ids.capped.txt
           capped=$(wc -l < out/cve-ids.capped.txt | tr -d ' ')
           echo "capped=$capped" >> "$GITHUB_OUTPUT"
-          echo "Processing $capped (cap=${{ inputs.max_cves }})."
+          echo "Processing $capped (cap=$MAX_CVES)."
 
       - name: Poll + process each CVE
         env:
@@ -121,21 +127,8 @@ jobs:
             echo "$poll_out"
             action=$(echo "$poll_out" | jq -r '.action // "unknown"')
             if [[ "$action" == "written" ]]; then
-              process_out=$(nix develop --command python -c "
-import json, sys
-from pathlib import Path
-from agents.scout.graph_lookup import CannedGraphLookup, GraphMatch
-from agents.scout.processor import process_entry
-snap = json.loads(Path('$GRAPH_SNAPSHOT').read_text())
-graph = CannedGraphLookup([GraphMatch(
-    attr_path=r['attr_path'], drv_path=r['drv_path'], pname=r['pname'],
-    version=r['version'], cpes=tuple(r.get('cpes') or ()),
-    purls=tuple(r.get('purls') or ()),
-    src_url=r.get('src_url'), src_hash=r.get('src_hash'),
-) for r in snap])
-out = process_entry(Path('inbox/$cve_id'), graph=graph)
-print(json.dumps({'cve_id': out.cve_id, 'finding_status': out.finding_status, 'resolver_status': out.resolver_status}))
-")
+              export PROCESS_CVE_ID="$cve_id"
+              process_out=$(nix develop --command python -m agents.scout.process_cli)
               echo "$process_out"
               echo "$process_out" >> out/run-summary.jsonl
             else
@@ -145,6 +138,77 @@ print(json.dumps({'cve_id': out.cve_id, 'finding_status': out.finding_status, 'r
           done < out/cve-ids.capped.txt
           echo "Run summary:"
           cat out/run-summary.jsonl | jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})'
+
+      - name: Render step summary
+        if: always()
+        env:
+          LOOKBACK_HOURS: ${{ inputs.lookback_hours || '1' }}
+          DISCOVERED: ${{ steps.discover.outputs.total }}
+          PROCESSED: ${{ steps.discover.outputs.capped }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f out/run-summary.jsonl ]]; then
+            echo "## Scout cron run" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "_no run summary produced (job may have failed before the loop)._" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Merge poll + process records by cve_id (later writes win,
+          # which is what we want: process outcome supersedes the
+          # written-poll outcome).
+          jq -s 'group_by(.cve_id) | map(reduce .[] as $r ({}; . * $r))' \
+            out/run-summary.jsonl > out/merged.json
+
+          {
+            echo "## Scout cron run"
+            echo ""
+            echo "- Window: last \`${LOOKBACK_HOURS}\` hour(s)"
+            echo "- Discovered: **${DISCOVERED:-0}**"
+            echo "- Processed: **${PROCESSED:-0}**"
+            echo ""
+            echo "### Per-CVE outcomes"
+            echo ""
+            echo "| CVE | action | finding | resolver verdict | feed |"
+            echo "|-----|--------|---------|------------------|------|"
+            jq -r '
+              sort_by(.cve_id)[] |
+              "| `" + .cve_id + "` | " +
+              (.action // "-") + " | " +
+              (.finding_status // "-") + " | " +
+              (.resolver_status // "-") + " | " +
+              (.feed_used // "-") + " |"
+            ' out/merged.json
+            echo ""
+
+            echo "### Action breakdown"
+            echo ""
+            echo '```mermaid'
+            echo "pie showData title Poll actions"
+            jq -r '
+              group_by(.action) |
+              map(select(.[0].action != null)) |
+              .[] |
+              "    \"" + (.[0].action) + "\" : " + (length | tostring)
+            ' out/merged.json
+            echo '```'
+            echo ""
+
+            echo "### Resolver verdicts"
+            echo ""
+            echo '```mermaid'
+            echo "pie showData title Resolver verdicts"
+            jq -r '
+              group_by(.resolver_status) |
+              map(select(.[0].resolver_status != null)) |
+              .[] |
+              "    \"" + (.[0].resolver_status) + "\" : " + (length | tostring)
+            ' out/merged.json
+            # Mermaid refuses to render an empty pie; stub a no-op slice.
+            if ! jq -e 'any(.resolver_status != null)' out/merged.json > /dev/null; then
+              echo "    \"no findings\" : 1"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload inbox + run summary
         if: always()
