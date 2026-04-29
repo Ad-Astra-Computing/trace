@@ -9,7 +9,7 @@ Agent-owned nixpkgs fork for merge-ready CVE evidence bundles.
 * [docs/SEED_INDEX.md](docs/SEED_INDEX.md), one-page map of the eight real-CVE bundles in `traces/example/`: kind, provenance family, what each demonstrates.
 * [SPEC.md](SPEC.md), v0 design, rev 3 (22 April 2026).
 
-**Deep dives:** per-role contracts under [docs/](docs/) (`BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`), the append-only decision log at [docs/DECISIONS.md](docs/DECISIONS.md), and model-qualification methodology at [docs/MODEL_EVAL_PLAN.md](docs/MODEL_EVAL_PLAN.md).
+**Deep dives:** per-role contracts under [docs/](docs/) (`BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`), the append-only decision log at [docs/DECISIONS.md](docs/DECISIONS.md), and model-qualification methodology at [docs/MODEL_EVAL_PLAN.md](docs/MODEL_EVAL_PLAN.md). Tagged release notes live at [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 
