@@ -1,0 +1,94 @@
+name: scout-poll
+
+# Scout cron poller. Manual dispatch only at v0; once a graph-snapshot
+# builder lands and a CVE-discovery feed is wired in, this becomes the
+# hourly cron entrypoint.
+#
+# Inputs:
+#   cve_id           A CVE id (e.g. CVE-2024-13978) to poll.
+#   graph_snapshot   Path to a JSON graph snapshot in the repo (or an
+#                    artifact pulled in a future iteration). Optional;
+#                    defaults to a stub snapshot in fixtures/ for smoke.
+#
+# What it does:
+#   1. Fetches the dossier (cve.vulnpatch.dev). On 404 / decode-fail,
+#      falls back to NVD-direct.
+#   2. Normalizes via the matching feed normalizer.
+#   3. Filters against the graph snapshot for nixpkgs relevance.
+#   4. Writes <inbox>/<CVE-ID>/{scout-input,raw-<source>,fetch-meta,
+#      relevance}.json atomically. Idempotent.
+#
+# Exit codes (mirrored from agents.scout.poll_cli):
+#   0  written or skipped-irrelevant
+#   10 fetch-failed (both feeds 404 / transient)
+#   20 rate-limited
+#   64 usage error (bad CVE id / snapshot / args)
+#
+# NVD_API_KEY (optional secret): when present, lifts the NVD rate
+# limit. Anonymous-first; never required.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cve_id:
+        description: "CVE id to poll (e.g. CVE-2024-13978)"
+        required: true
+        type: string
+      graph_snapshot:
+        description: "Path to graph snapshot JSON in the repo"
+        required: false
+        type: string
+        default: "tests/scout/fixtures/graph-snapshot-smoke.json"
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    name: scout poll one cve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v20
+        with:
+          determinate: true
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          if [[ ! "${{ inputs.cve_id }}" =~ ^CVE-[0-9]{4}-[0-9]{4,19}$ ]]; then
+            echo "::error::cve_id must match CVE-YYYY-NNNN+: got '${{ inputs.cve_id }}'"
+            exit 64
+          fi
+          if [[ ! -f "${{ inputs.graph_snapshot }}" ]]; then
+            echo "::error::graph snapshot not found at ${{ inputs.graph_snapshot }}"
+            exit 64
+          fi
+
+      - name: Run Scout poller
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p inbox
+          nix develop --command python -m agents.scout.poll_cli \
+            "${{ inputs.cve_id }}" \
+            --graph-snapshot "${{ inputs.graph_snapshot }}" \
+            --inbox inbox \
+            | tee scout-poll.json
+          jq -e '.action != null' scout-poll.json > /dev/null
+
+      - name: Upload inbox entry as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inbox-${{ inputs.cve_id }}
+          path: |
+            inbox/${{ inputs.cve_id }}/
+            scout-poll.json
+          if-no-files-found: warn
+          retention-days: 7
