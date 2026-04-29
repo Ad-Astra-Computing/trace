@@ -190,6 +190,9 @@ def main(argv: list[str]) -> int:
                        help="override cve_id (default: read from upstream-ref.json)")
     b_fin.add_argument("--format", choices=("human", "json"), default="human")
 
+    from tools.trace_cli import verify as _verify_module
+    _verify_module.add_parser(b_subs)
+
     e = subs.add_parser("eval", help="cohort-level evaluation tooling")
     e_subs = e.add_subparsers(dest="eval_cmd", required=True)
     e_pr = e_subs.add_parser(
@@ -262,6 +265,10 @@ def main(argv: list[str]) -> int:
             return _cmd_bundle_assemble(args)
         if args.bundle_cmd == "finalize":
             return _cmd_bundle_finalize(args)
+        if args.bundle_cmd == "verify":
+            from tools.trace_cli import verify as _verify_module
+            from pathlib import Path as _Path
+            return _verify_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
         return EXIT_USAGE
     if args.cmd == "eval":
         if args.eval_cmd == "patch-rate":
