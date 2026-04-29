@@ -172,10 +172,22 @@ class AnthropicAdapter:
         sampling: dict[str, Any],
     ) -> ModelResponse:
         client = self._ensure_client()
+        # The system prompt is the role-stable prefix across every
+        # invocation in a corpus run; mark it for ephemeral caching so
+        # repeat calls within ~5 minutes hit the cached prefix at the
+        # ~90% input-token discount the API offers. User content varies
+        # per bundle and stays uncached. See `tests/patcher/
+        # test_adapter_prompt_caching.py` for the contract.
         kwargs: dict[str, Any] = {
             "model": self.model_id,
             "max_tokens": int(sampling.get("max_tokens", 8192)),
-            "system": system_prompt,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             "messages": [{"role": "user", "content": user_content}],
         }
         if self._model_drops_sampling():
