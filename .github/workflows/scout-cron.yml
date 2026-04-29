@@ -1,0 +1,136 @@
+name: scout-cron
+
+# Scout cron: discover -> poll -> process for every CVE published in
+# the chosen window. Manual dispatch at v0; once a real graph snapshot
+# builder lands, this becomes the hourly entrypoint.
+#
+# Inputs:
+#   lookback_hours   How far back to query NVD's pubStartDate. Default: 24.
+#   graph_snapshot   Path to a JSON graph snapshot in the repo. Default:
+#                    the libtiff smoke fixture (limits work to one attr).
+#   max_cves         Cap on per-run CVE count. Default: 50.
+#
+# Steps:
+#   1. discover_cli prints CVE ids one per line.
+#   2. For each (capped at max_cves): poll_cli writes inbox/<CVE>/...
+#      then a small inline process step calls process_entry to produce
+#      finding.json + resolver-input.json + upstream-ref.json.
+#   3. Inbox is uploaded as an artifact for inspection.
+#
+# Anonymous-first; NVD_API_KEY (optional secret) lifts rate limits.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: "How many hours back to query NVD"
+        required: false
+        type: number
+        default: 24
+      graph_snapshot:
+        description: "Path to graph snapshot JSON in the repo"
+        required: false
+        type: string
+        default: "tests/scout/fixtures/graph-snapshot-smoke.json"
+      max_cves:
+        description: "Cap on per-run CVE count (avoids surprise API spend)"
+        required: false
+        type: number
+        default: 50
+
+permissions:
+  contents: read
+
+jobs:
+  cron:
+    name: scout discover + poll + process
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v20
+        with:
+          determinate: true
+
+      - name: Validate snapshot
+        run: |
+          set -euo pipefail
+          if [[ ! -f "${{ inputs.graph_snapshot }}" ]]; then
+            echo "::error::graph snapshot not found at ${{ inputs.graph_snapshot }}"
+            exit 64
+          fi
+
+      - name: Discover CVEs
+        id: discover
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p inbox out
+          nix develop --command python -m agents.scout.discover_cli \
+            --lookback-hours "${{ inputs.lookback_hours }}" \
+            > out/cve-ids.txt
+          total=$(wc -l < out/cve-ids.txt | tr -d ' ')
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+          echo "Discovered $total CVE ids in the last ${{ inputs.lookback_hours }} hours."
+          head -n "${{ inputs.max_cves }}" out/cve-ids.txt > out/cve-ids.capped.txt
+          capped=$(wc -l < out/cve-ids.capped.txt | tr -d ' ')
+          echo "capped=$capped" >> "$GITHUB_OUTPUT"
+          echo "Processing $capped (cap=${{ inputs.max_cves }})."
+
+      - name: Poll + process each CVE
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          GRAPH_SNAPSHOT: ${{ inputs.graph_snapshot }}
+        run: |
+          set -euo pipefail
+          : > out/run-summary.jsonl
+          while read -r cve_id; do
+            [[ -z "$cve_id" ]] && continue
+            echo "::group::$cve_id"
+            poll_rc=0
+            poll_out=$(nix develop --command python -m agents.scout.poll_cli \
+              "$cve_id" \
+              --graph-snapshot "$GRAPH_SNAPSHOT" \
+              --inbox inbox) || poll_rc=$?
+            echo "$poll_out"
+            action=$(echo "$poll_out" | jq -r '.action // "unknown"')
+            if [[ "$action" == "written" ]]; then
+              process_out=$(nix develop --command python -c "
+import json, sys
+from pathlib import Path
+from agents.scout.graph_lookup import CannedGraphLookup, GraphMatch
+from agents.scout.processor import process_entry
+snap = json.loads(Path('$GRAPH_SNAPSHOT').read_text())
+graph = CannedGraphLookup([GraphMatch(
+    attr_path=r['attr_path'], drv_path=r['drv_path'], pname=r['pname'],
+    version=r['version'], cpes=tuple(r.get('cpes') or ()),
+    purls=tuple(r.get('purls') or ()),
+    src_url=r.get('src_url'), src_hash=r.get('src_hash'),
+) for r in snap])
+out = process_entry(Path('inbox/$cve_id'), graph=graph)
+print(json.dumps({'cve_id': out.cve_id, 'finding_status': out.finding_status, 'resolver_status': out.resolver_status}))
+")
+              echo "$process_out"
+              echo "$process_out" >> out/run-summary.jsonl
+            else
+              echo "$poll_out" >> out/run-summary.jsonl
+            fi
+            echo "::endgroup::"
+          done < out/cve-ids.capped.txt
+          echo "Run summary:"
+          cat out/run-summary.jsonl | jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})'
+
+      - name: Upload inbox + run summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scout-cron-${{ github.run_id }}
+          path: |
+            inbox/
+            out/
+          if-no-files-found: warn
+          retention-days: 14
