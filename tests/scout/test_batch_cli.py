@@ -160,6 +160,50 @@ def test_nvd_api_key_threaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert p.call_args.kwargs["nvd_api_key"] == "key-abc"
 
 
+def test_cpe_index_enriches_records_before_graph_built(tmp_path: Path) -> None:
+    """When --cpe-index is passed, snapshot records are enriched with
+    real CPEs before the GraphLookup is built. The enriched record is
+    what poll_one's graph parameter sees."""
+    snap, ids, inbox, out = _write_inputs(tmp_path, ["CVE-2024-1"])
+    cpe_index_path = tmp_path / "cpe-index.json"
+    cpe_index_path.write_text(json.dumps({
+        "libtiff": [
+            "cpe:2.3:a:libtiff:libtiff:4.7.0:*:*:*:*:*:*:*",
+            "cpe:2.3:a:libtiff:libtiff:4.6.0:*:*:*:*:*:*:*",
+        ]
+    }))
+    captured: dict[str, Any] = {}
+
+    def poll_capturing(cve_id: str, **kwargs: Any) -> PollOutcome:
+        captured["graph"] = kwargs["graph"]
+        return _poll(cve_id, "skipped-irrelevant")
+
+    with patch.object(batch_cli, "poll_one", side_effect=poll_capturing):
+        batch_cli.main([
+            "--cve-ids-file", str(ids),
+            "--graph-snapshot", str(snap),
+            "--inbox", str(inbox),
+            "--output-jsonl", str(out),
+            "--cpe-index", str(cpe_index_path),
+        ])
+
+    graph = captured["graph"]
+    assert graph.find_by_cpe("cpe:2.3:a:libtiff:libtiff:4.7.0:*:*:*:*:*:*:*"), \
+        "enrichment should have indexed the libtiff CPE"
+
+
+def test_missing_cpe_index_returns_usage(tmp_path: Path) -> None:
+    snap, ids, inbox, out = _write_inputs(tmp_path, ["CVE-2024-1"])
+    rc = batch_cli.main([
+        "--cve-ids-file", str(ids),
+        "--graph-snapshot", str(snap),
+        "--inbox", str(inbox),
+        "--output-jsonl", str(out),
+        "--cpe-index", str(tmp_path / "absent-cpe-index.json"),
+    ])
+    assert rc == 64
+
+
 def test_output_jsonl_parent_created(tmp_path: Path) -> None:
     snap, ids, inbox, _ = _write_inputs(tmp_path, ["CVE-2024-1"])
     nested = tmp_path / "nested" / "deep" / "out.jsonl"

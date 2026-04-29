@@ -128,6 +128,34 @@ jobs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
           echo "path=snapshot/nixpkgs-snapshot.json" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve CPE index (optional)
+        # Best-effort download of the latest scout-cpe-dictionary artifact.
+        # When present, batch_cli enriches snapshot records with real
+        # CPEs so Scout matches at cpe-exact (high confidence). When
+        # missing, the cron still runs fine via the cpe-product
+        # vendor-agnostic fallback.
+        id: cpe-index
+        if: steps.snapshot.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p cpe-index
+          run_id=$(gh run list --workflow=scout-cpe-dictionary.yml --status=success --limit 1 --json databaseId --jq '.[0].databaseId' || true)
+          if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+            echo "::notice::no successful scout-cpe-dictionary run yet; skipping CPE enrichment"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Downloading CPE index artifact from scout-cpe-dictionary run $run_id"
+          if ! gh run download "$run_id" --name cpe-index --dir cpe-index; then
+            echo "::warning::cpe-index artifact found (run $run_id) but download failed; falling back to cpe-product matching"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "path=cpe-index/cpe-index.json" >> "$GITHUB_OUTPUT"
+
       - name: Discover CVEs
         id: discover
         if: steps.snapshot.outputs.ready == 'true'
@@ -218,17 +246,26 @@ jobs:
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           GRAPH_SNAPSHOT: ${{ steps.snapshot.outputs.path }}
+          CPE_INDEX_READY: ${{ steps.cpe-index.outputs.ready }}
+          CPE_INDEX: ${{ steps.cpe-index.outputs.path }}
         run: |
           set -euo pipefail
           # batch_cli loops in-process so we pay the nix-shell + python
           # interpreter boot cost once instead of once per CVE.
           # Per-CVE exceptions are isolated: one bad fetch does not
           # stop the batch (those land as action=error in the JSONL).
+          # --cpe-index is optional; when present the snapshot is
+          # enriched with real CPEs so Scout matches at cpe-exact.
+          extra=()
+          if [[ "${CPE_INDEX_READY:-false}" == "true" ]]; then
+            extra+=("--cpe-index" "$CPE_INDEX")
+          fi
           nix develop --command python -m agents.scout.batch_cli \
             --cve-ids-file out/cve-ids.capped.txt \
             --graph-snapshot "$GRAPH_SNAPSHOT" \
             --inbox inbox \
-            --output-jsonl out/run-summary.jsonl
+            --output-jsonl out/run-summary.jsonl \
+            "${extra[@]}"
           echo "Run summary:"
           jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})' out/run-summary.jsonl
 
