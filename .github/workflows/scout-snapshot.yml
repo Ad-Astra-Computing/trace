@@ -1,0 +1,73 @@
+name: scout-snapshot
+
+# Build a nixpkgs graph snapshot via `nix-env -qaP --json` and upload
+# it as an artifact. Other workflows (scout-cron, scout-poll) download
+# this artifact instead of relying on a hand-written smoke fixture.
+#
+# Triggers:
+#   * workflow_dispatch: on demand.
+#   * schedule: daily at 06:13 UTC. nixpkgs-unstable churns
+#     constantly; a 24-hour-fresh snapshot is enough for CVE-relevance
+#     filtering and is cheap to build.
+#
+# Cost shape: nix-env -qaP --json against nixpkgs takes 5-15 minutes
+# of CPU on the GitHub runner; the resulting JSON is ~30-50 MB.
+# Artifact retention defaults to 14 days (gh-actions default for
+# artifact downloads).
+#
+# This workflow does NOT push the snapshot to the repo. Snapshots are
+# build artifacts, not source. The cron workflow downloads the latest
+# artifact at run time.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "13 6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: nixpkgs graph snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v20
+        with:
+          determinate: true
+
+      - name: Build snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          nix develop --command python -m agents.scout.snapshot_cli \
+            --out out/nixpkgs-snapshot.json
+          attrs=$(jq 'length' out/nixpkgs-snapshot.json)
+          size=$(wc -c < out/nixpkgs-snapshot.json | tr -d ' ')
+          echo "Built snapshot with $attrs attrs ($size bytes)."
+          echo "attrs=$attrs" >> "$GITHUB_OUTPUT"
+
+      - name: Sanity check
+        run: |
+          set -euo pipefail
+          # Snapshot must contain attrs we know nixpkgs ships unconditionally.
+          for required in libtiff openssl curl; do
+            if ! jq -e --arg p "$required" 'any(.[]; .pname == $p)' out/nixpkgs-snapshot.json > /dev/null; then
+              echo "::error::snapshot missing required pname '$required'; aborting"
+              exit 1
+            fi
+          done
+          echo "Sanity check passed."
+
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: nixpkgs-snapshot
+          path: out/nixpkgs-snapshot.json
+          if-no-files-found: error
+          retention-days: 30
