@@ -19,3 +19,7 @@ __pycache__/
 /scratch/
 /scratch-*/
 /eval-runs/
+
+# Scout inbox — local cron writes one dir per CVE; replay-critical bytes
+# but not source-controlled artifacts.
+/inbox/
