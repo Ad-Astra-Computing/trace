@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/steward-decision-schema.json",
+  "title": "trace steward decision",
+  "description": "Routing decision emitted by the Scout-level Steward agent. Classifies an inbox entry into one of four states with machine-readable reason codes. The pre-merge gate (policy/steward.rego) operates on a fully-assembled bundle and is a separate evaluator; this artifact only records the routing classification.",
+  "type": "object",
+  "required": ["schema_version", "cve_id", "decided_at", "state", "reason_codes", "evaluator", "policy_sha256", "inputs_summary"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
+    "decided_at": { "type": "string", "format": "date-time" },
+    "state": {
+      "type": "string",
+      "enum": ["auto-merge-eligible", "human-review-required", "advisory-only", "reject"]
+    },
+    "reason_codes": {
+      "description": "Stable, machine-readable classification codes. Each code is either a bare slug (e.g. 'mapping-failure', 'eligible-high-confidence', 'no-actionable-input') or prefix:detail (e.g. 'upstream-ref-requires-human-review:major-version-jump'). Callers can group on the prefix for metrics.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "evaluator": {
+      "description": "Identifier of the policy evaluator. Format: 'opa-rego/<query>' for the v0 Steward.",
+      "type": "string",
+      "pattern": "^opa-rego/"
+    },
+    "policy_sha256": {
+      "description": "sha256 of the rego file consulted; replay attribution.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "inputs_summary": {
+      "description": "Compact echo of the policy inputs that drove this decision. Lets downstream metrics group by resolver verdict / trigger / confidence without re-reading the source files.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_status"],
+      "properties": {
+        "finding_status": {
+          "type": "string",
+          "enum": ["finding", "mapping-failure", "absent"]
+        },
+        "resolver_verdict": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string" }
+          ]
+        },
+        "resolver_trigger": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string" }
+          ]
+        },
+        "confidence_high_only": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "boolean" }
+          ]
+        }
+      }
+    }
+  }
+}
