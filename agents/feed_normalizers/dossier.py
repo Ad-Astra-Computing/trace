@@ -89,6 +89,10 @@ def normalize(
     if pname_hints:
         out["pname_hints"] = pname_hints
 
+    bounds = _extract_version_bounds(sources)
+    if bounds:
+        out["version_bounds"] = bounds
+
     return out
 
 
@@ -226,6 +230,64 @@ def _derive_pname_hints(cpe_matches: list[dict[str, str]]) -> list[str]:
         seen.add(product)
         hints.append(product)
     return hints
+
+
+_FIX_KIND_KEYS = ("lessThan", "lessThanOrEqual", "versionEndExcluding", "versionEndIncluding")
+
+
+def _extract_version_bounds(sources: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lift CVE-list-v5 affected[].versions[] entries to scout-input
+    version_bounds. Conservative: only status=affected, only semver,
+    and the source form (lessThan vs lessThanOrEqual) is preserved
+    distinctly so the processor can decide whether to synthesize a
+    candidate target_version. Multiple distinct fix-bounds for the
+    same product are surfaced as separate entries; the resolver picks
+    smallest-upgrade or routes to human review.
+    """
+    cve_list_v5 = sources.get("cve_list_v5")
+    if not isinstance(cve_list_v5, dict):
+        return []
+    bounds: list[dict[str, Any]] = []
+    for affected in cve_list_v5.get("affected") or []:
+        if not isinstance(affected, dict):
+            continue
+        product = (affected.get("product") or "").strip().lower()
+        if not product:
+            continue
+        for entry in affected.get("versions") or []:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("status") != "affected":
+                continue
+            if entry.get("versionType") != "semver":
+                continue
+            fixed_kind, fixed = _pick_fix_signal(entry)
+            if not fixed_kind:
+                continue
+            bound: dict[str, Any] = {
+                "product": product,
+                "fixed": fixed,
+                "fixed_kind": fixed_kind,
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            }
+            introduced = entry.get("version")
+            if isinstance(introduced, str) and introduced:
+                bound["introduced"] = introduced
+            bounds.append(bound)
+    return bounds
+
+
+def _pick_fix_signal(entry: dict[str, Any]) -> tuple[str | None, str]:
+    """Return the first fix-bound key that's set on this version entry.
+    Each version entry typically carries exactly one of these; if more
+    than one is present we honour the first matched key in declaration
+    order to keep behaviour deterministic."""
+    for key in _FIX_KIND_KEYS:
+        v = entry.get(key)
+        if isinstance(v, str) and v:
+            return key, v
+    return None, ""
 
 
 def _pname_hints_from_packages(canonical: dict[str, Any]) -> list[str]:
