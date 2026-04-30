@@ -88,6 +88,21 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
+    if chosen["version"] == current_version:
+        return _eligible_requires_human_review(
+            cve_id=cve_id,
+            current_version=current_version,
+            chosen=chosen,
+            fix_tier=_classify_tier(current_version, chosen, input_doc),
+            trigger="no-target-version-derived",
+            verdict_reason=(
+                "candidate target_version equals current_version; "
+                "no real upgrade was derived from the advisory. "
+                "Auto-merge would produce a no-op patch. Human must "
+                "confirm the actual fix version."
+            ),
+        )
+
     tier = _classify_tier(current_version, chosen, input_doc)
     if tier == "major-version-jump":
         return _eligible_requires_human_review(

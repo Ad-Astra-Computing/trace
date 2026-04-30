@@ -233,6 +233,7 @@ def _derive_pname_hints(cpe_matches: list[dict[str, str]]) -> list[str]:
 
 
 _FIX_KIND_KEYS = ("lessThan", "lessThanOrEqual", "versionEndExcluding", "versionEndIncluding")
+_RANGE_PART_RE = re.compile(r"^\s*(<=|>=|<|>|==|=)?\s*([0-9][0-9A-Za-z.\-+]*)\s*$")
 
 
 def _extract_version_bounds(sources: dict[str, Any]) -> list[dict[str, Any]]:
@@ -259,23 +260,79 @@ def _extract_version_bounds(sources: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             if entry.get("status") != "affected":
                 continue
-            if entry.get("versionType") != "semver":
+            structured = _structured_bound(product, entry)
+            if structured is not None:
+                bounds.append(structured)
                 continue
-            fixed_kind, fixed = _pick_fix_signal(entry)
-            if not fixed_kind:
-                continue
-            bound: dict[str, Any] = {
-                "product": product,
-                "fixed": fixed,
-                "fixed_kind": fixed_kind,
-                "version_type": "semver",
-                "source": "cve_list_v5",
-            }
-            introduced = entry.get("version")
-            if isinstance(introduced, str) and introduced:
-                bound["introduced"] = introduced
-            bounds.append(bound)
+            free_text = _free_text_bound(product, entry)
+            if free_text is not None:
+                bounds.append(free_text)
     return bounds
+
+
+def _structured_bound(product: str, entry: dict[str, Any]) -> dict[str, Any] | None:
+    if entry.get("versionType") != "semver":
+        return None
+    fixed_kind, fixed = _pick_fix_signal(entry)
+    if not fixed_kind:
+        return None
+    bound: dict[str, Any] = {
+        "product": product,
+        "fixed": fixed,
+        "fixed_kind": fixed_kind,
+        "version_type": "semver",
+        "source": "cve_list_v5",
+    }
+    introduced = entry.get("version")
+    if isinstance(introduced, str) and introduced:
+        bound["introduced"] = introduced
+    return bound
+
+
+def _free_text_bound(product: str, entry: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse free-text ranges in the `version` field (e.g. '< 1.17.2',
+    '>= 0.32.0, < 0.43.4'). Returns a single bound shaped like the
+    structured path. Conservative: skip when no upper-bound operator
+    can be parsed (treats unrecognized strings like 'all versions' as
+    'no signal' rather than guessing)."""
+    raw = entry.get("version")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    upper_kind: str | None = None
+    upper_value: str | None = None
+    introduced: str | None = None
+    for part in raw.split(","):
+        m = _RANGE_PART_RE.match(part)
+        if not m:
+            return None
+        op = m.group(1) or "="
+        val = m.group(2)
+        if op == "<":
+            upper_kind, upper_value = "lessThan", val
+        elif op == "<=":
+            upper_kind, upper_value = "lessThanOrEqual", val
+        elif op == ">=":
+            introduced = val
+        elif op == ">":
+            # Strict-greater-than is rare; record as introduced for
+            # information; processor only uses it for the in-scope
+            # check, not the candidate version.
+            introduced = val
+        else:
+            # bare or = pinned; treat as introduced
+            introduced = val
+    if upper_kind is None or upper_value is None:
+        return None
+    bound: dict[str, Any] = {
+        "product": product,
+        "fixed": upper_value,
+        "fixed_kind": upper_kind,
+        "version_type": "semver",
+        "source": "cve_list_v5",
+    }
+    if introduced is not None:
+        bound["introduced"] = introduced
+    return bound
 
 
 def _pick_fix_signal(entry: dict[str, Any]) -> tuple[str | None, str]:

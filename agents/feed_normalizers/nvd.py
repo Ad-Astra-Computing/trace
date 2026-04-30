@@ -77,7 +77,56 @@ def normalize(cve: dict[str, Any]) -> dict[str, Any]:
     if pname_hints:
         out["pname_hints"] = pname_hints
 
+    bounds = _extract_version_bounds(cve)
+    if bounds:
+        out["version_bounds"] = bounds
+
     return out
+
+
+def _extract_version_bounds(cve: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lift configurations[].nodes[].cpeMatch[].versionEndExcluding /
+    versionEndIncluding to scout-input version_bounds. The cpe-product
+    field of the matched CPE supplies the bound's product key."""
+    bounds: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for cfg in cve.get("configurations") or []:
+        for node in cfg.get("nodes") or []:
+            for match in node.get("cpeMatch") or []:
+                if not match.get("vulnerable"):
+                    continue
+                criteria = match.get("criteria") or ""
+                m = _CPE_PRODUCT_RE.match(criteria)
+                if not m:
+                    continue
+                product = m.group(1).lower()
+                if product in {"*", "-"}:
+                    continue
+                kind: str | None = None
+                value: str | None = None
+                if isinstance(match.get("versionEndExcluding"), str):
+                    kind, value = "versionEndExcluding", match["versionEndExcluding"]
+                elif isinstance(match.get("versionEndIncluding"), str):
+                    kind, value = "versionEndIncluding", match["versionEndIncluding"]
+                if not kind or not value:
+                    continue
+                key = (product, kind, value)
+                if key in seen:
+                    continue
+                seen.add(key)
+                bound: dict[str, Any] = {
+                    "product": product,
+                    "fixed": value,
+                    "fixed_kind": kind,
+                    "version_type": "semver",
+                    "source": "nvd_configurations",
+                }
+                if isinstance(match.get("versionStartIncluding"), str):
+                    bound["introduced"] = match["versionStartIncluding"]
+                elif isinstance(match.get("versionStartExcluding"), str):
+                    bound["introduced"] = match["versionStartExcluding"]
+                bounds.append(bound)
+    return bounds
 
 
 def _extract_summary(cve: dict[str, Any]) -> str:

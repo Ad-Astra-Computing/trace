@@ -88,4 +88,5 @@ def test_resolver_covers_every_verdict_enum_relevant_to_v0(upstream_ref_validato
         "ambiguous-changelog",
         "large-sbom-delta",
         "ambiguous-fixed-version",
+        "no-target-version-derived",
     }, f"missing human_review_trigger coverage: {triggers_seen}"

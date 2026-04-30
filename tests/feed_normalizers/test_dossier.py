@@ -296,6 +296,61 @@ def test_version_bounds_multiple_products_each_carry_their_bound() -> None:
     assert products == {"foo": "1.2.0", "bar": "3.0.0"}
 
 
+def test_version_bounds_parses_free_text_less_than() -> None:
+    """Many CVE-list-v5 entries encode the range as free text in the
+    `version` field (e.g. '< 1.17.2') rather than via the structured
+    lessThan key. Without parsing this, kyverno-shape advisories never
+    surface a target version and the resolver falls back to placeholder."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "kyverno", "product": "kyverno",
+        "versions": [{"version": "< 1.17.2", "status": "affected"}],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert bounds[0]["fixed"] == "1.17.2"
+    assert bounds[0]["fixed_kind"] == "lessThan"
+
+
+def test_version_bounds_parses_compound_free_text_range() -> None:
+    """'>= 0.32.0, < 0.43.4' should yield a bound with fixed=0.43.4
+    and introduced=0.32.0 (the lower bound becomes 'introduced')."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "chainguard-dev", "product": "melange",
+        "versions": [{"version": ">= 0.32.0, < 0.43.4", "status": "affected"}],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert bounds[0]["fixed"] == "0.43.4"
+    assert bounds[0]["fixed_kind"] == "lessThan"
+    assert bounds[0]["introduced"] == "0.32.0"
+
+
+def test_version_bounds_free_text_less_than_or_equal() -> None:
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "y",
+        "versions": [{"version": "<= 2.0.0", "status": "affected"}],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert bounds[0]["fixed"] == "2.0.0"
+    assert bounds[0]["fixed_kind"] == "lessThanOrEqual"
+
+
+def test_version_bounds_free_text_falls_back_when_unparseable() -> None:
+    """Free text we can't confidently parse (e.g. 'all versions',
+    git ranges) skips emission rather than guessing."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "y",
+        "versions": [{"version": "all versions", "status": "affected"}],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    assert "version_bounds" not in out or out["version_bounds"] == []
+
+
 def test_version_bounds_omitted_when_no_cve_list_v5() -> None:
     data = {
         "cveId": "CVE-2024-13978",
