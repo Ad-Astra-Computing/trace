@@ -142,6 +142,80 @@ def test_pname_hints_derived_from_cpes_when_available() -> None:
     assert "libtiff" in hints, f"expected 'libtiff' in pname_hints, got {hints!r}"
 
 
+def test_version_bounds_extracted_from_versionEndExcluding() -> None:
+    """NVD's configurations[].nodes[].cpeMatch[].versionEndExcluding
+    encodes the upstream fix version. Without lifting it to
+    version_bounds, scan can't gate on advisory range and the
+    resolver target falls back to the placeholder = current_version."""
+    cve = {
+        "id": "CVE-2099-9001",
+        "published": "2026-04-30T00:00:00Z",
+        "descriptions": [{"lang": "en", "value": "x"}],
+        "configurations": [{
+            "nodes": [{
+                "operator": "OR",
+                "cpeMatch": [{
+                    "vulnerable": True,
+                    "criteria": "cpe:2.3:a:frappe:press:*:*:*:*:*:*:*:*",
+                    "versionEndExcluding": "0.9.0",
+                }],
+            }],
+        }],
+    }
+    output = normalize_nvd(cve)
+    bounds = output.get("version_bounds", [])
+    assert bounds, "NVD versionEndExcluding must populate version_bounds"
+    b = bounds[0]
+    assert b["product"] == "press"
+    assert b["fixed"] == "0.9.0"
+    assert b["fixed_kind"] == "versionEndExcluding"
+    assert b["source"] == "nvd_configurations"
+
+
+def test_version_bounds_extracted_from_versionEndIncluding() -> None:
+    cve = {
+        "id": "CVE-2099-9002",
+        "published": "2026-04-30T00:00:00Z",
+        "descriptions": [{"lang": "en", "value": "x"}],
+        "configurations": [{
+            "nodes": [{
+                "operator": "OR",
+                "cpeMatch": [{
+                    "vulnerable": True,
+                    "criteria": "cpe:2.3:a:x:y:*:*:*:*:*:*:*:*",
+                    "versionEndIncluding": "1.4.5",
+                }],
+            }],
+        }],
+    }
+    output = normalize_nvd(cve)
+    b = output["version_bounds"][0]
+    assert b["fixed"] == "1.4.5"
+    assert b["fixed_kind"] == "versionEndIncluding"
+
+
+def test_version_bounds_omitted_when_no_end_field() -> None:
+    """A cpeMatch with only versionStart and no end is a 'no fix yet'
+    signal; emit no bound."""
+    cve = {
+        "id": "CVE-2099-9003",
+        "published": "2026-04-30T00:00:00Z",
+        "descriptions": [{"lang": "en", "value": "x"}],
+        "configurations": [{
+            "nodes": [{
+                "operator": "OR",
+                "cpeMatch": [{
+                    "vulnerable": True,
+                    "criteria": "cpe:2.3:a:x:y:*:*:*:*:*:*:*:*",
+                    "versionStartIncluding": "1.0.0",
+                }],
+            }],
+        }],
+    }
+    output = normalize_nvd(cve)
+    assert "version_bounds" not in output or output["version_bounds"] == []
+
+
 def test_no_cve_id_rejected() -> None:
     cve = {
         "id": "GHSA-xyz",  # not a CVE
