@@ -45,7 +45,23 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
             verdict_reason="resolver received no candidate upstream refs",
         )
 
-    chosen = _pick_smallest_upgrade(current_version, candidates)
+    upgrade_candidates = [
+        c for c in candidates
+        if _is_upgrade_or_unparseable(current_version, c["version"])
+    ]
+    if not upgrade_candidates:
+        return _ineligible(
+            cve_id=cve_id,
+            current_version=current_version,
+            verdict="ineligible-no-fix-available",
+            verdict_reason=(
+                "every candidate target_version is <= current_version; "
+                "the advisory has no upstream fix on the current major/minor "
+                "line. Either downgrade is required (forbidden by auto-merge) "
+                "or the package is already past the affected range."
+            ),
+        )
+    chosen = _pick_smallest_upgrade(current_version, upgrade_candidates)
 
     if chosen.get("requires_review_reason") == "ambiguous-fixed-version":
         return _eligible_requires_human_review(
@@ -162,6 +178,20 @@ def _pick_smallest_upgrade(current: str, candidates: list[dict[str, Any]]) -> di
     # Prefer the candidate whose semver distance from `current` is smallest.
     # Ties broken by original order, which preserves caller-supplied priority.
     return min(candidates, key=lambda c: _semver_distance(current, c["version"]))
+
+
+def _is_upgrade_or_unparseable(current: str, target: str) -> bool:
+    """True iff target >= current under semver, OR either side is
+    unparseable. Equality is preserved so the existing
+    no-target-version-derived safety net catches it; only strict
+    downgrades (target < current) get filtered out, since auto-merging
+    a downgrade is unsafe."""
+    try:
+        c = _parse_semver(current)
+        t = _parse_semver(target)
+    except ValueError:
+        return True
+    return t >= c
 
 
 # ─── output builders ─────────────────────────────────────────────────────────

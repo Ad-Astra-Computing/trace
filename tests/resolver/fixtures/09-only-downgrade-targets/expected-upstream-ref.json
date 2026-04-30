@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-0000-1009",
+  "current_version": "2.0.0",
+  "eligibility": {
+    "verdict": "ineligible-no-fix-available",
+    "verdict_reason": "every candidate target_version is <= current_version; the advisory has no upstream fix on the current major/minor line. Either downgrade is required (forbidden by auto-merge) or the package is already past the affected range."
+  },
+  "replay_critical": true
+}
