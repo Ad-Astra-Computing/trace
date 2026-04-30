@@ -37,6 +37,7 @@ from agents.scout.graph_lookup import CannedGraphLookup
 from agents.scout.poller import poll_one
 from agents.scout.processor import process_entry
 from agents.scout.snapshot_builder import snapshot_from_json
+from agents.steward.agent import OpaUnavailable, route_inbox_entry
 
 
 _EXIT_OK = 0
@@ -149,6 +150,20 @@ def _process_one(
 
     base["finding_status"] = process.finding_status
     base["resolver_status"] = process.resolver_status
+
+    # Steward: route the freshly-processed entry into one of four states.
+    # OpaUnavailable surfaces as a per-CVE error so the batch keeps going;
+    # all other steward exceptions are similarly isolated.
+    try:
+        decision = route_inbox_entry(poll.entry_path)
+        base["steward_state"] = decision["state"]
+        base["steward_reasons"] = decision["reason_codes"]
+    except OpaUnavailable as e:
+        base["steward_state"] = None
+        base["steward_error"] = f"opa-unavailable: {e}"
+    except Exception as e:
+        base["steward_state"] = None
+        base["steward_error"] = f"steward exception: {e}"
     return base
 
 
