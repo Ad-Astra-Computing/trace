@@ -104,6 +104,20 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
+    if _is_pre_release(chosen["version"]):
+        return _eligible_requires_human_review(
+            cve_id=cve_id,
+            current_version=current_version,
+            chosen=chosen,
+            fix_tier=_classify_tier(current_version, chosen, input_doc),
+            trigger="pre-release-target",
+            verdict_reason=(
+                "candidate target_version is a pre-release (alpha/beta/"
+                "rc/dev/etc.); auto-merging to an unstable upstream is "
+                "forbidden without explicit human sign-off."
+            ),
+        )
+
     if chosen["version"] == current_version:
         return _eligible_requires_human_review(
             cve_id=cve_id,
@@ -178,6 +192,17 @@ def _pick_smallest_upgrade(current: str, candidates: list[dict[str, Any]]) -> di
     # Prefer the candidate whose semver distance from `current` is smallest.
     # Ties broken by original order, which preserves caller-supplied priority.
     return min(candidates, key=lambda c: _semver_distance(current, c["version"]))
+
+
+_PRE_RELEASE_RE = re.compile(r"[-+](?:rc|alpha|beta|dev|pre|preview|nightly|snapshot|m\d|a\d|b\d)", re.IGNORECASE)
+
+
+def _is_pre_release(version: str) -> bool:
+    """Detect pre-release / unstable target versions. Conservative: any
+    semver build that names a pre-release identifier (rc, alpha, beta,
+    dev, preview, nightly, snapshot, m, a, b) after the base triple is
+    treated as unstable. Plain semver like 1.2.3 is not."""
+    return bool(_PRE_RELEASE_RE.search(version))
 
 
 def _is_upgrade_or_unparseable(current: str, target: str) -> bool:
