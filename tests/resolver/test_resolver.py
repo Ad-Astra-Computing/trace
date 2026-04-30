@@ -87,4 +87,5 @@ def test_resolver_covers_every_verdict_enum_relevant_to_v0(upstream_ref_validato
         "major-version-jump",
         "ambiguous-changelog",
         "large-sbom-delta",
+        "ambiguous-fixed-version",
     }, f"missing human_review_trigger coverage: {triggers_seen}"

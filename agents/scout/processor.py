@@ -143,16 +143,19 @@ def _extract_candidate_refs(
     # for the matched pname. lessThan / versionEndExcluding mean "the
     # fix landed at this version" so we can synthesize a real candidate
     # target. lessThanOrEqual / versionEndIncluding need next-semver
-    # math we don't have yet, so they fall through to the placeholder.
-    target_versions = _derive_target_versions(
-        scout_input.get("version_bounds") or [],
-        matched_pname=matched_pname,
-    )
+    # math we don't have yet, so they surface as a placeholder candidate
+    # flagged with requires_review_reason for the resolver.
+    bounds = scout_input.get("version_bounds") or []
+    target_versions = _derive_target_versions(bounds, matched_pname=matched_pname)
+    bounds_for_product = _bounds_for_pname(bounds, matched_pname=matched_pname)
+
+    flagged_ambiguous = bool(bounds_for_product) and not target_versions
     if not target_versions:
         target_versions = [current_version]  # placeholder = current_version
 
-    return [
-        {
+    out: list[dict[str, Any]] = []
+    for v in target_versions:
+        ref: dict[str, Any] = {
             "version": v,
             "release_url": first_commit_url,
             "advisory_urls": advisory_urls,
@@ -166,8 +169,21 @@ def _extract_candidate_refs(
             },
             "tier_hint": "security-patch-release",
         }
-        for v in target_versions
-    ]
+        if flagged_ambiguous:
+            ref["requires_review_reason"] = "ambiguous-fixed-version"
+        out.append(ref)
+    return out
+
+
+def _bounds_for_pname(
+    bounds: list[dict[str, Any]],
+    *,
+    matched_pname: str,
+) -> list[dict[str, Any]]:
+    if not matched_pname:
+        return []
+    pname_lc = matched_pname.lower()
+    return [b for b in bounds if b.get("product") == pname_lc]
 
 
 def _derive_target_versions(

@@ -261,7 +261,7 @@
         "human_review_trigger": {
           "description": "Required when verdict == eligible-requires-human-review. Which rule forced human review.",
           "type": "string",
-          "enum": ["major-version-jump", "large-sbom-delta", "ambiguous-changelog"]
+          "enum": ["major-version-jump", "large-sbom-delta", "ambiguous-changelog", "ambiguous-fixed-version"]
         }
       },
       "allOf": [

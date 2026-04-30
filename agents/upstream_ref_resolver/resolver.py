@@ -47,6 +47,21 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
 
     chosen = _pick_smallest_upgrade(current_version, candidates)
 
+    if chosen.get("requires_review_reason") == "ambiguous-fixed-version":
+        return _eligible_requires_human_review(
+            cve_id=cve_id,
+            current_version=current_version,
+            chosen=chosen,
+            fix_tier=_classify_tier(current_version, chosen, input_doc),
+            trigger="ambiguous-fixed-version",
+            verdict_reason=(
+                "candidate fix commit has no derivable target version "
+                "(lessThanOrEqual / versionEndIncluding bound without "
+                "next-semver math); human must confirm the actual fix "
+                "version"
+            ),
+        )
+
     if chosen.get("delta", {}).get("crosses_large_delta_threshold"):
         return _eligible_requires_human_review(
             cve_id=cve_id,
