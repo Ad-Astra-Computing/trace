@@ -170,6 +170,158 @@ def test_falls_back_to_ghsa_when_nvd_absent() -> None:
     assert out["feed"] in {"ghsa", "osv"}
 
 
+def _dossier_with_cve_list_v5_affected(affected: list[dict[str, Any]]) -> dict[str, Any]:
+    """Minimal dossier shape carrying only the fields the normalizer
+    needs to test version_bounds extraction."""
+    return {
+        "cveId": "CVE-2026-42615",
+        "canonical": {
+            "id": "CVE-2026-42615",
+            "publishedAt": "2026-04-29T02:55:53.171Z",
+            "description": "test",
+            "severity": "high",
+        },
+        "sources": {
+            "cve_list_v5": {
+                "id": "CVE-2026-42615",
+                "datePublished": "2026-04-29T02:55:53.171Z",
+                "affected": affected,
+            },
+        },
+    }
+
+
+def _normalize(data: dict[str, Any]) -> dict[str, Any]:
+    raw = json.dumps({"data": data}).encode()
+    return normalize_dossier(
+        data,
+        request_url="https://api.vulnpatch.dev/api/v1/cve/x/dossier",
+        fetched_at="2026-04-29T00:00:00Z",
+        raw_response_bytes=raw,
+    )
+
+
+def test_version_bounds_extracted_from_cve_list_v5_lessThan() -> None:
+    """The CyberChef regression case: cve_list_v5 affected[].versions[]
+    carries lessThan=11.0.0 meaning the fix landed at v11.0.0. The
+    normalizer must lift this to scout-input so the resolver doesn't
+    fall back to the bare-commit placeholder."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "GCHQ",
+        "product": "CyberChef",
+        "versions": [{
+            "version": "0",
+            "status": "affected",
+            "lessThan": "11.0.0",
+            "versionType": "semver",
+        }],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out.get("version_bounds", [])
+    assert bounds, "version_bounds must be lifted from cve_list_v5"
+    b = bounds[0]
+    assert b["product"] == "cyberchef"  # lowercased to align with pname
+    assert b["fixed"] == "11.0.0"
+    assert b["fixed_kind"] == "lessThan"
+    assert b["version_type"] == "semver"
+    assert b["source"] == "cve_list_v5"
+    assert b.get("introduced") == "0"
+
+
+def test_version_bounds_lessThanOrEqual_preserved_distinctly() -> None:
+    """lessThanOrEqual is NOT the same as lessThan. The processor needs
+    to know which was given so it can decide whether to synthesize a
+    candidate target_version (lessThan: yes) or fall back (lessThanOrEqual:
+    needs next-semver math we don't have yet)."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [{"version": "1.0.0", "status": "affected",
+                      "lessThanOrEqual": "1.4.5", "versionType": "semver"}],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert bounds[0]["fixed_kind"] == "lessThanOrEqual"
+    assert bounds[0]["fixed"] == "1.4.5"
+
+
+def test_version_bounds_skips_unaffected_status() -> None:
+    """Only status=affected entries are bounds for fix-version derivation."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected", "lessThan": "2.0.0",
+             "versionType": "semver"},
+            {"version": "2.0.0", "status": "unaffected",
+             "versionType": "semver"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert len(bounds) == 1
+    assert bounds[0]["fixed"] == "2.0.0"
+
+
+def test_version_bounds_skips_non_semver_version_types() -> None:
+    """v0 only handles semver. Custom/git/rpm types pass through with no
+    bound emitted; the placeholder path takes over."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [{"version": "0", "status": "affected",
+                      "lessThan": "abc-1.2", "versionType": "custom"}],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    assert "version_bounds" not in out or out["version_bounds"] == []
+
+
+def test_version_bounds_multiple_products_each_carry_their_bound() -> None:
+    """Multi-product CVEs: each affected product gets its own bound;
+    processor filters by matched pname."""
+    data = _dossier_with_cve_list_v5_affected([
+        {"vendor": "x", "product": "Foo",
+         "versions": [{"version": "0", "status": "affected",
+                       "lessThan": "1.2.0", "versionType": "semver"}],
+         "cpes": []},
+        {"vendor": "y", "product": "Bar",
+         "versions": [{"version": "0", "status": "affected",
+                       "lessThan": "3.0.0", "versionType": "semver"}],
+         "cpes": []},
+    ])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    products = {b["product"]: b["fixed"] for b in bounds}
+    assert products == {"foo": "1.2.0", "bar": "3.0.0"}
+
+
+def test_version_bounds_omitted_when_no_cve_list_v5() -> None:
+    data = {
+        "cveId": "CVE-2024-13978",
+        "canonical": {
+            "id": "CVE-2024-13978",
+            "publishedAt": "2024-09-01T00:00:00Z",
+            "description": "x",
+        },
+        "sources": {},
+    }
+    out = _normalize(data)
+    assert "version_bounds" not in out
+
+
+def test_version_bounds_output_validates(scout_input_validator: Draft202012Validator) -> None:
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "GCHQ", "product": "CyberChef",
+        "versions": [{"version": "0", "status": "affected",
+                      "lessThan": "11.0.0", "versionType": "semver"}],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    errors = sorted(scout_input_validator.iter_errors(out), key=lambda e: e.path)
+    assert not errors, [str(e) for e in errors[:3]]
+
+
 def test_no_cve_id_rejected() -> None:
     bad = {
         "cveId": "GHSA-xyz",

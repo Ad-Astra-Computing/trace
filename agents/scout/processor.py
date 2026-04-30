@@ -95,7 +95,11 @@ def _build_resolver_input(
     scout_input: dict[str, Any],
 ) -> dict[str, Any]:
     affected = finding["affected"][0]
-    candidate_refs = _extract_candidate_refs(scout_input, affected["version"])
+    candidate_refs = _extract_candidate_refs(
+        scout_input,
+        current_version=affected["version"],
+        matched_pname=affected.get("pname") or "",
+    )
     return {
         "cve_id": finding["cve_id"],
         "current_version": affected["version"],
@@ -104,9 +108,14 @@ def _build_resolver_input(
     }
 
 
+_FIX_KIND_SYNTHESIZE = {"lessThan", "versionEndExcluding"}
+
+
 def _extract_candidate_refs(
     scout_input: dict[str, Any],
+    *,
     current_version: str,
+    matched_pname: str,
 ) -> list[dict[str, Any]]:
     references = scout_input.get("references") or []
     advisory_urls = [
@@ -130,24 +139,62 @@ def _extract_candidate_refs(
     if not fix_commits:
         return []
 
-    return [{
-        # No version is known from a bare commit ref; the current version
-        # is a v0 placeholder that keeps the resolver's semver math
-        # tractable. A future slice (changelog scraping) populates the
-        # real fix version + release URL.
-        "version": current_version,
-        "release_url": first_commit_url,
-        "advisory_urls": advisory_urls,
-        "upstream_fix_commits": fix_commits,
-        "delta": {
-            "transitive_package_changes": 0,
-            "new_direct_deps": [],
-            "removed_direct_deps": [],
-            "crosses_large_delta_threshold": False,
-            "threshold_policy": "v0-default",
-        },
-        "tier_hint": "security-patch-release",
-    }]
+    # Derive concrete target versions from version_bounds when present
+    # for the matched pname. lessThan / versionEndExcluding mean "the
+    # fix landed at this version" so we can synthesize a real candidate
+    # target. lessThanOrEqual / versionEndIncluding need next-semver
+    # math we don't have yet, so they fall through to the placeholder.
+    target_versions = _derive_target_versions(
+        scout_input.get("version_bounds") or [],
+        matched_pname=matched_pname,
+    )
+    if not target_versions:
+        target_versions = [current_version]  # placeholder = current_version
+
+    return [
+        {
+            "version": v,
+            "release_url": first_commit_url,
+            "advisory_urls": advisory_urls,
+            "upstream_fix_commits": fix_commits,
+            "delta": {
+                "transitive_package_changes": 0,
+                "new_direct_deps": [],
+                "removed_direct_deps": [],
+                "crosses_large_delta_threshold": False,
+                "threshold_policy": "v0-default",
+            },
+            "tier_hint": "security-patch-release",
+        }
+        for v in target_versions
+    ]
+
+
+def _derive_target_versions(
+    bounds: list[dict[str, Any]],
+    *,
+    matched_pname: str,
+) -> list[str]:
+    """Pull synthesizable target versions from version_bounds for the
+    matched product. Conservative: only lessThan/versionEndExcluding
+    are mapped to a concrete fix version. lessThanOrEqual/
+    versionEndIncluding skip (placeholder fallback fires)."""
+    if not matched_pname:
+        return []
+    pname_lc = matched_pname.lower()
+    out: list[str] = []
+    seen: set[str] = set()
+    for b in bounds:
+        if b.get("product") != pname_lc:
+            continue
+        if b.get("fixed_kind") not in _FIX_KIND_SYNTHESIZE:
+            continue
+        v = b.get("fixed")
+        if not isinstance(v, str) or v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out
 
 
 def _atomic_write_json(path: Path, data: Any) -> None:

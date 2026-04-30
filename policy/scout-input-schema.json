@@ -71,6 +71,43 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
+    "version_bounds": {
+      "description": "Structured fix-version signals lifted from the source feed (e.g. CVE-list-v5 affected[].versions[].lessThan). Each bound names a product, the version range that's affected, and the version where the fix landed. Source form (lessThan vs lessThanOrEqual etc.) is preserved so downstream code can interpret semantics correctly. Conservative: only emitted for semver version_type in v0; multiple bounds with conflicting fixes are surfaced as separate entries (the resolver picks smallest-upgrade or routes to human review).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["product", "fixed", "fixed_kind", "version_type", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "product": {
+            "description": "Lowercased product name aligned with pname; matched against GraphMatch.pname.",
+            "type": "string",
+            "minLength": 1
+          },
+          "introduced": {
+            "description": "Range start (CVE-list-v5 'version' field). May be '0' meaning 'all versions before fixed'.",
+            "type": "string"
+          },
+          "fixed": {
+            "description": "The version named by the fix-bound. Interpretation depends on fixed_kind: lessThan/versionEndExcluding mean 'the fix landed at this version'; lessThanOrEqual/versionEndIncluding mean 'the fix landed at the next version after this'.",
+            "type": "string",
+            "minLength": 1
+          },
+          "fixed_kind": {
+            "type": "string",
+            "enum": ["lessThan", "lessThanOrEqual", "versionEndExcluding", "versionEndIncluding"]
+          },
+          "version_type": {
+            "type": "string",
+            "enum": ["semver"]
+          },
+          "source": {
+            "type": "string",
+            "enum": ["cve_list_v5", "nvd_configurations"]
+          }
+        }
+      }
+    },
     "aggregator": {
       "description": "Optional provenance block recording that this scout-input was produced by normalizing bytes from an aggregator (e.g. Vulnpatch) rather than from direct NVD/GHSA/OSV fetches. Informational; Steward does not consult it. Present only when a feed normalizer emitted this record. feed/source_feeds still reflect the underlying authoritative source so Scout's mapping method and finding source_feeds keep their existing meaning.",
       "type": "object",
