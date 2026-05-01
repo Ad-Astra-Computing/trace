@@ -95,6 +95,15 @@
         }
       }
     },
-    "replay_critical": { "type": "boolean", "const": true }
+    "replay_critical": { "type": "boolean", "const": true },
+    "analysis_status": {
+      "description": "Honest reporting of whether reverse-closure analysis ran end-to-end. 'complete' means the graph backend produced real reverse_closure_count + critical_downstreams data. Anything else (e.g. 'skipped-v0') means downstream consumers MUST treat the closure data as advisory only; Steward routes such impacts to human-review-required.",
+      "type": "string",
+      "enum": ["complete", "skipped-v0"]
+    },
+    "analysis_reason": {
+      "description": "Free-text explanation when analysis_status != 'complete'. Helps the human reviewer (and future migrations) know what was missing.",
+      "type": "string"
+    }
   }
 }

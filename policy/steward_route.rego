@@ -81,6 +81,27 @@ _all_reasons contains code if {
 	])
 }
 
+# ─── human-review-required: impact analysis incomplete ────────────────────
+#     (Cartographer can run with a minimal graph backend that does not
+#      compute reverse-closure; in that case impact.analysis_status is
+#      not 'complete' and we MUST route to review until a real graph
+#      adapter lands. See agents/cartographer/snapshot_graph.py.)
+
+state := "human-review-required" if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	input.impact
+	input.impact.analysis_status != "complete"
+}
+
+_all_reasons contains code if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	input.impact
+	input.impact.analysis_status != "complete"
+	code := sprintf("impact-unanalyzed:%s", [input.impact.analysis_status])
+}
+
 # ─── human-review-required: confidence below high blocks auto-merge ─────────
 #     (echoes rule-1 of the merge-gate policy at routing time)
 
@@ -111,6 +132,7 @@ state := "auto-merge-eligible" if {
 	every a in input.finding.affected {
 		a.confidence == "high"
 	}
+	not _impact_unanalyzed
 }
 
 _all_reasons contains "eligible-high-confidence" if {
@@ -121,6 +143,12 @@ _all_reasons contains "eligible-high-confidence" if {
 	every a in input.finding.affected {
 		a.confidence == "high"
 	}
+	not _impact_unanalyzed
+}
+
+_impact_unanalyzed if {
+	input.impact
+	input.impact.analysis_status != "complete"
 }
 
 # ─── helpers ────────────────────────────────────────────────────────────────

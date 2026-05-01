@@ -265,6 +265,40 @@ def test_threshold_override(impact_validator, maintainers_validator):
 # ─── meta: cartographer emits no policy verdicts ────────────────────────────
 
 
+def test_analysis_status_defaults_to_complete(impact_validator, maintainers_validator):
+    """Backwards-compat: analyze() with the default analysis_status
+    emits 'complete' so existing fixtures and bundles keep working."""
+    graph = CannedCartographerGraph([CannedNode(
+        attr_path="libexample", drv_path=_mk_drv("libexample", "a"),
+        pname="libexample", version="1.4.7",
+    )])
+    out = analyze(
+        _finding("CVE-0000-3010", [("libexample", _mk_drv("libexample", "a"))]),
+        graph, nixpkgs_rev=NIXPKGS_REV,
+    )
+    assert out["impact"]["analysis_status"] == "complete"
+    assert "analysis_reason" not in out["impact"]
+
+
+def test_analysis_status_skipped_v0_propagates(impact_validator, maintainers_validator):
+    """When the caller signals the graph backend can't produce real
+    reverse-closure data, analyze() emits analysis_status='skipped-v0'
+    + analysis_reason so Steward can route to review."""
+    graph = CannedCartographerGraph([CannedNode(
+        attr_path="libexample", drv_path=_mk_drv("libexample", "a"),
+        pname="libexample", version="1.4.7",
+    )])
+    out = analyze(
+        _finding("CVE-0000-3011", [("libexample", _mk_drv("libexample", "a"))]),
+        graph, nixpkgs_rev=NIXPKGS_REV,
+        analysis_status="skipped-v0",
+        analysis_reason="snapshot-backend-unimplemented",
+    )
+    _validate(impact_validator, out["impact"], "impact.json")
+    assert out["impact"]["analysis_status"] == "skipped-v0"
+    assert out["impact"]["analysis_reason"] == "snapshot-backend-unimplemented"
+
+
 def test_cartographer_emits_no_policy_verdicts():
     """Cartographer reports facts only. No kind / eligibility / verdict fields anywhere."""
     graph = CannedCartographerGraph([
