@@ -225,6 +225,63 @@ def test_atomic_write(tmp_path: Path, opa_available: bool) -> None:
     assert leftovers == [], f"temp files leaked: {leftovers}"
 
 
+def test_unanalyzed_impact_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+    """When impact.json is present with analysis_status != 'complete',
+    Steward routes to human-review-required regardless of the resolver
+    verdict. Auto-merge cannot happen on partial impact data."""
+    from agents.steward.agent import route_inbox_entry
+    entry = _seed(
+        tmp_path,
+        finding=_finding(),
+        upstream_ref=_eligible_upstream(verdict="eligible"),
+    )
+    (entry / "impact.json").write_text(json.dumps({
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-2099-0001",
+        "nixpkgs_rev": "0" * 40,
+        "blast_radius_threshold": 500,
+        "threshold_policy": "v0-default",
+        "affected_attr_paths": ["foo"],
+        "reverse_closure_count": 0,
+        "reverse_closure_bucket": "<50",
+        "exceeds_threshold": False,
+        "per_attr": [],
+        "replay_critical": True,
+        "analysis_status": "skipped-v0",
+        "analysis_reason": "snapshot-backend-unimplemented",
+    }))
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "human-review-required"
+    assert "impact-unanalyzed:skipped-v0" in decision["reason_codes"]
+
+
+def test_complete_impact_does_not_force_review(tmp_path: Path, opa_available: bool) -> None:
+    """Backwards-compat: impact.json with analysis_status='complete'
+    behaves exactly like before (no impact.json)."""
+    from agents.steward.agent import route_inbox_entry
+    entry = _seed(
+        tmp_path,
+        finding=_finding(),
+        upstream_ref=_eligible_upstream(verdict="eligible"),
+    )
+    (entry / "impact.json").write_text(json.dumps({
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-2099-0001",
+        "nixpkgs_rev": "0" * 40,
+        "blast_radius_threshold": 500,
+        "threshold_policy": "v0-default",
+        "affected_attr_paths": ["foo"],
+        "reverse_closure_count": 0,
+        "reverse_closure_bucket": "<50",
+        "exceeds_threshold": False,
+        "per_attr": [],
+        "replay_critical": True,
+        "analysis_status": "complete",
+    }))
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "auto-merge-eligible"
+
+
 def test_decision_validates_against_schema(tmp_path: Path, opa_available: bool) -> None:
     from jsonschema import Draft202012Validator
     from agents.steward.agent import route_inbox_entry

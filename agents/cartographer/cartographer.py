@@ -33,6 +33,8 @@ def analyze(
     blast_radius_threshold: int = DEFAULT_BLAST_RADIUS_THRESHOLD,
     threshold_policy: str = DEFAULT_THRESHOLD_POLICY,
     sample_size: int = DEFAULT_SAMPLE_SIZE,
+    analysis_status: str = "complete",
+    analysis_reason: str | None = None,
 ) -> dict[str, Any]:
     """Return {"impact": impact_dict, "maintainers": maintainers_dict}."""
     cve_id: str = finding["cve_id"]
@@ -76,7 +78,10 @@ def analyze(
         "exceeds_threshold": total_count > blast_radius_threshold,
         "per_attr": per_attr,
         "replay_critical": True,
+        "analysis_status": analysis_status,
     }
+    if analysis_reason is not None:
+        impact["analysis_reason"] = analysis_reason
 
     maint_section: dict[str, dict[str, Any]] = {}
     for attr in impact["affected_attr_paths"]:

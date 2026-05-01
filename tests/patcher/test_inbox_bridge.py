@@ -195,3 +195,22 @@ def test_does_not_write_when_dest_omitted(tmp_path: Path) -> None:
     )
     assert not (entry / "impact.json").exists()
     assert not (entry / "maintainers.json").exists()
+
+
+def test_propagates_analysis_status_to_impact(tmp_path: Path) -> None:
+    """When the caller declares the graph backend can't compute
+    reverse-closure, the bridge must stamp impact.analysis_status
+    accordingly so Steward routes to human-review-required."""
+    entry = _seed_inbox(tmp_path)
+    nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
+    graph = CannedCartographerGraph([_RADARE2])
+    out = assemble_inputs_from_inbox(
+        entry,
+        nixpkgs_root=nixpkgs,
+        graph=graph,
+        nixpkgs_rev="abc",
+        analysis_status="skipped-v0",
+        analysis_reason="snapshot-backend-unimplemented",
+    )
+    assert out.inputs["impact"]["analysis_status"] == "skipped-v0"
+    assert out.inputs["impact"]["analysis_reason"] == "snapshot-backend-unimplemented"

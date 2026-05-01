@@ -48,6 +48,7 @@ def route_inbox_entry(entry: Path) -> dict[str, Any]:
     finding = _load(entry / "finding.json")
     upstream_ref = _load(entry / "upstream-ref.json")
     mapping_failure = _load(entry / "mapping-failure.json")
+    impact = _load(entry / "impact.json")
 
     opa_input: dict[str, Any] = {}
     if finding is not None:
@@ -56,6 +57,8 @@ def route_inbox_entry(entry: Path) -> dict[str, Any]:
         opa_input["upstream_ref"] = upstream_ref
     if mapping_failure is not None:
         opa_input["mapping_failure"] = mapping_failure
+    if impact is not None:
+        opa_input["impact"] = impact
 
     raw = _run_opa(opa_input)
     state = raw.get("state", "reject")

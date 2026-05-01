@@ -50,6 +50,8 @@ def assemble_inputs_from_inbox(
     nixpkgs_rev: str,
     use_nix_eval: bool = False,
     write_to_inbox: bool = False,
+    analysis_status: str = "complete",
+    analysis_reason: str | None = None,
 ) -> AssembledInputs:
     finding = _load_required(entry, "finding.json")
     upstream_ref = _load_required(entry, "upstream-ref.json")
@@ -66,6 +68,8 @@ def assemble_inputs_from_inbox(
         finding=finding,
         graph=graph,
         nixpkgs_rev=nixpkgs_rev,
+        analysis_status=analysis_status,
+        analysis_reason=analysis_reason,
     )
     impact = cart["impact"]
     maintainers = cart["maintainers"]
