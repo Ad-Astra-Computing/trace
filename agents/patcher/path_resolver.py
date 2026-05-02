@@ -48,36 +48,41 @@ def resolve_package_source(
         raise PackageSourceNotFound(
             f"nixpkgs root does not exist or is not a directory: {nixpkgs_root}"
         )
-    if "." in attr_path:
-        raise PackageSourceNotFound(
-            f"namespaced attr_path {attr_path!r} not supported by by-name resolver; "
-            f"caller must provide a flat attr or use a different resolver"
-        )
-    if len(attr_path) < 2:
-        raise PackageSourceNotFound(
-            f"attr_path {attr_path!r} too short for by-name shard"
-        )
+    namespaced = "." in attr_path
+    # Namespaced attrs (e.g. `haskellPackages.total`, `python3Packages.requests`)
+    # never live in pkgs/by-name/. Skip the by-name attempt for those and
+    # go straight to nix-eval. When use_nix_eval=False the caller gets a
+    # clear error explaining the gap.
+    if namespaced:
+        if not use_nix_eval:
+            raise PackageSourceNotFound(
+                f"namespaced attr_path {attr_path!r} cannot be resolved without "
+                f"use_nix_eval=True; the by-name layout is flat-only"
+            )
+    else:
+        if len(attr_path) < 2:
+            raise PackageSourceNotFound(
+                f"attr_path {attr_path!r} too short for by-name shard"
+            )
+        by_name_relative = f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix"
+        by_name_path = nixpkgs_root / by_name_relative
+        if by_name_path.is_file():
+            return PackageSource(
+                path=by_name_path,
+                relative=by_name_relative,
+                strategy="by-name",
+                content=by_name_path.read_text(encoding="utf-8"),
+            )
+        if not use_nix_eval:
+            raise PackageSourceNotFound(
+                f"no package.nix at {by_name_relative}; pass use_nix_eval=True "
+                f"to fall back to `nix eval` for the long-tail layout"
+            )
 
-    by_name_relative = f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix"
-    by_name_path = nixpkgs_root / by_name_relative
-    if by_name_path.is_file():
-        return PackageSource(
-            path=by_name_path,
-            relative=by_name_relative,
-            strategy="by-name",
-            content=by_name_path.read_text(encoding="utf-8"),
-        )
-
-    if not use_nix_eval:
-        raise PackageSourceNotFound(
-            f"no package.nix at {by_name_relative}; pass use_nix_eval=True "
-            f"to fall back to `nix eval` for the long-tail layout"
-        )
-
-    raw = _run_nix_eval_position(attr_path, nixpkgs_root=nixpkgs_root)
+    raw, diag = _run_nix_eval_position(attr_path, nixpkgs_root=nixpkgs_root)
     if not raw:
         raise PackageSourceNotFound(
-            f"nix eval did not return a meta.position for {attr_path!r}"
+            f"nix eval did not return a meta.position for {attr_path!r}: {diag}"
         )
     file_str = raw.split(":", 1)[0]
     try:
@@ -108,11 +113,15 @@ def _run_nix_eval_position(
     attr_path: str,
     *,
     nixpkgs_root: Path,
-) -> Optional[str]:
+) -> tuple[Optional[str], str]:
     """Shell out to `nix eval --raw <root>#<attr>.meta.position`.
-    Returns the raw `path:line` string or None on any failure."""
+
+    Returns (raw_path_or_None, diagnostic). The diagnostic carries a
+    short explanation (timeout, exit code + stderr excerpt, etc.) so
+    the caller can surface why nix-eval declined to provide a path.
+    """
     if shutil.which("nix") is None:
-        return None
+        return None, "nix-not-on-path"
     try:
         proc = subprocess.run(
             [
@@ -127,9 +136,14 @@ def _run_nix_eval_position(
             check=False,
             timeout=120,
         )
-    except (subprocess.SubprocessError, OSError):
-        return None
+    except subprocess.TimeoutExpired:
+        return None, "nix-eval-timeout-120s"
+    except (subprocess.SubprocessError, OSError) as exc:
+        return None, f"nix-eval-exec-error:{exc}"
     if proc.returncode != 0:
-        return None
+        stderr = (proc.stderr or "").strip().replace("\n", " ")
+        return None, f"nix-eval-exit-{proc.returncode}:{stderr[:300]}"
     out = proc.stdout.strip()
-    return out or None
+    if not out:
+        return None, "nix-eval-empty-output"
+    return out, "ok"

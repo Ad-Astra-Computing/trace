@@ -151,6 +151,9 @@ def main(argv: list[str] | None = None) -> int:
         auto_prefetch_fn = _ap_fn
 
     prefetch_stats_collected: list[AutoPrefetchStats] = []
+    steward_state_counts: dict[str, int] = {}
+    steward_error_count = 0
+    no_source_resolved_count = 0
 
     args.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     with args.output_jsonl.open("w") as out:
@@ -161,12 +164,24 @@ def main(argv: list[str] | None = None) -> int:
                 auto_prefetch_fn=auto_prefetch_fn,
                 stats_sink=prefetch_stats_collected,
             )
+            # Inline counters: blind spots flagged in slice 5d.1 review.
+            if record.get("steward_error"):
+                steward_error_count += 1
+            ss = record.get("steward_state")
+            if ss is not None:
+                steward_state_counts[ss] = steward_state_counts.get(ss, 0) + 1
+            ap = record.get("auto_prefetch") or {}
+            if ap.get("skipped_reason") == "no-package-source":
+                no_source_resolved_count += 1
             line = json.dumps(record)
             print(line)
             out.write(line + "\n")
 
     if args.aggregate_counts is not None:
         agg = aggregate_stats(prefetch_stats_collected)
+        agg["steward_error"] = steward_error_count
+        agg["no-source-resolved"] = no_source_resolved_count
+        agg["steward_states"] = steward_state_counts
         args.aggregate_counts.parent.mkdir(parents=True, exist_ok=True)
         args.aggregate_counts.write_text(
             json.dumps(agg, indent=2, sort_keys=True) + "\n"
