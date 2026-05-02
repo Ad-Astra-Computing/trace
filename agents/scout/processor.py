@@ -31,8 +31,9 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from agents.scout.auto_prefetch import AutoPrefetchStats
 from agents.scout.graph_lookup import GraphLookup
 from agents.scout.scout import scan
 from agents.upstream_ref_resolver.resolver import resolve as resolve_upstream
@@ -52,9 +53,21 @@ class ProcessOutcome:
     entry_path: Path
     finding_status: str  # "finding" | "mapping-failure"
     resolver_status: str | None  # eligibility.verdict, or None for mapping-failure
+    auto_prefetch: AutoPrefetchStats | None = None
 
 
-def process_entry(entry_path: Path, *, graph: GraphLookup) -> ProcessOutcome:
+# Callable that, given an inbox entry + attr_path, runs auto-prefetch
+# and updates upstream-ref.json in place. Returns AutoPrefetchStats.
+# `None` (default) means auto-prefetch is disabled for this run.
+AutoPrefetchFn = Callable[[Path, str], AutoPrefetchStats]
+
+
+def process_entry(
+    entry_path: Path,
+    *,
+    graph: GraphLookup,
+    auto_prefetch_fn: "AutoPrefetchFn | None" = None,
+) -> ProcessOutcome:
     scout_input_path = entry_path / "scout-input.json"
     scout_input = json.loads(scout_input_path.read_text())
 
@@ -82,11 +95,24 @@ def process_entry(entry_path: Path, *, graph: GraphLookup) -> ProcessOutcome:
     upstream_ref = resolve_upstream(resolver_input)
     _atomic_write_json(entry_path / "upstream-ref.json", upstream_ref)
 
+    auto_prefetch_stats: AutoPrefetchStats | None = None
+    if auto_prefetch_fn is not None:
+        try:
+            auto_prefetch_stats = auto_prefetch_fn(
+                entry_path, finding["affected"][0]["attr_path"],
+            )
+        except Exception:
+            # Auto-prefetch is best-effort. A failure here must NOT
+            # poison the inbox entry; surface as None and the caller
+            # logs/aggregates absent stats as needed.
+            auto_prefetch_stats = None
+
     return ProcessOutcome(
         cve_id=scout_input["cve_id"],
         entry_path=entry_path,
         finding_status="finding",
         resolver_status=upstream_ref["eligibility"]["verdict"],
+        auto_prefetch=auto_prefetch_stats,
     )
 
 

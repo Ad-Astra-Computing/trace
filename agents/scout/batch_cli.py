@@ -32,6 +32,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from agents.scout.auto_prefetch import (
+    AutoPrefetchStats,
+    aggregate_stats,
+    auto_prefetch_for_entry,
+)
 from agents.scout.cpe_dictionary import enrich_records_with_cpes, read_index
 from agents.scout.graph_lookup import CannedGraphLookup
 from agents.scout.poller import poll_one
@@ -60,6 +65,36 @@ def main(argv: list[str] | None = None) -> int:
             "records are enriched with real CPEs before the graph is "
             "built so Scout's relevance filter and scan match cpe-exact "
             "instead of cpe-product fallback."
+        ),
+    )
+    parser.add_argument(
+        "--nixpkgs-root",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a nixpkgs checkout. When present together "
+            "with TRACE_REAL_PREFETCH=1 in the env, Scout runs auto-"
+            "prefetch (plain fetchurl + nix-prefetch-url) and splices "
+            "prefetch_hashes/_failures/_skips into upstream-ref.json. "
+            "Without either, prefetch is skipped silently."
+        ),
+    )
+    parser.add_argument(
+        "--use-nix-eval",
+        action="store_true",
+        help=(
+            "Allow path resolution to fall back to `nix eval` for "
+            "non-by-name packages. Required for packages not in "
+            "pkgs/by-name/."
+        ),
+    )
+    parser.add_argument(
+        "--aggregate-counts",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to write a JSON aggregate of per-entry "
+            "auto-prefetch metrics across the batch."
         ),
     )
     args = parser.parse_args(argv)
@@ -101,13 +136,41 @@ def main(argv: list[str] | None = None) -> int:
         if line.strip()
     ]
 
+    auto_prefetch_fn = None
+    if args.nixpkgs_root is not None:
+        nixpkgs_root = args.nixpkgs_root
+        use_nix_eval = args.use_nix_eval
+
+        def _ap_fn(entry_path: Path, attr_path: str) -> AutoPrefetchStats:
+            return auto_prefetch_for_entry(
+                entry_path,
+                attr_path=attr_path,
+                nixpkgs_root=nixpkgs_root,
+                use_nix_eval=use_nix_eval,
+            )
+        auto_prefetch_fn = _ap_fn
+
+    prefetch_stats_collected: list[AutoPrefetchStats] = []
+
     args.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     with args.output_jsonl.open("w") as out:
         for cve_id in cve_ids:
-            record = _process_one(cve_id, graph=graph, inbox=args.inbox, nvd_api_key=nvd_api_key)
+            record = _process_one(
+                cve_id, graph=graph, inbox=args.inbox,
+                nvd_api_key=nvd_api_key,
+                auto_prefetch_fn=auto_prefetch_fn,
+                stats_sink=prefetch_stats_collected,
+            )
             line = json.dumps(record)
             print(line)
             out.write(line + "\n")
+
+    if args.aggregate_counts is not None:
+        agg = aggregate_stats(prefetch_stats_collected)
+        args.aggregate_counts.parent.mkdir(parents=True, exist_ok=True)
+        args.aggregate_counts.write_text(
+            json.dumps(agg, indent=2, sort_keys=True) + "\n"
+        )
 
     return _EXIT_OK
 
@@ -118,6 +181,8 @@ def _process_one(
     graph: CannedGraphLookup,
     inbox: Path,
     nvd_api_key: str | None,
+    auto_prefetch_fn: "Any | None" = None,
+    stats_sink: list[AutoPrefetchStats] | None = None,
 ) -> dict[str, Any]:
     """Run poll_one, and on `written` immediately run process_entry.
     Per-CVE exceptions are caught so one bad CVE doesn't kill the batch."""
@@ -141,7 +206,9 @@ def _process_one(
         return base
 
     try:
-        process = process_entry(poll.entry_path, graph=graph)
+        process = process_entry(
+            poll.entry_path, graph=graph, auto_prefetch_fn=auto_prefetch_fn,
+        )
     except Exception as e:
         base["finding_status"] = "error"
         base["resolver_status"] = None
@@ -150,6 +217,16 @@ def _process_one(
 
     base["finding_status"] = process.finding_status
     base["resolver_status"] = process.resolver_status
+    if process.auto_prefetch is not None:
+        ap = process.auto_prefetch
+        base["auto_prefetch"] = {
+            "primary_src_class": ap.primary_src_class,
+            "skipped_reason": ap.skipped_reason,
+            "succeeded": ap.plain_fetchurl_succeeded,
+            "failed": ap.plain_fetchurl_failed,
+        }
+        if stats_sink is not None:
+            stats_sink.append(ap)
 
     # Steward: route the freshly-processed entry into one of four states.
     # OpaUnavailable surfaces as a per-CVE error so the batch keeps going;
