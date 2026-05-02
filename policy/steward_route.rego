@@ -122,7 +122,63 @@ _all_reasons contains code if {
 	code := sprintf("confidence-not-high:%s", [a.confidence])
 }
 
+# ─── human-review-required: patcher not ready (no grounded hash) ────────────
+#     Even with verdict=eligible + high-confidence affected, the Patcher
+#     prompt's rule 8 refuses unless a sha256 the patch would need to
+#     update is grounded by an entry in upstream_ref.prefetch_hashes[].
+#     A pre-flight gate here is more honest than letting Patcher refuse
+#     downstream: an inbox entry that lacks prefetch material is NOT
+#     patcher-ready, regardless of resolver verdict.
+#
+#     Three blocking cases, all routed to human-review-required:
+#       (a) prefetch_hashes absent or empty
+#       (b) at least one prefetch_skips[] entry with required_for_patch
+#       (c) at least one prefetch_failures[] entry with required_for_patch
+
+state := "human-review-required" if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	not _has_prefetch_hashes
+}
+
+_all_reasons contains "patcher-not-ready:missing-prefetch-hashes" if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	not _has_prefetch_hashes
+}
+
+state := "human-review-required" if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	some s in input.upstream_ref.prefetch_skips
+	s.required_for_patch == true
+}
+
+_all_reasons contains code if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	some s in input.upstream_ref.prefetch_skips
+	s.required_for_patch == true
+	code := sprintf("patcher-not-ready:prefetch-skipped:%s", [s.name])
+}
+
+state := "human-review-required" if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	some f in input.upstream_ref.prefetch_failures
+	f.required_for_patch == true
+}
+
+_all_reasons contains code if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	some f in input.upstream_ref.prefetch_failures
+	f.required_for_patch == true
+	code := sprintf("patcher-not-ready:prefetch-failed:%s", [f.name])
+}
+
 # ─── auto-merge-eligible: resolver eligible AND every affected high-conf ────
+#     AND patcher-ready (prefetch material present and not blocked)
 
 state := "auto-merge-eligible" if {
 	input.upstream_ref
@@ -133,6 +189,8 @@ state := "auto-merge-eligible" if {
 		a.confidence == "high"
 	}
 	not _impact_unanalyzed
+	_has_prefetch_hashes
+	not _prefetch_blocked
 }
 
 _all_reasons contains "eligible-high-confidence" if {
@@ -144,11 +202,28 @@ _all_reasons contains "eligible-high-confidence" if {
 		a.confidence == "high"
 	}
 	not _impact_unanalyzed
+	_has_prefetch_hashes
+	not _prefetch_blocked
 }
 
 _impact_unanalyzed if {
 	input.impact
 	input.impact.analysis_status != "complete"
+}
+
+_has_prefetch_hashes if {
+	input.upstream_ref.prefetch_hashes
+	count(input.upstream_ref.prefetch_hashes) > 0
+}
+
+_prefetch_blocked if {
+	some s in input.upstream_ref.prefetch_skips
+	s.required_for_patch == true
+}
+
+_prefetch_blocked if {
+	some f in input.upstream_ref.prefetch_failures
+	f.required_for_patch == true
 }
 
 # ─── helpers ────────────────────────────────────────────────────────────────
