@@ -65,6 +65,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", required=True, type=Path,
                         help="Directory for run-summary.jsonl and aggregate-counts.json.")
     parser.add_argument("--cpe-index", type=Path, default=None)
+    parser.add_argument("--nixpkgs-root", type=Path, default=None,
+                        help="Path to a nixpkgs checkout. With "
+                             "TRACE_REAL_PREFETCH=1 in env, enables "
+                             "auto-prefetch of plain-fetchurl src.hash.")
+    parser.add_argument("--use-nix-eval", action="store_true",
+                        help="Allow path resolver `nix eval` fallback "
+                             "for non-by-name packages.")
     parser.add_argument("--cap", type=int, default=None,
                         help="Hard limit on number of CVEs processed (defence against runaway scopes).")
     args = parser.parse_args(argv)
@@ -108,6 +115,13 @@ def main(argv: list[str] | None = None) -> int:
         ]
         if args.cpe_index is not None:
             batch_argv += ["--cpe-index", str(args.cpe_index)]
+        if args.nixpkgs_root is not None:
+            batch_argv += [
+                "--nixpkgs-root", str(args.nixpkgs_root),
+                "--aggregate-counts", str(args.output_dir / "auto-prefetch-counts.json"),
+            ]
+            if args.use_nix_eval:
+                batch_argv += ["--use-nix-eval"]
         rc = _run_batch(batch_argv)
         if rc != 0:
             print(f"batch_cli exited with {rc}", file=sys.stderr)

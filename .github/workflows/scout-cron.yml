@@ -241,6 +241,31 @@ jobs:
           echo "capped=$capped" >> "$GITHUB_OUTPUT"
           echo "Processing $capped (cap=$MAX_CVES)."
 
+      - name: Resolve nixpkgs checkout for auto-prefetch
+        # batch_cli's --nixpkgs-root needs a real nixpkgs tree to read
+        # package.nix. The flake's nixpkgs input is the ground truth;
+        # surface its path so the next step can pass it through.
+        # Fail-soft: if the eval fails, auto-prefetch is skipped and
+        # the cron continues without enrichment.
+        id: nixpkgs-root
+        if: steps.snapshot.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          if root=$(nix flake archive --json 2>/dev/null \
+              | jq -r '.inputs.nixpkgs.path // empty'); then
+            if [[ -n "$root" && -d "$root" ]]; then
+              echo "path=$root" >> "$GITHUB_OUTPUT"
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+              echo "Resolved nixpkgs root at $root"
+            else
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "WARN: nix flake archive returned empty path; auto-prefetch will skip"
+            fi
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "WARN: nix flake archive failed; auto-prefetch will skip"
+          fi
+
       - name: Poll + process each CVE
         if: steps.snapshot.outputs.ready == 'true'
         env:
@@ -248,17 +273,25 @@ jobs:
           GRAPH_SNAPSHOT: ${{ steps.snapshot.outputs.path }}
           CPE_INDEX_READY: ${{ steps.cpe-index.outputs.ready }}
           CPE_INDEX: ${{ steps.cpe-index.outputs.path }}
+          NIXPKGS_ROOT_READY: ${{ steps.nixpkgs-root.outputs.ready }}
+          NIXPKGS_ROOT: ${{ steps.nixpkgs-root.outputs.path }}
+          # Live-call gate for nix-prefetch-url. Auto-prefetch only
+          # runs when this is set AND --nixpkgs-root is supplied.
+          TRACE_REAL_PREFETCH: "1"
         run: |
           set -euo pipefail
           # batch_cli loops in-process so we pay the nix-shell + python
           # interpreter boot cost once instead of once per CVE.
           # Per-CVE exceptions are isolated: one bad fetch does not
           # stop the batch (those land as action=error in the JSONL).
-          # --cpe-index is optional; when present the snapshot is
-          # enriched with real CPEs so Scout matches at cpe-exact.
           extra=()
           if [[ "${CPE_INDEX_READY:-false}" == "true" ]]; then
             extra+=("--cpe-index" "$CPE_INDEX")
+          fi
+          if [[ "${NIXPKGS_ROOT_READY:-false}" == "true" ]]; then
+            extra+=("--nixpkgs-root" "$NIXPKGS_ROOT")
+            extra+=("--use-nix-eval")
+            extra+=("--aggregate-counts" "out/auto-prefetch-counts.json")
           fi
           nix develop --command python -m agents.scout.batch_cli \
             --cve-ids-file out/cve-ids.capped.txt \
@@ -268,6 +301,10 @@ jobs:
             "${extra[@]}"
           echo "Run summary:"
           jq -s 'group_by(.action // .resolver_status // "other") | map({key: (.[0].action // .[0].resolver_status // "other"), count: length})' out/run-summary.jsonl
+          if [[ -f out/auto-prefetch-counts.json ]]; then
+            echo "Auto-prefetch counts:"
+            cat out/auto-prefetch-counts.json
+          fi
 
       - name: Update retry queue
         if: always() && steps.snapshot.outputs.ready == 'true' && hashFiles('out/run-summary.jsonl') != ''
