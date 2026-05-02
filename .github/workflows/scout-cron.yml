@@ -71,6 +71,21 @@ jobs:
         with:
           determinate: true
 
+      - name: Install opa
+        # The flake's dev shell intentionally omits opa (15-min Go
+        # rebuild on darwin-arm64 has no binary cache hit). CI must
+        # supply it explicitly so Steward can route entries. Without
+        # this step Steward silently fails on every CVE and the run
+        # summary records steward_error: opa-unavailable.
+        run: |
+          set -euo pipefail
+          OPA_VERSION="v1.15.2"
+          ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+          curl -fsSL "https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_${ARCH}_static" \
+            -o /usr/local/bin/opa
+          chmod +x /usr/local/bin/opa
+          opa version | head -1
+
       - name: Restore scout state (cursor + retry queue)
         id: state-restore
         uses: actions/cache/restore@v4
