@@ -54,7 +54,16 @@ def _seed(
     return entry
 
 
-def _eligible_upstream(verdict: str = "eligible", **extra: Any) -> dict[str, Any]:
+def _eligible_upstream(
+    verdict: str = "eligible",
+    *,
+    with_prefetch: bool = True,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build an upstream-ref fixture. `with_prefetch=True` (default)
+    populates prefetch_hashes so auto-merge-eligible cases pass the
+    patcher-readiness gate. Tests that exercise the missing-prefetch
+    path pass with_prefetch=False explicitly."""
     out: dict[str, Any] = {
         "schema_version": "1.0.0",
         "cve_id": "CVE-2099-0001",
@@ -72,6 +81,15 @@ def _eligible_upstream(verdict: str = "eligible", **extra: Any) -> dict[str, Any
         "replay_critical": True,
         "eligibility": {"verdict": verdict},
     }
+    if with_prefetch:
+        out["prefetch_hashes"] = [{
+            "name": "src",
+            "algorithm": "sha256",
+            "value": "0" * 64,
+            "source": "nix-prefetch-url",
+            "prefetch_kind": "release-archive",
+            "replay_critical": True,
+        }]
     out["eligibility"].update(extra)
     return out
 
@@ -302,6 +320,68 @@ def test_decision_validates_against_schema(tmp_path: Path, opa_available: bool) 
         out = json.loads((e / "steward-decision.json").read_text())
         errors = sorted(validator.iter_errors(out), key=lambda x: x.path)
         assert not errors, [str(x) for x in errors[:3]]
+
+
+def test_missing_prefetch_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+    """Without prefetch_hashes, Patcher's rule 8 would refuse downstream.
+    Steward must surface that as a routing decision pre-flight, not
+    pretend the bundle is auto-merge-ready."""
+    from agents.steward.agent import route_inbox_entry
+    entry = _seed(
+        tmp_path,
+        finding=_finding(),
+        upstream_ref=_eligible_upstream(verdict="eligible", with_prefetch=False),
+    )
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "human-review-required"
+    assert "patcher-not-ready:missing-prefetch-hashes" in decision["reason_codes"]
+
+
+def test_prefetch_skip_required_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+    """A prefetch_skips[] entry with required_for_patch=true is an
+    auditable refusal trigger downstream; route to review now."""
+    from agents.steward.agent import route_inbox_entry
+    upstream = _eligible_upstream(verdict="eligible")
+    upstream["prefetch_skips"] = [{
+        "name": "src",
+        "reason": "v0-no-fetcher-handler",
+        "required_for_patch": True,
+    }]
+    entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream)
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "human-review-required"
+    assert "patcher-not-ready:prefetch-skipped:src" in decision["reason_codes"]
+
+
+def test_prefetch_failure_required_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+    """A prefetch_failures[] entry with required_for_patch=true is the
+    other auditable refusal trigger; route to review."""
+    from agents.steward.agent import route_inbox_entry
+    upstream = _eligible_upstream(verdict="eligible")
+    upstream["prefetch_failures"] = [{
+        "name": "src",
+        "reason": "404 from upstream",
+        "required_for_patch": True,
+    }]
+    entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream)
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "human-review-required"
+    assert "patcher-not-ready:prefetch-failed:src" in decision["reason_codes"]
+
+
+def test_optional_prefetch_skip_does_not_block(tmp_path: Path, opa_available: bool) -> None:
+    """A prefetch_skips[] entry with required_for_patch=false is informational;
+    auto-merge still rides as long as prefetch_hashes are present."""
+    from agents.steward.agent import route_inbox_entry
+    upstream = _eligible_upstream(verdict="eligible")
+    upstream["prefetch_skips"] = [{
+        "name": "vendored-cargo-deps",
+        "reason": "no-rust-vendoring-in-this-package",
+        "required_for_patch": False,
+    }]
+    entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream)
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "auto-merge-eligible"
 
 
 def test_missing_opa_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
