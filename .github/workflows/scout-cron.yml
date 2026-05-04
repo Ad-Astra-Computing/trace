@@ -290,9 +290,16 @@ jobs:
           CPE_INDEX: ${{ steps.cpe-index.outputs.path }}
           NIXPKGS_ROOT_READY: ${{ steps.nixpkgs-root.outputs.ready }}
           NIXPKGS_ROOT: ${{ steps.nixpkgs-root.outputs.path }}
-          # Live-call gate for nix-prefetch-url. Auto-prefetch only
-          # runs when this is set AND --nixpkgs-root is supplied.
+          # Live-call gates for auto-prefetch. Both gates require
+          # --nixpkgs-root to be supplied to actually run.
+          #   TRACE_REAL_PREFETCH=1 → plain-fetchurl via nix-prefetch-url
+          #   TRACE_REAL_FETCHZIP=1 → fetchFromGitHub via fetchzip FOD
+          #                          extraction (nix-build with fakeHash).
+          #                          Scope is intentionally narrow: only
+          #                          fires for fetchFromGitHub-shaped src;
+          #                          generic fetchzip stays skipped.
           TRACE_REAL_PREFETCH: "1"
+          TRACE_REAL_FETCHZIP: "1"
         run: |
           set -euo pipefail
           # batch_cli loops in-process so we pay the nix-shell + python
