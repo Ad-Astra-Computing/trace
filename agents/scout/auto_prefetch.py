@@ -1,34 +1,38 @@
 """Auto-prefetch orchestrator for the cron path.
 
-Bridges three pieces:
+Bridges four pieces:
 
   * agents.patcher.path_resolver — finds package.nix on disk
   * agents.upstream_ref_resolver.url_derivation — derives target URLs
   * agents.upstream_ref_resolver.prefetch — runs nix-prefetch-url
+  * agents.upstream_ref_resolver.fetchzip_prefetch — fetchzip FOD via nix-build
 
-Scope (slice 5d, narrow):
+Scope (slice 5d + 5e):
 
-  Only auto-prefetches **plain fetchurl** with a clean URL template
-  at high confidence. Other fetcher classes are detected and counted
-  for metrics, but not prefetched:
+  plain-fetchurl       attempted via nix-prefetch-url
+                       gate: TRACE_REAL_PREFETCH=1
+  fetchFromGitHub      attempted via fetchzip_prefetch (nix-build with
+                       fakeHash, FOD-mismatch parsing)
+                       gate: TRACE_REAL_FETCHZIP=1 (NARROWED: only
+                       fetchFromGitHub-shaped src; generic fetchzip stays
+                       skipped)
+  fetchzip (generic)   detected, skipped — separate fetcher class
+  go-mod-vendor        detected via vendorHash/cargoHash/npmDepsHash
+                       (additive — co-occurs with src class)
 
-    plain-fetchurl       attempted via nix-prefetch-url
-    fetchFromGitHub      detected, skipped (would need fetchzip-aware
-                         prefetch via nix-build/fakeHash; gated by
-                         TRACE_REAL_FETCHZIP)
-    fetchzip             detected, skipped (same gate)
-    go-mod-vendor        detected via vendorHash/cargoHash/npmDepsHash
-                         (additive — co-occurs with src class)
+Live-call gating, both layered:
 
-The metrics that come out of this surface where the cron's auto-merge
-volume actually lives. If most candidates are fetchFromGitHub, the
-next slice opens the fetchzip-aware path; if plain fetchurl dominates,
-this narrow slice was enough.
+  TRACE_REAL_PREFETCH=1 enables plain-fetchurl path
+  TRACE_REAL_FETCHZIP=1 enables fetchFromGitHub path
+  Both ALSO require --nixpkgs-root to be supplied.
+  Missing env or root → silent skip with classified stats.
 
-Live-call gating:
-
-  TRACE_REAL_PREFETCH=1 must be set, AND nixpkgs_root must be supplied.
-  Either missing → skip silently and report skip-stats.
+The metrics partition cleanly so the operator can trace volume to the
+specific fetcher class. Any prefetch failure produces a structured
+prefetch_failures[] entry with required_for_patch=True; Steward then
+routes the entry to human-review-required via the existing patcher-
+not-ready rule. No Steward policy is loosened by this slice — the
+bundle becomes more grounded, not the policy more permissive.
 """
 
 from __future__ import annotations
@@ -44,6 +48,13 @@ from typing import Any, Callable
 from agents.patcher.path_resolver import (
     PackageSourceNotFound,
     resolve_package_source,
+)
+from agents.upstream_ref_resolver.fetchzip_prefetch import (
+    CommandRunner as FetchzipCommandRunner,
+    FetchzipFailure,
+    FetchzipRequest,
+    FetchzipSuccess,
+    prefetch_fetchzip,
 )
 from agents.upstream_ref_resolver.prefetch import PrefetchUrlFn
 from agents.upstream_ref_resolver.url_derivation import (
@@ -84,6 +95,9 @@ class AutoPrefetchStats:
     plain_fetchurl_attempted: int = 0
     plain_fetchurl_succeeded: int = 0
     plain_fetchurl_failed: int = 0
+    fetchFromGitHub_attempted: int = 0
+    fetchFromGitHub_succeeded: int = 0
+    fetchFromGitHub_failed: int = 0
     fetchFromGitHub_present_but_skipped: int = 0
     fetchzip_present_but_skipped: int = 0
     go_mod_vendor_present_but_skipped: int = 0
@@ -98,6 +112,7 @@ def auto_prefetch_for_entry(
     nixpkgs_root: Path | None,
     use_nix_eval: bool = False,
     prefetch_url_fn: PrefetchUrlFn | None = None,
+    fetchzip_command_runner: FetchzipCommandRunner | None = None,
     env_gate: bool = True,
 ) -> AutoPrefetchStats:
     """Drive auto-prefetch for one inbox entry, env-gated.
@@ -110,7 +125,9 @@ def auto_prefetch_for_entry(
     on a per-entry failure: the stats record the diagnosis and the
     caller decides what to do.
     """
-    if env_gate and os.environ.get("TRACE_REAL_PREFETCH") != "1":
+    real_prefetch = os.environ.get("TRACE_REAL_PREFETCH") == "1"
+    real_fetchzip = os.environ.get("TRACE_REAL_FETCHZIP") == "1"
+    if env_gate and not (real_prefetch or real_fetchzip):
         return AutoPrefetchStats(skipped_reason="env-not-set")
     if nixpkgs_root is None:
         return AutoPrefetchStats(skipped_reason="no-nixpkgs-root")
@@ -140,7 +157,67 @@ def auto_prefetch_for_entry(
     package_source = pkg.content
     primary, has_vendor = _classify_source(package_source)
 
+    # ── fetchFromGitHub: fetchzip-aware FOD-extraction ─────────────────
+    if primary == "fetchFromGitHub":
+        if env_gate and not real_fetchzip:
+            # Detected but not in scope under the active gate.
+            return AutoPrefetchStats(
+                primary_src_class=primary,
+                has_vendor_style_hash=has_vendor,
+                fetchFromGitHub_present_but_skipped=1,
+                go_mod_vendor_present_but_skipped=1 if has_vendor else 0,
+            )
+        target_version = upstream_ref.get("target_version") or ""
+        if not target_version:
+            # No target version → fetchzip_prefetch can't substitute the
+            # tag template. Record as skip; Steward already routes
+            # missing-target to review.
+            return AutoPrefetchStats(
+                primary_src_class=primary,
+                has_vendor_style_hash=has_vendor,
+                fetchFromGitHub_present_but_skipped=1,
+                go_mod_vendor_present_but_skipped=1 if has_vendor else 0,
+            )
+        request = FetchzipRequest(
+            attr_path=attr_path,
+            target_version=target_version,
+        )
+        result = prefetch_fetchzip(
+            request, command_runner=fetchzip_command_runner,
+        )
+        if isinstance(result, FetchzipSuccess):
+            upstream_ref["prefetch_hashes"] = (
+                upstream_ref.get("prefetch_hashes", []) + [result.to_schema_dict()]
+            )
+            _atomic_write_json(upstream_ref_path, upstream_ref)
+            return AutoPrefetchStats(
+                primary_src_class=primary,
+                has_vendor_style_hash=has_vendor,
+                fetchFromGitHub_attempted=1,
+                fetchFromGitHub_succeeded=1,
+                go_mod_vendor_present_but_skipped=1 if has_vendor else 0,
+            )
+        # FetchzipFailure: required_for_patch=True so Steward routes to
+        # human-review per the existing patcher-not-ready rule.
+        upstream_ref["prefetch_failures"] = (
+            upstream_ref.get("prefetch_failures", []) + [result.to_schema_dict()]
+        )
+        _atomic_write_json(upstream_ref_path, upstream_ref)
+        return AutoPrefetchStats(
+            primary_src_class=primary,
+            has_vendor_style_hash=has_vendor,
+            fetchFromGitHub_attempted=1,
+            fetchFromGitHub_failed=1,
+            go_mod_vendor_present_but_skipped=1 if has_vendor else 0,
+        )
+
     if primary == "plain-fetchurl":
+        if env_gate and not real_prefetch:
+            return AutoPrefetchStats(
+                primary_src_class=primary,
+                has_vendor_style_hash=has_vendor,
+                go_mod_vendor_present_but_skipped=1 if has_vendor else 0,
+            )
         # Run the upstream auto-prefetch helper. It already filters to
         # high-confidence targets — for plain fetchurl that's the
         # package-url-template rule.
@@ -279,6 +356,9 @@ def aggregate_stats(stats_list: list[AutoPrefetchStats]) -> dict[str, Any]:
         "plain-fetchurl-attempted": 0,
         "plain-fetchurl-succeeded": 0,
         "plain-fetchurl-failed": 0,
+        "fetchFromGitHub-attempted": 0,
+        "fetchFromGitHub-succeeded": 0,
+        "fetchFromGitHub-failed": 0,
         "fetchFromGitHub-present-but-skipped": 0,
         "fetchzip-present-but-skipped": 0,
         "go-mod-vendor-present-but-skipped": 0,
@@ -307,6 +387,9 @@ def aggregate_stats(stats_list: list[AutoPrefetchStats]) -> dict[str, Any]:
         agg["plain-fetchurl-attempted"] += s.plain_fetchurl_attempted
         agg["plain-fetchurl-succeeded"] += s.plain_fetchurl_succeeded
         agg["plain-fetchurl-failed"] += s.plain_fetchurl_failed
+        agg["fetchFromGitHub-attempted"] += s.fetchFromGitHub_attempted
+        agg["fetchFromGitHub-succeeded"] += s.fetchFromGitHub_succeeded
+        agg["fetchFromGitHub-failed"] += s.fetchFromGitHub_failed
         agg["fetchFromGitHub-present-but-skipped"] += s.fetchFromGitHub_present_but_skipped
         agg["fetchzip-present-but-skipped"] += s.fetchzip_present_but_skipped
         agg["go-mod-vendor-present-but-skipped"] += s.go_mod_vendor_present_but_skipped
