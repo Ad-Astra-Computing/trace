@@ -104,6 +104,11 @@
           "source": {
             "type": "string",
             "enum": ["cve_list_v5", "nvd_configurations"]
+          },
+          "provenance": {
+            "description": "How this bound was derived. Absent on the primary path (structured lessThan/versionEndExcluding key, or parsed free-text 'version' field, on a status=affected entry). Present only on slice-5h status-list fallbacks: 'fixed-version-from-status-list' = inferred from a status=unaffected stable-semver entry, expressed as a lessThan equivalent. 'pre-release-from-status-list' = inferred from a status=unaffected pre-release entry when no stable unaffected exists; the resolver's pre-release-target trigger fires on the synthesized target. Commit-hash unaffected entries are not emitted as bounds in v0.",
+            "type": "string",
+            "enum": ["fixed-version-from-status-list", "pre-release-from-status-list"]
           }
         }
       }

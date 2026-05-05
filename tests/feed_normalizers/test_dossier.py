@@ -365,6 +365,146 @@ def test_version_bounds_omitted_when_no_cve_list_v5() -> None:
     assert "version_bounds" not in out
 
 
+def test_status_list_fixed_version_from_unaffected_stable() -> None:
+    """Slice 5h: when the affected[] block has no structured/free-text
+    bound on its status=affected entry, but does have a status=unaffected
+    stable-semver entry, infer the fix as lessThan=<that-version> with
+    provenance='fixed-version-from-status-list'. This is the common
+    'placeholder-target-version' regression in slice 5g — the fix value
+    was sitting in the status list, just not in a key the structured
+    walker reads."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected"},
+            {"version": "4.4.0", "status": "unaffected"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert len(bounds) == 1
+    b = bounds[0]
+    assert b["product"] == "foo"
+    assert b["fixed"] == "4.4.0"
+    assert b["fixed_kind"] == "lessThan"
+    assert b["provenance"] == "fixed-version-from-status-list"
+
+
+def test_status_list_picks_smallest_stable_when_multiple_unaffected() -> None:
+    """Multiple stable unaffected entries: smallest is the lower bound
+    of safe versions, which is the correct fix-version equivalent."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected"},
+            {"version": "5.0.0", "status": "unaffected"},
+            {"version": "4.4.0", "status": "unaffected"},
+            {"version": "4.5.1", "status": "unaffected"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    assert out["version_bounds"][0]["fixed"] == "4.4.0"
+
+
+def test_status_list_pre_release_when_no_stable_unaffected() -> None:
+    """Slice 5h pre-release sub-case: only pre-release unaffected entries
+    exist. Emit lessThan=<smallest-pre-release> with provenance
+    pre-release-from-status-list. The processor synthesizes the target;
+    the resolver's existing pre-release-target trigger fires downstream."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected"},
+            {"version": "2.0.0-rc2", "status": "unaffected"},
+            {"version": "2.0.0-rc1", "status": "unaffected"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert len(bounds) == 1
+    b = bounds[0]
+    assert b["fixed"] == "2.0.0-rc1"
+    assert b["fixed_kind"] == "lessThan"
+    assert b["provenance"] == "pre-release-from-status-list"
+
+
+def test_status_list_prefers_stable_over_pre_release() -> None:
+    """If both stable and pre-release unaffected entries are present,
+    stable wins — pre-release-from-status-list is reserved for the
+    case where ONLY pre-releases are flagged unaffected."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected"},
+            {"version": "2.0.0-rc1", "status": "unaffected"},
+            {"version": "2.0.0", "status": "unaffected"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    b = out["version_bounds"][0]
+    assert b["fixed"] == "2.0.0"
+    assert b["provenance"] == "fixed-version-from-status-list"
+
+
+def test_status_list_commit_hash_unaffected_skipped() -> None:
+    """CImg-shape advisories carry commit-hash unaffected entries. v0
+    skips emission for these; downstream stays on the existing
+    placeholder-target-version path. Documenting the skip explicitly so
+    a future slice that adds a non-semver bound type doesn't regress
+    silently."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected"},
+            {"version": "abcdef0123456789abcdef0123456789abcdef01", "status": "unaffected"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    assert "version_bounds" not in out or out["version_bounds"] == []
+
+
+def test_status_list_does_not_override_structured_bound() -> None:
+    """When a status=affected entry already produced a structured bound
+    for this product, the status-list fallback does not run. Avoids
+    double-counting and keeps the structured/free-text paths
+    authoritative when they fire."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected", "lessThan": "1.5.0",
+             "versionType": "semver"},
+            {"version": "2.0.0", "status": "unaffected"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    bounds = out["version_bounds"]
+    assert len(bounds) == 1
+    assert bounds[0]["fixed"] == "1.5.0"
+    assert "provenance" not in bounds[0]
+
+
+def test_status_list_bound_validates(scout_input_validator: Draft202012Validator) -> None:
+    """Provenance-bearing bounds emitted by the status-list fallback
+    must validate against scout-input-schema.json."""
+    data = _dossier_with_cve_list_v5_affected([{
+        "vendor": "x", "product": "Foo",
+        "versions": [
+            {"version": "0", "status": "affected"},
+            {"version": "4.4.0", "status": "unaffected"},
+        ],
+        "cpes": [],
+    }])
+    out = _normalize(data)
+    errors = sorted(scout_input_validator.iter_errors(out), key=lambda e: e.path)
+    assert not errors, [str(e) for e in errors[:3]]
+
+
 def test_version_bounds_output_validates(scout_input_validator: Draft202012Validator) -> None:
     data = _dossier_with_cve_list_v5_affected([{
         "vendor": "GCHQ", "product": "CyberChef",
