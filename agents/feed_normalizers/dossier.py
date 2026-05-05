@@ -235,6 +235,17 @@ def _derive_pname_hints(cpe_matches: list[dict[str, str]]) -> list[str]:
 _FIX_KIND_KEYS = ("lessThan", "lessThanOrEqual", "versionEndExcluding", "versionEndIncluding")
 _RANGE_PART_RE = re.compile(r"^\s*(<=|>=|<|>|==|=)?\s*([0-9][0-9A-Za-z.\-+]*)\s*$")
 
+# Slice 5h status-list fallback: classify unaffected-entry version strings.
+_SEMVER_BASE_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?(?:[-+].*)?$")
+# Mirrors resolver._PRE_RELEASE_RE so the dossier path agrees with the
+# resolver's pre-release detection. Drift here would mean we'd emit a
+# "stable" bound that the resolver then flags as pre-release, or vice versa.
+_DOSSIER_PRE_RELEASE_RE = re.compile(
+    r"[-+](?:rc|alpha|beta|dev|pre|preview|nightly|snapshot|m\d|a\d|b\d)",
+    re.IGNORECASE,
+)
+_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+
 
 def _extract_version_bounds(sources: dict[str, Any]) -> list[dict[str, Any]]:
     """Lift CVE-list-v5 affected[].versions[] entries to scout-input
@@ -255,18 +266,25 @@ def _extract_version_bounds(sources: dict[str, Any]) -> list[dict[str, Any]]:
         product = (affected.get("product") or "").strip().lower()
         if not product:
             continue
-        for entry in affected.get("versions") or []:
+        versions_block = affected.get("versions") or []
+        product_bounds: list[dict[str, Any]] = []
+        for entry in versions_block:
             if not isinstance(entry, dict):
                 continue
             if entry.get("status") != "affected":
                 continue
             structured = _structured_bound(product, entry)
             if structured is not None:
-                bounds.append(structured)
+                product_bounds.append(structured)
                 continue
             free_text = _free_text_bound(product, entry)
             if free_text is not None:
-                bounds.append(free_text)
+                product_bounds.append(free_text)
+        if not product_bounds:
+            fallback = _status_list_bound(product, versions_block)
+            if fallback is not None:
+                product_bounds.append(fallback)
+        bounds.extend(product_bounds)
     return bounds
 
 
@@ -345,6 +363,94 @@ def _pick_fix_signal(entry: dict[str, Any]) -> tuple[str | None, str]:
         if isinstance(v, str) and v:
             return key, v
     return None, ""
+
+
+def _status_list_bound(
+    product: str, versions: list[Any]
+) -> dict[str, Any] | None:
+    """Status-list fallback (slice 5h). When no status=affected entry
+    yields a structured or free-text bound for this product, infer one
+    from the status=unaffected entries in the same affected[] block.
+
+    Sub-cases the slice 5g characterization surfaced:
+      * fixed-version-from-status-list — smallest stable-semver
+        unaffected entry, emitted as a lessThan equivalent. Lets the
+        processor synthesize a real target_version instead of falling
+        back to current_version (placeholder-target-version).
+      * pre-release-from-status-list — when no stable unaffected exists,
+        smallest pre-release unaffected entry. The processor still
+        synthesizes the target; the resolver's existing pre-release-target
+        trigger fires on the rc/alpha/beta version.
+
+    Commit-hash unaffected entries (CImg-shape advisories) are recognized
+    but not emitted as bounds in v0 — without a semver-typed value to
+    expose the resolver/Steward path stays on placeholder-target-version.
+    Provenance for that sub-case will be added when the schema can carry
+    a non-semver bound type; tracked separately, not part of slice 5h.
+    """
+    stable: list[str] = []
+    prerelease: list[str] = []
+    for entry in versions:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("status") != "unaffected":
+            continue
+        v = entry.get("version")
+        kind = _classify_unaffected_version(v)
+        if kind == "stable-semver":
+            stable.append(v.strip())
+        elif kind == "pre-release":
+            prerelease.append(v.strip())
+
+    if stable:
+        chosen = min(stable, key=_semver_sort_key)
+        provenance = "fixed-version-from-status-list"
+    elif prerelease:
+        chosen = min(prerelease, key=_semver_sort_key)
+        provenance = "pre-release-from-status-list"
+    else:
+        return None
+
+    return {
+        "product": product,
+        "fixed": chosen,
+        "fixed_kind": "lessThan",
+        "version_type": "semver",
+        "source": "cve_list_v5",
+        "provenance": provenance,
+    }
+
+
+def _classify_unaffected_version(v: Any) -> str | None:
+    """Classify the version string on a status=unaffected entry.
+    Returns 'stable-semver', 'pre-release', 'commit', or None for
+    unparseable / wildcard / range expressions (skipped in v0)."""
+    if not isinstance(v, str):
+        return None
+    s = v.strip()
+    if not s:
+        return None
+    if _SEMVER_BASE_RE.match(s):
+        return "pre-release" if _DOSSIER_PRE_RELEASE_RE.search(s) else "stable-semver"
+    if _COMMIT_SHA_RE.match(s):
+        return "commit"
+    return None
+
+
+def _semver_sort_key(v: str) -> tuple:
+    """Coarse sort key for picking the smallest unaffected version.
+    Sorts by (major, minor, patch) then ranks pre-release < stable for
+    the same base triple (semver: 1.0.0-rc1 < 1.0.0). Unparseable bits
+    fall back to a string compare so the output stays deterministic."""
+    m = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?(.*)$", v)
+    if not m:
+        return (10**9, 10**9, 10**9, 1, v)
+    major = int(m.group(1))
+    minor = int(m.group(2))
+    patch = int(m.group(3) or 0)
+    suffix = m.group(4) or ""
+    pre_marker = 0 if suffix else 1
+    return (major, minor, patch, pre_marker, suffix)
 
 
 def _pname_hints_from_packages(canonical: dict[str, Any]) -> list[str]:
