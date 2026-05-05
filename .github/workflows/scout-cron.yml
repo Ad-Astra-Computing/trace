@@ -84,7 +84,10 @@ jobs:
           curl -fsSL "https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_${ARCH}_static" \
             -o /usr/local/bin/opa
           chmod +x /usr/local/bin/opa
-          opa version | head -1
+          # Don't pipe to head: under `set -o pipefail`, opa SIGPIPEs on
+          # its second line (head closes the pipe after one) and the
+          # whole step exits 141. The output is short; print it raw.
+          opa version
 
       - name: Restore scout state (cursor + retry queue)
         id: state-restore
