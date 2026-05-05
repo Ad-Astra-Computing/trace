@@ -118,7 +118,26 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
+    if chosen.get("requires_review_reason") == "placeholder-target-version":
+        return _eligible_requires_human_review(
+            cve_id=cve_id,
+            current_version=current_version,
+            chosen=chosen,
+            fix_tier=_classify_tier(current_version, chosen, input_doc),
+            trigger="placeholder-target-version",
+            verdict_reason=(
+                "scout could not extract a fix-version signal from the "
+                "advisory (no version_bounds, no lessThan/versionEndExcluding "
+                "constraint). target_version is a placeholder fallback to "
+                "current_version, not a real derivation. Human must confirm "
+                "the actual fix version."
+            ),
+        )
+
     if chosen["version"] == current_version:
+        # Backstop for callers that didn't tag the placeholder explicitly
+        # (e.g. legacy resolver-input docs from before slice 5f). Same
+        # routing outcome; less specific verdict_reason.
         return _eligible_requires_human_review(
             cve_id=cve_id,
             current_version=current_version,
