@@ -319,10 +319,12 @@ def test_version_bounds_lessThanOrEqual_routes_to_human_review(tmp_path: Path) -
     assert upstream["eligibility"]["human_review_trigger"] == "ambiguous-fixed-version"
 
 
-def test_no_bounds_at_all_uses_placeholder_unflagged(tmp_path: Path) -> None:
-    """Backwards-compat: when scout-input has no version_bounds at all,
-    the placeholder path fires unflagged (existing behavior). Only
-    bound-bearing candidates with no synthesizable kind get the flag."""
+def test_no_bounds_at_all_uses_placeholder_with_explicit_flag(tmp_path: Path) -> None:
+    """When scout-input has no version_bounds, the placeholder fallback
+    is now machine-readable: requires_review_reason='placeholder-target-
+    version'. Used to be implicit via target==current equality. Per the
+    slice-5f review: the resolver should know the target is a placeholder
+    by data, not by inferring from values."""
     entry = _seed_inbox(
         tmp_path,
         cve_id="CVE-2099-0010",
@@ -334,8 +336,8 @@ def test_no_bounds_at_all_uses_placeholder_unflagged(tmp_path: Path) -> None:
     )
     process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
-    assert "requires_review_reason" not in refs[0]
-    assert refs[0]["version"] == "10.23.0"
+    assert refs[0]["requires_review_reason"] == "placeholder-target-version"
+    assert refs[0]["version"] == "10.23.0"  # placeholder == current
 
 
 def test_version_bounds_filtered_to_matched_pname(tmp_path: Path) -> None:

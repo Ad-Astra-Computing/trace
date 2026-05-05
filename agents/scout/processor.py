@@ -175,9 +175,18 @@ def _extract_candidate_refs(
     target_versions = _derive_target_versions(bounds, matched_pname=matched_pname)
     bounds_for_product = _bounds_for_pname(bounds, matched_pname=matched_pname)
 
+    # Three target_version provenance classes, each routed differently:
+    #   bounds + synthesizable     -> real derivation, no review flag
+    #   bounds + not-synthesizable -> ambiguous-fixed-version
+    #   no bounds at all           -> placeholder-target-version (NEW)
+    # The placeholder case used to be detected downstream by target==current
+    # equality. Making it explicit per the slice-5f review.
     flagged_ambiguous = bool(bounds_for_product) and not target_versions
+    placeholder = False
     if not target_versions:
         target_versions = [current_version]  # placeholder = current_version
+        if not flagged_ambiguous:
+            placeholder = True
 
     out: list[dict[str, Any]] = []
     for v in target_versions:
@@ -197,6 +206,8 @@ def _extract_candidate_refs(
         }
         if flagged_ambiguous:
             ref["requires_review_reason"] = "ambiguous-fixed-version"
+        elif placeholder:
+            ref["requires_review_reason"] = "placeholder-target-version"
         out.append(ref)
     return out
 
