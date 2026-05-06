@@ -14,6 +14,7 @@ real-nix smoke gated on TRACE_REAL_NIX_PATH=1.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -135,15 +136,17 @@ def test_nix_eval_fallback_failure_surfaces_diagnostic(tmp_path: Path) -> None:
 
 
 def test_nix_eval_position_outside_nixpkgs_root_rejected(tmp_path: Path) -> None:
-    """nix eval might return a path outside the nixpkgs root if a flake
-    overlay is in play. Reject for safety: the resolver's contract is
-    to surface paths inside the supplied root."""
+    """nix eval can return a path outside the nixpkgs root for a few
+    reasons. Truly arbitrary paths (e.g. /etc, a sibling tmp dir) must
+    be rejected for safety; the alt-store-source allowance below
+    handles the legitimate cron case where nix re-stages the source."""
     nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
     nixpkgs.parent.mkdir(parents=True, exist_ok=True)
     elsewhere_root = tmp_path / "elsewhere"
     elsewhere_root.mkdir()
     (elsewhere_root / "default.nix").write_text("{}")
-    # `elsewhere_root` is a sibling of nixpkgs, not under it.
+    # `elsewhere_root` is a sibling of nixpkgs, not under it, and not
+    # under any /nix/store/<hash>-source tree.
     with patch("agents.patcher.path_resolver._run_nix_eval_position",
                return_value=(str(elsewhere_root / "default.nix") + ":1", "ok")):
         with pytest.raises(PackageSourceNotFound, match="outside"):
@@ -152,3 +155,70 @@ def test_nix_eval_position_outside_nixpkgs_root_rejected(tmp_path: Path) -> None
                 nixpkgs_root=nixpkgs,
                 use_nix_eval=True,
             )
+
+
+def test_store_source_re_recognizes_unpacked_flake_paths() -> None:
+    """The regex backing the alt-source allowance: any /nix/store/<32-
+    hex-or-base32>-source[/...] path should match. This is the canonical
+    shape nix uses for unpacked flake inputs and fetchurl/fetchgit
+    checkouts. The shape is what makes the allowance safe — if it isn't
+    in the store-source layout, the resolver still rejects."""
+    from agents.patcher.path_resolver import _STORE_SOURCE_RE
+
+    accept = [
+        "/nix/store/" + ("a" * 32) + "-source",
+        "/nix/store/" + ("a" * 32) + "-source/pkgs/os-specific/linux/kernel/mainline.nix",
+        "/nix/store/" + ("0z" * 16) + "-source/flake.nix",
+    ]
+    for p in accept:
+        assert _STORE_SOURCE_RE.match(p), f"expected match: {p}"
+
+    reject = [
+        "/etc/nixos/configuration.nix",
+        "/tmp/elsewhere/default.nix",
+        # Wrong hash length.
+        "/nix/store/" + ("a" * 31) + "-source/foo.nix",
+        # Wrong suffix (not '-source').
+        "/nix/store/" + ("a" * 32) + "-other/foo.nix",
+        # Hex-only would also fail since nix uses base32; mixed case
+        # rejection prevents the regex from drifting permissive later.
+        "/nix/store/" + ("A" * 32) + "-source/foo.nix",
+    ]
+    for p in reject:
+        assert not _STORE_SOURCE_RE.match(p), f"expected reject: {p}"
+
+
+def test_nix_eval_alt_store_source_accepted(tmp_path: Path) -> None:
+    """Cron repro: nix-eval returns a path inside a /nix/store/<hash>-
+    source tree that's not the same store entry as nixpkgs_root.
+    Day-1 5h+5i confirmed this fails 22/22 kernel CVEs at the
+    'outside-nixpkgs-root' guard. Re-staged source is still safe to
+    read because we explicitly pinned the eval to nixpkgs_root."""
+    nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs-root")
+    # Build a fake alternate store-source tree under tmp_path so we
+    # can exercise the alt-source path without poking /nix/store.
+    fake_store_root = tmp_path / "fake-store" / "nix" / "store" / ("b" * 32 + "-source")
+    target = fake_store_root / "pkgs" / "os-specific" / "linux" / "kernel" / "mainline.nix"
+    target.parent.mkdir(parents=True)
+    target.write_text('{ ... }: { }')
+
+    # Patch the regex to accept fake_store_root's prefix in addition to
+    # the real /nix/store one. Cleanest way to keep the test hermetic
+    # without hard-coding a real /nix/store path.
+    fake_re = re.compile(
+        rf"^(?P<prefix>{re.escape(str(tmp_path))}/fake-store/nix/store/[0-9a-z]{{32}}-source)(?:/(?P<rest>.*))?$"
+    )
+    with patch("agents.patcher.path_resolver._run_nix_eval_position",
+               return_value=(f"{target}:34", "ok")), \
+         patch("agents.patcher.path_resolver._STORE_SOURCE_RE", fake_re):
+        result = resolve_package_source(
+            "linux",
+            nixpkgs_root=nixpkgs,
+            use_nix_eval=True,
+        )
+    assert result.strategy == "nix-eval-alt-source"
+    assert result.path == target.resolve()
+    # Relative is computed by stripping the alternate store-source
+    # prefix, not the original nixpkgs_root.
+    assert result.relative == "pkgs/os-specific/linux/kernel/mainline.nix"
+    assert "fetch" not in result.content  # sanity: file content read
