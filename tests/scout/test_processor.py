@@ -149,6 +149,144 @@ def test_github_commit_url_recognised(tmp_path: Path) -> None:
     assert refs[0]["upstream_fix_commits"][0]["repo_url"] == "https://github.com/octocat/Hello-World"
 
 
+# ─── git.kernel.org commit URL recognition ────────────────────────────────────
+#
+# Linux kernel CVEs publish patches as kernel.org cgit links rather than
+# github mirrors. Day-1 5h aggregate showed 9/9 recovered-target kernel CVEs
+# stuck at ineligible-no-fix-available because none of these forms matched
+# the github/gitlab regex. These tests pin down the four shapes the
+# processor now accepts and that exotic / malformed kernel.org URLs stay
+# unmatched (so we don't fabricate a repo_url from a guess).
+
+
+def test_kernel_stable_c_commit_url_recognised(tmp_path: Path) -> None:
+    """The /stable/c/<sha> shorthand maps to the linux-stable.git repo.
+    This is the dominant form in the kernel CVE corpus."""
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[
+            {"url": "https://git.kernel.org/stable/c/" + "a" * 40,
+             "kind": "upstream-commit"},
+        ],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    fc = refs[0]["upstream_fix_commits"][0]
+    assert fc["repo_url"] == "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git"
+    assert fc["commit_sha"] == "a" * 40
+
+
+def test_kernel_torvalds_c_commit_url_recognised(tmp_path: Path) -> None:
+    """The /torvalds/c/<sha> shorthand maps to torvalds/linux.git."""
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[
+            {"url": "https://git.kernel.org/torvalds/c/" + "b" * 40,
+             "kind": "upstream-commit"},
+        ],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    fc = refs[0]["upstream_fix_commits"][0]
+    assert fc["repo_url"] == "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+    assert fc["commit_sha"] == "b" * 40
+
+
+def test_kernel_linus_shorthand_commit_url_recognised(tmp_path: Path) -> None:
+    """/linus/<sha> is an alternate alias for the torvalds tree."""
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[
+            {"url": "https://git.kernel.org/linus/" + "c" * 40,
+             "kind": "upstream-commit"},
+        ],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    fc = refs[0]["upstream_fix_commits"][0]
+    assert fc["repo_url"] == "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+    assert fc["commit_sha"] == "c" * 40
+
+
+def test_kernel_full_cgit_commit_url_recognised(tmp_path: Path) -> None:
+    """The full cgit form /pub/scm/.../linux.git/commit/?id=<sha> is what
+    NVD references commonly carry. The repo_url comes straight from the
+    URL path so non-stable/non-torvalds trees (e.g. net-next, rdma) work
+    without per-tree mappings."""
+    url = (
+        "https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git"
+        "/commit/?id=" + "d" * 40
+    )
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[{"url": url, "kind": "upstream-commit"}],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    fc = refs[0]["upstream_fix_commits"][0]
+    assert fc["repo_url"] == (
+        "https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git"
+    )
+    assert fc["commit_sha"] == "d" * 40
+
+
+def test_kernel_malformed_urls_do_not_match(tmp_path: Path) -> None:
+    """Conservative: shapes that look kernel-ish but aren't the four
+    recognized forms must not produce a fix-commit. The fallback is
+    ineligible-no-fix-available, which is recoverable; a fabricated
+    repo_url would silently break the patcher downstream."""
+    bad_urls = [
+        # Wrong tree shorthand (we only know stable / torvalds / linus).
+        "https://git.kernel.org/next/c/" + "e" * 40,
+        # Path looks like cgit but missing the .git/commit/?id= suffix.
+        "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git",
+        # cgit form with /tree/ instead of /commit/ (browse, not patch).
+        "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+        "/tree/?id=" + "f" * 40,
+        # SHA too short to be a real commit reference.
+        "https://git.kernel.org/stable/c/abc12",
+        # Browser-side hash anchor instead of a commit URL.
+        "https://git.kernel.org/stable#" + "f" * 40,
+    ]
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[{"url": u, "kind": "upstream-commit"} for u in bad_urls],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    upstream = json.loads((entry / "upstream-ref.json").read_text())
+    assert upstream["eligibility"]["verdict"] == "ineligible-no-fix-available"
+
+
+def test_kernel_and_github_urls_coexist(tmp_path: Path) -> None:
+    """Heterogeneous reference list: both kernel.org and github.com
+    commit URLs must be lifted into fix_commits side-by-side. Order
+    follows references[] order so the first commit URL drives
+    release_url / first_commit_url."""
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[
+            {"url": "https://git.kernel.org/stable/c/" + "a" * 40,
+             "kind": "upstream-commit"},
+            {"url": "https://github.com/torvalds/linux/commit/" + "b" * 40,
+             "kind": "upstream-commit"},
+        ],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    fc_list = refs[0]["upstream_fix_commits"]
+    assert len(fc_list) == 2
+    assert fc_list[0]["commit_sha"] == "a" * 40
+    assert "git.kernel.org" in fc_list[0]["repo_url"]
+    assert fc_list[1]["commit_sha"] == "b" * 40
+    assert fc_list[1]["repo_url"] == "https://github.com/torvalds/linux"
+
+
 def test_upstream_ref_written_with_resolver_verdict(tmp_path: Path) -> None:
     entry = _seed_inbox(
         tmp_path,

@@ -45,6 +45,52 @@ _GITHUB_COMMIT_RE = re.compile(
 _GITLAB_COMMIT_RE = re.compile(
     r"^https://gitlab\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/-/commit/(?P<sha>[0-9a-f]{7,40})/?$"
 )
+# git.kernel.org commit URL shapes. The Linux kernel CVE corpus
+# overwhelmingly publishes patches as kernel.org cgit links rather
+# than github mirrors; without this match, kernel CVEs land at
+# resolver verdict ineligible-no-fix-available even when version
+# bounds are derivable. v0 covers the four common forms:
+#   * /stable/c/<sha>          (stable backports)
+#   * /torvalds/c/<sha>        (mainline shorthand)
+#   * /linus/<sha>             (mainline alternate shorthand)
+#   * /pub/scm/.../linux.git/commit/?id=<sha>   (full cgit URL)
+# Anything more exotic stays unmatched in v0 — we'd rather miss a
+# rare form than build a fix-commit on a guessed repo_url.
+_KERNEL_TREE_C_RE = re.compile(
+    r"^https://git\.kernel\.org/(?P<tree>stable|torvalds)/c/(?P<sha>[0-9a-f]{7,40})/?$"
+)
+_KERNEL_LINUS_RE = re.compile(
+    r"^https://git\.kernel\.org/linus/(?P<sha>[0-9a-f]{7,40})/?$"
+)
+_KERNEL_CGIT_RE = re.compile(
+    r"^https://git\.kernel\.org/(?P<repo_path>pub/scm/[^?#]+\.git)/commit/\?id=(?P<sha>[0-9a-f]{7,40})$"
+)
+_KERNEL_TREE_REPO_URL = {
+    "stable":   "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git",
+    "torvalds": "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git",
+}
+
+
+def _match_commit_url(url: str) -> tuple[str, str] | None:
+    """Recognize an upstream-commit URL and return (repo_url, commit_sha).
+    Order is host-by-host so a URL that matches one shape doesn't
+    accidentally fall through to a looser one."""
+    m = _GITHUB_COMMIT_RE.match(url)
+    if m:
+        return f"https://github.com/{m.group('owner')}/{m.group('repo')}", m.group("sha")
+    m = _GITLAB_COMMIT_RE.match(url)
+    if m:
+        return f"https://gitlab.com/{m.group('owner')}/{m.group('repo')}", m.group("sha")
+    m = _KERNEL_TREE_C_RE.match(url)
+    if m:
+        return _KERNEL_TREE_REPO_URL[m.group("tree")], m.group("sha")
+    m = _KERNEL_LINUS_RE.match(url)
+    if m:
+        return _KERNEL_TREE_REPO_URL["torvalds"], m.group("sha")
+    m = _KERNEL_CGIT_RE.match(url)
+    if m:
+        return f"https://git.kernel.org/{m.group('repo_path')}", m.group("sha")
+    return None
 
 
 @dataclass(frozen=True)
@@ -153,12 +199,11 @@ def _extract_candidate_refs(
         if ref.get("kind") != "upstream-commit":
             continue
         url = ref.get("url", "")
-        m = _GITHUB_COMMIT_RE.match(url) or _GITLAB_COMMIT_RE.match(url)
-        if not m:
+        match = _match_commit_url(url)
+        if match is None:
             continue
-        host = "github.com" if "github.com" in url else "gitlab.com"
-        repo_url = f"https://{host}/{m.group('owner')}/{m.group('repo')}"
-        fix_commits.append({"repo_url": repo_url, "commit_sha": m.group("sha")})
+        repo_url, sha = match
+        fix_commits.append({"repo_url": repo_url, "commit_sha": sha})
         if first_commit_url is None:
             first_commit_url = url
 
