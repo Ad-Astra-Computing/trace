@@ -19,11 +19,24 @@ or rejects upstream.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+# /nix/store/<32-char-hash>-source[/...] — the canonical shape of an
+# unpacked flake input or fetchurl/fetchgit checkout. Used to recognize
+# eval-returned positions that live in *some* nix-managed source tree
+# even when they don't share a prefix with the flake input we pinned.
+# Captures everything up to (and including) the trailing slash so the
+# alt-source allowance below can strip the prefix to compute a useful
+# relative path.
+_STORE_SOURCE_RE = re.compile(
+    r"^(?P<prefix>/nix/store/[0-9a-z]{32}-source)(?:/(?P<rest>.*))?$"
+)
 
 
 class PackageSourceNotFound(LookupError):
@@ -92,11 +105,29 @@ def resolve_package_source(
         raise PackageSourceNotFound(f"could not resolve {file_str}: {e}") from e
     try:
         relative = path.relative_to(root_resolved)
+        strategy = "nix-eval"
     except ValueError:
-        raise PackageSourceNotFound(
-            f"nix eval returned {path!r} which is outside nixpkgs root {root_resolved!r}; "
-            f"refusing to read"
-        )
+        # Eval can resolve to a different store-source entry than the
+        # flake input we pinned (e.g. when nix re-stages the source
+        # for evaluation, or when meta.position traces through an
+        # internal import chain). The file we got back is still
+        # inside a nix-managed unpacked flake source; reading it is
+        # safe and equivalent because we passed nixpkgs_root as the
+        # explicit flakeref to the eval. Restricting to the
+        # /nix/store/<hash>-source shape keeps a guardrail against
+        # accidental reads of arbitrary filesystem paths.
+        store_match = _STORE_SOURCE_RE.match(str(path))
+        if not store_match:
+            raise PackageSourceNotFound(
+                f"nix eval returned {path!r} which is outside nixpkgs root "
+                f"{root_resolved!r} and not under /nix/store/<hash>-source; "
+                f"refusing to read"
+            )
+        # Compute the relative-within-the-alt-source-tree from the same
+        # match; keeps `relative` informative for downstream consumers
+        # without overstating where the file came from.
+        relative = store_match.group("rest") or ""
+        strategy = "nix-eval-alt-source"
     if not path.is_file():
         raise PackageSourceNotFound(
             f"nix eval position {path!r} is not a file"
@@ -104,7 +135,7 @@ def resolve_package_source(
     return PackageSource(
         path=path,
         relative=str(relative),
-        strategy="nix-eval",
+        strategy=strategy,
         content=path.read_text(encoding="utf-8"),
     )
 
