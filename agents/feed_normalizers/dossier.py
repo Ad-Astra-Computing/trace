@@ -129,6 +129,16 @@ _REF_KIND_BY_HOST = (
     ("/commit/", "upstream-commit"),
     ("github.com", "upstream-commit"),
     ("gitlab.com", "upstream-commit"),
+    # Kernel CVEs publish patches as cgit links on git.kernel.org. The
+    # /stable/c/, /torvalds/c/, /linus/ shorthand forms don't contain
+    # "/commit/" so they need an explicit needle. The full cgit form
+    # already matches "/commit/" above. Processor's regex is the
+    # source of truth for which kernel.org URLs are actually fetchable;
+    # this needle just gets them the right kind tag so they reach the
+    # processor in the first place.
+    ("git.kernel.org/stable/c/", "upstream-commit"),
+    ("git.kernel.org/torvalds/c/", "upstream-commit"),
+    ("git.kernel.org/linus/", "upstream-commit"),
     ("nvd.nist.gov", "advisory"),
     ("cve.org", "advisory"),
     ("cve.vulnpatch.dev", "advisory"),

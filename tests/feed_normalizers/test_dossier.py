@@ -154,6 +154,56 @@ def test_nvd_patch_tag_lifts_commit_url_as_upstream_commit() -> None:
     assert gitlab_commits, f"expected gitlab.com /commit/ URL with kind=upstream-commit, got {refs!r}"
 
 
+def test_kernel_org_commit_urls_classified_as_upstream_commit() -> None:
+    """git.kernel.org commit shapes (stable/c, torvalds/c, linus, full
+    cgit) must surface with kind='upstream-commit' so the Scout
+    processor's commit-URL regex can lift them as candidate fix
+    commits. Without this classification the URLs land at kind='other'
+    and the processor never sees them — the day-1 5h aggregate
+    confirmed 9/9 kernel CVEs blocked at exactly this step."""
+    data = {
+        "cveId": "CVE-2026-43074",
+        "canonical": {
+            "id": "CVE-2026-43074",
+            "publishedAt": "2026-05-01T00:00:00Z",
+            "description": "kernel test",
+        },
+        "sources": {
+            "nvd": {
+                "cpeMatches": [],
+                "nvdReferences": [
+                    {"url": "https://git.kernel.org/stable/c/" + "a" * 40,
+                     "tags": []},
+                    {"url": "https://git.kernel.org/torvalds/c/" + "b" * 40,
+                     "tags": []},
+                    {"url": "https://git.kernel.org/linus/" + "c" * 40,
+                     "tags": []},
+                    {"url": ("https://git.kernel.org/pub/scm/linux/kernel/"
+                             "git/torvalds/linux.git/commit/?id=" + "d" * 40),
+                     "tags": []},
+                ],
+            },
+        },
+    }
+    raw = json.dumps({"data": data}).encode()
+    out = normalize_dossier(
+        data,
+        request_url="https://api.vulnpatch.dev/api/v1/cve/x/dossier",
+        fetched_at="2026-05-06T00:00:00Z",
+        raw_response_bytes=raw,
+    )
+    kernel_refs = [
+        r for r in out.get("references", [])
+        if "git.kernel.org" in r["url"]
+    ]
+    assert len(kernel_refs) == 4
+    for r in kernel_refs:
+        assert r["kind"] == "upstream-commit", (
+            f"kernel URL {r['url']!r} classified as {r['kind']!r}, "
+            "expected upstream-commit"
+        )
+
+
 def test_falls_back_to_ghsa_when_nvd_absent() -> None:
     """If a dossier has no sources.nvd but does have sources.github, the
     feed flips to 'ghsa' to keep authoritative-source attribution
