@@ -81,7 +81,11 @@ jobs:
           set -euo pipefail
           OPA_VERSION="v1.15.2"
           ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
-          curl -fsSL "https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_${ARCH}_static" \
+          # --retry 5 + retry-all-errors absorbs transient 5xxs from
+          # the OPA download CDN. Saw a 502 take out an entire cron on
+          # 2026-05-06; fail-loud is right for code, not for vendor blips.
+          curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+            "https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_${ARCH}_static" \
             -o /usr/local/bin/opa
           chmod +x /usr/local/bin/opa
           # Don't pipe to head: under `set -o pipefail`, opa SIGPIPEs on
