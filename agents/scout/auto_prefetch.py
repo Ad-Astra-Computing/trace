@@ -91,6 +91,14 @@ class AutoPrefetchStats:
     """Per-entry stats; aggregator sums these across a batch."""
     skipped_reason: str | None = None  # "env-not-set" | "no-nixpkgs-root" | "no-package-source" | None
     primary_src_class: str = "no-source-resolved"  # one of _SRC_PRIMARY_CLASSES
+    # Diagnostic from path_resolver when skipped_reason="no-package-source".
+    # Free-form short string surfaced from PackageSourceNotFound's message
+    # (covers e.g. "no package.nix at pkgs/by-name/li/linux/...",
+    # "nix eval did not return a meta.position for 'linux': nix-eval-timeout-120s",
+    # "nix eval returned ... outside nixpkgs root"). Without this the cron
+    # logs show only "no-package-source" with no signal as to which gap
+    # broke; aggregator buckets these by reason-prefix for the run summary.
+    path_resolver_diag: str | None = None
     has_vendor_style_hash: bool = False
     plain_fetchurl_attempted: int = 0
     plain_fetchurl_succeeded: int = 0
@@ -148,10 +156,11 @@ def auto_prefetch_for_entry(
             nixpkgs_root=nixpkgs_root,
             use_nix_eval=use_nix_eval,
         )
-    except PackageSourceNotFound:
+    except PackageSourceNotFound as e:
         return AutoPrefetchStats(
             skipped_reason="no-package-source",
             primary_src_class="no-source-resolved",
+            path_resolver_diag=_normalize_diag(str(e)),
         )
 
     package_source = pkg.content
@@ -332,6 +341,41 @@ def _classify_only(upstream_ref: dict, *, package_source: str | None) -> AutoPre
     )
 
 
+def _normalize_diag(message: str) -> str:
+    """Map a PackageSourceNotFound message to a short bucket key.
+
+    The aggregator counts entries per-bucket so the run summary stays
+    readable across batches. Buckets cover the four gaps path_resolver
+    can hit; anything unrecognized falls into "other" so we know to
+    extend the mapping. Bucket key is what shows up in the cron's
+    auto-prefetch-counts.json under path-resolver-diag.
+    """
+    msg = message or ""
+    # Order matters: the by-name miss can co-occur with later eval errors
+    # so we test for the more specific signatures first.
+    if "nix-eval-timeout" in msg:
+        return "nix-eval-timeout"
+    if "nix-eval-empty-output" in msg:
+        return "nix-eval-empty-output"
+    if "nix-eval-exit-" in msg:
+        return "nix-eval-exit-nonzero"
+    if "nix-not-on-path" in msg:
+        return "nix-not-on-path"
+    if "outside nixpkgs root" in msg:
+        return "outside-nixpkgs-root"
+    if "is not a file" in msg:
+        return "eval-position-not-a-file"
+    if "no package.nix at" in msg:
+        return "by-name-miss-no-eval-fallback"
+    if "namespaced attr_path" in msg:
+        return "namespaced-no-eval-fallback"
+    if "too short for by-name shard" in msg:
+        return "attr-path-too-short"
+    if "nixpkgs root does not exist" in msg:
+        return "nixpkgs-root-missing"
+    return "other"
+
+
 def _atomic_write_json(path: Path, data: Any) -> None:
     payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8") + b"\n"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -367,6 +411,12 @@ def aggregate_stats(stats_list: list[AutoPrefetchStats]) -> dict[str, Any]:
         "skipped-no-nixpkgs-root": 0,
         "skipped-already-populated": 0,
         "skipped-no-upstream-ref": 0,
+        # Per-cause breakdown of skipped-no-source-resolved. Surfaced from
+        # path_resolver's PackageSourceNotFound diagnostic so we can tell
+        # which structural gap blocked the resolve. Empty when no entry
+        # hit no-package-source. Diagnostics are normalized to short
+        # bucket keys; see _normalize_diag for the mapping.
+        "path-resolver-diag": {},
     }
     for s in stats_list:
         if s.skipped_reason == "env-not-set":
@@ -383,6 +433,10 @@ def aggregate_stats(stats_list: list[AutoPrefetchStats]) -> dict[str, Any]:
             continue
         if s.skipped_reason == "no-package-source":
             agg["skipped-no-source-resolved"] += 1
+            if s.path_resolver_diag:
+                agg["path-resolver-diag"][s.path_resolver_diag] = (
+                    agg["path-resolver-diag"].get(s.path_resolver_diag, 0) + 1
+                )
             continue
         agg["plain-fetchurl-attempted"] += s.plain_fetchurl_attempted
         agg["plain-fetchurl-succeeded"] += s.plain_fetchurl_succeeded
