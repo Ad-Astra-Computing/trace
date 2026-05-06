@@ -240,6 +240,8 @@ def _process_one(
             "succeeded": ap.plain_fetchurl_succeeded,
             "failed": ap.plain_fetchurl_failed,
         }
+        if ap.path_resolver_diag is not None:
+            base["auto_prefetch"]["path_resolver_diag"] = ap.path_resolver_diag
         if stats_sink is not None:
             stats_sink.append(ap)
 

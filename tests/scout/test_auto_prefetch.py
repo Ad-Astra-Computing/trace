@@ -325,6 +325,65 @@ def test_no_package_source_resolved_records_skip(
         nixpkgs_root=empty_nixpkgs, prefetch_url_fn=_ok_prefetch,
     )
     assert stats.skipped_reason == "no-package-source"
+    # Slice 5j: surface the resolver's diagnostic so the cron run summary
+    # can distinguish "no by-name + no eval fallback" from a nix-eval
+    # timeout, an outside-root rejection, etc. The kernel CVE work hit a
+    # silent no-package-source for every entry and we couldn't tell why.
+    assert stats.path_resolver_diag == "by-name-miss-no-eval-fallback"
+
+
+def test_normalize_diag_buckets() -> None:
+    """Each PackageSourceNotFound message shape maps to a stable
+    bucket key. Counting is what makes the diagnostic actionable —
+    raw messages aren't aggregable across entries."""
+    from agents.scout.auto_prefetch import _normalize_diag
+
+    cases = {
+        "nix eval did not return a meta.position for 'linux': nix-eval-timeout-120s": "nix-eval-timeout",
+        "nix eval did not return a meta.position for 'linux': nix-eval-empty-output": "nix-eval-empty-output",
+        "nix eval did not return a meta.position for 'linux': nix-eval-exit-2:bad attribute": "nix-eval-exit-nonzero",
+        "nix eval did not return a meta.position for 'linux': nix-not-on-path": "nix-not-on-path",
+        "nix eval returned PosixPath('/etc/foo') outside nixpkgs root /nix/store/xyz; refusing to read": "outside-nixpkgs-root",
+        "nix eval position PosixPath('/nix/store/x/y') is not a file": "eval-position-not-a-file",
+        "no package.nix at pkgs/by-name/li/linux/package.nix; pass use_nix_eval=True to fall back to `nix eval` for the long-tail layout": "by-name-miss-no-eval-fallback",
+        "namespaced attr_path 'haskellPackages.requests' cannot be resolved without use_nix_eval=True": "namespaced-no-eval-fallback",
+        "attr_path 'a' too short for by-name shard": "attr-path-too-short",
+        "nixpkgs root does not exist or is not a directory: /missing": "nixpkgs-root-missing",
+        "something nobody has seen before": "other",
+    }
+    for message, expected in cases.items():
+        assert _normalize_diag(message) == expected, (
+            f"diag {message!r} bucketed as {_normalize_diag(message)!r}, "
+            f"expected {expected!r}"
+        )
+
+
+def test_aggregate_stats_buckets_path_resolver_diag() -> None:
+    """The aggregator counts diag buckets per kind so the cron summary
+    can show 'nix-eval-timeout: 4, by-name-miss-no-eval-fallback: 12'
+    and the operator knows which gap to address."""
+    stats = [
+        AutoPrefetchStats(
+            skipped_reason="no-package-source",
+            path_resolver_diag="nix-eval-timeout",
+        ),
+        AutoPrefetchStats(
+            skipped_reason="no-package-source",
+            path_resolver_diag="nix-eval-timeout",
+        ),
+        AutoPrefetchStats(
+            skipped_reason="no-package-source",
+            path_resolver_diag="outside-nixpkgs-root",
+        ),
+        # An entry with no diagnostic should NOT crash the aggregator.
+        AutoPrefetchStats(skipped_reason="no-package-source"),
+    ]
+    agg = aggregate_stats(stats)
+    assert agg["skipped-no-source-resolved"] == 4
+    assert agg["path-resolver-diag"] == {
+        "nix-eval-timeout": 2,
+        "outside-nixpkgs-root": 1,
+    }
 
 
 def test_aggregate_stats_partitions_by_class() -> None:
