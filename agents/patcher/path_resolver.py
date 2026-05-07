@@ -107,15 +107,22 @@ def resolve_package_source(
         relative = path.relative_to(root_resolved)
         strategy = "nix-eval"
     except ValueError:
-        # Eval can resolve to a different store-source entry than the
-        # flake input we pinned (e.g. when nix re-stages the source
-        # for evaluation, or when meta.position traces through an
-        # internal import chain). The file we got back is still
-        # inside a nix-managed unpacked flake source; reading it is
-        # safe and equivalent because we passed nixpkgs_root as the
-        # explicit flakeref to the eval. Restricting to the
-        # /nix/store/<hash>-source shape keeps a guardrail against
-        # accidental reads of arbitrary filesystem paths.
+        # Eval resolved to a different store-source entry than the
+        # flake input we pinned. Two flavors observed in the cron:
+        #   * "alt-source": the path exists; nix re-staged the source
+        #     into a different store entry but the bytes are real and
+        #     equivalent.
+        #   * "phantom": the path does NOT exist on disk; nix-eval
+        #     computed it lazily through an internal `<nixpkgs/...>`
+        #     import chain (Determinate Nix's flake registry is the
+        #     observed cause for kernel meta.position) and never
+        #     materialized that store entry locally.
+        # In both cases the *relative* path (e.g.
+        # pkgs/os-specific/linux/kernel/mainline.nix) IS present in
+        # the flake input we explicitly archived as nixpkgs_root.
+        # Re-root the relative path there: if the file exists, read it.
+        # This is the structural fix that unblocks kernel CVEs whose
+        # meta.position resolves through Determinate's registry.
         store_match = _STORE_SOURCE_RE.match(str(path))
         if not store_match:
             raise PackageSourceNotFound(
@@ -123,11 +130,24 @@ def resolve_package_source(
                 f"{root_resolved!r} and not under /nix/store/<hash>-source; "
                 f"refusing to read"
             )
-        # Compute the relative-within-the-alt-source-tree from the same
-        # match; keeps `relative` informative for downstream consumers
-        # without overstating where the file came from.
         relative = store_match.group("rest") or ""
-        strategy = "nix-eval-alt-source"
+        rerooted = (root_resolved / relative).resolve() if relative else None
+        if rerooted is not None and rerooted.is_file():
+            try:
+                rerooted.relative_to(root_resolved)
+            except ValueError:
+                # Defensive: reject any path traversal that could
+                # escape root via .. components in `relative`.
+                raise PackageSourceNotFound(
+                    f"rerooted path {rerooted!r} escaped nixpkgs root {root_resolved!r}; "
+                    f"refusing to read"
+                )
+            path = rerooted
+            strategy = "nix-eval-rerooted"
+        else:
+            # Fall back to reading the alt-source path directly; the
+            # is_file check below catches the phantom case.
+            strategy = "nix-eval-alt-source"
     if not path.is_file():
         raise PackageSourceNotFound(
             f"nix eval position {path!r} is not a file"

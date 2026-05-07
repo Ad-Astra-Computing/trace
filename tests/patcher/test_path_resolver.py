@@ -188,6 +188,54 @@ def test_store_source_re_recognizes_unpacked_flake_paths() -> None:
         assert not _STORE_SOURCE_RE.match(p), f"expected reject: {p}"
 
 
+def test_nix_eval_phantom_path_rerooted_to_nixpkgs(tmp_path: Path) -> None:
+    """Captured cron behavior 2026-05-07: nix-eval returns a meta.position
+    under /nix/store/<hash>-source/pkgs/... but the store entry was
+    never materialized on the runner — Determinate Nix's flake registry
+    resolves an internal <nixpkgs/...> import to a phantom path. The
+    relative path IS present in the trace flake's archived nixpkgs
+    (we explicitly archived it as nixpkgs_root), so re-rooting unblocks
+    the read without trusting whatever path nix computed lazily."""
+    nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs-root")
+    real = nixpkgs / "pkgs" / "os-specific" / "linux" / "kernel" / "mainline.nix"
+    real.parent.mkdir(parents=True)
+    real.write_text('{ ... }: { src = fetchurl { url = "..."; }; }')
+
+    phantom = "/nix/store/" + ("c" * 32) + "-source/pkgs/os-specific/linux/kernel/mainline.nix"
+    with patch("agents.patcher.path_resolver._run_nix_eval_position",
+               return_value=(f"{phantom}:34", "ok")):
+        result = resolve_package_source(
+            "linux",
+            nixpkgs_root=nixpkgs,
+            use_nix_eval=True,
+        )
+    assert result.strategy == "nix-eval-rerooted"
+    assert result.path == real.resolve()
+    assert result.relative == "pkgs/os-specific/linux/kernel/mainline.nix"
+    assert "fetchurl" in result.content
+
+
+def test_nix_eval_phantom_relative_not_in_root_rejected(tmp_path: Path) -> None:
+    """Re-root only succeeds when the relative path actually exists in
+    nixpkgs_root. If the kernel package was renamed or removed in
+    nixpkgs_root (or the eval came from a totally unrelated tree),
+    the rerooted file is missing — fall through to alt-source path
+    which then fails is_file. Surfaces as eval-position-not-a-file
+    rather than silently accepting a guess."""
+    nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs-root")
+    # Don't create the kernel file; rerooted path will be missing.
+
+    phantom = "/nix/store/" + ("d" * 32) + "-source/pkgs/never/exists.nix"
+    with patch("agents.patcher.path_resolver._run_nix_eval_position",
+               return_value=(f"{phantom}:1", "ok")):
+        with pytest.raises(PackageSourceNotFound, match="not a file"):
+            resolve_package_source(
+                "missing",
+                nixpkgs_root=nixpkgs,
+                use_nix_eval=True,
+            )
+
+
 def test_nix_eval_alt_store_source_accepted(tmp_path: Path) -> None:
     """Cron repro: nix-eval returns a path inside a /nix/store/<hash>-
     source tree that's not the same store entry as nixpkgs_root.
