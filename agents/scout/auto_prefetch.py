@@ -99,6 +99,11 @@ class AutoPrefetchStats:
     # logs show only "no-package-source" with no signal as to which gap
     # broke; aggregator buckets these by reason-prefix for the run summary.
     path_resolver_diag: str | None = None
+    # Per-entry truncated raw PackageSourceNotFound message. Only
+    # surfaced in per-entry JSONL, not aggregated. Captures the
+    # specific path/attr the resolver saw so debugging doesn't require
+    # another round-trip.
+    path_resolver_message: str | None = None
     has_vendor_style_hash: bool = False
     plain_fetchurl_attempted: int = 0
     plain_fetchurl_succeeded: int = 0
@@ -157,10 +162,18 @@ def auto_prefetch_for_entry(
             use_nix_eval=use_nix_eval,
         )
     except PackageSourceNotFound as e:
+        msg = str(e)
         return AutoPrefetchStats(
             skipped_reason="no-package-source",
             primary_src_class="no-source-resolved",
-            path_resolver_diag=_normalize_diag(str(e)),
+            path_resolver_diag=_normalize_diag(msg),
+            # Carry a truncated raw message for per-entry debugging.
+            # Aggregator buckets by `path_resolver_diag` only; the raw
+            # message is per-entry and helps identify which file path
+            # the resolver actually saw — the bucket alone strips the
+            # specific path that often is the actionable detail (e.g.
+            # which alt-source store entry, which by-name shard).
+            path_resolver_message=msg[:300],
         )
 
     package_source = pkg.content
