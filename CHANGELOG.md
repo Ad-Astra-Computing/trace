@@ -12,6 +12,192 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ---
 
+## v0.2.0 — 7 May 2026
+
+### Scout autonomously feeds the bundle pipeline
+
+v0.1.0 demonstrated the inner chain (Patcher → Reviewer → Builder →
+Reproducer → Steward) producing verified bundles from hand-staged
+inputs. v0.2.0 brings Scout online: hourly cron discovery from real CVE
+feeds, scoping against a pinned nixpkgs graph snapshot, and
+construction of a `scout-input.json` rich enough that
+UpstreamRefResolver can decide eligibility without further input.
+First non-curated `eligible` verdicts produced (4 kernel CVEs in cron
+run 25466617594).
+
+**Scout discovery + polling.** New modules under `agents/scout/`:
+`feed_client.py` (HTTP transport for Vulnpatch dossier + NVD direct,
+exponential-backoff retry), `discovery.py` (windowed CVE-id discovery
+from NVD with cursor + retry queue persisted under `state/`),
+`poll_one.py` (per-CVE poll orchestrator), `processor.py` (graph-scan
++ candidate-ref extraction + auto-resolve), `batch_cli.py`
+(single-Python-invocation batch driver), `auto_prefetch.py`
+(orchestrator for FOD-hash extraction). Hourly schedule via
+`.github/workflows/scout-cron.yml`; longitudinal run records committed
+to `data/scout-runs.jsonl` with `[skip ci]` to keep the workflow
+budget bounded.
+
+**Vulnpatch dossier normalizer.** `agents/feed_normalizers/dossier.py`
+lifts the aggregator response into `scout-input` while preserving the
+trust boundary: `feed` reflects the underlying authoritative source
+(NVD > GHSA > OSV); aggregator metadata lands in the optional
+`aggregator` block which Steward explicitly ignores. CPE matches +
+pname hints + references + version bounds extracted; references
+classified by host + NVD tag. New `version_bounds[].provenance` enum
+distinguishes `fixed-version-from-status-list` and
+`pre-release-from-status-list` (slice 5h status-list fallback) from
+the structured / free-text affected-list paths.
+
+**UpstreamRefResolver tightening.** New review triggers and
+ineligibility paths, every one fixture-pinned in
+`tests/resolver/fixtures/`:
+* `ambiguous-fixed-version` (lessThanOrEqual / versionEndIncluding
+  bounds where next-semver math is undefined for v0)
+* `pre-release-target` (rc/alpha/beta target versions blocked from
+  auto-merge)
+* `placeholder-target-version` (no version bound derivable, target
+  fell back to current_version, made explicit in scout-input rather
+  than detected downstream by equality)
+* `no-target-version-derived` (legacy backstop)
+* downgrade refusal (`current >= target` filtered before verdict)
+* identity refusal (`target == current` routes to ineligible)
+
+**Steward patcher-readiness gate (slice 5c.1).** Three new Rego rules
+in `policy/steward_route.rego`: auto-merge-eligible now requires
+`prefetch_hashes` populated AND no `prefetch_skips` with
+`required_for_patch == true`. Reaches Steward as
+`patcher-not-ready:missing-prefetch-hashes` and
+`patcher-not-ready:prefetch-skipped:<slot>` reason codes. Gates
+correctly even when the resolver returns `eligible` but no FOD hash is
+derivable (the kernel-CVE shape).
+
+**Auto-prefetch chain.** Three layered env gates (TRACE_REAL_PREFETCH,
+TRACE_REAL_FETCHZIP) for plain `fetchurl` and `fetchFromGitHub`
+sources. fetchurl path uses `auto_prefetch_high_confidence`
+filtered to `package-url-template` rule; fetchFromGitHub path uses
+`prefetch_fetchzip` (fetchzip-aware FOD extraction via `nix-build`
+with `lib.fakeHash`). Per-class metrics:
+`plain-fetchurl-{attempted,succeeded,failed}`,
+`fetchFromGitHub-{attempted,succeeded,failed,present-but-skipped}`,
+`fetchzip-present-but-skipped`, `go-mod-vendor-present-but-skipped`.
+
+**Path resolver fixes (slice 5j).** Cron run instrumentation revealed
+nix-eval returns `meta.position` paths in alt store-source entries
+that don't exist on the runner (Determinate Nix's flake registry
+resolves internal `<nixpkgs/...>` imports lazily; the resulting store
+entry is never archived). Two-stage fix: accept paths under any
+`/nix/store/<32hex>-source/` tree (the `nix-eval-alt-source`
+strategy); when the alt-source path doesn't exist on disk, re-root the
+relative path under the trace flake's archived `nixpkgs_root` (the
+`nix-eval-rerooted` strategy). `path_resolver_diag` aggregates per-
+bucket; `path_resolver_message` carries a truncated raw message
+per-entry. Defense-in-depth `relative_to` check after reroot guards
+against symlink escapes.
+
+**git.kernel.org commit-URL recognition (slice 5i).** Linux kernel
+CVEs publish patches as kernel.org cgit links rather than github
+mirrors. Four shapes recognized: `/stable/c/<sha>`,
+`/torvalds/c/<sha>`, `/linus/<sha>`, full cgit
+`/pub/scm/.../<tree>.git/commit/?id=<sha>`. Anything outside these
+four stays unmatched (a fabricated `repo_url` would silently break the
+patcher; ineligible-no-fix-available is recoverable). Dossier
+classifier extended in lockstep so kernel URLs land at
+`kind=upstream-commit` rather than `kind=other`.
+
+**Status-list version_bounds fallback (slice 5h).** When no
+`status: "affected"` entry produces a structured or free-text bound,
+infer one from `status: "unaffected"` entries with provenance
+preserved. Recovered 92/100 placeholder-target-version cases on day-1
+measurement (2 confirmed-recovered with real fix versions, 83
+correctly identified as already-fixed in nixpkgs via downgrade
+filter).
+
+**CPE matching upgrade.** `agents/scout/cpe_matcher.py` now does
+real wildcard-aware CPE matching with version-range gating against
+the NVD `/cpes/2.0` dictionary. Per-page retry on 5xx; retries absorb
+transients but don't mask sustained outages.
+
+**Backfill CLI.** `python -m agents.scout.backfill` for windowed
+catch-up runs over a closed CVE-id range. Used to seed cron state for
+the first hourly run.
+
+**Patcher CLI.** New `agents/patcher/cli.py` for inbox-driven model
+invocation: default model `claude-opus-4-7`, $1.00 soft / $3.00 hard
+budget, exit codes 0/10/11/12/13/14/64. Adapter injection for tests.
+
+**`trace bundle pr-snippet`.** New CLI rendering the upstream PR
+evidence block from a finalized bundle (citations, signing identity,
+verifier command). TDD-first; eight tests covering the rendering
+contract.
+
+**Where kernel CVEs land in v0.** Eligible verdict, real fix commits,
+honest `human-review-required` with structured
+`patcher-not-ready:prefetch-skipped:src.hash` reason. The kernel
+`mainline.nix` constructs src inside `buildLinux`, not via a flat
+`src = fetchurl`, so there is no single FOD hash to bump. A
+kernel-aware patcher is a separate research arc; for v0 the bundles
+are honestly bucketed and reviewable.
+
+### CI infrastructure
+
+**Cron hardening.** Hourly `.github/workflows/scout-cron.yml` pinned
+to `:17` with longitudinal record append. Two opa-install fixes:
+SIGPIPE under `set -o pipefail` (`opa version | head -1` exited 141
+when head closed the pipe early); curl retry on transient 5xxs from
+the OPA download CDN. Cron also resolves nixpkgs root via
+`nix flake archive --json | jq` and passes `--use-nix-eval` for the
+long-tail attr layout. Discovery cursor cached via
+`actions/cache@v4`; retry queue carries failed CVEs across runs.
+
+**Snapshot builder.** `.github/workflows/scout-snapshot.yml` builds
+the nixpkgs graph snapshot via `--no-drv-paths` to avoid OOM. Drift
+detection workflow alerts when the snapshot ages beyond threshold.
+
+**FlakeHub OIDC.** Cron runs gracefully skip auto-prefetch when the
+snapshot is missing (transient FlakeHub login failures observed; cron
+continues without enrichment rather than failing the run).
+
+### Documentation
+
+**DECISIONS.md.** Substantial accumulation: full-chain integration
+test landed; signing identity locked; signed real-CVE bundle (uriparser
+run 25075869027); fork-build cohort (bind green, traefik + mbedtls
+honest v0 limits); no qualified anthropic-side Reproducer model on v0
+(later amended); libtiff CVE-2024-13978 dispatch (Builder saturates
+GitHub Actions; v1 Hydra-graduation criterion landed concretely);
+mruby CVE-2025-7207 deterministic-no-model corpus seed; Scout funnel
+investigation closure (slices 5h, 5i, 5j) on 7 May 2026.
+
+### Test suite
+
+**972 passing, 30 skipped** (network-gated). Up from 651 / 24 at
+v0.1.0. New coverage:
+* Scout HTTP feed client (canned-fixture + retry semantics).
+* Vulnpatch dossier normalizer (33 tests including version_bounds
+  status-list provenance).
+* CVE discovery + windowed cursor.
+* Inbox writer atomicity.
+* Inbox processor scan + auto-resolve.
+* Resolver fixtures for every new verdict + trigger.
+* Steward Rego rules for patcher-readiness gates.
+* Auto-prefetch orchestrator (env-gating, plain-fetchurl, FOD
+  extraction, aggregate metrics, path-resolver diagnostic bucketing).
+* Path resolver alt-source + reroot.
+* git.kernel.org commit-URL regex + malformed-rejection.
+
+### Boundaries (no change from v0.1.0)
+
+The deliberate non-goals from v0.1.0 still hold: no auto-merge for
+real-CVE-signed bundles (gated on sandbox-positive Reproducer corpus +
+Builder saturation graduation), no live-API CI on every push (gated on
+per-workspace budget caps), no Hydra integration, no novel-vuln
+discovery, no UI, no direct upstreaming. Kernel CVEs route to
+human-review-required by design as documented above. Full list:
+[`docs/DECISIONS.md`](docs/DECISIONS.md) section
+*Deliberate non-goals for v0*.
+
+---
+
 ## v0.1.0 — 28 April 2026
 
 ### Public-readiness milestone
