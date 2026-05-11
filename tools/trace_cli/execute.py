@@ -583,6 +583,85 @@ def _execute_patcher(
     }
 
 
+def _read_bundle_cve_id(bundle_dir: Path) -> str | None:
+    """Best-effort read of bundle.json#cve_id for sidecar provenance.
+    Returns None rather than raising if bundle.json is missing or
+    malformed: the sidecar is still valuable without the cve_id, and
+    we don't want a missing-bundle.json to break the role write."""
+    bundle_path = bundle_dir / "bundle.json"
+    if not bundle_path.is_file():
+        return None
+    try:
+        return json.loads(bundle_path.read_text()).get("cve_id")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _write_role_invocation_sidecar(
+    *,
+    bundle_dir: Path,
+    role: str,
+    cve_id: str | None,
+    invocation_id: str,
+    started_at: str,
+    ended_at: str,
+    role_run_meta: dict[str, Any],
+    model_response: Any,
+) -> Path:
+    """Write a <role>-invocation.json sidecar capturing usage + cost.
+
+    Mirrors agents/patcher/cli.py's patcher-invocation.json shape so
+    `trace report throughput` can read all three roles uniformly. The
+    sidecar is the single source of truth for realized per-role spend;
+    replay.json carries the invocation in roles[] but is bound by its
+    schema (additionalProperties: false) and can't carry usage data.
+
+    Returns the path written. Caller is expected to log the path or
+    surface it in the test/CI artifact list.
+    """
+    from agents.cost import actual_cost_usd
+
+    model_id = model_response.model_id
+    input_tokens = getattr(model_response, "input_tokens", None)
+    output_tokens = getattr(model_response, "output_tokens", None)
+    cost = actual_cost_usd(
+        model_id=model_id,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+    payload: dict[str, Any] = {
+        "schema_version": "1.0.0",
+        "invocation_id": invocation_id,
+        "cve_id": cve_id,
+        "role": role,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "model_id": model_id,
+        "adapter": role_run_meta.get("adapter"),
+        "kind": role_run_meta.get("kind"),
+        "sampling": role_run_meta.get("sampling"),
+        "prompt_sha256": role_run_meta.get("prompt_sha256"),
+        "user_content_sha256": role_run_meta.get("user_content_sha256"),
+        "raw_response_sha256": role_run_meta.get("raw_response_sha256"),
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        },
+        "budget": {
+            # Reviewer + Reproducer have no CLI-set budget caps in v0;
+            # actual_cost_usd is the realized spend, null when the
+            # adapter didn't report token usage (FakeAdapter case).
+            "soft_cap_usd": None,
+            "hard_cap_usd": None,
+            "actual_cost_usd": cost,
+        },
+    }
+    sidecar_path = bundle_dir / f"{role}-invocation.json"
+    body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    _atomic_write_bytes(sidecar_path, body)
+    return sidecar_path
+
+
 def _atomic_write_bytes(target: Path, data: bytes) -> None:
     """Write bytes atomically to target via temp file + os.replace."""
     import os
@@ -910,6 +989,21 @@ def _execute_reviewer(
     )
     _append_reviewer_replay_entry(
         bundle_dir=bundle_dir, invocation=replay_invocation,
+    )
+
+    # Sidecar: usage + cost. Replay.json's invocation schema can't
+    # carry these (additionalProperties: false). Same shape as
+    # patcher-invocation.json so `trace report throughput` reads all
+    # three uniformly.
+    _write_role_invocation_sidecar(
+        bundle_dir=bundle_dir,
+        role="reviewer",
+        cve_id=_read_bundle_cve_id(bundle_dir),
+        invocation_id=replay_invocation["invocation_id"],
+        started_at=started_at,
+        ended_at=ended_at,
+        role_run_meta=reviewer_run_meta,
+        model_response=result.model_response,
     )
 
     return {
@@ -1260,6 +1354,21 @@ def _execute_reproducer(
     )
     _append_reproducer_replay_entry(
         bundle_dir=bundle_dir, invocation=replay_invocation,
+    )
+
+    # Sidecar: usage + cost. Replay.json's invocation schema can't
+    # carry these (additionalProperties: false). Same shape as
+    # patcher-invocation.json so `trace report throughput` reads all
+    # three uniformly.
+    _write_role_invocation_sidecar(
+        bundle_dir=bundle_dir,
+        role="reproducer",
+        cve_id=_read_bundle_cve_id(bundle_dir),
+        invocation_id=replay_invocation["invocation_id"],
+        started_at=started_at,
+        ended_at=ended_at,
+        role_run_meta=reproducer_run_meta,
+        model_response=result.model_response,
     )
 
     return {

@@ -434,6 +434,17 @@ def test_full_chain_patcher_reviewer_reproducer_builder_steward(tmp_path: Path) 
     assert rv_result["kind"] == "review"
     assert rv_result["verdict"] == "accept"
     assert (bundle / "review.md").is_file()
+    # Sidecar usage file mirrors patcher-invocation.json shape.
+    # FakeAdapter doesn't report tokens, so usage/cost are null —
+    # but the sidecar IS written so `trace report throughput` can
+    # distinguish "role ran" from "role missing".
+    reviewer_inv = bundle / "reviewer-invocation.json"
+    assert reviewer_inv.is_file()
+    reviewer_inv_data = json.loads(reviewer_inv.read_text())
+    assert reviewer_inv_data["role"] == "reviewer"
+    assert reviewer_inv_data["model_id"] == "claude-sonnet-4-6"
+    assert reviewer_inv_data["usage"]["input_tokens"] is None
+    assert reviewer_inv_data["budget"]["actual_cost_usd"] is None
 
     # ── Reproducer (cross-family with Patcher) ──────────────────────────
     rp_result = execute(
@@ -445,6 +456,11 @@ def test_full_chain_patcher_reviewer_reproducer_builder_steward(tmp_path: Path) 
     assert (bundle / "reproducer.nix").is_file()
     assert (bundle / "reproducer-log.txt").is_file()
     assert (bundle / "passthru-tests.json").is_file()
+    reproducer_inv = bundle / "reproducer-invocation.json"
+    assert reproducer_inv.is_file()
+    reproducer_inv_data = json.loads(reproducer_inv.read_text())
+    assert reproducer_inv_data["role"] == "reproducer"
+    assert reproducer_inv_data["usage"]["input_tokens"] is None
 
     # ── Builder (RUNNER_BACKED; FakeBuildRunner) ────────────────────────
     b_result = execute(

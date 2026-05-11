@@ -81,7 +81,11 @@ class BundleSummary:
     has_reproducer_nix: bool
     has_reproducer_refusal: bool
     patcher_provenance: str  # "model-attested" | "deterministic-no-model" | "absent"
-    patcher_usage: dict[str, Any] | None  # populated when patcher-invocation.json exists
+    # Per-role usage block from <role>-invocation.json sidecars. Each
+    # value carries {input_tokens, output_tokens, actual_cost_usd,
+    # model_id}; missing entries mean the sidecar isn't on disk yet
+    # (the role didn't run, or pre-instrumentation seed bundle).
+    role_usage: dict[str, dict[str, Any]]
 
 
 @dataclass
@@ -241,23 +245,11 @@ def _summarize_bundle(
         else:
             total_known = False
 
-    patcher_invocation_path = bundle_dir / "patcher-invocation.json"
-    patcher_usage: dict[str, Any] | None = None
-    if patcher_invocation_path.is_file():
-        try:
-            inv = json.loads(patcher_invocation_path.read_text())
-        except json.JSONDecodeError:
-            inv = None
-        if isinstance(inv, dict):
-            usage = inv.get("usage")
-            budget = inv.get("budget") or {}
-            if isinstance(usage, dict):
-                patcher_usage = {
-                    "input_tokens": usage.get("input_tokens"),
-                    "output_tokens": usage.get("output_tokens"),
-                    "actual_cost_usd": budget.get("actual_cost_usd"),
-                    "model_id": inv.get("model_id"),
-                }
+    role_usage: dict[str, dict[str, Any]] = {}
+    for role in ("patcher", "reviewer", "reproducer"):
+        usage = _read_role_invocation_sidecar(bundle_dir, role)
+        if usage is not None:
+            role_usage[role] = usage
 
     return BundleSummary(
         cve_id=bundle.get("cve_id") or bundle_dir.name,
@@ -269,8 +261,35 @@ def _summarize_bundle(
         has_reproducer_nix=(bundle_dir / "reproducer.nix").is_file(),
         has_reproducer_refusal=(bundle_dir / "reproducer-refusal.json").is_file(),
         patcher_provenance=_patcher_provenance(replay),
-        patcher_usage=patcher_usage,
+        role_usage=role_usage,
     )
+
+
+def _read_role_invocation_sidecar(
+    bundle_dir: Path, role: str
+) -> dict[str, Any] | None:
+    """Read <role>-invocation.json sidecar if present. Returns the
+    normalized usage block (uniform across all three roles), or None
+    when the file is missing. Malformed sidecars are skipped silently
+    so a broken file doesn't take out the whole report; future
+    iteration could surface a parse-error counter."""
+    path = bundle_dir / f"{role}-invocation.json"
+    if not path.is_file():
+        return None
+    try:
+        inv = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(inv, dict):
+        return None
+    usage = inv.get("usage") or {}
+    budget = inv.get("budget") or {}
+    return {
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "actual_cost_usd": budget.get("actual_cost_usd"),
+        "model_id": inv.get("model_id"),
+    }
 
 
 def _invocation_duration_seconds(inv: dict[str, Any]) -> float | None:
@@ -341,11 +360,19 @@ def build_report(
         for b in bundles
     ]
 
-    observed_patcher_usage = [
-        {"cve_id": b.cve_id, **b.patcher_usage}
-        for b in bundles
-        if b.patcher_usage is not None
-    ]
+    # Per-role usage rows: one row per (bundle, role) pair that has a
+    # sidecar on disk. Caller can re-aggregate by role or by bundle.
+    observed_role_usage: list[dict[str, Any]] = []
+    for b in bundles:
+        for role in ("patcher", "reviewer", "reproducer"):
+            usage = b.role_usage.get(role)
+            if usage is None:
+                continue
+            observed_role_usage.append({
+                "cve_id": b.cve_id,
+                "role": role,
+                **usage,
+            })
 
     kind_dist: dict[str, int] = {}
     repro_status: dict[str, int] = {"reproducer_nix": 0, "refusal": 0, "absent": 0}
@@ -370,20 +397,26 @@ def build_report(
     }
 
     n_bundles = len(bundles)
-    n_patcher_with_usage = len(observed_patcher_usage)
+    role_counts = {
+        "patcher": sum(1 for b in bundles if "patcher" in b.role_usage),
+        "reviewer": sum(1 for b in bundles if "reviewer" in b.role_usage),
+        "reproducer": sum(1 for b in bundles if "reproducer" in b.role_usage),
+    }
+    n_total_invocations = sum(role_counts.values())
     unobserved = {
         "per_role_token_cost": {
-            "data_points": n_patcher_with_usage,
-            "patcher_invocations_with_usage": n_patcher_with_usage,
-            "reviewer_invocations_with_usage": 0,
-            "reproducer_invocations_with_usage": 0,
-            "reason": _per_role_cost_reason(n_bundles, n_patcher_with_usage),
+            "data_points": n_total_invocations,
+            "patcher_invocations_with_usage": role_counts["patcher"],
+            "reviewer_invocations_with_usage": role_counts["reviewer"],
+            "reproducer_invocations_with_usage": role_counts["reproducer"],
+            "reason": _per_role_cost_reason(n_bundles, role_counts),
         },
         "cost_per_merge_ready_bundle": {
-            "data_points": _cost_per_merge_ready_points(bundles, n_patcher_with_usage),
+            "data_points": _cost_per_merge_ready_points(bundles),
             "reason": (
                 "computed from per_role_token_cost; reported as N=0 when "
-                "patcher-invocation.json is absent on the merge-ready set"
+                "no merge-ready bundle has a complete set of role "
+                "sidecars (patcher + reviewer + reproducer)"
             ),
         },
     }
@@ -395,7 +428,7 @@ def build_report(
         observed={
             "cron_throughput": observed_cron,
             "bundle_wall_time": observed_wall_time,
-            "patcher_usage": observed_patcher_usage,
+            "role_usage": observed_role_usage,
         },
         derived=derived,
         unobserved=unobserved,
@@ -411,31 +444,29 @@ def _per_run_means(s: ScoutRunsSummary) -> dict[str, float | None]:
     }
 
 
-def _per_role_cost_reason(n_bundles: int, n_with_usage: int) -> str:
+def _per_role_cost_reason(
+    n_bundles: int, role_counts: dict[str, int]
+) -> str:
     if n_bundles == 0:
-        return (
-            "no real-CVE bundles scanned under traces_root; nothing to report on"
-        )
-    if n_with_usage == 0:
-        return (
-            f"patcher-invocation.json present in 0/{n_bundles} bundles. "
-            "Reviewer/Reproducer have no per-invocation usage artifact in v0."
-        )
-    return (
-        f"partial: patcher-invocation.json present in {n_with_usage}/{n_bundles} "
-        "bundles; Reviewer/Reproducer remain uninstrumented in v0."
-    )
+        return "no real-CVE bundles scanned under traces_root; nothing to report on"
+    parts: list[str] = []
+    for role in ("patcher", "reviewer", "reproducer"):
+        parts.append(f"{role}={role_counts[role]}/{n_bundles}")
+    return f"per-role sidecar coverage: {', '.join(parts)}"
 
 
-def _cost_per_merge_ready_points(
-    bundles: list[BundleSummary], n_with_usage: int
-) -> int:
-    if n_with_usage == 0:
-        return 0
+def _cost_per_merge_ready_points(bundles: list[BundleSummary]) -> int:
+    """A merge-ready cost data point requires kind == 'auto-merge' AND
+    a complete set of role sidecars (patcher + reviewer + reproducer).
+    Anything less is a partial measurement and would mislead the
+    headline cost-per-merge-ready figure."""
     return sum(
         1
         for b in bundles
-        if b.patcher_usage is not None and b.kind == "auto-merge"
+        if b.kind == "auto-merge"
+        and "patcher" in b.role_usage
+        and "reviewer" in b.role_usage
+        and "reproducer" in b.role_usage
     )
 
 
@@ -466,8 +497,8 @@ def render_markdown(report: Report) -> str:
     lines.append("")
     lines.append(_md_wall_time_section(report.observed["bundle_wall_time"]))
     lines.append("")
-    if report.observed["patcher_usage"]:
-        lines.append(_md_patcher_usage_section(report.observed["patcher_usage"]))
+    if report.observed["role_usage"]:
+        lines.append(_md_role_usage_section(report.observed["role_usage"]))
         lines.append("")
     lines.append("## Derived")
     lines.append("")
@@ -544,15 +575,15 @@ def _md_wall_time_section(bundles: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _md_patcher_usage_section(usages: list[dict[str, Any]]) -> str:
+def _md_role_usage_section(usages: list[dict[str, Any]]) -> str:
     lines: list[str] = []
-    lines.append("### Patcher per-invocation usage")
+    lines.append("### Per-role usage")
     lines.append("")
-    lines.append("| CVE | model | input tokens | output tokens | cost (USD) |")
-    lines.append("|---|---|---|---|---|")
+    lines.append("| CVE | role | model | input tokens | output tokens | cost (USD) |")
+    lines.append("|---|---|---|---|---|---|")
     for u in usages:
         lines.append(
-            f"| {u['cve_id']} | {u.get('model_id') or '?'} | "
+            f"| {u['cve_id']} | {u['role']} | {u.get('model_id') or '?'} | "
             f"{u.get('input_tokens') if u.get('input_tokens') is not None else 'n/a'} | "
             f"{u.get('output_tokens') if u.get('output_tokens') is not None else 'n/a'} | "
             f"{_fmt_float(u.get('actual_cost_usd'))} |"
