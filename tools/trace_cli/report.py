@@ -1,0 +1,704 @@
+"""trace report — pure roll-up of throughput + cost data on disk.
+
+Step 1 of the cost/throughput reporting arc (see memory note 2026-05-08
+"trace next-arc priority order"). Reads only existing artifacts:
+
+  * data/scout-runs.jsonl       — per-run cron throughput records.
+  * traces/example/CVE-*/       — frozen bundle directories with
+                                  bundle.json, replay.json, and
+                                  optional reproducer-refusal.json /
+                                  patcher-invocation.json.
+
+Does not estimate missing data. Emits three sections so the gap is
+honest:
+
+  * observed:    what came directly off disk.
+  * derived:     simple counts on top of observed data.
+  * unobserved:  instrumented fields with zero data points and why.
+
+The Patcher CLI writes patcher-invocation.json with input/output tokens
+and actual_cost_usd, but the seed corpus at traces/example/ predates
+that path. So Step 1 is expected to report
+unobserved.per_role_token_cost.data_points = 0. That's the value of
+the report: it forces the decision about whether to instrument
+Reviewer/Reproducer first or just re-run the existing Patcher bundles.
+
+Writes:
+  data/reports/throughput-<UTC-timestamp>.json
+  data/reports/throughput-<UTC-timestamp>.md
+
+With --format json: also prints the JSON to stdout.
+With --format human: prints the Markdown to stdout.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+
+SCHEMA_VERSION = "1.0.0"
+REPORT_KIND = "throughput"
+
+
+# ─── shapes ──────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class ScoutRunsSummary:
+    """Roll-up of data/scout-runs.jsonl. Counters are absent (None) when
+    no record carried that key; missing keys are not the same as zero."""
+
+    runs: int
+    earliest_run_at: str | None
+    latest_run_at: str | None
+    totals_by_action: dict[str, int]
+    totals_by_verdict: dict[str, int]
+    discovered_total: int
+    processed_total: int
+
+
+@dataclass
+class RoleWallTime:
+    role: str
+    invocations: int
+    duration_seconds: float | None  # None when any invocation lacks timestamps
+
+
+@dataclass
+class BundleSummary:
+    cve_id: str
+    bundle_id: str | None
+    kind: str | None
+    kind_reason: str | None
+    per_role: dict[str, RoleWallTime]
+    total_wall_time_seconds: float | None
+    has_reproducer_nix: bool
+    has_reproducer_refusal: bool
+    patcher_provenance: str  # "model-attested" | "deterministic-no-model" | "absent"
+    patcher_usage: dict[str, Any] | None  # populated when patcher-invocation.json exists
+
+
+@dataclass
+class Provenance:
+    generated_at: str
+    git_rev: str | None
+    traces_root: str
+    scout_runs_path: str
+    bundles_scanned: int
+    scout_runs_scanned: int
+
+
+@dataclass
+class Report:
+    schema_version: str
+    report_kind: str
+    provenance: Provenance
+    observed: dict[str, Any]
+    derived: dict[str, Any]
+    unobserved: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "report_kind": self.report_kind,
+            "provenance": {
+                "generated_at": self.provenance.generated_at,
+                "git_rev": self.provenance.git_rev,
+                "traces_root": self.provenance.traces_root,
+                "scout_runs_path": self.provenance.scout_runs_path,
+                "bundles_scanned": self.provenance.bundles_scanned,
+                "scout_runs_scanned": self.provenance.scout_runs_scanned,
+            },
+            "observed": self.observed,
+            "derived": self.derived,
+            "unobserved": self.unobserved,
+        }
+
+
+# ─── loaders ─────────────────────────────────────────────────────────────────
+
+
+def load_scout_runs(path: Path) -> ScoutRunsSummary:
+    """Parse data/scout-runs.jsonl. Missing file is not an error: it
+    means the cron never wrote, so all counters are zero and earliest/
+    latest are None."""
+    if not path.is_file():
+        return ScoutRunsSummary(
+            runs=0,
+            earliest_run_at=None,
+            latest_run_at=None,
+            totals_by_action={},
+            totals_by_verdict={},
+            discovered_total=0,
+            processed_total=0,
+        )
+
+    runs = 0
+    earliest: str | None = None
+    latest: str | None = None
+    totals_by_action: dict[str, int] = {}
+    totals_by_verdict: dict[str, int] = {}
+    discovered_total = 0
+    processed_total = 0
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            # Skip malformed lines rather than fail the whole report;
+            # the cron writer is atomic, so a malformed line indicates
+            # external tampering and should be surfaced as a counter,
+            # not crash the rollup. Future iteration could expose a
+            # parse-error counter.
+            continue
+        runs += 1
+        run_at = rec.get("run_at")
+        if isinstance(run_at, str):
+            if earliest is None or run_at < earliest:
+                earliest = run_at
+            if latest is None or run_at > latest:
+                latest = run_at
+        discovered_total += int(rec.get("discovered") or 0)
+        processed_total += int(rec.get("processed") or 0)
+        for action, count in (rec.get("actions") or {}).items():
+            totals_by_action[action] = totals_by_action.get(action, 0) + int(count)
+        for verdict, count in (rec.get("resolver_verdicts") or {}).items():
+            totals_by_verdict[verdict] = totals_by_verdict.get(verdict, 0) + int(count)
+
+    return ScoutRunsSummary(
+        runs=runs,
+        earliest_run_at=earliest,
+        latest_run_at=latest,
+        totals_by_action=totals_by_action,
+        totals_by_verdict=totals_by_verdict,
+        discovered_total=discovered_total,
+        processed_total=processed_total,
+    )
+
+
+_REAL_CVE_PREFIXES = ("CVE-2024-", "CVE-2025-", "CVE-2026-")
+
+
+def scan_bundles(traces_root: Path) -> list[BundleSummary]:
+    """Walk traces/example/CVE-*/ and return one BundleSummary per
+    real-CVE bundle. Synthetic CVE-0000-* fixtures are excluded
+    because they don't represent honest pipeline runs."""
+    if not traces_root.is_dir():
+        return []
+    bundles: list[BundleSummary] = []
+    for entry in sorted(traces_root.iterdir()):
+        if not entry.is_dir():
+            continue
+        if not any(entry.name.startswith(p) for p in _REAL_CVE_PREFIXES):
+            continue
+        bundle_json = entry / "bundle.json"
+        replay_json = entry / "replay.json"
+        if not bundle_json.is_file() or not replay_json.is_file():
+            continue
+        try:
+            bundle = json.loads(bundle_json.read_text())
+            replay = json.loads(replay_json.read_text())
+        except json.JSONDecodeError:
+            continue
+        bundles.append(_summarize_bundle(entry, bundle, replay))
+    return bundles
+
+
+def _summarize_bundle(
+    bundle_dir: Path, bundle: dict[str, Any], replay: dict[str, Any]
+) -> BundleSummary:
+    per_role: dict[str, RoleWallTime] = {}
+    total_seconds: float = 0.0
+    total_known: bool = True
+
+    for role_entry in replay.get("roles") or []:
+        role_name = role_entry.get("role") or "<unknown-role>"
+        invocations = role_entry.get("invocations") or []
+        role_seconds = 0.0
+        role_known = True
+        for inv in invocations:
+            d = _invocation_duration_seconds(inv)
+            if d is None:
+                role_known = False
+                continue
+            role_seconds += d
+        per_role[role_name] = RoleWallTime(
+            role=role_name,
+            invocations=len(invocations),
+            duration_seconds=role_seconds if role_known else None,
+        )
+        if role_known:
+            total_seconds += role_seconds
+        else:
+            total_known = False
+
+    patcher_invocation_path = bundle_dir / "patcher-invocation.json"
+    patcher_usage: dict[str, Any] | None = None
+    if patcher_invocation_path.is_file():
+        try:
+            inv = json.loads(patcher_invocation_path.read_text())
+        except json.JSONDecodeError:
+            inv = None
+        if isinstance(inv, dict):
+            usage = inv.get("usage")
+            budget = inv.get("budget") or {}
+            if isinstance(usage, dict):
+                patcher_usage = {
+                    "input_tokens": usage.get("input_tokens"),
+                    "output_tokens": usage.get("output_tokens"),
+                    "actual_cost_usd": budget.get("actual_cost_usd"),
+                    "model_id": inv.get("model_id"),
+                }
+
+    return BundleSummary(
+        cve_id=bundle.get("cve_id") or bundle_dir.name,
+        bundle_id=bundle.get("bundle_id"),
+        kind=bundle.get("kind"),
+        kind_reason=bundle.get("kind_reason"),
+        per_role=per_role,
+        total_wall_time_seconds=total_seconds if total_known else None,
+        has_reproducer_nix=(bundle_dir / "reproducer.nix").is_file(),
+        has_reproducer_refusal=(bundle_dir / "reproducer-refusal.json").is_file(),
+        patcher_provenance=_patcher_provenance(replay),
+        patcher_usage=patcher_usage,
+    )
+
+
+def _invocation_duration_seconds(inv: dict[str, Any]) -> float | None:
+    started = inv.get("started_at")
+    ended = inv.get("ended_at")
+    if not isinstance(started, str) or not isinstance(ended, str):
+        return None
+    try:
+        s = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    delta = (e - s).total_seconds()
+    return delta if delta >= 0 else None
+
+
+def _patcher_provenance(replay: dict[str, Any]) -> str:
+    """Determine whether the bundle's Patcher invocation was model-
+    attested or deterministic-no-model, based on the recorded model
+    family. Bundles that don't ship a Patcher invocation (e.g. only
+    upstream-ref-resolver) return 'absent'."""
+    for role_entry in replay.get("roles") or []:
+        if role_entry.get("role") != "patcher":
+            continue
+        for inv in role_entry.get("invocations") or []:
+            family = (inv.get("model") or {}).get("family")
+            if family == "deterministic-no-model":
+                return "deterministic-no-model"
+            if isinstance(family, str) and family:
+                return "model-attested"
+    return "absent"
+
+
+# ─── report assembly ─────────────────────────────────────────────────────────
+
+
+def build_report(
+    scout: ScoutRunsSummary,
+    bundles: list[BundleSummary],
+    *,
+    provenance: Provenance,
+) -> Report:
+    observed_cron = {
+        "runs": scout.runs,
+        "earliest_run_at": scout.earliest_run_at,
+        "latest_run_at": scout.latest_run_at,
+        "totals_by_action": scout.totals_by_action,
+        "totals_by_verdict": scout.totals_by_verdict,
+        "discovered_total": scout.discovered_total,
+        "processed_total": scout.processed_total,
+        "per_run_means": _per_run_means(scout),
+    }
+
+    observed_wall_time = [
+        {
+            "cve_id": b.cve_id,
+            "bundle_id": b.bundle_id,
+            "kind": b.kind,
+            "total_wall_time_seconds": b.total_wall_time_seconds,
+            "per_role": {
+                role: {
+                    "invocations": rwt.invocations,
+                    "duration_seconds": rwt.duration_seconds,
+                }
+                for role, rwt in b.per_role.items()
+            },
+        }
+        for b in bundles
+    ]
+
+    observed_patcher_usage = [
+        {"cve_id": b.cve_id, **b.patcher_usage}
+        for b in bundles
+        if b.patcher_usage is not None
+    ]
+
+    kind_dist: dict[str, int] = {}
+    repro_status: dict[str, int] = {"reproducer_nix": 0, "refusal": 0, "absent": 0}
+    patcher_family: dict[str, int] = {}
+    for b in bundles:
+        if b.kind:
+            kind_dist[b.kind] = kind_dist.get(b.kind, 0) + 1
+        if b.has_reproducer_nix:
+            repro_status["reproducer_nix"] += 1
+        elif b.has_reproducer_refusal:
+            repro_status["refusal"] += 1
+        else:
+            repro_status["absent"] += 1
+        patcher_family[b.patcher_provenance] = (
+            patcher_family.get(b.patcher_provenance, 0) + 1
+        )
+
+    derived = {
+        "bundle_kind_distribution": kind_dist,
+        "reproducer_status_distribution": repro_status,
+        "patcher_provenance_distribution": patcher_family,
+    }
+
+    n_bundles = len(bundles)
+    n_patcher_with_usage = len(observed_patcher_usage)
+    unobserved = {
+        "per_role_token_cost": {
+            "data_points": n_patcher_with_usage,
+            "patcher_invocations_with_usage": n_patcher_with_usage,
+            "reviewer_invocations_with_usage": 0,
+            "reproducer_invocations_with_usage": 0,
+            "reason": _per_role_cost_reason(n_bundles, n_patcher_with_usage),
+        },
+        "cost_per_merge_ready_bundle": {
+            "data_points": _cost_per_merge_ready_points(bundles, n_patcher_with_usage),
+            "reason": (
+                "computed from per_role_token_cost; reported as N=0 when "
+                "patcher-invocation.json is absent on the merge-ready set"
+            ),
+        },
+    }
+
+    return Report(
+        schema_version=SCHEMA_VERSION,
+        report_kind=REPORT_KIND,
+        provenance=provenance,
+        observed={
+            "cron_throughput": observed_cron,
+            "bundle_wall_time": observed_wall_time,
+            "patcher_usage": observed_patcher_usage,
+        },
+        derived=derived,
+        unobserved=unobserved,
+    )
+
+
+def _per_run_means(s: ScoutRunsSummary) -> dict[str, float | None]:
+    if s.runs == 0:
+        return {"discovered_per_run": None, "processed_per_run": None}
+    return {
+        "discovered_per_run": s.discovered_total / s.runs,
+        "processed_per_run": s.processed_total / s.runs,
+    }
+
+
+def _per_role_cost_reason(n_bundles: int, n_with_usage: int) -> str:
+    if n_bundles == 0:
+        return (
+            "no real-CVE bundles scanned under traces_root; nothing to report on"
+        )
+    if n_with_usage == 0:
+        return (
+            f"patcher-invocation.json present in 0/{n_bundles} bundles. "
+            "Reviewer/Reproducer have no per-invocation usage artifact in v0."
+        )
+    return (
+        f"partial: patcher-invocation.json present in {n_with_usage}/{n_bundles} "
+        "bundles; Reviewer/Reproducer remain uninstrumented in v0."
+    )
+
+
+def _cost_per_merge_ready_points(
+    bundles: list[BundleSummary], n_with_usage: int
+) -> int:
+    if n_with_usage == 0:
+        return 0
+    return sum(
+        1
+        for b in bundles
+        if b.patcher_usage is not None and b.kind == "auto-merge"
+    )
+
+
+# ─── rendering ───────────────────────────────────────────────────────────────
+
+
+def render_json(report: Report) -> str:
+    return json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n"
+
+
+def render_markdown(report: Report) -> str:
+    lines: list[str] = []
+    p = report.provenance
+    lines.append(f"# Throughput report  ·  {p.generated_at}")
+    lines.append("")
+    lines.append(
+        f"git: `{p.git_rev or 'unknown'}`  ·  traces: `{p.traces_root}`  ·  "
+        f"scout-runs: `{p.scout_runs_path}`"
+    )
+    lines.append(
+        f"bundles scanned: {p.bundles_scanned}  ·  "
+        f"scout-runs scanned: {p.scout_runs_scanned}"
+    )
+    lines.append("")
+    lines.append("## Observed")
+    lines.append("")
+    lines.append(_md_cron_section(report.observed["cron_throughput"]))
+    lines.append("")
+    lines.append(_md_wall_time_section(report.observed["bundle_wall_time"]))
+    lines.append("")
+    if report.observed["patcher_usage"]:
+        lines.append(_md_patcher_usage_section(report.observed["patcher_usage"]))
+        lines.append("")
+    lines.append("## Derived")
+    lines.append("")
+    lines.append(_md_derived_section(report.derived))
+    lines.append("")
+    lines.append("## Unobserved (instrumented but empty)")
+    lines.append("")
+    lines.append(_md_unobserved_section(report.unobserved))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _md_cron_section(cron: dict[str, Any]) -> str:
+    lines: list[str] = []
+    lines.append("### Cron throughput")
+    lines.append("")
+    lines.append(f"- runs: {cron['runs']}")
+    lines.append(f"- earliest: {cron['earliest_run_at'] or 'n/a'}")
+    lines.append(f"- latest: {cron['latest_run_at'] or 'n/a'}")
+    lines.append(
+        f"- discovered total: {cron['discovered_total']}  ·  "
+        f"processed total: {cron['processed_total']}"
+    )
+    means = cron["per_run_means"]
+    lines.append(
+        f"- per-run mean: discovered={_fmt_float(means['discovered_per_run'])}  ·  "
+        f"processed={_fmt_float(means['processed_per_run'])}"
+    )
+    lines.append("")
+    if cron["totals_by_action"]:
+        lines.append("| action | count |")
+        lines.append("|---|---|")
+        for k in sorted(cron["totals_by_action"]):
+            lines.append(f"| {k} | {cron['totals_by_action'][k]} |")
+        lines.append("")
+    if cron["totals_by_verdict"]:
+        lines.append("| resolver verdict | count |")
+        lines.append("|---|---|")
+        for k in sorted(cron["totals_by_verdict"]):
+            lines.append(f"| {k} | {cron['totals_by_verdict'][k]} |")
+    return "\n".join(lines)
+
+
+def _md_wall_time_section(bundles: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    lines.append("### Bundle wall time")
+    lines.append("")
+    if not bundles:
+        lines.append("(no bundles scanned)")
+        return "\n".join(lines)
+    all_roles: list[str] = []
+    seen: set[str] = set()
+    for b in bundles:
+        for role in b["per_role"]:
+            if role not in seen:
+                seen.add(role)
+                all_roles.append(role)
+    header = ["CVE", "kind", "total (s)"] + all_roles
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("|" + "---|" * len(header))
+    for b in bundles:
+        row = [
+            b["cve_id"],
+            b["kind"] or "?",
+            _fmt_float(b["total_wall_time_seconds"]),
+        ]
+        for role in all_roles:
+            rec = b["per_role"].get(role)
+            if rec is None:
+                row.append("·")
+            else:
+                row.append(_fmt_float(rec["duration_seconds"]))
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
+
+
+def _md_patcher_usage_section(usages: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    lines.append("### Patcher per-invocation usage")
+    lines.append("")
+    lines.append("| CVE | model | input tokens | output tokens | cost (USD) |")
+    lines.append("|---|---|---|---|---|")
+    for u in usages:
+        lines.append(
+            f"| {u['cve_id']} | {u.get('model_id') or '?'} | "
+            f"{u.get('input_tokens') if u.get('input_tokens') is not None else 'n/a'} | "
+            f"{u.get('output_tokens') if u.get('output_tokens') is not None else 'n/a'} | "
+            f"{_fmt_float(u.get('actual_cost_usd'))} |"
+        )
+    return "\n".join(lines)
+
+
+def _md_derived_section(derived: dict[str, Any]) -> str:
+    lines: list[str] = []
+    if derived["bundle_kind_distribution"]:
+        lines.append("**Bundle kind distribution**")
+        lines.append("")
+        lines.append("| kind | count |")
+        lines.append("|---|---|")
+        for k in sorted(derived["bundle_kind_distribution"]):
+            lines.append(f"| {k} | {derived['bundle_kind_distribution'][k]} |")
+        lines.append("")
+    repro = derived["reproducer_status_distribution"]
+    lines.append("**Reproducer status**")
+    lines.append("")
+    lines.append("| status | count |")
+    lines.append("|---|---|")
+    for k in ("reproducer_nix", "refusal", "absent"):
+        lines.append(f"| {k} | {repro.get(k, 0)} |")
+    lines.append("")
+    if derived["patcher_provenance_distribution"]:
+        lines.append("**Patcher provenance**")
+        lines.append("")
+        lines.append("| family | count |")
+        lines.append("|---|---|")
+        for k in sorted(derived["patcher_provenance_distribution"]):
+            lines.append(
+                f"| {k} | {derived['patcher_provenance_distribution'][k]} |"
+            )
+    return "\n".join(lines)
+
+
+def _md_unobserved_section(unobs: dict[str, Any]) -> str:
+    lines: list[str] = []
+    cost = unobs["per_role_token_cost"]
+    lines.append("**per-role token / cost totals**")
+    lines.append("")
+    lines.append(f"- data points: {cost['data_points']}")
+    lines.append(f"- patcher invocations with usage: {cost['patcher_invocations_with_usage']}")
+    lines.append(f"- reviewer invocations with usage: {cost['reviewer_invocations_with_usage']}")
+    lines.append(f"- reproducer invocations with usage: {cost['reproducer_invocations_with_usage']}")
+    lines.append(f"- reason: {cost['reason']}")
+    lines.append("")
+    cpb = unobs["cost_per_merge_ready_bundle"]
+    lines.append("**cost per merge-ready bundle**")
+    lines.append("")
+    lines.append(f"- data points: {cpb['data_points']}")
+    lines.append(f"- reason: {cpb['reason']}")
+    return "\n".join(lines)
+
+
+def _fmt_float(v: float | int | None) -> str:
+    if v is None:
+        return "n/a"
+    if isinstance(v, int) or float(v).is_integer():
+        return str(int(v))
+    return f"{v:.2f}"
+
+
+# ─── CLI plumbing ────────────────────────────────────────────────────────────
+
+
+def _git_rev_short(repo_root: Path) -> str | None:
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    rev = out.stdout.strip()
+    return rev or None
+
+
+def add_parser(subs: argparse._SubParsersAction) -> None:
+    """Register `trace report throughput` on the report subparser."""
+    rep = subs.add_parser(
+        "throughput",
+        help=(
+            "roll up cron throughput + per-bundle wall time + Patcher "
+            "token/cost data on disk; report observed / derived / "
+            "unobserved sections to data/reports/."
+        ),
+    )
+    rep.add_argument(
+        "--traces-root",
+        type=Path,
+        default=Path("traces/example"),
+        help="root directory containing CVE-* bundle directories (default: traces/example)",
+    )
+    rep.add_argument(
+        "--scout-runs",
+        type=Path,
+        default=Path("data/scout-runs.jsonl"),
+        help="path to scout-runs.jsonl (default: data/scout-runs.jsonl)",
+    )
+    rep.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path("data/reports"),
+        help="output directory for the .json + .md report pair (default: data/reports)",
+    )
+    rep.add_argument(
+        "--format",
+        choices=("human", "json"),
+        default="human",
+        help="stdout format (default: human prints the Markdown; json prints the JSON)",
+    )
+
+
+def run(args: argparse.Namespace, *, repo_root: Path) -> int:
+    scout = load_scout_runs(args.scout_runs)
+    bundles = scan_bundles(args.traces_root)
+
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    provenance = Provenance(
+        generated_at=generated_at,
+        git_rev=_git_rev_short(repo_root),
+        traces_root=str(args.traces_root),
+        scout_runs_path=str(args.scout_runs),
+        bundles_scanned=len(bundles),
+        scout_runs_scanned=scout.runs,
+    )
+    report = build_report(scout, bundles, provenance=provenance)
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"throughput-{generated_at.replace(':', '').replace('-', '')}"
+    json_path = args.out_dir / f"{stem}.json"
+    md_path = args.out_dir / f"{stem}.md"
+    json_path.write_text(render_json(report), encoding="utf-8")
+    md_path.write_text(render_markdown(report), encoding="utf-8")
+
+    if args.format == "json":
+        print(render_json(report), end="")
+    else:
+        print(render_markdown(report), end="")
+    print(f"\nwrote: {json_path}\nwrote: {md_path}")
+    return 0

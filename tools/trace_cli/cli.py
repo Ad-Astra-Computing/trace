@@ -196,6 +196,11 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import pr_snippet as _pr_snippet_module
     _pr_snippet_module.add_parser(b_subs)
 
+    rp = subs.add_parser("report", help="rollup reports over on-disk artifacts")
+    rp_subs = rp.add_subparsers(dest="report_cmd", required=True)
+    from tools.trace_cli import report as _report_module
+    _report_module.add_parser(rp_subs)
+
     e = subs.add_parser("eval", help="cohort-level evaluation tooling")
     e_subs = e.add_subparsers(dest="eval_cmd", required=True)
     e_pr = e_subs.add_parser(
@@ -275,6 +280,12 @@ def main(argv: list[str]) -> int:
         if args.bundle_cmd == "pr-snippet":
             from tools.trace_cli import pr_snippet as _pr_snippet_module
             return _pr_snippet_module.run(args)
+        return EXIT_USAGE
+    if args.cmd == "report":
+        if args.report_cmd == "throughput":
+            from tools.trace_cli import report as _report_module
+            from pathlib import Path as _Path
+            return _report_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
         return EXIT_USAGE
     if args.cmd == "eval":
         if args.eval_cmd == "patch-rate":
