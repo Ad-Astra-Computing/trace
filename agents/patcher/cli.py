@@ -74,22 +74,7 @@ _EXIT_MALFORMED = 14
 _EXIT_USAGE = 64
 
 
-# Per-million-token prices in USD. Errs on the high side to avoid
-# silently undercounting. Update from official pricing pages when models
-# change. Cached-input rate is the 5-minute prompt-cache discount price.
-MODEL_PRICES_PER_MTOK: dict[str, dict[str, float]] = {
-    "claude-opus-4-7":   {"input": 15.0, "cached_input": 1.50, "output": 75.0},
-    "claude-opus-4-6":   {"input": 15.0, "cached_input": 1.50, "output": 75.0},
-    "claude-opus-4-5":   {"input": 15.0, "cached_input": 1.50, "output": 75.0},
-    "claude-sonnet-4-6": {"input":  3.0, "cached_input": 0.30, "output": 15.0},
-    "claude-sonnet-4-5": {"input":  3.0, "cached_input": 0.30, "output": 15.0},
-    "claude-haiku-4-5":  {"input":  0.80, "cached_input": 0.08, "output":  4.0},
-}
-
-
-# Defensive default if a brand-new model id isn't in the table yet:
-# match Opus pricing so the budget treats unknowns as expensive.
-_DEFAULT_PRICES = {"input": 15.0, "cached_input": 1.50, "output": 75.0}
+from agents.cost import MODEL_PRICES_PER_MTOK, actual_cost_usd, prices_for
 
 
 # Conservative chars-per-token heuristic for English-ish text + JSON.
@@ -112,13 +97,6 @@ class BudgetEstimate:
     within_hard: bool
 
 
-def _prices_for(model_id: str) -> dict[str, float]:
-    for prefix, prices in MODEL_PRICES_PER_MTOK.items():
-        if model_id.startswith(prefix):
-            return prices
-    return _DEFAULT_PRICES
-
-
 def _estimate_tokens_from_chars(s: str) -> int:
     return max(1, int(len(s) / _CHARS_PER_TOKEN))
 
@@ -132,7 +110,7 @@ def estimate_budget(
     soft_cap_usd: float,
     hard_cap_usd: float,
 ) -> BudgetEstimate:
-    prices = _prices_for(model_id)
+    prices = prices_for(model_id)
     input_tokens = _estimate_tokens_from_chars(system_prompt) + _estimate_tokens_from_chars(user_content)
     input_cost = input_tokens * prices["input"] / 1_000_000.0
     max_output_cost = max_tokens * prices["output"] / 1_000_000.0
@@ -148,24 +126,6 @@ def estimate_budget(
         within_soft=total <= soft_cap_usd,
         within_hard=total <= hard_cap_usd,
     )
-
-
-def actual_cost_usd(
-    *,
-    model_id: str,
-    input_tokens: int | None,
-    output_tokens: int | None,
-) -> float | None:
-    """Compute realized cost from response usage. Returns None if either
-    token count is missing (the FakeAdapter does not report usage)."""
-    if input_tokens is None or output_tokens is None:
-        return None
-    prices = _prices_for(model_id)
-    cost = (
-        input_tokens * prices["input"] / 1_000_000.0
-        + output_tokens * prices["output"] / 1_000_000.0
-    )
-    return round(cost, 4)
 
 
 def _utc_now_iso() -> str:
