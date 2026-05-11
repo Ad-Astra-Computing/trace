@@ -258,9 +258,8 @@ def test_scan_bundles_recognises_patcher_family(tmp_path: Path) -> None:
 
 
 def test_scan_bundles_reads_patcher_invocation_when_present(tmp_path: Path) -> None:
-    """patcher-invocation.json is the only on-disk source of real
-    token + cost data in v0. The report must lift it verbatim, no
-    estimation."""
+    """patcher-invocation.json is one of three role sidecars. Reader
+    lifts the usage block verbatim — no estimation."""
     traces = tmp_path / "traces"
     _seed_bundle(
         traces, "CVE-2025-67899",
@@ -273,12 +272,67 @@ def test_scan_bundles_reads_patcher_invocation_when_present(tmp_path: Path) -> N
         },
     )
     b = report.scan_bundles(traces)[0]
-    assert b.patcher_usage == {
+    assert b.role_usage["patcher"] == {
         "input_tokens": 4321,
         "output_tokens": 765,
         "actual_cost_usd": 0.087,
         "model_id": "claude-opus-4-7",
     }
+
+
+def test_scan_bundles_reads_all_three_role_sidecars(tmp_path: Path) -> None:
+    """Slice 2 of cost/throughput: reviewer-invocation.json and
+    reproducer-invocation.json land alongside patcher-invocation.json
+    with the same shape. The reader must surface all three uniformly
+    so per-role cost rollup works."""
+    traces = tmp_path / "traces"
+    bundle_dir = _seed_bundle(
+        traces, "CVE-2025-67899",
+        patcher_invocation={
+            "usage": {"input_tokens": 4321, "output_tokens": 765},
+            "budget": {"actual_cost_usd": 0.087},
+            "model_id": "claude-opus-4-7",
+        },
+    )
+    _write_json(bundle_dir / "reviewer-invocation.json", {
+        "schema_version": "1.0.0",
+        "role": "reviewer",
+        "model_id": "claude-sonnet-4-6",
+        "usage": {"input_tokens": 2100, "output_tokens": 380},
+        "budget": {"actual_cost_usd": 0.012},
+    })
+    _write_json(bundle_dir / "reproducer-invocation.json", {
+        "schema_version": "1.0.0",
+        "role": "reproducer",
+        "model_id": "claude-sonnet-4-5-20250929",
+        "usage": {"input_tokens": 1500, "output_tokens": 200},
+        "budget": {"actual_cost_usd": 0.0075},
+    })
+    b = report.scan_bundles(traces)[0]
+    assert set(b.role_usage.keys()) == {"patcher", "reviewer", "reproducer"}
+    assert b.role_usage["reviewer"]["model_id"] == "claude-sonnet-4-6"
+    assert b.role_usage["reproducer"]["actual_cost_usd"] == 0.0075
+
+
+def test_scan_bundles_sidecar_with_null_usage_still_lifted(tmp_path: Path) -> None:
+    """FakeAdapter case: usage tokens come back None. The sidecar is
+    still written by execute.py with null fields. The reader must
+    surface those nulls rather than dropping the entry, so the report
+    can distinguish 'role ran, adapter didn't report tokens' from
+    'role didn't run'."""
+    traces = tmp_path / "traces"
+    bundle_dir = _seed_bundle(traces, "CVE-2025-67899")
+    _write_json(bundle_dir / "reviewer-invocation.json", {
+        "schema_version": "1.0.0",
+        "role": "reviewer",
+        "model_id": "claude-sonnet-4-6",
+        "usage": {"input_tokens": None, "output_tokens": None},
+        "budget": {"actual_cost_usd": None},
+    })
+    b = report.scan_bundles(traces)[0]
+    assert "reviewer" in b.role_usage
+    assert b.role_usage["reviewer"]["input_tokens"] is None
+    assert b.role_usage["reviewer"]["actual_cost_usd"] is None
 
 
 # ─── build_report: observed / derived / unobserved split ─────────────────────
@@ -310,7 +364,7 @@ def test_build_report_separates_observed_from_unobserved(tmp_path: Path) -> None
     # Observed: cron rolled up, bundle wall times present.
     assert r.observed["cron_throughput"]["runs"] == 1
     assert len(r.observed["bundle_wall_time"]) == 2
-    assert r.observed["patcher_usage"] == []
+    assert r.observed["role_usage"] == []
 
     # Derived: kind + reproducer + patcher-family distributions.
     assert r.derived["bundle_kind_distribution"] == {
@@ -325,51 +379,69 @@ def test_build_report_separates_observed_from_unobserved(tmp_path: Path) -> None
     assert cost["patcher_invocations_with_usage"] == 0
     assert cost["reviewer_invocations_with_usage"] == 0
     assert cost["reproducer_invocations_with_usage"] == 0
-    assert "0/2" in cost["reason"]
+    assert "patcher=0/2" in cost["reason"]
+    assert "reviewer=0/2" in cost["reason"]
+    assert "reproducer=0/2" in cost["reason"]
     assert r.unobserved["cost_per_merge_ready_bundle"]["data_points"] == 0
 
 
-def test_build_report_observes_patcher_usage_when_present(tmp_path: Path) -> None:
-    """When patcher-invocation.json is on disk, the cost data shifts
-    from unobserved to observed."""
+def test_build_report_observes_role_usage_when_present(tmp_path: Path) -> None:
+    """When role sidecars are on disk, the per-role data shifts from
+    unobserved to observed. One row per (bundle, role) sidecar pair."""
     traces = tmp_path / "traces"
-    _seed_bundle(
+    bundle_dir = _seed_bundle(
         traces, "CVE-2025-67899",
         kind="human-review-required",
         patcher_invocation={
-            "schema_version": "1.0.0",
-            "invocation_id": "deadbeef",
             "model_id": "claude-opus-4-7",
             "usage": {"input_tokens": 4321, "output_tokens": 765},
-            "budget": {"actual_cost_usd": 0.087, "soft_cap_usd": 1.0},
+            "budget": {"actual_cost_usd": 0.087},
         },
     )
+    _write_json(bundle_dir / "reviewer-invocation.json", {
+        "model_id": "claude-sonnet-4-6",
+        "usage": {"input_tokens": 2100, "output_tokens": 380},
+        "budget": {"actual_cost_usd": 0.012},
+    })
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
     r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
-    assert len(r.observed["patcher_usage"]) == 1
-    usage = r.observed["patcher_usage"][0]
-    assert usage["cve_id"] == "CVE-2025-67899"
-    assert usage["actual_cost_usd"] == 0.087
-    # cost-per-merge-ready uses bundle.kind to count merge-ready
-    # contributors; this is human-review-required, so still 0 data points.
+    assert len(r.observed["role_usage"]) == 2
+    rows = {(u["cve_id"], u["role"]): u for u in r.observed["role_usage"]}
+    assert rows[("CVE-2025-67899", "patcher")]["actual_cost_usd"] == 0.087
+    assert rows[("CVE-2025-67899", "reviewer")]["actual_cost_usd"] == 0.012
+    # Still no reproducer sidecar; coverage line records that.
+    cost = r.unobserved["per_role_token_cost"]
+    assert cost["patcher_invocations_with_usage"] == 1
+    assert cost["reviewer_invocations_with_usage"] == 1
+    assert cost["reproducer_invocations_with_usage"] == 0
+    # Not a complete merge-ready bundle: kind is human-review-required,
+    # and reproducer sidecar is missing.
     assert r.unobserved["cost_per_merge_ready_bundle"]["data_points"] == 0
 
 
-def test_build_report_cost_per_merge_ready_counts_auto_merge_only(tmp_path: Path) -> None:
-    """cost_per_merge_ready_bundle.data_points must increment only for
-    bundles whose kind is auto-merge AND that have patcher-
-    invocation.json. Human-review and ineligible never count, even
-    when they carry real usage data."""
+def test_build_report_cost_per_merge_ready_requires_all_three_roles(
+    tmp_path: Path,
+) -> None:
+    """cost_per_merge_ready_bundle.data_points increments only when:
+    (a) kind == auto-merge, AND (b) all three role sidecars are
+    present. A patcher-only sidecar on an auto-merge bundle is a
+    partial measurement and would mislead the headline cost figure."""
     traces = tmp_path / "traces"
-    auto_inv = {
-        "usage": {"input_tokens": 100, "output_tokens": 50},
-        "budget": {"actual_cost_usd": 0.01},
-        "model_id": "claude-opus-4-7",
-    }
+    inv = {"usage": {"input_tokens": 100, "output_tokens": 50},
+           "budget": {"actual_cost_usd": 0.01}, "model_id": "claude-opus-4-7"}
+    # Auto-merge with only patcher sidecar: doesn't count.
     _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge",
-                 patcher_invocation=auto_inv)
-    _seed_bundle(traces, "CVE-2025-67899", kind="human-review-required",
-                 patcher_invocation=auto_inv)
+                 patcher_invocation=inv)
+    # Auto-merge with all three sidecars: counts.
+    bundle_b = _seed_bundle(traces, "CVE-2024-49195", kind="auto-merge",
+                            patcher_invocation=inv)
+    _write_json(bundle_b / "reviewer-invocation.json", inv)
+    _write_json(bundle_b / "reproducer-invocation.json", inv)
+    # Human-review with all three sidecars: doesn't count.
+    bundle_c = _seed_bundle(traces, "CVE-2025-67899", kind="human-review-required",
+                            patcher_invocation=inv)
+    _write_json(bundle_c / "reviewer-invocation.json", inv)
+    _write_json(bundle_c / "reproducer-invocation.json", inv)
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
     r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
     assert r.unobserved["cost_per_merge_ready_bundle"]["data_points"] == 1
