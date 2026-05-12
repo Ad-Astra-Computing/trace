@@ -423,6 +423,85 @@ def test_execute_builder_runs_via_runner_backed_path(tmp_path, capsys):
     assert "not yet wired" not in _err
 
 
+def test_execute_builder_passes_nixpkgs_checkout_through(
+    tmp_path, capsys, monkeypatch,
+):
+    """The --nixpkgs-checkout CLI flag must reach execute() unchanged.
+
+    Verifies the wiring (CLI → _do_execute → execute) without invoking
+    a real nix-build. The Builder dispatcher inside execute() is the
+    canonical consumer; downstream behaviour is already covered by the
+    Builder runner tests."""
+    from pathlib import Path as _Path
+    bundle_dir, _ = _build_resolver_fixture(tmp_path)
+    replay_path = bundle_dir / "replay.json"
+    replay = json.loads(replay_path.read_text())
+    replay["roles"][0]["role"] = "builder"
+    replay["roles"][0]["invocations"][0]["role"] = "builder"
+    replay_path.write_text(json.dumps(replay, indent=2))
+
+    fake_checkout = tmp_path / "fake-nixpkgs"
+    fake_checkout.mkdir()
+
+    captured: dict = {}
+    import tools.trace_cli.execute as exec_mod
+    real_execute = exec_mod.execute
+
+    def spy_execute(**kwargs):
+        captured["nixpkgs_checkout"] = kwargs.get("nixpkgs_checkout")
+        return real_execute(**kwargs)
+
+    monkeypatch.setattr(exec_mod, "execute", spy_execute)
+    # _do_execute imports execute as a name in its own module; patch there too.
+    import tools.trace_cli.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "_do_execute", cli_mod._do_execute)  # noqa: SLF001
+
+    _run(
+        [
+            "replay", str(bundle_dir),
+            "--execute", "--role", "builder",
+            "--nixpkgs-checkout", str(fake_checkout),
+        ],
+        capsys,
+    )
+
+    assert captured.get("nixpkgs_checkout") == fake_checkout, (
+        "expected --nixpkgs-checkout to reach execute() as a Path equal to "
+        f"{fake_checkout!r}; got {captured.get('nixpkgs_checkout')!r}"
+    )
+    assert isinstance(captured["nixpkgs_checkout"], _Path)
+
+
+def test_execute_builder_nixpkgs_checkout_defaults_to_none(
+    tmp_path, capsys, monkeypatch,
+):
+    """When --nixpkgs-checkout is omitted, execute() receives None
+    (current darwin-side / FakeBuildRunner-driven behaviour)."""
+    bundle_dir, _ = _build_resolver_fixture(tmp_path)
+    replay_path = bundle_dir / "replay.json"
+    replay = json.loads(replay_path.read_text())
+    replay["roles"][0]["role"] = "builder"
+    replay["roles"][0]["invocations"][0]["role"] = "builder"
+    replay_path.write_text(json.dumps(replay, indent=2))
+
+    captured: dict = {}
+    import tools.trace_cli.execute as exec_mod
+    real_execute = exec_mod.execute
+
+    def spy_execute(**kwargs):
+        captured["nixpkgs_checkout"] = kwargs.get("nixpkgs_checkout")
+        return real_execute(**kwargs)
+
+    monkeypatch.setattr(exec_mod, "execute", spy_execute)
+
+    _run(
+        ["replay", str(bundle_dir), "--execute", "--role", "builder"],
+        capsys,
+    )
+
+    assert captured.get("nixpkgs_checkout") is None
+
+
 def test_execute_requires_role_flag(tmp_path, capsys):
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
     rc, _out, err = _run(

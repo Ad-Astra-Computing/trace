@@ -123,6 +123,20 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="skip input+output sha256 verification during --execute",
     )
+    r.add_argument(
+        "--nixpkgs-checkout",
+        type=Path,
+        default=None,
+        help=(
+            "path to a working copy of nixpkgs (already at the bundle's "
+            "pinned nixpkgs_rev, with any required patches applied or "
+            "left for Builder to apply). Only consumed by the builder "
+            "role; passed through to run_builder so patch-apply and "
+            "passthru-tests enumeration run against this checkout. "
+            "When omitted, Builder skips patch-apply and passthru "
+            "enumeration (matches the current darwin-side behaviour)."
+        ),
+    )
 
     b = subs.add_parser("bundle", help="bundle-assembly tooling")
     b_subs = b.add_subparsers(dest="bundle_cmd", required=True)
@@ -620,6 +634,7 @@ def _do_execute(
                 invocation=invocation,
                 verify=not args.no_verify,
                 model_id=resolved_model_id,
+                nixpkgs_checkout=args.nixpkgs_checkout,
             )
         except HashMismatch as exc:
             print(f"hash-mismatch: {exc}", file=sys.stderr)
