@@ -102,7 +102,16 @@
         "refused-no-patch",
         "refused-no-reproducer",
         "patch-apply-failed",
-        "infra-failure"
+        "infra-failure",
+        "instrumentation-malformed"
+      ]
+    },
+
+    "instrumentation": {
+      "description": "Active build instrumentation mode for the reproducer phases. Null when no reproducer-instrumentation.json was supplied or asan was false; 'asan' when AddressSanitizer was applied to the unpatched + patched reproducer builds. UBSAN/MSAN/TSAN are out of scope for v0.",
+      "oneOf": [
+        { "type": "string", "enum": ["asan"] },
+        { "type": "null" }
       ]
     }
   },

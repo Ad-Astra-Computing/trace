@@ -113,6 +113,17 @@ def run_builder(
 
     host = host_info or _default_host_info()
 
+    instrumentation_path = bundle_dir / "reproducer-instrumentation.json"
+    instrumentation, instrumentation_error = _read_instrumentation(
+        instrumentation_path,
+    )
+    if instrumentation_error is not None:
+        return _instrumentation_malformed_result(
+            cve_id=cve_id, bundle_id=bundle_id, nixpkgs_rev=nixpkgs_rev,
+            host=host, started_at=started_at,
+            reason=instrumentation_error,
+        )
+
     patch_diff_path = bundle_dir / "patch.diff"
     refusal_path = bundle_dir / "refusal.json"
     has_patch = patch_diff_path.is_file() and not refusal_path.is_file()
@@ -132,6 +143,7 @@ def run_builder(
             host=host, started_at=started_at,
             patch_apply=patch_apply,
             dispatch_outcome="refused-no-patch",
+            instrumentation=instrumentation,
         )
     if not apply_patch or nixpkgs_checkout is None:
         patch_apply = {
@@ -152,6 +164,7 @@ def run_builder(
                 cve_id=cve_id, bundle_id=bundle_id, nixpkgs_rev=nixpkgs_rev,
                 host=host, started_at=started_at,
                 patch_apply=patch_apply,
+                instrumentation=instrumentation,
             )
 
     # ── §2.2. patched-build ─────────────────────────────────────────────
@@ -172,6 +185,7 @@ def run_builder(
             ),
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
             timeout_seconds=timeout_seconds_per_build,
+            instrumentation=instrumentation,
         )
         unpatched_phase, unpatched_full = _build_phase_block(
             unpatched_outcome, applied=True, attr="unpatched.test",
@@ -182,6 +196,7 @@ def run_builder(
             ),
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
             timeout_seconds=timeout_seconds_per_build,
+            instrumentation=instrumentation,
         )
         patched_repro_phase, patched_repro_full = _build_phase_block(
             patched_repro_outcome, applied=True, attr="patched.test",
@@ -235,6 +250,7 @@ def run_builder(
         "passthru_tests_ground_truth": ground_truth,
         "sbom_delta_attempted": False,
         "dispatch_outcome": dispatch_outcome,
+        "instrumentation": instrumentation,
     }
 
     return BuilderRunResult(
@@ -452,6 +468,7 @@ def _refused_result(
     started_at: str,
     patch_apply: dict[str, Any],
     dispatch_outcome: str,
+    instrumentation: str | None = None,
 ) -> BuilderRunResult:
     skipped_phase = {
         "applied": False,
@@ -480,6 +497,7 @@ def _refused_result(
         "passthru_tests_ground_truth": [],
         "sbom_delta_attempted": False,
         "dispatch_outcome": dispatch_outcome,
+        "instrumentation": instrumentation,
     }
     return BuilderRunResult(
         build_json=build_json, dispatch_outcome=dispatch_outcome,
@@ -494,6 +512,7 @@ def _patch_apply_failed_result(
     host: dict[str, str],
     started_at: str,
     patch_apply: dict[str, Any],
+    instrumentation: str | None = None,
 ) -> BuilderRunResult:
     skipped_phase = {
         "applied": False,
@@ -522,10 +541,113 @@ def _patch_apply_failed_result(
         "passthru_tests_ground_truth": [],
         "sbom_delta_attempted": False,
         "dispatch_outcome": "patch-apply-failed",
+        "instrumentation": instrumentation,
     }
     return BuilderRunResult(
         build_json=build_json, dispatch_outcome="patch-apply-failed",
     )
+
+
+def _instrumentation_malformed_result(
+    *,
+    cve_id: str,
+    bundle_id: str,
+    nixpkgs_rev: str,
+    host: dict[str, str],
+    started_at: str,
+    reason: str,
+) -> BuilderRunResult:
+    """Builder refusal: reproducer-instrumentation.json is present but
+    doesn't validate. Per the slice contract, this is a structured
+    refusal, NOT a silent fallback to no-instrumentation."""
+    skipped_phase = {
+        "applied": False,
+        "outcome": "skipped",
+        "exit_code": None,
+        "drv_path": None,
+        "out_path": None,
+        "elapsed_seconds": None,
+        "stdout_stderr": "",
+        "stdout_stderr_log_sha256": None,
+        "reason": "instrumentation-malformed",
+    }
+    patch_apply = {
+        "applied": False,
+        "git_apply_exit_code": None,
+        "files_changed": [],
+        "post_apply_sha": None,
+        "reason": reason[:2048],
+    }
+    build_json = {
+        "schema_version": SCHEMA_VERSION,
+        "cve_id": cve_id,
+        "bundle_id": bundle_id,
+        "nixpkgs_rev": nixpkgs_rev,
+        "builder_id": BUILDER_ID,
+        "host": dict(host),
+        "started_at": started_at,
+        "ended_at": _utc_now_iso(),
+        "patch_apply": patch_apply,
+        "patched_build": dict(skipped_phase),
+        "unpatched": dict(skipped_phase),
+        "patched": dict(skipped_phase),
+        "passthru_tests_ground_truth": [],
+        "sbom_delta_attempted": False,
+        "dispatch_outcome": "instrumentation-malformed",
+        "instrumentation": None,
+    }
+    return BuilderRunResult(
+        build_json=build_json,
+        dispatch_outcome="instrumentation-malformed",
+    )
+
+
+def _read_instrumentation(
+    path: Path,
+) -> tuple[str | None, str | None]:
+    """Read + validate reproducer-instrumentation.json.
+
+    Returns (instrumentation, error) where:
+      * instrumentation is None when the file is absent OR when the file
+        exists, parses, and `asan: false` (explicit opt-out is the same
+        as absent for the rest of the pipeline)
+      * instrumentation is "asan" when the file validates with `asan: true`
+      * error is a human-readable diagnostic when the file is present but
+        malformed (invalid JSON, wrong schema_version, asan not a bool,
+        unknown extra keys). The caller turns this into a structured
+        instrumentation-malformed refusal.
+    """
+    if not path.is_file():
+        return None, None
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"reproducer-instrumentation.json: not valid JSON: {exc}"
+    if not isinstance(body, dict):
+        return None, (
+            "reproducer-instrumentation.json: top-level must be a JSON "
+            f"object, got {type(body).__name__}"
+        )
+    allowed_keys = {"schema_version", "asan"}
+    extra = set(body.keys()) - allowed_keys
+    if extra:
+        return None, (
+            f"reproducer-instrumentation.json: unknown keys "
+            f"{sorted(extra)!r}; v0 only accepts {sorted(allowed_keys)!r}"
+        )
+    schema_version = body.get("schema_version")
+    if schema_version != "1.0.0":
+        return None, (
+            f"reproducer-instrumentation.json: schema_version must be "
+            f"\"1.0.0\", got {schema_version!r}"
+        )
+    asan = body.get("asan")
+    if not isinstance(asan, bool):
+        return None, (
+            "reproducer-instrumentation.json: `asan` must be a boolean, "
+            f"got {type(asan).__name__}"
+        )
+    return ("asan" if asan else None), None
 
 
 # ─── §2.4: passthru enumeration ──────────────────────────────────────────

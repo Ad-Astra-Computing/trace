@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace.adastra.computer/schemas/reproducer-instrumentation-schema.json",
+  "title": "trace reproducer-instrumentation.json",
+  "description": "Optional sibling file at <bundle-dir>/reproducer-instrumentation.json. Data-config that opts a bundle's Builder runs into instrumented compilation modes. Out-of-band relative to the model: Reproducer and Patcher do NOT see this file, by design. Builder reads it, validates it, threads the mode through BuildRunner.run() for the unpatched/patched reproducer phases, and records the active mode under build.json.instrumentation. v0 supports asan only; UBSAN/MSAN/TSAN are explicitly out of scope.",
+  "type": "object",
+  "required": ["schema_version", "asan"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "asan": { "type": "boolean" }
+  }
+}
