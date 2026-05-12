@@ -93,6 +93,7 @@ def execute(
     adapter_factory: "object | None" = None,
     build_runner_factory: "object | None" = None,
     nixpkgs_checkout: Path | None = None,
+    builder_timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Execute one role invocation for one replay record.
 
@@ -153,6 +154,7 @@ def execute(
             verify=verify,
             build_runner_factory=build_runner_factory,
             nixpkgs_checkout=nixpkgs_checkout,
+            builder_timeout_seconds=builder_timeout_seconds,
         )
 
     if role in REJECTED_NON_DETERMINISTIC_ROLES:
@@ -1541,6 +1543,7 @@ def _execute_builder(
     verify: bool,
     build_runner_factory: object | None,
     nixpkgs_checkout: Path | None,
+    builder_timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Builder dispatcher.
 
@@ -1567,13 +1570,16 @@ def _execute_builder(
         build_runner = build_runner_factory()  # type: ignore[misc]
 
     started_at = _utc_now_iso()
-    result: BuilderRunResult = run_builder(
-        bundle_dir=bundle_dir,
-        build_runner=build_runner,
-        nixpkgs_checkout=nixpkgs_checkout,
-        apply_patch=nixpkgs_checkout is not None,
-        host_info=_default_builder_host_info(),
-    )
+    run_builder_kwargs: dict[str, Any] = {
+        "bundle_dir": bundle_dir,
+        "build_runner": build_runner,
+        "nixpkgs_checkout": nixpkgs_checkout,
+        "apply_patch": nixpkgs_checkout is not None,
+        "host_info": _default_builder_host_info(),
+    }
+    if builder_timeout_seconds is not None:
+        run_builder_kwargs["timeout_seconds_per_build"] = builder_timeout_seconds
+    result: BuilderRunResult = run_builder(**run_builder_kwargs)
     ended_at = _utc_now_iso()
 
     # Atomic-write build.json + (if needed) build.log sidecar.

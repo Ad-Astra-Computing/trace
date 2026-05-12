@@ -137,6 +137,19 @@ def main(argv: list[str]) -> int:
             "enumeration (matches the current darwin-side behaviour)."
         ),
     )
+    r.add_argument(
+        "--builder-timeout",
+        type=int,
+        default=None,
+        help=(
+            "per-build timeout in seconds for the builder role's nix-build "
+            "invocations (default 1800 / 30 min, hard-coded in run_builder). "
+            "Bump this for slow-check packages like libtiff where the "
+            "default trips on the patched-build sanity check despite the "
+            "underlying derivation being fine. Only consumed by the "
+            "builder role."
+        ),
+    )
 
     b = subs.add_parser("bundle", help="bundle-assembly tooling")
     b_subs = b.add_subparsers(dest="bundle_cmd", required=True)
@@ -643,6 +656,7 @@ def _do_execute(
                 verify=not args.no_verify,
                 model_id=resolved_model_id,
                 nixpkgs_checkout=args.nixpkgs_checkout,
+                builder_timeout_seconds=args.builder_timeout,
             )
         except HashMismatch as exc:
             print(f"hash-mismatch: {exc}", file=sys.stderr)
