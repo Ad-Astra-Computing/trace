@@ -78,10 +78,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "${RUNNER_TEMP}/nixpkgs"
-          git apply --check --directory=pkgs/by-name/mr/mruby \
-            "${GITHUB_WORKSPACE}/${BUNDLE_DIR}/patch.diff"
-          git apply --directory=pkgs/by-name/mr/mruby \
-            "${GITHUB_WORKSPACE}/${BUNDLE_DIR}/patch.diff"
+          # The bundle's patch.diff is nixpkgs-rooted
+          # (`a/pkgs/by-name/mr/mruby/package.nix`), not bundle-relative,
+          # so no `--directory=` prefix.
+          git apply --check "${GITHUB_WORKSPACE}/${BUNDLE_DIR}/patch.diff"
+          git apply "${GITHUB_WORKSPACE}/${BUNDLE_DIR}/patch.diff"
           # Sanity check: the patch added the CVE-2025-7207 entry to
           # mruby's patches list. If this grep fails the patch.diff
           # didn't take.
