@@ -423,6 +423,29 @@ def test_execute_builder_runs_via_runner_backed_path(tmp_path, capsys):
     assert "not yet wired" not in _err
 
 
+def test_execute_builder_synthesises_invocation_when_replay_lacks_entry(
+    tmp_path, capsys,
+):
+    """Builder is RUNNER_BACKED and may run against a bundle that has
+    no pre-recorded builder invocation in replay.json (the typical
+    first-run case on a fresh bundle). The CLI must synthesise a
+    fresh-shape invocation rather than EXIT_NOT_FOUND."""
+    bundle_dir, _ = _build_resolver_fixture(tmp_path)
+    # Resolver fixture's replay.json has roles=[{role: scout, ...}] or
+    # similar but NO builder entry. We invoke builder without mutating
+    # replay.json upfront — that's the case the CLI must handle.
+
+    rc, _out, err = _run(
+        ["replay", str(bundle_dir), "--execute", "--role", "builder"],
+        capsys,
+    )
+    # Whether the run exits OK depends on bundle state (refusal-no-patch
+    # is typical for the resolver fixture). The load-bearing assertion
+    # is that the role-missing-from-replay path NO LONGER returns
+    # EXIT_NOT_FOUND for runner-backed roles.
+    assert "no invocations for role 'builder'" not in err, err
+
+
 def test_execute_builder_passes_nixpkgs_checkout_through(
     tmp_path, capsys, monkeypatch,
 ):
