@@ -410,7 +410,13 @@ def test_build_report_separates_observed_from_unobserved(tmp_path: Path) -> None
     assert "patcher=0/2" in cost["reason"]
     assert "reviewer=0/2" in cost["reason"]
     assert "reproducer=0/2" in cost["reason"]
-    assert r.unobserved["cost_per_merge_ready_bundle"]["data_points"] == 0
+    # cost_per_merge_ready lives in derived now (it IS observable when
+    # the corpus has at least one auto-merge + patcher sidecar). With
+    # zero patcher sidecars present, data_points is 0 but it's a real
+    # derived field, not an unobserved one.
+    cpb = r.derived["cost_per_merge_ready_bundle"]
+    assert cpb["data_points"] == 0
+    assert cpb["rows"] == []
 
 
 def test_build_report_observes_role_usage_when_present(tmp_path: Path) -> None:
@@ -442,37 +448,59 @@ def test_build_report_observes_role_usage_when_present(tmp_path: Path) -> None:
     assert cost["patcher_invocations_with_usage"] == 1
     assert cost["reviewer_invocations_with_usage"] == 1
     assert cost["reproducer_invocations_with_usage"] == 0
-    # Not a complete merge-ready bundle: kind is human-review-required,
-    # and reproducer sidecar is missing.
-    assert r.unobserved["cost_per_merge_ready_bundle"]["data_points"] == 0
+    # Not a merge-ready data point: bundle kind is human-review-required.
+    assert r.derived["cost_per_merge_ready_bundle"]["data_points"] == 0
 
 
-def test_build_report_cost_per_merge_ready_requires_all_three_roles(
+def test_build_report_cost_per_merge_ready_counts_auto_merge_with_patcher(
     tmp_path: Path,
 ) -> None:
-    """cost_per_merge_ready_bundle.data_points increments only when:
-    (a) kind == auto-merge, AND (b) all three role sidecars are
-    present. A patcher-only sidecar on an auto-merge bundle is a
-    partial measurement and would mislead the headline cost figure."""
+    """The v0 cross-family contract is satisfied by Patcher + Reviewer
+    OR Patcher + Reproducer, never both. An auto-merge bundle with
+    Patcher + one cross-family role is the canonical merge-ready
+    shape. Patcher-only auto-merge bundles are also legitimate v0
+    (mbedtls) and count too. Human-review never counts regardless
+    of how many sidecars are present."""
     traces = tmp_path / "traces"
     inv = {"usage": {"input_tokens": 100, "output_tokens": 50},
            "budget": {"actual_cost_usd": 0.01}, "model_id": "claude-opus-4-7"}
-    # Auto-merge with only patcher sidecar: doesn't count.
+    inv_b = {"usage": {"input_tokens": 50, "output_tokens": 25},
+             "budget": {"actual_cost_usd": 0.003}, "model_id": "claude-sonnet-4-6"}
+    # Auto-merge with only Patcher: counts.
     _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge",
                  patcher_invocation=inv)
-    # Auto-merge with all three sidecars: counts.
+    # Auto-merge with Patcher + Reviewer: counts; total is patcher + reviewer.
     bundle_b = _seed_bundle(traces, "CVE-2024-49195", kind="auto-merge",
                             patcher_invocation=inv)
-    _write_json(bundle_b / "reviewer-invocation.json", inv)
-    _write_json(bundle_b / "reproducer-invocation.json", inv)
-    # Human-review with all three sidecars: doesn't count.
+    _write_json(bundle_b / "reviewer-invocation.json", inv_b)
+    # Human-review with all roles: never counts.
     bundle_c = _seed_bundle(traces, "CVE-2025-67899", kind="human-review-required",
                             patcher_invocation=inv)
-    _write_json(bundle_c / "reviewer-invocation.json", inv)
-    _write_json(bundle_c / "reproducer-invocation.json", inv)
+    _write_json(bundle_c / "reviewer-invocation.json", inv_b)
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
     r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
-    assert r.unobserved["cost_per_merge_ready_bundle"]["data_points"] == 1
+    cpb = r.derived["cost_per_merge_ready_bundle"]
+    assert cpb["data_points"] == 2
+    assert cpb["total_usd"] == pytest.approx(0.01 + 0.01 + 0.003, rel=1e-9)
+    rows_by_cve = {row["cve_id"]: row for row in cpb["rows"]}
+    assert rows_by_cve["CVE-2024-13978"]["roles_present"] == ["patcher"]
+    assert rows_by_cve["CVE-2024-13978"]["total_usd"] == 0.01
+    assert rows_by_cve["CVE-2024-49195"]["roles_present"] == ["patcher", "reviewer"]
+    assert rows_by_cve["CVE-2024-49195"]["total_usd"] == pytest.approx(0.013, rel=1e-9)
+
+
+def test_build_report_cost_per_merge_ready_no_patcher_no_data_point(
+    tmp_path: Path,
+) -> None:
+    """An auto-merge bundle without a Patcher sidecar (e.g.
+    deterministic-no-model bundles like libtiff) doesn't contribute
+    to cost-per-merge-ready: there's no Patcher cost to attribute."""
+    traces = tmp_path / "traces"
+    _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge",
+                 patcher_family="deterministic-no-model")
+    scout = report.load_scout_runs(tmp_path / "missing.jsonl")
+    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    assert r.derived["cost_per_merge_ready_bundle"]["data_points"] == 0
 
 
 # ─── rendering ───────────────────────────────────────────────────────────────

@@ -1,0 +1,308 @@
+{
+  "derived": {
+    "bundle_kind_distribution": {
+      "auto-merge": 4,
+      "human-review-required": 4
+    },
+    "cost_per_merge_ready_bundle": {
+      "data_points": 3,
+      "mean_usd": 0.223957,
+      "rows": [
+        {
+          "cve_id": "CVE-2024-49195",
+          "roles_present": [
+            "patcher"
+          ],
+          "total_usd": 0.12117
+        },
+        {
+          "cve_id": "CVE-2025-13878",
+          "roles_present": [
+            "patcher",
+            "reproducer"
+          ],
+          "total_usd": 0.277929
+        },
+        {
+          "cve_id": "CVE-2026-25949",
+          "roles_present": [
+            "patcher",
+            "reviewer"
+          ],
+          "total_usd": 0.272773
+        }
+      ],
+      "total_usd": 0.671872
+    },
+    "patcher_provenance_distribution": {
+      "absent": 2,
+      "model-attested": 6
+    },
+    "reproducer_status_distribution": {
+      "absent": 4,
+      "refusal": 3,
+      "reproducer_nix": 1
+    }
+  },
+  "observed": {
+    "bundle_wall_time": [
+      {
+        "bundle_id": "1d8e0c7a3b2f4e91",
+        "cve_id": "CVE-2024-13978",
+        "kind": "auto-merge",
+        "per_role": {
+          "upstream-ref-resolver": {
+            "duration_seconds": 1.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 1.0
+      },
+      {
+        "bundle_id": "20240491950000bb",
+        "cve_id": "CVE-2024-49195",
+        "kind": "auto-merge",
+        "per_role": {
+          "patcher": {
+            "duration_seconds": 20.0,
+            "invocations": 1
+          },
+          "upstream-ref-resolver": {
+            "duration_seconds": 1.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 21.0
+      },
+      {
+        "bundle_id": "20251387800000bd",
+        "cve_id": "CVE-2025-13878",
+        "kind": "auto-merge",
+        "per_role": {
+          "patcher": {
+            "duration_seconds": 24.0,
+            "invocations": 1
+          },
+          "reproducer": {
+            "duration_seconds": 7.0,
+            "invocations": 1
+          },
+          "upstream-ref-resolver": {
+            "duration_seconds": 20.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 51.0
+      },
+      {
+        "bundle_id": "366c393b1b1f310b",
+        "cve_id": "CVE-2025-4598",
+        "kind": "human-review-required",
+        "per_role": {
+          "patcher": {
+            "duration_seconds": 37.0,
+            "invocations": 1
+          },
+          "reviewer": {
+            "duration_seconds": 16.0,
+            "invocations": 1
+          },
+          "upstream-ref-resolver": {
+            "duration_seconds": 0.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 53.0
+      },
+      {
+        "bundle_id": "8083f6eb5d1dc655",
+        "cve_id": "CVE-2025-67899",
+        "kind": "human-review-required",
+        "per_role": {
+          "patcher": {
+            "duration_seconds": 22.0,
+            "invocations": 1
+          },
+          "reproducer": {
+            "duration_seconds": 6.0,
+            "invocations": 1
+          },
+          "upstream-ref-resolver": {
+            "duration_seconds": 0.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 28.0
+      },
+      {
+        "bundle_id": "2c4f9a1d8e6b4a07",
+        "cve_id": "CVE-2025-7207",
+        "kind": "human-review-required",
+        "per_role": {
+          "upstream-ref-resolver": {
+            "duration_seconds": 1.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 1.0
+      },
+      {
+        "bundle_id": "afca15769fbfeda2",
+        "cve_id": "CVE-2025-9230",
+        "kind": "human-review-required",
+        "per_role": {
+          "patcher": {
+            "duration_seconds": 26.0,
+            "invocations": 1
+          },
+          "upstream-ref-resolver": {
+            "duration_seconds": 0.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 26.0
+      },
+      {
+        "bundle_id": "4eb7e4ed049c5fdc",
+        "cve_id": "CVE-2026-25949",
+        "kind": "auto-merge",
+        "per_role": {
+          "patcher": {
+            "duration_seconds": 24.0,
+            "invocations": 1
+          },
+          "reviewer": {
+            "duration_seconds": 12.0,
+            "invocations": 1
+          },
+          "upstream-ref-resolver": {
+            "duration_seconds": 1.0,
+            "invocations": 1
+          }
+        },
+        "total_wall_time_seconds": 37.0
+      }
+    ],
+    "cron_throughput": {
+      "discovered_total": 2658,
+      "earliest_run_at": "2026-04-29T16:53:48Z",
+      "latest_run_at": "2026-05-12T00:10:01Z",
+      "per_run_means": {
+        "discovered_per_run": 17.486842105263158,
+        "processed_per_run": 13.197368421052632
+      },
+      "processed_total": 2006,
+      "runs": 152,
+      "totals_by_action": {
+        "skipped-irrelevant": 1469,
+        "written": 537
+      },
+      "totals_by_verdict": {
+        "eligible": 35,
+        "eligible-requires-human-review": 46,
+        "ineligible-no-fix-available": 454
+      }
+    },
+    "role_usage": [
+      {
+        "actual_cost_usd": 0.12117,
+        "cve_id": "CVE-2024-49195",
+        "input_tokens": 1984,
+        "model_id": "claude-opus-4-7",
+        "output_tokens": 1123,
+        "role": "patcher"
+      },
+      {
+        "actual_cost_usd": 0.246607,
+        "cve_id": "CVE-2025-13878",
+        "input_tokens": 4058,
+        "model_id": "claude-opus-4-7",
+        "output_tokens": 1279,
+        "role": "patcher"
+      },
+      {
+        "actual_cost_usd": 0.031322,
+        "cve_id": "CVE-2025-13878",
+        "input_tokens": 4222,
+        "model_id": "claude-sonnet-4-5-20250929",
+        "output_tokens": 105,
+        "role": "reproducer"
+      },
+      {
+        "actual_cost_usd": 0.42192,
+        "cve_id": "CVE-2025-4598",
+        "input_tokens": 19419,
+        "model_id": "claude-opus-4-7",
+        "output_tokens": 1646,
+        "role": "patcher"
+      },
+      {
+        "actual_cost_usd": 0.069819,
+        "cve_id": "CVE-2025-4598",
+        "input_tokens": 16498,
+        "model_id": "claude-sonnet-4-6",
+        "output_tokens": 738,
+        "role": "reviewer"
+      },
+      {
+        "actual_cost_usd": 0.14109,
+        "cve_id": "CVE-2025-67899",
+        "input_tokens": 2562,
+        "model_id": "claude-opus-4-7",
+        "output_tokens": 1273,
+        "role": "patcher"
+      },
+      {
+        "actual_cost_usd": 0.013514,
+        "cve_id": "CVE-2025-67899",
+        "input_tokens": 3049,
+        "model_id": "claude-sonnet-4-5-20250929",
+        "output_tokens": 200,
+        "role": "reproducer"
+      },
+      {
+        "actual_cost_usd": 0.23814,
+        "cve_id": "CVE-2025-9230",
+        "input_tokens": 8872,
+        "model_id": "claude-opus-4-7",
+        "output_tokens": 1305,
+        "role": "patcher"
+      },
+      {
+        "actual_cost_usd": 0.242572,
+        "cve_id": "CVE-2026-25949",
+        "input_tokens": 3024,
+        "model_id": "claude-opus-4-7",
+        "output_tokens": 1432,
+        "role": "patcher"
+      },
+      {
+        "actual_cost_usd": 0.030201,
+        "cve_id": "CVE-2026-25949",
+        "input_tokens": 3607,
+        "model_id": "claude-sonnet-4-6",
+        "output_tokens": 675,
+        "role": "reviewer"
+      }
+    ]
+  },
+  "provenance": {
+    "bundles_scanned": 8,
+    "generated_at": "2026-05-12T04:31:40Z",
+    "git_rev": "1843de92f747",
+    "scout_runs_path": "data/scout-runs.jsonl",
+    "scout_runs_scanned": 152,
+    "traces_root": "traces/example"
+  },
+  "report_kind": "throughput",
+  "schema_version": "1.0.0",
+  "unobserved": {
+    "per_role_token_cost": {
+      "data_points": 10,
+      "patcher_invocations_with_usage": 6,
+      "reason": "per-role sidecar coverage: patcher=6/8, reviewer=2/8, reproducer=2/8",
+      "reproducer_invocations_with_usage": 2,
+      "reviewer_invocations_with_usage": 2
+    }
+  }
+}
