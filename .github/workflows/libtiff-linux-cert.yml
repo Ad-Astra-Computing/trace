@@ -100,6 +100,7 @@ jobs:
           nix develop --command python -m tools.trace_cli replay \
             --execute --role builder \
             --nixpkgs-checkout "${RUNNER_TEMP}/nixpkgs" \
+            --builder-timeout 3600 \
             --no-verify \
             "${RUNNER_TEMP}/bundle" \
             > "${RUNNER_TEMP}/builder-output.json" \
