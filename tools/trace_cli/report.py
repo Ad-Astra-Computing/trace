@@ -394,6 +394,7 @@ def build_report(
         "bundle_kind_distribution": kind_dist,
         "reproducer_status_distribution": repro_status,
         "patcher_provenance_distribution": patcher_family,
+        "cost_per_merge_ready_bundle": _cost_per_merge_ready(bundles),
     }
 
     n_bundles = len(bundles)
@@ -410,14 +411,6 @@ def build_report(
             "reviewer_invocations_with_usage": role_counts["reviewer"],
             "reproducer_invocations_with_usage": role_counts["reproducer"],
             "reason": _per_role_cost_reason(n_bundles, role_counts),
-        },
-        "cost_per_merge_ready_bundle": {
-            "data_points": _cost_per_merge_ready_points(bundles),
-            "reason": (
-                "computed from per_role_token_cost; reported as N=0 when "
-                "no merge-ready bundle has a complete set of role "
-                "sidecars (patcher + reviewer + reproducer)"
-            ),
         },
     }
 
@@ -455,19 +448,41 @@ def _per_role_cost_reason(
     return f"per-role sidecar coverage: {', '.join(parts)}"
 
 
-def _cost_per_merge_ready_points(bundles: list[BundleSummary]) -> int:
-    """A merge-ready cost data point requires kind == 'auto-merge' AND
-    a complete set of role sidecars (patcher + reviewer + reproducer).
-    Anything less is a partial measurement and would mislead the
-    headline cost-per-merge-ready figure."""
-    return sum(
-        1
-        for b in bundles
-        if b.kind == "auto-merge"
-        and "patcher" in b.role_usage
-        and "reviewer" in b.role_usage
-        and "reproducer" in b.role_usage
-    )
+def _cost_per_merge_ready(bundles: list[BundleSummary]) -> dict[str, Any]:
+    """Aggregate cost over auto-merge bundles whose Patcher invocation
+    has on-disk usage data. The v0 cross-family contract is satisfied
+    by Patcher + Reviewer OR Patcher + Reproducer (not both), so
+    requiring all three sidecars excludes every real auto-merge
+    bundle. The cost reported here sums whatever role sidecars are
+    present per bundle — that's the actual realized cost. Patcher-
+    only auto-merge bundles count too; they're a legitimate v0 shape
+    even without cross-family attest (mbedtls).
+    """
+    rows: list[dict[str, Any]] = []
+    for b in bundles:
+        if b.kind != "auto-merge":
+            continue
+        if "patcher" not in b.role_usage:
+            continue
+        bundle_cost = 0.0
+        for role, u in b.role_usage.items():
+            c = u.get("actual_cost_usd")
+            if isinstance(c, (int, float)):
+                bundle_cost += float(c)
+        rows.append({
+            "cve_id": b.cve_id,
+            "roles_present": sorted(b.role_usage.keys()),
+            "total_usd": round(bundle_cost, 6),
+        })
+    if not rows:
+        return {"data_points": 0, "mean_usd": None, "total_usd": 0.0, "rows": []}
+    total = sum(r["total_usd"] for r in rows)
+    return {
+        "data_points": len(rows),
+        "mean_usd": round(total / len(rows), 6),
+        "total_usd": round(total, 6),
+        "rows": rows,
+    }
 
 
 # ─── rendering ───────────────────────────────────────────────────────────────
@@ -618,6 +633,20 @@ def _md_derived_section(derived: dict[str, Any]) -> str:
             lines.append(
                 f"| {k} | {derived['patcher_provenance_distribution'][k]} |"
             )
+        lines.append("")
+    cpb = derived.get("cost_per_merge_ready_bundle") or {}
+    if cpb.get("data_points", 0) > 0:
+        lines.append("**Cost per merge-ready bundle**")
+        lines.append("")
+        lines.append(f"- data points: {cpb['data_points']}")
+        lines.append(f"- mean: ${cpb['mean_usd']:.4f}")
+        lines.append(f"- total: ${cpb['total_usd']:.4f}")
+        lines.append("")
+        lines.append("| CVE | roles present | total (USD) |")
+        lines.append("|---|---|---|")
+        for r in cpb["rows"]:
+            roles = ", ".join(r["roles_present"])
+            lines.append(f"| {r['cve_id']} | {roles} | ${r['total_usd']:.4f} |")
     return "\n".join(lines)
 
 
@@ -631,12 +660,6 @@ def _md_unobserved_section(unobs: dict[str, Any]) -> str:
     lines.append(f"- reviewer invocations with usage: {cost['reviewer_invocations_with_usage']}")
     lines.append(f"- reproducer invocations with usage: {cost['reproducer_invocations_with_usage']}")
     lines.append(f"- reason: {cost['reason']}")
-    lines.append("")
-    cpb = unobs["cost_per_merge_ready_bundle"]
-    lines.append("**cost per merge-ready bundle**")
-    lines.append("")
-    lines.append(f"- data points: {cpb['data_points']}")
-    lines.append(f"- reason: {cpb['reason']}")
     return "\n".join(lines)
 
 
