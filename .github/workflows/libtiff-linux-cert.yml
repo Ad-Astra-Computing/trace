@@ -1,5 +1,26 @@
-name: libtiff-linux-cert
+name: libtiff-linux-cert (experimental — PoC not Linux-portable)
 
+# STATUS: EXPERIMENTAL — see docs/DECISIONS.md (2026-05-12 "Linux
+# Builder infrastructure proven (libtiff cert); two corpus-expansion
+# findings"). The Linux Builder pipeline this workflow exercises
+# (patch-apply, dispatcher, build.json shape) is proven; two findings
+# block the cert from going green on libtiff specifically:
+#   * patched_build phase exceeds the 60-min cap on a 2-core GHA
+#     runner because libtiff's doCheck phase is slow. Pending: a
+#     reproducer-instrumentation.json knob to skip doCheck on the
+#     sanity phase (Reproducer-runs cover the CVE-class regression
+#     dimension already).
+#   * The bundle's CVE-2024-13978 PoC was Darwin-validated; on
+#     Linux libtiff 4.7.0 the crafted bits/sample is rejected by
+#     Fax3SetupState before reaching the vulnerable memset(NULL,...)
+#     site. fax2ps exits 0 with a warning instead of SIGSEGV.
+#     Pending: a Linux-portable PoC craft, OR bundle re-classified
+#     as advisory-only.
+#
+# Kept in-tree because the workflow shape is the template for
+# per-bundle Linux certs; once both findings clear, this same
+# workflow runs the cert without further edits.
+#
 # Manual-dispatch only. End-to-end Linux Builder cert against the
 # CVE-2024-13978 libtiff bundle — a positive Reproducer that does
 # NOT require ASAN (the signal is a SIGSEGV null-deref observable
