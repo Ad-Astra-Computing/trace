@@ -99,7 +99,7 @@ jobs:
             > "${RUNNER_TEMP}/unpatched-out-path.txt" \
             2> "${RUNNER_TEMP}/unpatched-build.log"
           UNPATCHED_OUT="$(cat "${RUNNER_TEMP}/unpatched-out-path.txt")"
-          echo "unpatched $out: ${UNPATCHED_OUT}"
+          echo "unpatched out path: ${UNPATCHED_OUT}"
           cp "${UNPATCHED_OUT}/stderr.log" "${RUNNER_TEMP}/unpatched-stderr.log"
           cp "${UNPATCHED_OUT}/stdout.log" "${RUNNER_TEMP}/unpatched-stdout.log"
           cp "${UNPATCHED_OUT}/signal.txt" "${RUNNER_TEMP}/unpatched-signal.txt"
@@ -133,7 +133,7 @@ jobs:
             > "${RUNNER_TEMP}/patched-out-path.txt" \
             2> "${RUNNER_TEMP}/patched-build.log"
           PATCHED_OUT="$(cat "${RUNNER_TEMP}/patched-out-path.txt")"
-          echo "patched $out: ${PATCHED_OUT}"
+          echo "patched out path: ${PATCHED_OUT}"
           cp "${PATCHED_OUT}/stderr.log" "${RUNNER_TEMP}/patched-stderr.log"
           cp "${PATCHED_OUT}/stdout.log" "${RUNNER_TEMP}/patched-stdout.log"
           cp "${PATCHED_OUT}/signal.txt" "${RUNNER_TEMP}/patched-signal.txt"
