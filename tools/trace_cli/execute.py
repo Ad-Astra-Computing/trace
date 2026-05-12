@@ -567,6 +567,22 @@ def _execute_patcher(
         started_at=started_at,
         ended_at=ended_at,
     )
+
+    # Write the cost sidecar BEFORE the replay-append. The model spend
+    # has already happened; if replay-append then fails (e.g. missing
+    # replay.json on a fresh-bundle path) we still want the cost data
+    # captured so the auditor can reconcile the spend.
+    _write_role_invocation_sidecar(
+        bundle_dir=bundle_dir,
+        role="patcher",
+        cve_id=_read_bundle_cve_id(bundle_dir),
+        invocation_id=replay_invocation["invocation_id"],
+        started_at=started_at,
+        ended_at=ended_at,
+        role_run_meta=patcher_run_meta,
+        model_response=result.model_response,
+    )
+
     _append_patcher_replay_entry(
         bundle_dir=bundle_dir, invocation=replay_invocation
     )
@@ -987,14 +1003,11 @@ def _execute_reviewer(
         started_at=started_at,
         ended_at=ended_at,
     )
-    _append_reviewer_replay_entry(
-        bundle_dir=bundle_dir, invocation=replay_invocation,
-    )
 
-    # Sidecar: usage + cost. Replay.json's invocation schema can't
-    # carry these (additionalProperties: false). Same shape as
-    # patcher-invocation.json so `trace report throughput` reads all
-    # three uniformly.
+    # Sidecar BEFORE replay-append: model spend has happened; if the
+    # replay-append fails (e.g. missing replay.json on a fresh-bundle
+    # path) we still want the cost captured so the auditor can
+    # reconcile spend.
     _write_role_invocation_sidecar(
         bundle_dir=bundle_dir,
         role="reviewer",
@@ -1004,6 +1017,10 @@ def _execute_reviewer(
         ended_at=ended_at,
         role_run_meta=reviewer_run_meta,
         model_response=result.model_response,
+    )
+
+    _append_reviewer_replay_entry(
+        bundle_dir=bundle_dir, invocation=replay_invocation,
     )
 
     return {
@@ -1352,14 +1369,9 @@ def _execute_reproducer(
         ended_at=ended_at,
         patcher_family_recorded=patcher_family,
     )
-    _append_reproducer_replay_entry(
-        bundle_dir=bundle_dir, invocation=replay_invocation,
-    )
 
-    # Sidecar: usage + cost. Replay.json's invocation schema can't
-    # carry these (additionalProperties: false). Same shape as
-    # patcher-invocation.json so `trace report throughput` reads all
-    # three uniformly.
+    # Sidecar BEFORE replay-append: cost data is captured even if
+    # replay-append later raises.
     _write_role_invocation_sidecar(
         bundle_dir=bundle_dir,
         role="reproducer",
@@ -1369,6 +1381,10 @@ def _execute_reproducer(
         ended_at=ended_at,
         role_run_meta=reproducer_run_meta,
         model_response=result.model_response,
+    )
+
+    _append_reproducer_replay_entry(
+        bundle_dir=bundle_dir, invocation=replay_invocation,
     )
 
     return {
