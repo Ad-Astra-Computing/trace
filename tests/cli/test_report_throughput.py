@@ -314,6 +314,34 @@ def test_scan_bundles_reads_all_three_role_sidecars(tmp_path: Path) -> None:
     assert b.role_usage["reproducer"]["actual_cost_usd"] == 0.0075
 
 
+def test_scan_bundles_sidecar_reads_cache_token_fields(tmp_path: Path) -> None:
+    """Slice 2.1: sidecars now carry cache_creation_input_tokens and
+    cache_read_input_tokens. The report reader keeps the existing
+    flat usage shape, so the reader's contract doesn't change — but
+    it must tolerate sidecars with the extra fields and surface them
+    in the lifted usage block."""
+    traces = tmp_path / "traces"
+    bundle_dir = _seed_bundle(traces, "CVE-2025-67899")
+    _write_json(bundle_dir / "patcher-invocation.json", {
+        "schema_version": "1.0.0",
+        "role": "patcher",
+        "model_id": "claude-opus-4-7",
+        "usage": {
+            "input_tokens": 6,
+            "output_tokens": 1310,
+            "cache_creation_input_tokens": 8000,
+            "cache_read_input_tokens": 0,
+        },
+        "budget": {"actual_cost_usd": 0.2484},
+    })
+    b = report.scan_bundles(traces)[0]
+    assert "patcher" in b.role_usage
+    # The reader's flat shape is unchanged for backwards-compat with
+    # earlier sidecars, but the actual_cost_usd reflects cache pricing.
+    assert b.role_usage["patcher"]["actual_cost_usd"] == 0.2484
+    assert b.role_usage["patcher"]["input_tokens"] == 6
+
+
 def test_scan_bundles_sidecar_with_null_usage_still_lifted(tmp_path: Path) -> None:
     """FakeAdapter case: usage tokens come back None. The sidecar is
     still written by execute.py with null fields. The reader must

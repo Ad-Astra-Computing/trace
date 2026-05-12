@@ -36,6 +36,14 @@ class ModelResponse:
     model_id: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    # Anthropic prompt-cache usage. None for adapters that don't
+    # surface these (FakeAdapter, OpenAI). `input_tokens` carries
+    # only the *uncached* new-input count; cache-creation and
+    # cache-read tokens live in the two fields below.
+    # Cost computation requires all three fields to be honest when
+    # the system prompt is marked for ephemeral caching.
+    cache_creation_input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
     stop_reason: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -213,6 +221,12 @@ class AnthropicAdapter:
             model_id=self.model_id,
             input_tokens=getattr(usage, "input_tokens", None) if usage else None,
             output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+            cache_creation_input_tokens=(
+                getattr(usage, "cache_creation_input_tokens", None) if usage else None
+            ),
+            cache_read_input_tokens=(
+                getattr(usage, "cache_read_input_tokens", None) if usage else None
+            ),
             stop_reason=getattr(msg, "stop_reason", None),
             extras={"adapter": "anthropic"},
         )

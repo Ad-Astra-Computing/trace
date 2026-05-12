@@ -640,10 +640,14 @@ def _write_role_invocation_sidecar(
     model_id = model_response.model_id
     input_tokens = getattr(model_response, "input_tokens", None)
     output_tokens = getattr(model_response, "output_tokens", None)
+    cache_creation = getattr(model_response, "cache_creation_input_tokens", None)
+    cache_read = getattr(model_response, "cache_read_input_tokens", None)
     cost = actual_cost_usd(
         model_id=model_id,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_creation_input_tokens=cache_creation,
+        cache_read_input_tokens=cache_read,
     )
     payload: dict[str, Any] = {
         "schema_version": "1.0.0",
@@ -660,8 +664,14 @@ def _write_role_invocation_sidecar(
         "user_content_sha256": role_run_meta.get("user_content_sha256"),
         "raw_response_sha256": role_run_meta.get("raw_response_sha256"),
         "usage": {
+            # input_tokens is the *uncached* new-input count; the two
+            # cache fields complete the picture for prompt-cached
+            # adapters (Anthropic). Non-caching adapters leave both
+            # cache fields at None.
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "cache_creation_input_tokens": cache_creation,
+            "cache_read_input_tokens": cache_read,
         },
         "budget": {
             # Reviewer + Reproducer have no CLI-set budget caps in v0;
