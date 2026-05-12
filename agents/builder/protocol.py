@@ -82,6 +82,7 @@ class BuildRunner(Protocol):
         attr: str | None = None,
         cwd: Path,
         timeout_seconds: int = 1800,
+        instrumentation: str | None = None,
     ) -> BuildOutcome:
         """Invoke nix-build with `-E <nix_expression>` OR `-A <attr>`.
 
@@ -90,6 +91,13 @@ class BuildRunner(Protocol):
         expression-mode the caller passes the expression literal, for
         attr-mode the caller passes the attr to evaluate against the
         current default.nix in cwd.
+
+        `instrumentation` opts the invocation into an instrumented
+        compilation mode supplied out-of-band by the bundle's
+        reproducer-instrumentation.json. v0 accepts "asan" (the env
+        variable TRACE_INSTRUMENTATION=asan is set on the nix-build
+        process; the bundle's reproducer.nix is responsible for honoring
+        it) and None (no instrumentation, default).
         """
         ...
 
@@ -137,6 +145,7 @@ class FakeBuildRunner:
         attr: str | None = None,
         cwd: Path,
         timeout_seconds: int = 1800,
+        instrumentation: str | None = None,
     ) -> BuildOutcome:
         if (nix_expression is None) == (attr is None):
             raise ValueError(
@@ -147,6 +156,7 @@ class FakeBuildRunner:
             "attr": attr,
             "cwd": str(cwd),
             "timeout_seconds": timeout_seconds,
+            "instrumentation": instrumentation,
         })
         if self._single is not None:
             return self._single
@@ -185,6 +195,7 @@ class LocalNixBuildRunner:
         attr: str | None = None,
         cwd: Path,
         timeout_seconds: int = 1800,
+        instrumentation: str | None = None,
     ) -> BuildOutcome:
         if not self.is_available:
             return BuildOutcome(
@@ -203,12 +214,21 @@ class LocalNixBuildRunner:
             cmd += ["-E", nix_expression]
         else:
             cmd += ["-A", str(attr)]
+        # Surface the instrumentation mode to the subprocess so the
+        # reproducer.nix can branch on it. v0: TRACE_INSTRUMENTATION=asan
+        # when asan is active; unset otherwise. We pass the parent env
+        # through unchanged plus this one override.
+        import os as _os
+        env = dict(_os.environ)
+        if instrumentation:
+            env["TRACE_INSTRUMENTATION"] = instrumentation
         started = time.monotonic()
         try:
             proc = subprocess.run(
                 cmd, cwd=str(cwd), check=False,
                 capture_output=True, text=True,
                 timeout=timeout_seconds,
+                env=env,
             )
         except subprocess.TimeoutExpired as exc:
             elapsed = time.monotonic() - started

@@ -30,6 +30,7 @@ Builder consumes a finalized bundle directory containing:
 - `package.nix` — the **pre-fix** package definition
 - `patch.diff` — the patch produced by Patcher
 - `reproducer.nix` — the test produced by Reproducer (or absent on Reproducer-refused bundles)
+- `reproducer-instrumentation.json` — optional opt-in instrumentation config (per §2.6)
 - `replay.json` — top-level provenance manifest
 - The pinned `finding.json.nixpkgs_rev` is the resolution context (Builder fetches or uses an already-fetched checkout of nixpkgs at this revision)
 
@@ -74,6 +75,26 @@ For each of `unpatched` and `patched`:
 ### 2.5. sbom-delta (deferred to v1.x)
 
 The bundle schema reserves `sbom-delta.json`. v1 Builder does NOT compute it. A future Builder iteration may diff the patched closure against the pre-patch closure and record direct/transitive package additions and removals; for v0 the field is empty.
+
+### 2.6. reproducer-instrumentation (opt-in, asan-only in v0)
+
+Some crash classes are silent without instrumented compilation. The canonical example: mruby CVE-2025-7207 emits `NoMethodError` on a stock build (downstream consequence of uninitialized memory), but `AddressSanitizer: heap-buffer-overflow ... in stack_clear+0xdc` under ASAN. Without instrumentation, the unpatched-vs-patched reproducer cannot produce a deterministic crash-class signal.
+
+Builder reads an optional sibling file `<bundle-dir>/reproducer-instrumentation.json` (schema: `policy/reproducer-instrumentation-schema.json`) of the shape:
+
+```json
+{ "schema_version": "1.0.0", "asan": true }
+```
+
+When `asan: true`, the dispatcher threads `instrumentation="asan"` through `BuildRunner.run()` on the two reproducer-run phases (§2.3). The `LocalNixBuildRunner` surfaces the mode as the environment variable `TRACE_INSTRUMENTATION=asan` on the nix-build subprocess. The bundle's `reproducer.nix` is responsible for branching on that env var (e.g., applying `overrideAttrs` to enable ASAN flags on the affected derivation). The patched-build sanity check (§2.2) and passthru enumeration (§2.4) are NOT instrumented in v0.
+
+Three points of strictness:
+
+- **Data-config, not prompt.** Reproducer and Patcher do not see this file. Authoring ASAN-aware Nix is a future model concern; v0 keeps it human-curated for the seed bundles that need it.
+- **asan-only.** UBSAN/MSAN/TSAN keys are explicitly rejected. The schema enforces `additionalProperties: false`. Adding more sanitizers is a future-slice decision.
+- **Malformed → structured refusal.** Invalid JSON, wrong `schema_version`, non-bool `asan`, unknown keys, or missing required keys all yield `dispatch_outcome: instrumentation-malformed` with the diagnostic captured under `patch_apply.reason`. NOT a silent fallback to "no instrumentation."
+
+When the file is absent or carries `asan: false`, behavior is identical to v0 pre-instrumentation: `build.json.instrumentation` is `null` and `TRACE_INSTRUMENTATION` is not set in the subprocess environment.
 
 ---
 
@@ -140,7 +161,8 @@ A single JSON document at the bundle root. Locked schema (the reproducer scorers
 
   "sbom_delta_attempted": false,
 
-  "dispatch_outcome": "ok"
+  "dispatch_outcome": "ok",
+  "instrumentation": null
 }
 ```
 
@@ -149,7 +171,8 @@ Locked invariants:
 - **`schema_version`** is the literal `"1.0.0"` for v1.
 - **Truncation rule.** `stdout_stderr` carries the **last 64 KiB** of combined stdout+stderr. If the actual log exceeds that cap, the full log is persisted as `build.log` adjacent to `build.json` and `stdout_stderr_log_sha256` references it. Reproducer scorers operate on the inline `stdout_stderr` field; oversize logs are scored on the truncated tail (acceptable because all reproducer signals must be ≤ 200 chars per the contract floor).
 - **`applied` semantics.** Each operation reports `applied` independently. A failure in one operation does NOT mark subsequent operations as `applied: false`. They are simply recorded with whatever they did or did not produce, plus the failure reference.
-- **`dispatch_outcome` enum.** One of `ok`, `refused-no-patch`, `refused-no-reproducer`, `patch-apply-failed`, `infra-failure`. The Steward gate consumes this for auto-merge eligibility.
+- **`dispatch_outcome` enum.** One of `ok`, `refused-no-patch`, `refused-no-reproducer`, `patch-apply-failed`, `infra-failure`, `instrumentation-malformed`. The Steward gate consumes this for auto-merge eligibility.
+- **`instrumentation` field.** Either `null` (no instrumentation, the default) or `"asan"` (AddressSanitizer was threaded into the reproducer-run phases per §2.6). Optional in the schema for backwards compatibility with pre-v0.2.x build.json artifacts; new Builder runs always emit it.
 - **No model fields.** Builder is deterministic; `build.json` does NOT carry a `model` block or `prompt` block. The replay invocation entry for the builder role likewise omits these fields (its `model.family` is `deterministic-no-model`, mirroring the resolver invocation).
 
 ---
@@ -240,6 +263,7 @@ Builder is deterministic; "refusal" means the bundle did not satisfy a structura
 | `reproducer.nix` missing or is a refusal block | `refused-no-reproducer` | Builder runs §2.1–§2.2 (patch-apply + patched-build) but skips §2.3. Reproducer fields show `applied: false`. |
 | `git apply --check` fails | `patch-apply-failed` | §2.2 and §2.3 are skipped. The `patched_build` and `unpatched`/`patched` fields show `applied: false` with `reason: "patch-apply-failed"`. |
 | Subprocess error (nix-build hung, OOM, etc.) | `infra-failure` | Whatever phase failed records the exception detail. Subsequent phases skipped. |
+| `reproducer-instrumentation.json` present but malformed | `instrumentation-malformed` | All phases recorded `applied: false` with `reason: "instrumentation-malformed"`; the diagnostic is captured under `patch_apply.reason`. NOT a silent fallback. |
 | All operations completed (regardless of build success) | `ok` | The fact that a build *failed* is recorded as `outcome: failed`; that is NOT a dispatch refusal — it's data. |
 
 Distinction worth keeping clear: **a failed build is a successful Builder run**. Builder's job is to record what happened; the verdict on whether the build outcome means the patch is acceptable belongs to scorers and Steward.

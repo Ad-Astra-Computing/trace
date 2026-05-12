@@ -114,6 +114,14 @@ def test_fake_records_full_call_args() -> None:
     assert c["attr"] is None
     assert c["cwd"] == "/some/dir"
     assert c["timeout_seconds"] == 42
+    # instrumentation defaults to None when the caller doesn't pass it.
+    assert c["instrumentation"] is None
+
+
+def test_fake_records_instrumentation_when_supplied() -> None:
+    runner = FakeBuildRunner(response=BuildOutcome(0, None, None, "", 0.0))
+    runner.run(attr="x", cwd=Path("/tmp"), instrumentation="asan")
+    assert runner.calls[0]["instrumentation"] == "asan"
 
 
 # ─── truncate_to_inline_cap ──────────────────────────────────────────────

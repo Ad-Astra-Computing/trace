@@ -426,6 +426,164 @@ def test_infra_failure_records_patched_build_skipped_outcome(tmp_path: Path) -> 
     _assert_valid(bj)
 
 
+# ─── reproducer-instrumentation.json ─────────────────────────────────────
+
+
+def test_instrumentation_absent_records_null_and_no_asan_flag(
+    tmp_path: Path,
+) -> None:
+    """No reproducer-instrumentation.json present → current behavior:
+    build.json.instrumentation == None, BuildRunner.calls show
+    instrumentation=None on every invocation."""
+    bundle = _scaffold_bundle(tmp_path)
+    runner = FakeBuildRunner(responses=[_ok_outcome(), _ok_outcome(), _ok_outcome()])
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.build_json["instrumentation"] is None
+    _assert_valid(result.build_json)
+    for call in runner.calls:
+        assert call["instrumentation"] is None
+
+
+def test_instrumentation_asan_true_propagates_to_reproducer_phases(
+    tmp_path: Path,
+) -> None:
+    """When reproducer-instrumentation.json has asan: true, the
+    unpatched + patched reproducer-run phases receive
+    instrumentation='asan'. build.json records the active mode."""
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "asan": True})
+    )
+    runner = FakeBuildRunner(responses=[
+        _ok_outcome("patched-build ok\n"),
+        _ok_outcome("unpatched repro\n"),
+        _ok_outcome("patched repro\n"),
+    ])
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "ok"
+    assert result.build_json["instrumentation"] == "asan"
+    _assert_valid(result.build_json)
+    # Three calls: patched_build sanity, unpatched repro, patched repro.
+    # User contract: "apply to both unpatched and patched builds" — those
+    # are the two reproducer phases. The patched_build sanity check is
+    # intentionally NOT instrumented.
+    assert len(runner.calls) == 3
+    assert runner.calls[0]["instrumentation"] is None  # patched_build
+    assert runner.calls[1]["instrumentation"] == "asan"  # unpatched repro
+    assert runner.calls[2]["instrumentation"] == "asan"  # patched repro
+
+
+def test_instrumentation_asan_false_records_null(tmp_path: Path) -> None:
+    """asan: false is an explicit opt-out; identical to absent — no
+    BuildRunner instrumentation, build.json.instrumentation == None.
+    Crucially NOT a refusal."""
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "asan": False})
+    )
+    runner = FakeBuildRunner(responses=[_ok_outcome(), _ok_outcome(), _ok_outcome()])
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "ok"
+    assert result.build_json["instrumentation"] is None
+    for call in runner.calls:
+        assert call["instrumentation"] is None
+
+
+def test_instrumentation_invalid_json_is_structured_refusal(
+    tmp_path: Path,
+) -> None:
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text("{ this is not json")
+    runner = FakeBuildRunner(response=_ok_outcome())
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "instrumentation-malformed"
+    bj = result.build_json
+    assert bj["instrumentation"] is None
+    assert "not valid JSON" in bj["patch_apply"]["reason"]
+    _assert_valid(bj)
+    # No BuildRunner invocations on the refusal path.
+    assert runner.calls == []
+
+
+def test_instrumentation_wrong_schema_version_is_refusal(
+    tmp_path: Path,
+) -> None:
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "2.0.0", "asan": True})
+    )
+    runner = FakeBuildRunner(response=_ok_outcome())
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "instrumentation-malformed"
+    assert "schema_version" in result.build_json["patch_apply"]["reason"]
+    _assert_valid(result.build_json)
+    assert runner.calls == []
+
+
+def test_instrumentation_asan_not_bool_is_refusal(tmp_path: Path) -> None:
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "asan": "yes"})
+    )
+    runner = FakeBuildRunner(response=_ok_outcome())
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "instrumentation-malformed"
+    assert "asan" in result.build_json["patch_apply"]["reason"]
+    assert "boolean" in result.build_json["patch_apply"]["reason"]
+    _assert_valid(result.build_json)
+    assert runner.calls == []
+
+
+def test_instrumentation_unknown_keys_is_refusal(tmp_path: Path) -> None:
+    """v0 is strictly asan-only. UBSAN/MSAN/TSAN keys must refuse rather
+    than silently ignore — they signal a user who expects something we
+    don't support yet."""
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "asan": True, "ubsan": True})
+    )
+    runner = FakeBuildRunner(response=_ok_outcome())
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "instrumentation-malformed"
+    assert "unknown keys" in result.build_json["patch_apply"]["reason"]
+    assert "ubsan" in result.build_json["patch_apply"]["reason"]
+    _assert_valid(result.build_json)
+
+
+def test_instrumentation_missing_asan_key_is_refusal(tmp_path: Path) -> None:
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0"})
+    )
+    runner = FakeBuildRunner(response=_ok_outcome())
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "instrumentation-malformed"
+
+
 # ─── 64 KiB truncation ───────────────────────────────────────────────────
 
 
