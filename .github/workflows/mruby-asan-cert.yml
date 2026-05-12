@@ -1,0 +1,179 @@
+name: mruby-asan-cert
+
+# Manual-dispatch only. Certifies the CVE-2025-7207 ASAN reproducer
+# end-to-end on the canonical Linux/Nix environment (ubuntu-latest +
+# DeterminateSystems nix-installer). The local Darwin path was proven
+# by /tmp/asan-mruby-validate on 2026-05-12; this workflow is the
+# canonical CI cert that converts the slice from "shape proven" to
+# "signal proven on Linux."
+#
+# Scope (deliberately narrow, per the 2026-05-12 slice scoping
+# conversation):
+#   1. Checkout the trace repo.
+#   2. Install Nix using the pinned DeterminateSystems actions.
+#   3. Clone nixpkgs at the bundle's pinned nixpkgs_rev.
+#   4. Apply the bundle's patch.diff to that checkout.
+#   5. Build (import reproducer.nix {}).unpatched.test under
+#      TRACE_INSTRUMENTATION=asan; verify the AddressSanitizer +
+#      stack_clear signal in the realized $out/stderr.log and the
+#      synthesized SIGNAL line in $out/signal.txt.
+#   6. Build (import reproducer.nix {}).patched.test under
+#      TRACE_INSTRUMENTATION=asan; verify the LocalJumpError signal
+#      and the absence of any AddressSanitizer diagnostic.
+#   7. Upload logs + signal artifacts for inspection.
+#
+# NOT wired to push or PR until the signal is proven stable across
+# repeated runs. See docs/DECISIONS.md (2026-05-12 Builder ASAN-
+# instrumentation slice).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUNDLE_DIR: traces/example/CVE-2025-7207--mruby
+  # Pinned in the bundle's bundle.json / finding.json. Bump together
+  # if/when the bundle is re-pinned to a different nixpkgs revision.
+  NIXPKGS_REV: a08477a48bee5d7617c168aed10febeb1386dac3
+
+jobs:
+  cert:
+    name: mruby ASAN reproducer cert (Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # DeterminateSystems actions pinned by full commit SHA, mirroring
+      # .github/workflows/ci.yml. Bump together with that workflow when
+      # a new tag is adopted.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Clone pinned nixpkgs revision
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/nixpkgs"
+          cd "${RUNNER_TEMP}/nixpkgs"
+          git init -q
+          git remote add origin https://github.com/NixOS/nixpkgs.git
+          git fetch --depth=1 origin "${NIXPKGS_REV}"
+          git checkout -q FETCH_HEAD
+          # Anchor commit so `git apply --check` has a clean working
+          # tree to validate against (no-op if HEAD is already clean,
+          # but documents intent).
+          git -c user.email=ci@example.com -c user.name=ci \
+            commit --allow-empty -q -m "cert anchor"
+          echo "nixpkgs HEAD: $(git rev-parse HEAD)"
+
+      - name: Apply bundle patch.diff
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/nixpkgs"
+          git apply --check --directory=pkgs/by-name/mr/mruby \
+            "${GITHUB_WORKSPACE}/${BUNDLE_DIR}/patch.diff"
+          git apply --directory=pkgs/by-name/mr/mruby \
+            "${GITHUB_WORKSPACE}/${BUNDLE_DIR}/patch.diff"
+          # Sanity check: the patch added the CVE-2025-7207 entry to
+          # mruby's patches list. If this grep fails the patch.diff
+          # didn't take.
+          grep -F "CVE-2025-7207.patch" pkgs/by-name/mr/mruby/package.nix
+
+      - name: Build unpatched reproducer (TRACE_INSTRUMENTATION=asan)
+        env:
+          TRACE_INSTRUMENTATION: asan
+          NIX_PATH: nixpkgs=${{ runner.temp }}/nixpkgs
+        run: |
+          set -euo pipefail
+          nix-build --no-out-link \
+            -E "((import ./${BUNDLE_DIR}/reproducer.nix {}).unpatched.test)" \
+            > "${RUNNER_TEMP}/unpatched-out-path.txt" \
+            2> "${RUNNER_TEMP}/unpatched-build.log"
+          UNPATCHED_OUT="$(cat "${RUNNER_TEMP}/unpatched-out-path.txt")"
+          echo "unpatched $out: ${UNPATCHED_OUT}"
+          cp "${UNPATCHED_OUT}/stderr.log" "${RUNNER_TEMP}/unpatched-stderr.log"
+          cp "${UNPATCHED_OUT}/stdout.log" "${RUNNER_TEMP}/unpatched-stdout.log"
+          cp "${UNPATCHED_OUT}/signal.txt" "${RUNNER_TEMP}/unpatched-signal.txt"
+          cp "${UNPATCHED_OUT}/exit-code" "${RUNNER_TEMP}/unpatched-exit-code"
+
+      - name: Verify SIGNAL_UNPATCHED
+        run: |
+          set -euo pipefail
+          # Primary load-bearing oracle: the AddressSanitizer class
+          # string must appear in mruby's stderr.
+          grep -F "AddressSanitizer: heap-buffer-overflow" \
+            "${RUNNER_TEMP}/unpatched-stderr.log"
+          # Secondary site-specificity assertion: ties the report to
+          # the actual CVE-2025-7207 bug site.
+          grep -F "stack_clear" "${RUNNER_TEMP}/unpatched-stderr.log"
+          # The full SIGNAL substring from reproducer-log.txt must
+          # appear in $out/signal.txt verbatim.
+          grep -Fx \
+            "vuln-triggered: AddressSanitizer: heap-buffer-overflow in mruby stack_clear (CVE-2025-7207 unpatched)" \
+            "${RUNNER_TEMP}/unpatched-signal.txt"
+
+      - name: Build patched reproducer (TRACE_INSTRUMENTATION=asan)
+        env:
+          TRACE_INSTRUMENTATION: asan
+          NIX_PATH: nixpkgs=${{ runner.temp }}/nixpkgs
+        run: |
+          set -euo pipefail
+          nix-build --no-out-link \
+            -E "((import ./${BUNDLE_DIR}/reproducer.nix {}).patched.test)" \
+            > "${RUNNER_TEMP}/patched-out-path.txt" \
+            2> "${RUNNER_TEMP}/patched-build.log"
+          PATCHED_OUT="$(cat "${RUNNER_TEMP}/patched-out-path.txt")"
+          echo "patched $out: ${PATCHED_OUT}"
+          cp "${PATCHED_OUT}/stderr.log" "${RUNNER_TEMP}/patched-stderr.log"
+          cp "${PATCHED_OUT}/stdout.log" "${RUNNER_TEMP}/patched-stdout.log"
+          cp "${PATCHED_OUT}/signal.txt" "${RUNNER_TEMP}/patched-signal.txt"
+          cp "${PATCHED_OUT}/exit-code" "${RUNNER_TEMP}/patched-exit-code"
+
+      - name: Verify SIGNAL_PATCHED + absence of ASAN diagnostic
+        run: |
+          set -euo pipefail
+          # Primary load-bearing oracle: LocalJumpError appears in
+          # mruby's stderr on the patched path.
+          grep -F "LocalJumpError" "${RUNNER_TEMP}/patched-stderr.log"
+          # Full SIGNAL substring verbatim in $out/signal.txt.
+          grep -Fx \
+            "rejected-malformed-input: mruby raised LocalJumpError on unexpected retry token (CVE-2025-7207 patched)" \
+            "${RUNNER_TEMP}/patched-signal.txt"
+          # Negative assertion: patched build must NOT trip ASAN. If
+          # AddressSanitizer fires on the patched run, the upstream
+          # fix did not eliminate the OOB write — surface as an
+          # explicit workflow error.
+          if grep -F "AddressSanitizer: heap-buffer-overflow" \
+               "${RUNNER_TEMP}/patched-stderr.log"; then
+            echo "::error::AddressSanitizer fired on the patched run; the upstream CVE-2025-7207 fix did not eliminate the heap-buffer-overflow at stack_clear."
+            exit 1
+          fi
+
+      - name: Upload reproducer artifacts
+        uses: actions/upload-artifact@v5
+        if: ${{ always() }}
+        with:
+          name: mruby-asan-cert-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/unpatched-stderr.log
+            ${{ runner.temp }}/unpatched-stdout.log
+            ${{ runner.temp }}/unpatched-signal.txt
+            ${{ runner.temp }}/unpatched-exit-code
+            ${{ runner.temp }}/unpatched-build.log
+            ${{ runner.temp }}/unpatched-out-path.txt
+            ${{ runner.temp }}/patched-stderr.log
+            ${{ runner.temp }}/patched-stdout.log
+            ${{ runner.temp }}/patched-signal.txt
+            ${{ runner.temp }}/patched-exit-code
+            ${{ runner.temp }}/patched-build.log
+            ${{ runner.temp }}/patched-out-path.txt
+          if-no-files-found: warn
+          retention-days: 90
