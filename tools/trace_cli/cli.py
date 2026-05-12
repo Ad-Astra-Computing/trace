@@ -607,11 +607,19 @@ def _do_execute(
             role_entry = entry
             break
 
-    # For model-backed fresh runs, a missing role entry is acceptable: we run
-    # the role once against the bundle, synthesising a single invocation. For
-    # deterministic replay, missing entries are still EXIT_NOT_FOUND.
+    # For model-backed fresh runs AND runner-backed (Builder) reruns, a
+    # missing role entry is acceptable: we synthesise a single fresh
+    # invocation. Builder by design produces a new invocation per run
+    # (build.json + replay.json append); requiring a pre-recorded entry
+    # would block first-time runs against any bundle. Cartographer /
+    # UpstreamRefResolver remain strict: missing entries are EXIT_NOT_FOUND
+    # because their outputs are recorded as part of the bundle's frozen
+    # provenance and there is no "fresh-run" semantic for them at this
+    # layer.
+    from tools.trace_cli.execute import RUNNER_BACKED_ROLES
+    _fresh_run_eligible = MODEL_BACKED_ROLES | RUNNER_BACKED_ROLES
     if role_entry is None:
-        if args.role in MODEL_BACKED_ROLES:
+        if args.role in _fresh_run_eligible:
             role_entry = {
                 "role": args.role,
                 "invocations": [
