@@ -104,6 +104,7 @@ jobs:
           cp "${UNPATCHED_OUT}/stdout.log" "${RUNNER_TEMP}/unpatched-stdout.log"
           cp "${UNPATCHED_OUT}/signal.txt" "${RUNNER_TEMP}/unpatched-signal.txt"
           cp "${UNPATCHED_OUT}/exit-code" "${RUNNER_TEMP}/unpatched-exit-code"
+          cp "${UNPATCHED_OUT}/diagnostics.txt" "${RUNNER_TEMP}/unpatched-diagnostics.txt"
 
       - name: Verify SIGNAL_UNPATCHED
         run: |
@@ -137,6 +138,7 @@ jobs:
           cp "${PATCHED_OUT}/stdout.log" "${RUNNER_TEMP}/patched-stdout.log"
           cp "${PATCHED_OUT}/signal.txt" "${RUNNER_TEMP}/patched-signal.txt"
           cp "${PATCHED_OUT}/exit-code" "${RUNNER_TEMP}/patched-exit-code"
+          cp "${PATCHED_OUT}/diagnostics.txt" "${RUNNER_TEMP}/patched-diagnostics.txt"
 
       - name: Verify SIGNAL_PATCHED + absence of ASAN diagnostic
         run: |
@@ -170,11 +172,13 @@ jobs:
             ${{ runner.temp }}/unpatched-exit-code
             ${{ runner.temp }}/unpatched-build.log
             ${{ runner.temp }}/unpatched-out-path.txt
+            ${{ runner.temp }}/unpatched-diagnostics.txt
             ${{ runner.temp }}/patched-stderr.log
             ${{ runner.temp }}/patched-stdout.log
             ${{ runner.temp }}/patched-signal.txt
             ${{ runner.temp }}/patched-exit-code
             ${{ runner.temp }}/patched-build.log
             ${{ runner.temp }}/patched-out-path.txt
+            ${{ runner.temp }}/patched-diagnostics.txt
           if-no-files-found: warn
           retention-days: 90
