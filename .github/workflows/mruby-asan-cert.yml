@@ -1,5 +1,33 @@
-name: mruby-asan-cert
+name: mruby-asan-cert (experimental — Linux ASAN wiring blocked)
 
+# STATUS: EXPERIMENTAL / BLOCKED — see docs/DECISIONS.md
+# (2026-05-12 "Linux ASAN cert blocked on cc-wrapper toolchain wiring").
+# Seven workflow_dispatch runs surfaced that Nix's cc-wrapper on
+# Linux + mruby's build system do not, in the canonical
+# NIX_CFLAGS_COMPILE / hardeningDisable / dontStrip configuration,
+# produce a libasan-linked mruby binary. The unpatched build runs
+# but falls through to LocalJumpError because the OOB write is
+# silent without ASAN runtime support. nm -D | grep asan returns
+# empty on the resulting binary.
+#
+# Kept in-tree because:
+#   * the upstream blocker is real Nix-stdenv work, not a trace gap;
+#   * the workflow shape is correct — once libasan-linkage is
+#     fixed (clangStdenv override, explicit cc/linker.command,
+#     or first-class nixpkgs enableSanitizers support), this
+#     workflow runs the cert without further edits;
+#   * the diagnostic step ($out/diagnostics.txt: nm -D, file,
+#     ldd) gives a fast pass/fail signal on whether the next
+#     attempt has libasan linked, BEFORE re-running the PoC.
+#
+# DO NOT enable on push/PR. The Darwin manual validation
+# (12 May 2026 /tmp/asan-mruby-validate) is the current
+# vulnerability-signal proof. The integration test
+# tests/builder/test_mruby_asan_pipeline.py is the current
+# pipeline-correctness proof. This workflow is the canonical-CI
+# proof axis; it stays manual-dispatch until the libasan-linkage
+# blocker clears.
+#
 # Manual-dispatch only. Certifies the CVE-2025-7207 ASAN reproducer
 # end-to-end on the canonical Linux/Nix environment (ubuntu-latest +
 # DeterminateSystems nix-installer). The local Darwin path was proven
