@@ -353,10 +353,14 @@ def main(
         _atomic_write_bytes(args.entry / "refusal.json", refusal_body)
 
     # Step 6: invocation record.
+    cache_creation = getattr(result.model_response, "cache_creation_input_tokens", None)
+    cache_read = getattr(result.model_response, "cache_read_input_tokens", None)
     actual = actual_cost_usd(
         model_id=args.model,
         input_tokens=result.model_response.input_tokens,
         output_tokens=result.model_response.output_tokens,
+        cache_creation_input_tokens=cache_creation,
+        cache_read_input_tokens=cache_read,
     )
     invocation = {
         "schema_version": "1.0.0",
@@ -374,6 +378,8 @@ def main(
         "usage": {
             "input_tokens": result.model_response.input_tokens,
             "output_tokens": result.model_response.output_tokens,
+            "cache_creation_input_tokens": cache_creation,
+            "cache_read_input_tokens": cache_read,
         },
         "budget": {
             "soft_cap_usd": args.soft_budget,

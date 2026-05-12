@@ -51,24 +51,46 @@ def prices_for(model_id: str) -> dict[str, float]:
     return _DEFAULT_PRICES
 
 
+# Anthropic ephemeral (5-min TTL) cache write rate: 1.25 × standard
+# input price. Default cache TTL for all current trace usage. Update
+# to 2.0 when/if we start using `ttl=1h` cache_control blocks.
+_CACHE_WRITE_MULTIPLIER = 1.25
+
+
 def actual_cost_usd(
     *,
     model_id: str,
     input_tokens: int | None,
     output_tokens: int | None,
+    cache_creation_input_tokens: int | None = None,
+    cache_read_input_tokens: int | None = None,
 ) -> float | None:
-    """Compute realized cost from response usage.
+    """Compute realized cost from response usage, including prompt-cache.
 
-    Returns None if either token count is missing (the FakeAdapter does
-    not report usage; live adapter populates both). Returning None is
-    load-bearing for the report's three-section split: a missing cost
-    must show as 'unobserved', not as 0.
+    Returns None when input_tokens or output_tokens is missing (the
+    FakeAdapter and OpenAI adapters don't report usage). Cache fields
+    default to 0 when None so adapters that don't surface them still
+    produce a valid cost figure.
+
+    Anthropic prompt caching changes the cost math:
+      * input_tokens     = *uncached* new input, charged at standard rate
+      * cache_creation_  = tokens written to ephemeral cache,
+        input_tokens      charged at 1.25 × standard input (5-min TTL)
+      * cache_read_      = tokens served from cache, charged at the
+        input_tokens      `cached_input` price (typically 0.1 × input)
+
+    Returning None remains load-bearing for the report's three-section
+    split: a missing cost must show as 'unobserved', not as 0.
     """
     if input_tokens is None or output_tokens is None:
         return None
+    cache_creation = cache_creation_input_tokens or 0
+    cache_read = cache_read_input_tokens or 0
     prices = prices_for(model_id)
     cost = (
         input_tokens * prices["input"] / 1_000_000.0
+        + cache_creation * prices["input"] * _CACHE_WRITE_MULTIPLIER / 1_000_000.0
+        + cache_read * prices["cached_input"] / 1_000_000.0
         + output_tokens * prices["output"] / 1_000_000.0
     )
     return round(cost, 6)
