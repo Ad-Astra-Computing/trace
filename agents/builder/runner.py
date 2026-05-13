@@ -114,7 +114,7 @@ def run_builder(
     host = host_info or _default_host_info()
 
     instrumentation_path = bundle_dir / "reproducer-instrumentation.json"
-    instrumentation, instrumentation_error = _read_instrumentation(
+    instrumentation, disable_doCheck, instrumentation_error = _read_instrumentation(
         instrumentation_path,
     )
     if instrumentation_error is not None:
@@ -168,11 +168,27 @@ def run_builder(
             )
 
     # ── §2.2. patched-build ─────────────────────────────────────────────
-    patched_outcome = build_runner.run(
-        attr=attr,
-        cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
-        timeout_seconds=timeout_seconds_per_build,
-    ) if attr else _no_attr_outcome()
+    # When disable_doCheck=true (reproducer-instrumentation.json knob, per
+    # docs/REPRODUCER_V1.md §2.7), wrap the attr in an overrideAttrs
+    # expression that turns off the check phase. The CVE-class regression
+    # dimension is covered by §2.3's reproducer-runs; patched-build is
+    # just a build-succeeds sanity phase, and a 30+ minute check suite
+    # is wasted CI time for slow-check packages like libtiff.
+    if attr:
+        if disable_doCheck:
+            patched_outcome = build_runner.run(
+                nix_expression=_no_check_expression(attr),
+                cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
+                timeout_seconds=timeout_seconds_per_build,
+            )
+        else:
+            patched_outcome = build_runner.run(
+                attr=attr,
+                cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
+                timeout_seconds=timeout_seconds_per_build,
+            )
+    else:
+        patched_outcome = _no_attr_outcome()
     patched_build_phase, patched_build_full = _build_phase_block(
         patched_outcome, applied=True, attr=attr,
     )
@@ -604,50 +620,69 @@ def _instrumentation_malformed_result(
 
 def _read_instrumentation(
     path: Path,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, bool, str | None]:
     """Read + validate reproducer-instrumentation.json.
 
-    Returns (instrumentation, error) where:
+    Returns (instrumentation, disable_doCheck, error) where:
       * instrumentation is None when the file is absent OR when the file
         exists, parses, and `asan: false` (explicit opt-out is the same
         as absent for the rest of the pipeline)
       * instrumentation is "asan" when the file validates with `asan: true`
+      * disable_doCheck is True iff the file declares `disable_doCheck: true`;
+        False otherwise (absent file, absent key, or explicit false)
       * error is a human-readable diagnostic when the file is present but
-        malformed (invalid JSON, wrong schema_version, asan not a bool,
-        unknown extra keys). The caller turns this into a structured
-        instrumentation-malformed refusal.
+        malformed (invalid JSON, wrong schema_version, asan/disable_doCheck
+        not a bool, unknown extra keys). The caller turns this into a
+        structured instrumentation-malformed refusal.
+
+    Both knobs are independent: a bundle may declare asan=true without
+    disable_doCheck, or vice versa, or both, or neither. asan=false +
+    disable_doCheck=true is the typical libtiff-class shape; asan=true +
+    disable_doCheck=false is the mruby shape.
     """
     if not path.is_file():
-        return None, None
+        return None, False, None
     try:
         body = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
-        return None, f"reproducer-instrumentation.json: not valid JSON: {exc}"
+        return None, False, f"reproducer-instrumentation.json: not valid JSON: {exc}"
     if not isinstance(body, dict):
-        return None, (
+        return None, False, (
             "reproducer-instrumentation.json: top-level must be a JSON "
             f"object, got {type(body).__name__}"
         )
-    allowed_keys = {"schema_version", "asan"}
+    allowed_keys = {"schema_version", "asan", "disable_doCheck"}
     extra = set(body.keys()) - allowed_keys
     if extra:
-        return None, (
+        return None, False, (
             f"reproducer-instrumentation.json: unknown keys "
             f"{sorted(extra)!r}; v0 only accepts {sorted(allowed_keys)!r}"
         )
     schema_version = body.get("schema_version")
     if schema_version != "1.0.0":
-        return None, (
+        return None, False, (
             f"reproducer-instrumentation.json: schema_version must be "
             f"\"1.0.0\", got {schema_version!r}"
         )
-    asan = body.get("asan")
+    # `asan` is the only required-when-present knob retained as required for
+    # backwards compat with v0.1 of the schema; absence is treated as false.
+    asan = body.get("asan", False)
     if not isinstance(asan, bool):
-        return None, (
+        return None, False, (
             "reproducer-instrumentation.json: `asan` must be a boolean, "
             f"got {type(asan).__name__}"
         )
-    return ("asan" if asan else None), None
+    disable_doCheck_raw = body.get("disable_doCheck", False)
+    if not isinstance(disable_doCheck_raw, bool):
+        return None, False, (
+            "reproducer-instrumentation.json: `disable_doCheck` must be a "
+            f"boolean, got {type(disable_doCheck_raw).__name__}"
+        )
+    return (
+        "asan" if asan else None,
+        disable_doCheck_raw,
+        None,
+    )
 
 
 # ─── §2.4: passthru enumeration ──────────────────────────────────────────
@@ -717,6 +752,26 @@ def _enumerate_passthru_tests(
 
 
 # ─── reproducer expression generation ────────────────────────────────────
+
+
+def _no_check_expression(attr: str) -> str:
+    """Build a Nix expression that selects `attr` from default.nix with
+    doCheck=false overridden in. Used for the patched-build sanity phase
+    when reproducer-instrumentation.json sets disable_doCheck=true.
+
+    Form:
+      `((import ./. { config.allowUnsupportedSystem = true; }).<attr>.overrideAttrs (old: { doCheck = false; }))`
+
+    The cwd is the nixpkgs checkout; `import ./.` loads the top-level
+    package set. Equivalent to `nix-build -A <attr>` followed by
+    `.overrideAttrs (..)` — Builder takes the expression path because
+    nix-build's `-A` doesn't compose with overrideAttrs at the CLI.
+    """
+    return (
+        "((import ./. { config.allowUnsupportedSystem = true; })."
+        + attr
+        + ".overrideAttrs (old: { doCheck = false; }))"
+    )
 
 
 def _repro_nix_expression(reproducer_nix_path: Path, *, attr_in_repro: str) -> str:
