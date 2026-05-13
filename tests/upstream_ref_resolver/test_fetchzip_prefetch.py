@@ -41,7 +41,7 @@ def _fake_runner_err(detail: str, version: str = "nix-build (Nix) 2.33.3"):
 
 
 def test_happy_path_records_full_attribution() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0")
+    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_ok("sha256-Pr3F3tCh3dSrcValueShap3dRightForTest="),
@@ -59,7 +59,7 @@ def test_happy_path_records_full_attribution() -> None:
 
 
 def test_failure_path_returns_structured_failure() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0")
+    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_err("nix-build: HTTP 404 fetching tarball"),
@@ -74,7 +74,7 @@ def test_failure_path_returns_structured_failure() -> None:
 
 
 def test_success_serialises_to_prefetch_hashes_schema_shape() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0")
+    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_ok("sha256-V1d3oRoundtripValueForJSONsch3maT3st="),
@@ -112,7 +112,7 @@ def test_success_serialises_to_prefetch_hashes_schema_shape() -> None:
 
 
 def test_failure_serialises_to_prefetch_failures_schema_shape() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0")
+    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_err("nix-build: build timed out"),
@@ -149,20 +149,29 @@ def test_failure_serialises_to_prefetch_failures_schema_shape() -> None:
 
 def test_expression_includes_target_version_and_fakeHash() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0")
+    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
     expr = _build_expression(request)
     assert 'version = "1.0.0"' in expr
     assert "lib.fakeHash" in expr
     assert "uriparser" in expr
-    # Critical: the override targets src, NOT vendorHash (that's the
-    # go-mod-vendor module's territory).
-    assert "src = old.src.overrideAttrs" in expr
+    # Re-invoke fetcher via src.override (post 2026-05-13 fix). The
+    # previous shape (old.src.overrideAttrs with only outputHash) was
+    # unsound because old.src was already evaluated against the OLD
+    # version's rec binding; setting outputHash didn't change the URL
+    # baked into the FOD. The new shape re-evaluates the fetcher with
+    # a new tag/rev so the URL actually changes.
+    assert "src = old.src.override (orig:" in expr
+    assert "orig ? tag" in expr
+    assert "orig ? rev" in expr
+    # The version-substring substitution must reference BOTH versions.
+    assert 'replaceStrings ["0.9.9"] ["1.0.0"]' in expr
 
 
 def test_expression_pins_nixpkgs_rev_when_supplied() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
     request = FetchzipRequest(
         attr_path="uriparser", target_version="1.0.0",
+        current_version="0.9.9",
         nixpkgs_rev="20bb5d462943a0f38eba2372db9f7a6d9fd22be2",
     )
     expr = _build_expression(request)
@@ -201,7 +210,7 @@ def test_expression_passes_allow_unsupported_system_for_linux_only_packages() ->
 
     # No nixpkgs_rev — config still applied to the <nixpkgs> import.
     expr_unpinned = _build_expression(
-        FetchzipRequest(attr_path="systemd", target_version="257.6")
+        FetchzipRequest(attr_path="systemd", target_version="257.6", current_version="257.5")
     )
     assert "config.allowUnsupportedSystem = true" in expr_unpinned
     assert "import <nixpkgs>" in expr_unpinned
@@ -213,6 +222,7 @@ def test_expression_passes_allow_unsupported_system_for_linux_only_packages() ->
     expr_pinned = _build_expression(
         FetchzipRequest(
             attr_path="systemd", target_version="257.6",
+            current_version="257.5",
             nixpkgs_rev="adfe0268d8b621c68f0b060fc2e801b5196b5f6a",
         )
     )
@@ -220,8 +230,10 @@ def test_expression_passes_allow_unsupported_system_for_linux_only_packages() ->
     assert "fetchTarball" in expr_pinned
     assert "adfe0268d8b621c68f0b060fc2e801b5196b5f6a" in expr_pinned
     assert 'system = "x86_64-linux"' not in expr_pinned
-    # And it must still target src (the override semantics didn't change).
-    assert "src = old.src.overrideAttrs" in expr_pinned
+    # Must target src via the makeOverridable .override path (fix for
+    # the 2026-05-13 wget2 prefetch-bug; see fetchzip_prefetch.py
+    # _build_expression docstring).
+    assert "src = old.src.override (orig:" in expr_pinned
     assert 'version = "257.6"' in expr_pinned
 
 

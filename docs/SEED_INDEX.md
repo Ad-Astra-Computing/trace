@@ -1,6 +1,6 @@
 # Seed Index
 
-The eight real-CVE bundles under `traces/example/CVE-*/` each demonstrate a distinct shape in the v0 contract. This document is the single-page external-review map: what each bundle is for, what it proves, what it does *not* prove, and where to look first if you're auditing the corpus.
+The nine real-CVE bundles under `traces/example/CVE-*/` each demonstrate a distinct shape in the v0 contract. This document is the single-page external-review map: what each bundle is for, what it proves, what it does *not* prove, and where to look first if you're auditing the corpus.
 
 The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exercise specific Steward rules and per-document schema edges, and are read against `expect.json` notes individually.
 
@@ -15,7 +15,8 @@ The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exerc
 | [`CVE-2025-67899--uriparser`](../traces/example/CVE-2025-67899--uriparser/) | human-review-required | model-attested (Patcher + Reproducer) | `major-version-jump-requires-review` route + reproducer-refusal under rule 3 |
 | [`CVE-2025-7207--mruby`](../traces/example/CVE-2025-7207--mruby/) | human-review-required | deterministic-no-model | `cross-family-pair-unavailable` route; PoC-public-but-sandbox-silent class |
 | [`CVE-2025-9230--openssl_3`](../traces/example/CVE-2025-9230--openssl_3/) | human-review-required | model-attested (Patcher) | `blast-radius-exceeds-threshold` on a transitive dependency of almost the entire tree |
-| [`CVE-2026-25949--traefik`](../traces/example/CVE-2026-25949--traefik/) | auto-merge | model-attested (Patcher + Reviewer) | first live Patcher run; Go vendorHash discipline; maintainer-driven scope widening that the Patcher must *not* replicate |
+| [`CVE-2026-25949--traefik`](../traces/example/CVE-2026-25949--traefik/) | human-review-required | model-attested (Patcher + Reviewer) | first live Patcher run; reclassified `ineligible-cherry-pick-required` after Linux cert surfaced a Go-toolchain dependency outside Patcher contract (DECISIONS 2026-05-13) |
+| [`CVE-2025-69194--wget2`](../traces/example/CVE-2025-69194--wget2/) | human-review-required | model-attested (Patcher + Reviewer + Reproducer) | first model-attested sandbox-positive attempt; Reviewer caught a fetchzip prefetch bug; preserved as evidence of cross-family Reviewer value (DECISIONS 2026-05-13) |
 
 ## Per-bundle detail
 

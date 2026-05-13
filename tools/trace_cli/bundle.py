@@ -178,6 +178,7 @@ def assemble_bundle(
                 request = FetchzipRequest(
                     attr_path=attr or "",
                     target_version=target_version,
+                    current_version=input_doc.get("current_version") or "",
                     nixpkgs_rev=nixpkgs_rev,
                 )
                 outcome = prefetch_fetchzip(
