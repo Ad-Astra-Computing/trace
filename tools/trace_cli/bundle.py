@@ -386,6 +386,7 @@ _CANONICAL_FILES: list[tuple[str, str, bool]] = [
     ("passthru-tests.json", "reproducer",            True),
     ("reproducer.nix",      "reproducer",            True),
     ("reproducer-log.txt",  "reproducer",            False),
+    ("reproducer-refusal.json", "reproducer",        True),
     ("build.json",          "builder",               False),
     ("review.md",           "reviewer",              True),
     ("review-refusal.json", "reviewer",              True),
