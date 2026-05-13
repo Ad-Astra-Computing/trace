@@ -57,6 +57,12 @@
         "cross-family-pair-unavailable"
       ]
     },
+    "auto_merge_evidence_path": {
+      "description": "Which cross-family witness (per SPEC §5) carries the auto-merge evidence for this bundle. 'reproducer' (default): Builder ran the bundle's reproducer.nix and Steward gates on repro-unpatched-fails / repro-patched-passes scorers (rules 7, 9, 10). 'reviewer-attested': bundle has no usable Reproducer (silent crash class, sandbox-incompatible, etc.); the cross-family witness is the Reviewer, and the bundle MUST ship reproducer-refusal.json (machine-readable justification of why no Reproducer is feasible) and review-scoring-report.json with verdict=accept (Steward rule 13). Only consulted when kind=auto-merge; ignored otherwise.",
+      "type": "string",
+      "enum": ["reproducer", "reviewer-attested"],
+      "default": "reproducer"
+    },
     "created_at": {
       "type": "string",
       "format": "date-time"
@@ -159,31 +165,70 @@
       "if": { "properties": { "kind": { "const": "auto-merge" } } },
       "then": {
         "not": { "required": ["kind_reason"] },
-        "properties": {
-          "files": {
-            "required": [
-              "bundle.json",
-              "finding.json",
-              "impact.json",
-              "maintainers.json",
-              "upstream-ref.json",
-              "patch.diff",
-              "patch-rationale.md",
-              "passthru-tests.json",
-              "reproducer.nix",
-              "reproducer-log.txt",
-              "build.json",
-              "sbom-delta.json",
-              "replay.json",
-              "provenance.jsonl",
-              "bundle.sig"
-            ],
-            "anyOf": [
-              { "required": ["review.md"] },
-              { "required": ["review-refusal.json"] }
-            ]
+        "allOf": [
+          {
+            "if": {
+              "required": ["auto_merge_evidence_path"],
+              "properties": { "auto_merge_evidence_path": { "const": "reviewer-attested" } }
+            },
+            "then": {
+              "properties": {
+                "files": {
+                  "required": [
+                    "bundle.json",
+                    "finding.json",
+                    "impact.json",
+                    "maintainers.json",
+                    "upstream-ref.json",
+                    "patch.diff",
+                    "patch-rationale.md",
+                    "passthru-tests.json",
+                    "build.json",
+                    "sbom-delta.json",
+                    "replay.json",
+                    "provenance.jsonl",
+                    "bundle.sig",
+                    "review.md"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      { "required": ["reproducer.nix"] },
+                      { "required": ["reproducer-log.txt"] },
+                      { "required": ["review-refusal.json"] }
+                    ]
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "files": {
+                  "required": [
+                    "bundle.json",
+                    "finding.json",
+                    "impact.json",
+                    "maintainers.json",
+                    "upstream-ref.json",
+                    "patch.diff",
+                    "patch-rationale.md",
+                    "passthru-tests.json",
+                    "reproducer.nix",
+                    "reproducer-log.txt",
+                    "build.json",
+                    "sbom-delta.json",
+                    "replay.json",
+                    "provenance.jsonl",
+                    "bundle.sig"
+                  ],
+                  "anyOf": [
+                    { "required": ["review.md"] },
+                    { "required": ["review-refusal.json"] }
+                  ]
+                }
+              }
+            }
           }
-        }
+        ]
       }
     },
     {

@@ -2,7 +2,7 @@
 
 The set of CVE bundles under `traces/example/` is the corpus trace ships as evidence that the role chain produces what it claims to produce. This document classifies every bundle in the corpus, names which dimension of the v0 contract each bundle exercises, and explains why each non-auto-merge bundle is non-auto-merge.
 
-**Status (2026-05-12):** 8 real-CVE bundles + 17 synthetic / deny-path fixtures. The synthetic set is the test infrastructure (one fixture per Steward rule's deny path, plus structural fixtures for schema validation); the real-CVE set is the evidence layer.
+**Status (2026-05-12):** 8 real-CVE bundles + 19 synthetic / deny-path fixtures. The synthetic set is the test infrastructure (one fixture per Steward rule's deny path, plus structural fixtures for schema validation); the real-CVE set is the evidence layer.
 
 The corpus is intentionally small. trace's claim isn't "we automate CVE remediation across nixpkgs" — it's "we produce merge-ready evidence bundles a human can accept or reject in minutes." A small, well-classified corpus serves that claim better than a large, hand-wavy one.
 
@@ -51,6 +51,8 @@ One fixture per non-trivial Steward rule, in `CVE-0000-001N--<descriptive-name>`
 | `CVE-0000-0016--auto-merge-repro-signal-failed` | rule-10 | `repro-patched-passes` scored `0.0` → deny |
 | `CVE-0000-0017--auto-merge-reviewer-rejected` | rule-11 | Reviewer verdict `reject` → deny |
 | `CVE-0000-0018--auto-merge-non-linux-build` | rule-12 | `build.host.system != x86_64-linux` → deny |
+| `CVE-0000-0019--reviewer-attested-allow` | (allow) | reviewer-attested cross-family witness path; rule-7 escape + rule-13 supporting artifacts satisfied |
+| `CVE-0000-0020--reviewer-attested-missing-refusal` | rule-13 | reviewer-attested without `reproducer-refusal.json` → deny |
 
 ### Schema / replay deny fixtures (9000-series)
 

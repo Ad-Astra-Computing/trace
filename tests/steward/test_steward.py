@@ -65,6 +65,7 @@ def _build_opa_input(fixture_dir: Path) -> dict:
         ("build", "build.json"),
         ("repro_scoring", "repro-scoring-report.json"),
         ("review_scoring", "review-scoring-report.json"),
+        ("reproducer_refusal", "reproducer-refusal.json"),
     ):
         loaded = _load_json(opt_filename)
         if loaded is not None:
