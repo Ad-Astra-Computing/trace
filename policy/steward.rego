@@ -157,11 +157,26 @@ deny contains decision if {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # rule-7: auto-merge requires build.dispatch_outcome == "ok"
+#         OR (auto_merge_evidence_path=reviewer-attested AND
+#             dispatch_outcome=refused-no-reproducer).
+#
+# Per SPEC §5, the cross-family witness for auto-merge is EITHER a
+# working Reproducer OR an accepting Reviewer. The reviewer-attested
+# path is for bundles whose CVE class doesn't admit a sandbox
+# reproducer (silent crash, network-bound, etc.) — Builder correctly
+# emits refused-no-reproducer, and Steward accepts that outcome
+# when the bundle has explicitly opted into the reviewer-attested
+# path (rule 13 enforces the supporting artifacts).
+#
+# Bundles whose auto_merge_evidence_path is absent default to
+# "reproducer", preserving v0.2.x behaviour (strict dispatch_outcome=ok).
 # ─────────────────────────────────────────────────────────────────────────────
 deny contains decision if {
 	input.bundle.kind == "auto-merge"
 	input.build
 	input.build.dispatch_outcome != "ok"
+	# When reviewer-attested, refused-no-reproducer is the expected outcome.
+	not _reviewer_attested_refused_no_reproducer_ok
 	decision := {
 		"rule_id": "rule-7-auto-merge-requires-builder-dispatch-ok",
 		"message": sprintf(
@@ -169,6 +184,11 @@ deny contains decision if {
 			[input.build.dispatch_outcome],
 		),
 	}
+}
+
+_reviewer_attested_refused_no_reproducer_ok if {
+	input.bundle.auto_merge_evidence_path == "reviewer-attested"
+	input.build.dispatch_outcome == "refused-no-reproducer"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -282,5 +302,46 @@ deny contains decision if {
 			"auto-merge requires build.json.host.system=x86_64-linux (nixpkgs CI canonical platform); got %q",
 			[input.build.host.system],
 		),
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-13: reviewer-attested auto-merge requires supporting artifacts.
+#
+# When bundle.auto_merge_evidence_path == "reviewer-attested", the
+# cross-family witness for auto-merge is the Reviewer (per SPEC §5), not
+# the Reproducer. Steward therefore requires:
+#
+#   (a) reproducer-refusal.json must be present in the bundle — a
+#       machine-readable justification of why no Reproducer is feasible
+#       for this CVE class (silent crash, sandbox-incompatible network,
+#       recursion class, etc.). Without it, "reviewer-attested" is just
+#       "we skipped the Reproducer" — Steward needs the why on the wire.
+#
+#   (b) review-scoring-report.json must be present with verdict=accept.
+#       Rule 11 already enforces accept when review_scoring is present,
+#       but only when it's present — for reviewer-attested it MUST be
+#       present, because the Reviewer is now the load-bearing witness.
+#
+# Bundles with auto_merge_evidence_path=reproducer (the default) are
+# unaffected — rule 7 / 9 / 10 carry the Reproducer evidence path.
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.bundle.auto_merge_evidence_path == "reviewer-attested"
+	not input.reproducer_refusal
+	decision := {
+		"rule_id": "rule-13-reviewer-attested-requires-reproducer-refusal",
+		"message": "auto_merge_evidence_path=reviewer-attested requires reproducer-refusal.json documenting why no Reproducer is feasible",
+	}
+}
+
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.bundle.auto_merge_evidence_path == "reviewer-attested"
+	not input.review_scoring
+	decision := {
+		"rule_id": "rule-13-reviewer-attested-requires-reviewer-accept",
+		"message": "auto_merge_evidence_path=reviewer-attested requires review-scoring-report.json with verdict=accept",
 	}
 }
