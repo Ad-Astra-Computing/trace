@@ -1,75 +1,56 @@
-name: libtiff-linux-cert (experimental — PoC not Linux-portable)
+name: bundle-linux-cert
 
-# STATUS: EXPERIMENTAL — see docs/DECISIONS.md (2026-05-12 "Linux
-# Builder infrastructure proven (libtiff cert); two corpus-expansion
-# findings"). The Linux Builder pipeline this workflow exercises
-# (patch-apply, dispatcher, build.json shape) is proven; two findings
-# block the cert from going green on libtiff specifically:
-#   * patched_build phase exceeds the 60-min cap on a 2-core GHA
-#     runner because libtiff's doCheck phase is slow. Pending: a
-#     reproducer-instrumentation.json knob to skip doCheck on the
-#     sanity phase (Reproducer-runs cover the CVE-class regression
-#     dimension already).
-#   * The bundle's CVE-2024-13978 PoC was Darwin-validated; on
-#     Linux libtiff 4.7.0 the crafted bits/sample is rejected by
-#     Fax3SetupState before reaching the vulnerable memset(NULL,...)
-#     site. fax2ps exits 0 with a warning instead of SIGSEGV.
-#     Pending: a Linux-portable PoC craft, OR bundle re-classified
-#     as advisory-only.
+# Manual-dispatch Linux Builder + Steward cert for ANY bundle under
+# traces/example/. Parameterized over BUNDLE (workflow_dispatch input).
+# Replaces the libtiff-specific cert workflow; see docs/DECISIONS.md
+# (2026-05-12 entries) for the slice history.
 #
-# Kept in-tree because the workflow shape is the template for
-# per-bundle Linux certs; once both findings clear, this same
-# workflow runs the cert without further edits.
+# Per docs/REPRODUCER_V1.md §4.1, a bundle's auto-merge eligibility
+# requires build.json produced on x86_64-linux (Steward rule 12). This
+# workflow IS that operational support: dispatch with a bundle name,
+# get a Linux-attested build.json and a Steward verdict in one job.
 #
-# Manual-dispatch only. End-to-end Linux Builder cert against the
-# CVE-2024-13978 libtiff bundle — a positive Reproducer that does
-# NOT require ASAN (the signal is a SIGSEGV null-deref observable
-# without instrumentation). Companion to mruby-asan-cert.yml; this
-# workflow exercises the Linux Builder path independently of the
-# Linux ASAN wiring blocker tracked in DECISIONS (2026-05-12).
+# What this workflow does:
+#   1. Read the bundle's nixpkgs_rev from bundle.json (not hardcoded).
+#   2. Clone nixpkgs at that revision.
+#   3. Run Builder against the bundle, with --builder-timeout configurable
+#      via workflow input.
+#   4. Verify build.json shape: dispatch_outcome=ok, patched_build.outcome
+#      =succeeded, patch_apply.applied=true, host.system=x86_64-linux.
+#   5. Verify SIGNAL substrings (read live from reproducer-log.txt) appear
+#      in unpatched/patched stdout_stderr.
+#   6. Run opa eval against the post-build bundle; assert allow=true for
+#      auto-merge bundles, just-report-verdict for others.
+#   7. Upload artifacts.
 #
-# What this proves when it goes green:
-#   1. trace's Builder dispatcher (LocalNixBuildRunner) runs against
-#      a pinned nixpkgs checkout on Linux + actually applies the
-#      bundle's patch.diff via _apply_patch's
-#      --directory=pkgs/by-name/<aa>/<attr>/ resolution.
-#   2. The reproducer.nix evaluates against the pinned nixpkgs_rev
-#      AND the SIGNAL substrings declared in reproducer-log.txt
-#      appear verbatim in build.json.unpatched.stdout_stderr /
-#      .patched.stdout_stderr.
-#   3. The Steward v1 gate (policy/steward.rego, rules 1-11) accepts
-#      the resulting bundle on every chain rule. allow=true with
-#      empty deny set is the load-bearing assertion.
-#
-# Why libtiff first:
-#   * kind=auto-merge already; bundle is fully artifact-complete.
-#   * Reproducer signal class is SIGSEGV null-deref (deterministic
-#     without instrumentation), so cert is independent of the
-#     Linux ASAN cc-wrapper blocker.
-#   * Already passes the offline Steward test in tests/steward/
-#     against a pre-recorded build.json fixture; this workflow
-#     replaces the fixture with a LIVE Linux Builder run.
-#
-# Workflow_dispatch only until the cert is proven stable. Not yet
-# wired to push/PR (matches the mruby-asan-cert.yml convention).
+# When a bundle fails any of (4)–(6), the artifacts make the failure
+# diagnosable: build.json, build.log, the live SIGNAL substrings the
+# bundle declares, the OPA decision JSON. No further workflow edits
+# needed for the bundle dimension; failures are bundle-curation work.
 
 on:
   workflow_dispatch:
+    inputs:
+      bundle:
+        description: "Bundle directory under traces/example/ (e.g. CVE-2024-13978--libtiff)"
+        required: true
+        type: string
+      builder_timeout_seconds:
+        description: "Per-build timeout for Builder phases (seconds)"
+        required: false
+        default: "3600"
+        type: string
 
 permissions:
   contents: read
 
 env:
-  BUNDLE_DIR_NAME: CVE-2024-13978--libtiff
-  # Pinned in the bundle's bundle.json / finding.json. Bump together
-  # if/when the bundle is re-pinned to a different nixpkgs revision.
-  NIXPKGS_REV: f7bcfbfb19bf9b015568cec55aeb504dfb5e5879
   # OPA pin matches .github/workflows/ci.yml. Bump together.
   OPA_VERSION: "v1.0.1"
 
 jobs:
   cert:
-    name: libtiff Linux Builder + Steward cert
+    name: bundle Linux cert (${{ inputs.bundle }})
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -78,7 +59,26 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Pinned by full commit SHA, mirroring ci.yml + builder.yml.
+      - name: Resolve bundle metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          BUNDLE_PATH="traces/example/${{ inputs.bundle }}"
+          if [[ ! -d "${BUNDLE_PATH}" ]]; then
+            echo "::error::bundle directory not found: ${BUNDLE_PATH}"
+            exit 64
+          fi
+          NIXPKGS_REV=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json'))['nixpkgs_rev'])")
+          KIND=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json'))['kind'])")
+          if [[ -z "${NIXPKGS_REV}" ]]; then
+            echo "::error::could not read nixpkgs_rev from ${BUNDLE_PATH}/bundle.json"
+            exit 64
+          fi
+          echo "bundle_path=${BUNDLE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs_rev=${NIXPKGS_REV}" >> "$GITHUB_OUTPUT"
+          echo "kind=${KIND}" >> "$GITHUB_OUTPUT"
+          echo "resolved: nixpkgs_rev=${NIXPKGS_REV}, kind=${KIND}"
+
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
@@ -98,21 +98,17 @@ jobs:
           cd "${RUNNER_TEMP}/nixpkgs"
           git init -q
           git remote add origin https://github.com/NixOS/nixpkgs.git
-          git fetch --depth=1 origin "${NIXPKGS_REV}"
+          git fetch --depth=1 origin "${{ steps.meta.outputs.nixpkgs_rev }}"
           git checkout -q FETCH_HEAD
           git -c user.email=ci@example.com -c user.name=ci \
             commit --allow-empty -q -m "cert anchor"
           echo "nixpkgs HEAD: $(git rev-parse HEAD)"
 
       - name: Stage bundle copy in RUNNER_TEMP
-        # Copy the bundle to a writable temp location so the Builder's
-        # in-place writes (build.json, build.log, replay.json append)
-        # don't mutate the in-repo seed. The cert is read-only over
-        # the source artifacts.
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/bundle"
-          cp -R "traces/example/${BUNDLE_DIR_NAME}/." "${RUNNER_TEMP}/bundle/"
+          cp -R "${{ steps.meta.outputs.bundle_path }}/." "${RUNNER_TEMP}/bundle/"
           ls -la "${RUNNER_TEMP}/bundle"
 
       - name: Run Builder against pinned nixpkgs
@@ -121,14 +117,14 @@ jobs:
           nix develop --command python -m tools.trace_cli replay \
             --execute --role builder \
             --nixpkgs-checkout "${RUNNER_TEMP}/nixpkgs" \
-            --builder-timeout 3600 \
+            --builder-timeout ${{ inputs.builder_timeout_seconds }} \
             --no-verify \
             "${RUNNER_TEMP}/bundle" \
             > "${RUNNER_TEMP}/builder-output.json" \
             2> "${RUNNER_TEMP}/builder-stderr.log" || {
               echo "::error::trace replay --execute --role builder failed"
-              echo "=== stderr ==="
-              cat "${RUNNER_TEMP}/builder-stderr.log"
+              echo "=== stderr (tail) ==="
+              tail -100 "${RUNNER_TEMP}/builder-stderr.log"
               exit 1
             }
           echo "Builder run completed; build.json:"
@@ -137,54 +133,68 @@ jobs:
       - name: Verify build.json shape
         run: |
           set -euo pipefail
-          cd "${RUNNER_TEMP}/bundle"
-          DISPATCH=$(python3 -c 'import json,sys; print(json.load(open("build.json"))["dispatch_outcome"])')
-          if [[ "$DISPATCH" != "ok" ]]; then
-            echo "::error::dispatch_outcome expected 'ok', got '$DISPATCH'"
-            exit 1
-          fi
-          PATCHED=$(python3 -c 'import json,sys; print(json.load(open("build.json"))["patched_build"]["outcome"])')
-          if [[ "$PATCHED" != "succeeded" ]]; then
-            echo "::error::patched_build.outcome expected 'succeeded', got '$PATCHED'"
-            exit 1
-          fi
-          PATCH_APPLIED=$(python3 -c 'import json,sys; print(json.load(open("build.json"))["patch_apply"]["applied"])')
-          if [[ "$PATCH_APPLIED" != "True" ]]; then
-            echo "::error::patch_apply.applied expected True, got '$PATCH_APPLIED'"
-            exit 1
-          fi
+          python3 - <<'PY'
+          import json, os, sys
+          bj = json.load(open(os.environ["RUNNER_TEMP"] + "/bundle/build.json"))
+          errors = []
+          if bj.get("dispatch_outcome") != "ok":
+              errors.append(f"dispatch_outcome={bj.get('dispatch_outcome')!r}, expected 'ok'")
+          if bj.get("patch_apply", {}).get("applied") is not True:
+              errors.append(f"patch_apply.applied={bj.get('patch_apply', {}).get('applied')!r}, expected True")
+          if bj.get("patched_build", {}).get("outcome") != "succeeded":
+              errors.append(f"patched_build.outcome={bj.get('patched_build', {}).get('outcome')!r}, expected 'succeeded'")
+          host = bj.get("host", {}).get("system")
+          if host != "x86_64-linux":
+              errors.append(f"host.system={host!r}, expected 'x86_64-linux' (Steward rule 12)")
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}")
+              sys.exit(1)
+          print("build.json shape OK on x86_64-linux.")
+          PY
 
-      - name: Verify SIGNAL substrings in build.json
+      - name: Verify SIGNAL substrings present in build.json
         run: |
           set -euo pipefail
-          cd "${RUNNER_TEMP}/bundle"
-          # SIGNAL_UNPATCHED appears verbatim in unpatched.stdout_stderr.
           python3 - <<'PY'
-          import json, sys
-          bj = json.load(open("build.json"))
-          unp_obs = bj["unpatched"]["stdout_stderr"]
-          pat_obs = bj["patched"]["stdout_stderr"]
-          sig_u = "vuln-triggered: fax2ps SIGSEGV signal 11 on libtiff fax2ps with crafted FAX TIFF (CVE-2024-13978 null-deref)"
-          sig_p = "rejected-malformed-input: fax2ps libtiff returned exit 1 on crafted FAX TIFF without SIGSEGV (CVE-2024-13978 fix)"
+          import json, os, re, sys
+          from pathlib import Path
+          bd = Path(os.environ["RUNNER_TEMP"]) / "bundle"
+          bj = json.loads((bd / "build.json").read_text())
+          log_path = bd / "reproducer-log.txt"
+          if not log_path.is_file():
+              print("::warning::no reproducer-log.txt; skipping SIGNAL grep (bundle may be refusal-shaped)")
+              sys.exit(0)
+          log = log_path.read_text()
+          def grab(name):
+              m = re.search(rf"^{name}:\s*(.+?)\s*$", log, re.MULTILINE)
+              return m.group(1) if m else None
+          sig_u = grab("SIGNAL_UNPATCHED")
+          sig_p = grab("SIGNAL_PATCHED")
+          if not sig_u or not sig_p:
+              print(f"::error::reproducer-log.txt missing SIGNAL_UNPATCHED / SIGNAL_PATCHED line")
+              sys.exit(1)
+          unp_obs = bj.get("unpatched", {}).get("stdout_stderr", "")
+          pat_obs = bj.get("patched", {}).get("stdout_stderr", "")
+          ok = True
           if sig_u not in unp_obs:
-              print(f"::error::SIGNAL_UNPATCHED not present in unpatched.stdout_stderr")
-              print(f"observed (last 1KiB): {unp_obs[-1024:]!r}")
-              sys.exit(1)
+              print(f"::error::SIGNAL_UNPATCHED not present in build.json.unpatched.stdout_stderr")
+              print(f"  expected: {sig_u!r}")
+              print(f"  observed (last 1 KiB): {unp_obs[-1024:]!r}")
+              ok = False
           if sig_p not in pat_obs:
-              print(f"::error::SIGNAL_PATCHED not present in patched.stdout_stderr")
-              print(f"observed (last 1KiB): {pat_obs[-1024:]!r}")
+              print(f"::error::SIGNAL_PATCHED not present in build.json.patched.stdout_stderr")
+              print(f"  expected: {sig_p!r}")
+              print(f"  observed (last 1 KiB): {pat_obs[-1024:]!r}")
+              ok = False
+          if not ok:
               sys.exit(1)
-          print("Both SIGNAL substrings present verbatim.")
+          print(f"Both SIGNAL substrings present verbatim:\n  UNPATCHED: {sig_u}\n  PATCHED:   {sig_p}")
           PY
 
       - name: Run Steward (opa eval) against post-build bundle
         run: |
           set -euo pipefail
-          cd "${RUNNER_TEMP}/bundle"
-          # Assemble the canonical Steward opa input doc per the
-          # tests/steward/test_steward.py builder. We inline the
-          # builder here so the workflow isn't coupled to a private
-          # test helper.
           python3 - > "${RUNNER_TEMP}/opa-input.json" <<PY
           import json, os
           from pathlib import Path
@@ -224,32 +234,39 @@ jobs:
             > "${RUNNER_TEMP}/opa-decision.json"
           cat "${RUNNER_TEMP}/opa-decision.json"
 
-      - name: Verify Steward verdict (allow=true, deny=[])
+      - name: Verify Steward verdict matches bundle.kind
         run: |
           set -euo pipefail
           python3 - <<PY
-          import json, sys
+          import json, os, sys
           from pathlib import Path
-          raw = json.loads(Path("${RUNNER_TEMP}/opa-decision.json").read_text())
+          raw = json.loads(Path(os.environ["RUNNER_TEMP"] + "/opa-decision.json").read_text())
           decision = raw["result"][0]["expressions"][0]["value"]
           allow = decision.get("allow", False)
           deny = decision.get("deny", [])
-          if not allow:
-              print(f"::error::Steward verdict allow=False; expected True")
-              print(f"deny entries: {json.dumps(deny, indent=2)}")
-              sys.exit(1)
-          if deny:
-              print(f"::error::Steward deny set non-empty despite allow=True")
-              print(f"deny entries: {json.dumps(deny, indent=2)}")
-              sys.exit(1)
-          print(f"Steward allow=True; all 11 rules satisfied.")
+          kind = "${{ steps.meta.outputs.kind }}"
+          if kind == "auto-merge":
+              if not allow:
+                  print(f"::error::bundle.kind=auto-merge but Steward allow=False")
+                  print(f"deny entries: {json.dumps(deny, indent=2)}")
+                  sys.exit(1)
+              if deny:
+                  print(f"::error::allow=True but deny non-empty; contract violation")
+                  sys.exit(1)
+              print(f"bundle.kind=auto-merge AND Steward allow=True. All 12 rules satisfied.")
+          else:
+              # For human-review-required / advisory-only bundles, just
+              # report the verdict; the workflow doesn't gate on allow=False.
+              print(f"bundle.kind={kind}; Steward allow={allow}, deny={len(deny)} rule(s)")
+              if deny:
+                  print(f"deny entries: {json.dumps(deny, indent=2)}")
           PY
 
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@v5
         if: ${{ always() }}
         with:
-          name: libtiff-linux-cert-${{ github.run_id }}
+          name: bundle-linux-cert-${{ inputs.bundle }}-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/bundle/build.json
             ${{ runner.temp }}/bundle/build.log
