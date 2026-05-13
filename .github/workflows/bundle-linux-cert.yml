@@ -70,6 +70,7 @@ jobs:
           fi
           NIXPKGS_REV=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json'))['nixpkgs_rev'])")
           KIND=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json'))['kind'])")
+          EVIDENCE_PATH=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json')).get('auto_merge_evidence_path','reproducer'))")
           if [[ -z "${NIXPKGS_REV}" ]]; then
             echo "::error::could not read nixpkgs_rev from ${BUNDLE_PATH}/bundle.json"
             exit 64
@@ -77,7 +78,8 @@ jobs:
           echo "bundle_path=${BUNDLE_PATH}" >> "$GITHUB_OUTPUT"
           echo "nixpkgs_rev=${NIXPKGS_REV}" >> "$GITHUB_OUTPUT"
           echo "kind=${KIND}" >> "$GITHUB_OUTPUT"
-          echo "resolved: nixpkgs_rev=${NIXPKGS_REV}, kind=${KIND}"
+          echo "evidence_path=${EVIDENCE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "resolved: nixpkgs_rev=${NIXPKGS_REV}, kind=${KIND}, evidence_path=${EVIDENCE_PATH}"
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
@@ -131,14 +133,28 @@ jobs:
           cat "${RUNNER_TEMP}/bundle/build.json"
 
       - name: Verify build.json shape
+        env:
+          EVIDENCE_PATH: ${{ steps.meta.outputs.evidence_path }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, os, sys
           bj = json.load(open(os.environ["RUNNER_TEMP"] + "/bundle/build.json"))
+          evidence_path = os.environ.get("EVIDENCE_PATH", "reproducer")
           errors = []
-          if bj.get("dispatch_outcome") != "ok":
-              errors.append(f"dispatch_outcome={bj.get('dispatch_outcome')!r}, expected 'ok'")
+          dispatch = bj.get("dispatch_outcome")
+          if evidence_path == "reviewer-attested":
+              # Rule-7 escape clause: refused-no-reproducer is the expected
+              # outcome (no reproducer.nix to dispatch); ok would also be fine
+              # but is unusual for this path.
+              if dispatch not in ("ok", "refused-no-reproducer"):
+                  errors.append(
+                      f"dispatch_outcome={dispatch!r}, expected 'ok' or 'refused-no-reproducer' "
+                      f"(reviewer-attested path)"
+                  )
+          else:
+              if dispatch != "ok":
+                  errors.append(f"dispatch_outcome={dispatch!r}, expected 'ok'")
           if bj.get("patch_apply", {}).get("applied") is not True:
               errors.append(f"patch_apply.applied={bj.get('patch_apply', {}).get('applied')!r}, expected True")
           if bj.get("patched_build", {}).get("outcome") != "succeeded":
@@ -150,7 +166,7 @@ jobs:
               for e in errors:
                   print(f"::error::{e}")
               sys.exit(1)
-          print("build.json shape OK on x86_64-linux.")
+          print(f"build.json shape OK on x86_64-linux (evidence_path={evidence_path}, dispatch={dispatch}).")
           PY
 
       - name: Verify SIGNAL substrings present in build.json
@@ -220,6 +236,7 @@ jobs:
               ("build", "build.json"),
               ("repro_scoring", "repro-scoring-report.json"),
               ("review_scoring", "review-scoring-report.json"),
+              ("reproducer_refusal", "reproducer-refusal.json"),
           ):
               v = load(fname)
               if v is not None:
