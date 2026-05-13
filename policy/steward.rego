@@ -255,3 +255,32 @@ deny contains decision if {
 		),
 	}
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rule-12: auto-merge requires build.json produced on x86_64-linux
+#
+# nixpkgs's canonical CI platform is x86_64-linux. Bundles whose
+# Reproducer signals were only validated on darwin-aarch64 (or any
+# non-linux platform) carry the risk that the same PoC won't trigger
+# the bug on Linux — see docs/DECISIONS.md (2026-05-12 "Linux Builder
+# infrastructure proven (libtiff cert); two corpus-expansion findings"),
+# specifically Finding 2 on the libtiff CVE-2024-13978 PoC. Requiring
+# build.json.host.system == "x86_64-linux" forces the Reproducer-runs
+# to have been exercised on the canonical platform before the bundle
+# can claim auto-merge eligibility.
+#
+# Darwin-side reproduction remains valuable for development + initial
+# validation; this rule just says "auto-merge needs the Linux pass."
+# ─────────────────────────────────────────────────────────────────────────────
+deny contains decision if {
+	input.bundle.kind == "auto-merge"
+	input.build
+	input.build.host.system != "x86_64-linux"
+	decision := {
+		"rule_id": "rule-12-auto-merge-requires-linux-build",
+		"message": sprintf(
+			"auto-merge requires build.json.host.system=x86_64-linux (nixpkgs CI canonical platform); got %q",
+			[input.build.host.system],
+		),
+	}
+}

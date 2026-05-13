@@ -174,6 +174,31 @@ A bundle's Reproducer output is **well-formed** for v0 when ALL of the following
 
 The first axis is a **model-output well-formedness** check (the runner verifies §3.1–§3.3 shape before write). The remaining axes are **execution checks** that Builder runs and records into `build.json`. Reproducer scoring (§9) reflects both layers.
 
+### 4.1. Platform requirement (v0.3, locked 2026-05-12)
+
+Items 3–5 above are platform-coupled in a way the original v0 contract left implicit. v0.3 makes it explicit: **the `build.json` that the scorers consume must have been produced on `x86_64-linux`**. nixpkgs's canonical CI platform is `x86_64-linux`; a SIGNAL substring that fires on `darwin-aarch64` but not on Linux is evidence the test exercises a platform-specific code path, not the CVE-class behaviour. The empirical motivator: libtiff CVE-2024-13978's PoC TIFF was Darwin-validated; on Linux the crafted bits/sample is rejected by an earlier `Fax3SetupState` validation before reaching the vulnerable `memset(NULL, 0, ...)` site, so `fax2ps` exits 0 with a warning instead of SIGSEGV. See `docs/DECISIONS.md` (2026-05-12 entry on Linux Builder infrastructure + corpus-expansion findings).
+
+Operational support:
+
+- **Steward rule 12** (`policy/steward.rego`): denies `bundle.kind=auto-merge` when `build.json.host.system != "x86_64-linux"`. A bundle authored on Darwin must be re-built on Linux before it can claim auto-merge eligibility.
+- **Per-bundle Linux-cert workflow** (`.github/workflows/bundle-linux-cert.yml`): parameterized over `BUNDLE_DIR_NAME`. Manual dispatch produces a Linux-attested `build.json` for any bundle.
+- **Darwin-side reproduction remains permitted and useful** for authorship + initial validation. It just isn't sufficient for the auto-merge gate.
+
+Bundles whose PoC is intrinsically non-Linux-portable (e.g., macOS-specific syscalls) can still ship — they downgrade to `bundle.kind=advisory-only` or `human-review-required`, and the Reproducer evidence is human-judged rather than auto-merged. The contract here is about what counts as automation-ready evidence on the canonical platform, not about disqualifying non-Linux research entirely.
+
+### 4.2. Builder-knob escape hatches (v0.3, locked 2026-05-12)
+
+Some packages have slow `doCheck` phases that exceed the Builder's per-build timeout despite the underlying derivation being fine. The reproducer-runs cover the CVE-class regression dimension; `patched_build` is a sanity build. To prevent slow check suites from blowing the timeout, bundles may opt in to `reproducer-instrumentation.json` knobs that affect Builder behaviour only:
+
+```json
+{ "schema_version": "1.0.0", "asan": false, "disable_doCheck": true }
+```
+
+- `asan` (v0.1): instruments the reproducer-run phases with AddressSanitizer (BUILDER_V1 §2.6).
+- `disable_doCheck` (v0.3): the patched-build sanity phase uses `(import ./. {}).<attr>.overrideAttrs (old: { doCheck = false; })` instead of the raw attr. Reproducer-runs are unaffected — their derivations are author-controlled.
+
+Both knobs are data-config only. Reproducer and Patcher do not see this file; the model commits to the SIGNAL substring contract independent of Builder's wiring.
+
 ---
 
 ## 5. Failure criteria
