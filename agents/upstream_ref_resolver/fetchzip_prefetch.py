@@ -38,6 +38,8 @@ from typing import Callable
 class FetchzipRequest:
     attr_path: str           # e.g. "uriparser"
     target_version: str      # e.g. "1.0.0"
+    current_version: str     # e.g. "0.9.9"; needed to string-substitute
+                             # within the original src's tag/rev literal
     nixpkgs_rev: str | None = None
     timeout_seconds: int = 600  # tarball download + extract + hash
 
@@ -181,9 +183,27 @@ Rationale:
 
 def _build_expression(request: FetchzipRequest) -> str:
     """Construct the Nix expression that triggers a src download with
-    a fake hash. Overriding `src` directly to a fresh derivation that
-    inherits the original fetcher attrs but pins `outputHash` to
-    `lib.fakeHash` produces the expected FOD-mismatch error.
+    a fake hash.
+
+    The earlier shape (`old.src.overrideAttrs (_: { outputHash = fakeHash; })`)
+    was unsound: `old.src` is a derivation evaluated against the
+    package's ORIGINAL `version` via `rec` binding (e.g.
+    `tag = "v${version}"` resolves once at definition time). Setting
+    `outputHash` on the resulting derivation re-triggers FOD evaluation
+    but with the SAME URL — so the prefetch reports the OLD version's
+    hash labelled as the NEW version. Found by sonnet-4-5 Reviewer on
+    wget2 2026-05-13; see docs/DECISIONS.md.
+
+    The correct shape: re-invoke the fetcher via `src.override` with a
+    new `tag` / `rev` and `hash = fakeHash`. Fetchers wrapped by
+    `lib.makeOverridable` (fetchFromGitHub, fetchFromGitLab,
+    fetchFromGitea, fetchzip, fetchurl, fetchgit, …) expose
+    `.override` whose function-form receives the original args and
+    returns the args to merge. We string-substitute `current_version`
+    → `target_version` within the original tag/rev literal so the new
+    src points at the new tag/rev with whatever prefix the package
+    actually uses (`v${version}`, `${version}`, `release-${version}`,
+    etc.).
 
     Building the package itself (vs `-A goModules`) means the full
     src-fetch step runs without unnecessary subsequent build phases —
@@ -208,16 +228,21 @@ def _build_expression(request: FetchzipRequest) -> str:
             f"{_PREFETCH_NIXPKGS_CONFIG}; in"
         )
 
-    # Override the version (so the fetcher templates it into the URL/
-    # tag) and replace `src` with the SAME derivation but with
-    # `outputHash` pinned to `lib.fakeHash`. The expression assumes the
-    # original `src` was produced by a fetchzip-style fetcher — that's
-    # the contract this module exists for. Other fetcher classes get a
-    # different prefetch_kind module.
+    # Re-invoke the fetcher via src.override so the new version's tag/rev
+    # is actually templated into the URL. Function-form override receives
+    # the original args; we substitute the version substring within
+    # whichever of `tag` or `rev` the fetcher used, then pin hash to
+    # fakeHash to force an FOD mismatch and recover the real hash.
     parts.append(
         f"(pkgs.{request.attr_path}.override {{}}).overrideAttrs (old: {{\n"
         f'  version = "{request.target_version}";\n'
-        f"  src = old.src.overrideAttrs (_: {{ outputHash = pkgs.lib.fakeHash; }});\n"
+        f"  src = old.src.override (orig:\n"
+        f"    (if orig ? tag then {{ tag = pkgs.lib.replaceStrings "
+        f'["{request.current_version}"] ["{request.target_version}"] orig.tag; }} else {{}}) //\n'
+        f"    (if orig ? rev then {{ rev = pkgs.lib.replaceStrings "
+        f'["{request.current_version}"] ["{request.target_version}"] orig.rev; }} else {{}}) //\n'
+        f"    {{ hash = pkgs.lib.fakeHash; }}\n"
+        f"  );\n"
         f"}})"
     )
     return "\n".join(parts)

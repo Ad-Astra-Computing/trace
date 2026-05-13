@@ -203,6 +203,7 @@ def auto_prefetch_for_entry(
         request = FetchzipRequest(
             attr_path=attr_path,
             target_version=target_version,
+            current_version=upstream_ref.get("current_version") or "",
         )
         result = prefetch_fetchzip(
             request, command_runner=fetchzip_command_runner,
