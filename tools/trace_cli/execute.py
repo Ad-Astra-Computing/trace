@@ -1196,7 +1196,7 @@ def _append_reviewer_replay_entry(
 
 
 REPRODUCER_PROMPT_PATH_DEFAULT = (
-    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v1.md"
+    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v2.md"
 )
 
 
@@ -1455,7 +1455,7 @@ def _build_reproducer_invocation(
         "ended_at": ended_at,
         "model": _build_reproducer_model_block(reproducer_run),
         "prompt": {
-            "path": "prompts/reproducer.v1.md",
+            "path": "prompts/reproducer.v2.md",
             "sha256": reproducer_run["prompt_sha256"],
         },
         "inputs": inputs,
