@@ -2,12 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trace.adastra.computer/schemas/reproducer-instrumentation-schema.json",
   "title": "trace reproducer-instrumentation.json",
-  "description": "Optional sibling file at <bundle-dir>/reproducer-instrumentation.json. Data-config that opts a bundle's Builder runs into instrumented compilation modes. Out-of-band relative to the model: Reproducer and Patcher do NOT see this file, by design. Builder reads it, validates it, threads the mode through BuildRunner.run() for the unpatched/patched reproducer phases, and records the active mode under build.json.instrumentation. v0 supports asan only; UBSAN/MSAN/TSAN are explicitly out of scope.",
+  "description": "Optional sibling file at <bundle-dir>/reproducer-instrumentation.json. Data-config that opts a bundle's Builder runs into instrumented compilation modes or build-time knobs. Out-of-band relative to the model: Reproducer and Patcher do NOT see this file, by design. Builder reads it, validates it, threads the mode through BuildRunner.run() for the unpatched/patched reproducer phases, and records the active state under build.json.instrumentation + build.json.disable_doCheck. v0 supports asan only; UBSAN/MSAN/TSAN are explicitly out of scope. disable_doCheck added at v0.3 of the contract (per docs/REPRODUCER_V1.md §2.7) for slow-check packages whose nixpkgs check phase blows the Builder timeout despite the underlying derivation being fine.",
   "type": "object",
-  "required": ["schema_version", "asan"],
+  "required": ["schema_version"],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "type": "string", "const": "1.0.0" },
-    "asan": { "type": "boolean" }
+    "asan": { "type": "boolean" },
+    "disable_doCheck": {
+      "type": "boolean",
+      "description": "When true, the Builder applies overrideAttrs(doCheck=false) to the patched-build sanity-phase derivation (and to the unpatched/patched reproducer-run derivations when they wrap nixpkgs packages that carry doCheck=true). The CVE-class regression dimension is covered by the Reproducer-run phases themselves; the patched-build is just a sanity build, and a 30+ minute check suite is wasted CI time. Default: false. Affects build behaviour only; build.json records the active state as build.json.disable_doCheck."
+    }
   }
 }

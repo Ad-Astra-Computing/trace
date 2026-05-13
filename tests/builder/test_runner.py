@@ -571,10 +571,82 @@ def test_instrumentation_unknown_keys_is_refusal(tmp_path: Path) -> None:
     _assert_valid(result.build_json)
 
 
-def test_instrumentation_missing_asan_key_is_refusal(tmp_path: Path) -> None:
+def test_instrumentation_only_schema_version_is_noop(tmp_path: Path) -> None:
+    """A bundle with `{schema_version: "1.0.0"}` and no other keys is
+    equivalent to absent file: both knobs default to false, no refusal."""
     bundle = _scaffold_bundle(tmp_path)
     (bundle / "reproducer-instrumentation.json").write_text(
         json.dumps({"schema_version": "1.0.0"})
+    )
+    runner = FakeBuildRunner(responses=[_ok_outcome(), _ok_outcome(), _ok_outcome()])
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "ok"
+    assert result.build_json["instrumentation"] is None
+
+
+def test_instrumentation_disable_doCheck_true_wraps_patched_build(
+    tmp_path: Path,
+) -> None:
+    """When disable_doCheck=true, the patched-build phase uses the
+    nix_expression mode (wrapping pkgs.<attr>.overrideAttrs(doCheck=false))
+    rather than the attr mode. Reproducer-run phases are unaffected
+    (their derivations are constructed by reproducer.nix author)."""
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "disable_doCheck": True})
+    )
+    runner = FakeBuildRunner(responses=[
+        _ok_outcome("patched-build ok\n"),
+        _ok_outcome("unpatched repro ok\n"),
+        _ok_outcome("patched repro ok\n"),
+    ])
+    result = run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    assert result.dispatch_outcome == "ok"
+    # patched-build phase: nix_expression mode with doCheck=false wrap.
+    pb_call = runner.calls[0]
+    assert pb_call["attr"] is None
+    assert pb_call["nix_expression"] is not None
+    assert "overrideAttrs (old: { doCheck = false; })" in pb_call["nix_expression"]
+    # Reproducer-run phases use the regular reproducer.nix path (attr-mode
+    # would have been None either way; they use nix_expression to import
+    # the reproducer.nix file).
+    for call in runner.calls[1:]:
+        assert "reproducer.nix" in (call["nix_expression"] or "")
+
+
+def test_instrumentation_disable_doCheck_false_keeps_attr_mode(
+    tmp_path: Path,
+) -> None:
+    """disable_doCheck=false (or absent) → patched-build phase uses
+    attr mode (vanilla nix-build -A <attr>)."""
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "disable_doCheck": False})
+    )
+    runner = FakeBuildRunner(responses=[
+        _ok_outcome(), _ok_outcome(), _ok_outcome(),
+    ])
+    run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=None, apply_patch=False,
+    )
+    pb_call = runner.calls[0]
+    assert pb_call["attr"] == "demo"
+    assert pb_call["nix_expression"] is None
+
+
+def test_instrumentation_disable_doCheck_not_bool_is_refusal(
+    tmp_path: Path,
+) -> None:
+    bundle = _scaffold_bundle(tmp_path)
+    (bundle / "reproducer-instrumentation.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "disable_doCheck": "yes"})
     )
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
@@ -582,6 +654,8 @@ def test_instrumentation_missing_asan_key_is_refusal(tmp_path: Path) -> None:
         nixpkgs_checkout=None, apply_patch=False,
     )
     assert result.dispatch_outcome == "instrumentation-malformed"
+    assert "disable_doCheck" in result.build_json["patch_apply"]["reason"]
+    assert "boolean" in result.build_json["patch_apply"]["reason"]
 
 
 # ─── 64 KiB truncation ───────────────────────────────────────────────────
