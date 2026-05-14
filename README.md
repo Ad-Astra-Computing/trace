@@ -13,9 +13,9 @@ documented; see [Boundaries](#boundaries) below.
 
 ## Status
 
-* **Latest tag**: [v0.2.0](CHANGELOG.md) (Scout autonomously feeds the
-  bundle pipeline from real CVE feeds; first non-curated `eligible`
-  verdicts).
+* **Latest tag**: [v0.3.0](CHANGELOG.md) (Builder lands; Steward rules
+  6-13; SPEC §5 reviewer-attested auto-merge path; `patch_shape` axis
+  on candidate + corpus rows; v0 cohort split made explicit).
 * **Phase**: research artifact. Bundles live in `traces/example/` as
   files; review happens in PRs against the fork. No UI.
 * **Frozen scope**: nixpkgs `nixos-unstable`, derivations with
@@ -53,10 +53,42 @@ ineligible-rejected. Auto-merge bundles are signed via Sigstore
 keyless OIDC against a locked workflow identity; the signature anchors
 to a Rekor transparency-log entry verifiable with `cosign verify-blob`.
 
-The seed corpus is [eight real-CVE bundles](docs/SEED_INDEX.md)
+The seed corpus is [nine real-CVE bundles](docs/SEED_INDEX.md)
 exercising distinct shapes (auto-merge, both honest deny paths,
 three human-review sub-shapes, model-attested vs
 deterministic-no-model).
+
+## What v0 can and cannot do today
+
+v0.3.0 ships two paths to auto-merge, and they don't currently overlap.
+The split is structural, not incidental, and it's worth seeing up
+front.
+
+* **Model-attested reviewer-attested auto-merge** (SPEC §5; Steward
+  rule 13). For bundles whose CVE class doesn't admit a sandbox
+  Reproducer, the cross-family witness is the Reviewer. Patcher emits
+  the diff, Reviewer (different model family) accepts, the bundle
+  ships `reproducer-refusal.json` documenting why no Reproducer is
+  feasible. Patch shapes that flow here: `version-bump`, `mixed`
+  (~39/51 corpus candidates).
+* **Deterministic sandbox-positive Reproducer** (the libtiff and
+  mruby template). Hand-authored `resolver-input.json` + hand-written
+  `reproducer.nix` that filters the CVE patch out of `old.patches` to
+  reconstruct the unpatched derivation. Patch shapes that flow here:
+  `overlay` (11/51 corpus candidates). Not model-attested at the
+  Reproducer stage.
+
+**No corpus candidate today hits both paths.** The overlay-shaped
+candidates that would support sandbox-positive Reproducers all lack a
+release tag containing the fix, so UpstreamRefResolver routes them to
+`ineligible-cherry-pick-required` before the chain runs. The
+version-bump candidates that pass the resolver can't ship a
+sandbox-positive Reproducer because reconstructing unpatched src needs
+a network fetcher (which the Reproducer parser forbids). This is
+recorded as the v0 design state in [`docs/CORPUS.md`](docs/CORPUS.md)
+§ "v0 cohort split", along with curation filters for harvesting
+deliberately for each path. Two unification paths are tracked as v0.1
+design branches; neither shipped in v0.3.0.
 
 ## Walk one bundle
 
@@ -122,11 +154,17 @@ What v0 deliberately does not ship:
   with a structured `patcher-not-ready:prefetch-skipped:src.hash`
   reason and route to human-review-required. A kernel-aware patcher
   is a separate research arc.
-* **Auto-merge real-CVE-signed bundle.** Gated on (a) sandbox-positive
-  Reproducer corpus extension AND (b) v1 Hydra / large-runner
-  infrastructure clearing Builder's 30-minute saturation point.
-  libtiff (run 25077946199) is the concrete proof of the saturation
-  criterion.
+* **Auto-merge real-CVE-signed bundle.** v0.3.0 ships the
+  reviewer-attested path (Steward rule 13) as the implemented
+  model-attested route, but the corpus has no real-CVE bundle that
+  clears every gate in production today: wget2 cleared Patcher +
+  Reviewer cleanly but hit the Reproducer contract limit; traefik
+  cleared Patcher + Reviewer but its 3.6.8 needs a Go-toolchain bump
+  the Patcher contract refuses; bind + mbedtls have no Reviewer
+  evidence at all in the current corpus state. A clean
+  reviewer-attested allow anchor needs a candidate with all three
+  signals coherent at the pinned rev. See [v0 cohort
+  split](#what-v0-can-and-cannot-do-today) above.
 * **Live-API CI on every push.** Live-Anthropic transport is wired and
   proven (run 25086008154 on a haiku round-trip), but
   every-push-live-API is gated on per-workspace budget caps.

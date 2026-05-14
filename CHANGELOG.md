@@ -12,6 +12,74 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ---
 
+## v0.3.0 — 14 May 2026
+
+### Builder lands; Steward rules 6-13; reviewer-attested auto-merge path; v0 cohort split made explicit
+
+v0.2.0 brought Scout online. v0.3.0 closes the loop on the other end of the chain: Builder runs against pinned nixpkgs for real, Steward gates auto-merge on Builder's evidence (rules 6-13), and the second cross-family witness (SPEC §5 reviewer-attested) is implemented in policy with synthetic anchors. The arc ends with the corpus's structural bifurcation surfaced honestly: the model-attested cohort (version-bump/mixed patch shapes) flows through reviewer-attested; the sandbox-positive cohort (overlay patch shapes) stays deterministic-no-model for v0. The split is documented as a design state, not papered over.
+
+**Per-bundle Linux cert workflow.** `.github/workflows/bundle-linux-cert.yml` is a manual-dispatch (`workflow_dispatch`) workflow that takes a bundle directory name as input, reads `nixpkgs_rev` from `bundle.json`, fetches that revision, runs Builder against it on `ubuntu-latest`, verifies build.json shape (dispatch_outcome, patch_apply.applied, patched_build.outcome, host.system=x86_64-linux), greps SIGNAL substrings out of `reproducer-log.txt` (when present), and runs Steward via `opa eval`. Artifacts uploaded for diagnosability on any failure. Parameterised over bundle name so adding bundles needs no workflow edits. First successful dispatch: mruby cert sequence (May 11–12 2026); first auto-merge-eligible bundle to clear all 12 rules end-to-end on Linux remains pending.
+
+**Builder ASAN instrumentation contract (slice 3a).** Bundles can opt into AddressSanitizer-instrumented unpatched/patched runs via a sibling `reproducer-instrumentation.json` document (`policy/reproducer-instrumentation-schema.json`). Builder threads `enable_sanitizer: true` and `asan` toolchain hints through `nix-build`; runner verifies the linker actually pulled in libasan before emitting `instrumentation: "asan"` on `build.json`. mruby ships the first real ASAN reproducer.nix (Darwin-validated; Linux ASAN cc-wrapper integration is the open blocker — slice closed as contract-proven 12 May 2026 with the blocker tracked separately).
+
+**`disable_doCheck` knob.** Same instrumentation schema gains a `disable_doCheck` field. Builder wraps the patched-build sanity phase as `pkgs.<attr>.overrideAttrs (_: { doCheck = false; })` when set. Carved out of libtiff slice E: libtiff's check phase exceeds GHA's 60-minute job timeout even on a 6-hour `bundle-linux-cert` workflow, while the underlying derivation is fine. The escape hatch is per-bundle and explicit; default behaviour unchanged.
+
+**dispatch_outcome contract.** New enum on `build.json`: `ok`, `refused-no-patch`, `refused-no-reproducer`, `patch-apply-failed`, `infra-failure`, `instrumentation-malformed`. Steward gates on the specific outcome (rule 7) so failures route to the right human-review reason rather than blanket-denying.
+
+**Steward rules 6-13.** v0.2.0's Steward had five rules. v0.3.0 lands the auto-merge gate completely:
+* **rule-6** — auto-merge requires `build.json` present (Builder must have run).
+* **rule-7** — auto-merge requires `build.dispatch_outcome=ok`, with the reviewer-attested escape clause (`refused-no-reproducer` accepted when `bundle.auto_merge_evidence_path=reviewer-attested`).
+* **rule-8** — auto-merge requires `build.patched_build.outcome=succeeded`.
+* **rule-9** — auto-merge forbidden on proxy reproducer (`is_proxy=true`).
+* **rule-10** — auto-merge requires both load-bearing reproducer scorers at 1.0 (`repro-unpatched-fails`, `repro-patched-passes`).
+* **rule-11** — auto-merge requires Reviewer verdict=accept when `review-scoring-report.json` is present.
+* **rule-12** — auto-merge requires `build.host.system=x86_64-linux` (nixpkgs CI canonical platform).
+* **rule-13** — reviewer-attested bundles must ship `reproducer-refusal.json` AND `review-scoring-report.json` with verdict=accept.
+
+Each rule has a deny-path fixture under `traces/example/CVE-0000-001N--*`.
+
+**SPEC §5 reviewer-attested auto-merge path (slice C).** Bundles whose CVE class doesn't admit a sandbox Reproducer can carry the cross-family witness via Reviewer instead. New `bundle.auto_merge_evidence_path ∈ {reproducer, reviewer-attested}` field on `bundle.json` (default `reproducer`); when `reviewer-attested`, the schema requires `review.md` (not `review-refusal.json`) and rule-13 enforces the supporting artifacts. Two synthetic fixtures anchor the path: `CVE-0000-0019` (allow) and `CVE-0000-0020` (rule-13 deny when `reproducer-refusal.json` is absent).
+
+**`patch_shape` axis on candidate + corpus rows.** Seventh SPEC §5a classification axis: `overlay | version-bump | hash-bump | mixed | unknown`. Determines whether a sandbox-positive Reproducer is feasible. `overlay` shapes (`patches += [./CVE-NNNN.patch]`, cherry-picked commits applied as patches) allow reconstructing the unpatched derivation by filtering the overlay out (the libtiff template). `version-bump` / `hash-bump` shapes change `pkgs.<attr>.src` to a new tagged archive; reconstructing unpatched needs a network fetcher, which the Reproducer parser forbids. All 51 candidate rows and 51 corpus entries backfilled. Distribution: version-bump 38, overlay 11, mixed 1, unknown 1.
+
+**v0 corpus is bifurcated (and that's the v0 answer).** Cross-referencing the `patch_shape=overlay` shortlist against UpstreamRefResolver: every overlay candidate in the current corpus lacks a release tag containing the fix, so the resolver routes them to `ineligible-cherry-pick-required` → advisory-only → Reproducer rule 2 refuses. The model-attested cohort (39/51) flows through reviewer-attested; the sandbox-positive cohort (11/51) stays deterministic-no-model. No corpus candidate hits both paths under v0 rules. Documented as the v0 design state in `docs/CORPUS.md` (new section "v0 cohort split") with explicit curation filters for future harvesting. Two unification paths are recorded as v0.1 design branches: relax the resolver to allow overlay-via-fetchpatch when a release tag exists, OR carve out hash-pinned FOD lookup in the Reproducer parser for unpatched-src reconstruction. Neither shipped in v0.3.0.
+
+**`fetchzip` prefetch bug fix.** The earlier `agents/upstream_ref_resolver/fetchzip_prefetch.py:_build_expression` shape (`old.src.overrideAttrs (_: { outputHash = fakeHash; })`) was unsound: `old.src` was already evaluated against the package's ORIGINAL version via `rec` binding, so `tag = "v${version}"` resolved at definition time to `"v<old>"`. Setting outputHash re-triggered FOD evaluation with the SAME URL → prefetch reported the OLD version's hash labelled as the NEW version. Caught by claude-sonnet-4-5 Reviewer on wget2 (real cross-family value — same family Reviewer would plausibly miss the same mistake). Fix: re-invoke the fetcher via `src.override` with version-substituted `tag`/`rev` and `hash = fakeHash`. `FetchzipRequest` gains a `current_version` field for the substitution.
+
+**`review-cross-family-attestation` scorer widened.** The earlier shape only verified `patcher_family_observed`, blindly trusting `reviewer_family` and `rule_honored`. wget2 reruns surfaced both under-verified fields being fabricated (Reviewer claimed `anthropic-claude` for itself and `rule_honored=false` despite the routing config genuinely pairing different Anthropic families). Widened scorer now verifies all three claims against deterministic ground truth from `replay.json` + the reviewer's invocation `model_id`. Score 0.0 on any single fabrication, with `details.fabricated_fields[]` enumerating which specific claims diverged. Five new tests for the previously-silent fabrication modes.
+
+**Reproducer prompt v2.** New `prompts/reproducer.v2.md` (runner default updated). Targets the v1 failure modes surfaced by wget2: (1) new "Sandbox model" preamble explaining that a CVE described as network-shaped doesn't automatically need network in the test, (2) refusal rule 3 reworded with a mandatory pre-refusal check ("verify the trigger truly needs network, not merely that the canonical exploit path is network-shaped"), (3) worked example showing the inline-fixture pattern (`pkgs.writeText` malicious metadata + `${unpatched}/bin/foo --metadata=${evil-metadata}` + specific SIGNAL substrings), (4) forbidden-fetcher rule strengthened to enumerate all fetcher classes and state "without exception" with rationale (v1's list-shaped enumeration left `fetchFromGitLab` ambiguous).
+
+**Corpus grows to 9 real-CVE + 19 synthetic.** New bundles since v0.2.0: `CVE-2025-69194--wget2` (model-attested chain run; preserved as evidence of the cohort split — Reviewer accepted the patch end-to-end, Reproducer hit the contract limit). traefik reclassified from auto-merge to `human-review-required` (`ineligible-cherry-pick-required`) after `bundle-linux-cert.yml` surfaced the Go 1.24→1.25 toolchain dependency the Patcher contract refuses. New synthetic fixtures: `CVE-0000-0012`..`CVE-0000-0018` (one per Steward rule 6-12 deny path), `CVE-0000-0019`/`CVE-0000-0020` (reviewer-attested allow + rule-13 deny).
+
+**Cost reporting + throughput rollup (`trace report`).** Per-role invocation sidecars (`<role>-invocation.json`) capture token usage and provider-side pricing inputs at the moment of the run, surviving replay archives. `agents/cost.py` prices Anthropic input/output/cache_creation/cache_read tokens. `trace report throughput` rollups across on-disk artifacts produce both JSON and human readouts. First honest cost snapshot landed 12 May 2026: ~$0.22 mean cost-per-merge-ready (N=3, model-attested bundles only).
+
+**Documentation.** `docs/CORPUS.md` gains the v0 cohort-split section with curation filters. `eval/HARVESTING.md` documents the new `patch_shape` axis with explicit "filter on overlay for sandbox-positive" guidance. `docs/REPRODUCER_V1.md` §4.1 (Linux build host requirement) and §4.2 (Builder-knob escape hatches). `docs/DECISIONS.md` accumulates the slice arcs: Builder ASAN contract (3a), libtiff Linux cert close + 2 corpus-expansion findings, traefik reclassification, reviewer-attested formalisation (slice C), wget2 model-attested run (fetchzip bug caught by Reviewer), prompt v2, patch_shape axis, cohort-split decision.
+
+### Test suite
+
+**1030 passing, 30 skipped** (network-gated). Up from 972 / 30 at v0.2.0. New coverage:
+* Builder dispatch_outcome enum + per-outcome path (refused-no-patch, refused-no-reproducer, patch-apply-failed, infra-failure, instrumentation-malformed).
+* ASAN instrumentation contract (sibling schema, runner threading, linker verification).
+* Steward rules 6-13 (one positive + one deny fixture each).
+* SPEC §5 reviewer-attested auto-merge path (synthetic allow + deny anchors).
+* `auto_merge_evidence_path` schema enforcement (auto-merge file requirements split by evidence path).
+* `patch_shape` axis on candidate + corpus schemas (enum validation + presence in every row).
+* Widened cross-family scorer (5 new tests for previously-silent fabrication modes).
+* Reproducer prompt v2 (parser rejects fetchFromGitLab + the wider fetcher enumeration).
+* `fetchzip_prefetch._build_expression` post-fix shape (`src.override (orig: ...)` with version-substring substitution).
+
+### Boundaries (updated for v0.3.0)
+
+The v0.2.0 boundaries hold. Two are sharpened by the cohort-split work:
+
+* **Auto-merge real-CVE-signed bundle.** Still gated. v0.3.0's reviewer-attested path is the implemented model-attested route to auto-merge, but the corpus has no real-CVE bundle that clears every gate in production: wget2 cleared Patcher + Reviewer but hit the Reproducer contract limit; traefik cleared Patcher + Reviewer but hit a Go-toolchain dependency outside the Patcher contract; bind + mbedtls have no Reviewer evidence at all in the current corpus state. A clean reviewer-attested allow anchor needs a candidate with all three signals coherent at the pinned rev.
+* **Sandbox-positive model-attested Reproducer.** Documented as deferred to v0.1. The two real-CVE sandbox-positive bundles (libtiff, mruby) remain deterministic-no-model evidence of the deterministic path. The model-attested sandbox-positive path needs either resolver relaxation or parser relaxation; both are v0.1 design branches.
+
+Full v0 non-goal list: [`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+---
+
 ## v0.2.0 — 7 May 2026
 
 ### Scout autonomously feeds the bundle pipeline
