@@ -31,6 +31,7 @@ Every line in `candidates.jsonl` carries:
 | `axes.reproducibility` | `straightforward` / `config-sensitive` / `DoS-shaped` / `crypto-shaped` / `parser-heavy` / `kernel-adjacent` / `impractical`. |
 | `axes.rebuild_closure_size` | `<50` / `50-500` / `500-5000` / `>5000`. |
 | `axes.human_decision_difficulty` | `trivial` / `routine` / `contentious`. |
+| `axes.patch_shape` | `overlay` / `version-bump` / `hash-bump` / `mixed` / `unknown`. Determines sandbox-positive Reproducer feasibility. `overlay` = fix lands via `patches += [./CVE-NNNN.patch]` or cherry-picked commits applied as patches — unpatched can be reconstructed by filtering the patch out. `version-bump` = `version = "X.Y.Z"` change (usually + new src hash) — `pkgs.<attr>.src` points at a new tagged archive. `hash-bump` = only source hash changes (rare; CDN re-pin). `mixed` = version bump PLUS additional fetchpatch overlay. `unknown` = harvester couldn't determine. **Filter for `overlay` when seeking sandbox-positive candidates** — version-bump / hash-bump shapes hit a Reproducer-contract limit (no sandbox-friendly way to reconstruct unpatched src). See `docs/DECISIONS.md` 2026-05-13. |
 | `expected_v0_eligibility` | `auto-merge-eligible` / `requires-human-review` / `advisory-only`. |
 | `expected_bundle_kind` | `auto-merge` / `human-review-required` / `advisory-only`. Must be consistent with `expected_v0_eligibility`. |
 | `expected_upstream_ref_verdict` | From the upstream-ref-schema enum. |

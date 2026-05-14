@@ -52,7 +52,8 @@
         "passthru_tests",
         "reproducibility",
         "rebuild_closure_size",
-        "human_decision_difficulty"
+        "human_decision_difficulty",
+        "patch_shape"
       ],
       "additionalProperties": false,
       "properties": {
@@ -81,6 +82,11 @@
         "human_decision_difficulty": {
           "type": "string",
           "enum": ["trivial", "routine", "contentious"]
+        },
+        "patch_shape": {
+          "description": "Shape of the nixpkgs fix. Determines whether a sandbox-positive Reproducer is feasible: 'overlay' shapes (patches += [./CVE-NNNN.patch] or cherry-picked commits applied via patches) allow reconstructing the unpatched derivation by filtering the patch out (libtiff template); 'version-bump' / 'hash-bump' shapes change pkgs.<attr>.src to a new tagged release, and reconstructing unpatched src requires a network fetcher — which the Reproducer parser's no-fetcher rule blocks. See docs/DECISIONS.md 2026-05-13 (Reproducer v2 rerun) for the underlying contract finding. Values:\n  * `overlay` — fix lands via `patches += [...]` or cherry-pick applied as patches; src unchanged.\n  * `version-bump` — fix lands via `version = \"X.Y.Z\"` (usually + new src hash); src points at a new archive.\n  * `hash-bump` — only source hash changes (rare; CDN re-pin, not a CVE-fix shape).\n  * `mixed` — version bump PLUS additional fetchpatch overlay (e.g., bump-to-Y AND apply a post-Y commit). The CVE-class trigger may live in the overlay component.\n  * `unknown` — harvester could not determine the shape from available evidence; flagged for re-classification.\n\nFiltering on `patch_shape == \"overlay\"` is the recommended pre-filter for sandbox-positive candidate selection.",
+          "type": "string",
+          "enum": ["overlay", "version-bump", "hash-bump", "mixed", "unknown"]
         }
       }
     },

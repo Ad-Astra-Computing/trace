@@ -25,7 +25,7 @@
     },
     "notes": { "type": "string" },
     "axes": {
-      "description": "Explicit declaration of the six SPEC §5a classification axes and the enum values each accepts. Tests cross-check entries against this declaration so a future axis addition is a single-file edit.",
+      "description": "Explicit declaration of the seven SPEC §5a classification axes and the enum values each accepts. Tests cross-check entries against this declaration so a future axis addition is a single-file edit. `patch_shape` was added 2026-05-13 after the wget2 Reproducer slice surfaced the overlay-vs-version-bump distinction; see docs/DECISIONS.md.",
       "type": "object",
       "required": [
         "mapping_difficulty",
@@ -33,7 +33,8 @@
         "passthru_tests",
         "reproducibility",
         "rebuild_closure_size",
-        "human_decision_difficulty"
+        "human_decision_difficulty",
+        "patch_shape"
       ],
       "additionalProperties": false,
       "properties": {
@@ -77,6 +78,12 @@
           "type": "array",
           "items": { "type": "string", "enum": ["trivial", "routine", "contentious"] },
           "minItems": 3, "uniqueItems": true
+        },
+        "patch_shape": {
+          "description": "Declared subset of the per-entry patch_shape enum. Top-level lists only the values actually used by current corpus entries (per test_composition__every_declared_axis_value_is_used); minItems is 1 because hash-bump is in the per-entry enum but no v0 corpus entry exhibits that shape yet. Per-entry validation uses the full enum.",
+          "type": "array",
+          "items": { "type": "string", "enum": ["overlay", "version-bump", "hash-bump", "mixed", "unknown"] },
+          "minItems": 1, "uniqueItems": true
         }
       }
     },
@@ -139,7 +146,8 @@
             "passthru_tests",
             "reproducibility",
             "rebuild_closure_size",
-            "human_decision_difficulty"
+            "human_decision_difficulty",
+            "patch_shape"
           ],
           "additionalProperties": false,
           "properties": {
@@ -148,7 +156,8 @@
             "passthru_tests": { "type": "string" },
             "reproducibility": { "type": "string" },
             "rebuild_closure_size": { "type": "string" },
-            "human_decision_difficulty": { "type": "string" }
+            "human_decision_difficulty": { "type": "string" },
+            "patch_shape": { "type": "string" }
           }
         },
         "expected_v0_eligibility": {
