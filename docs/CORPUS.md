@@ -97,6 +97,28 @@ The unused-yet values (5 of 11) are pre-registered slots — adding a real bundl
 
 ---
 
+## v0 cohort split: model-attested vs sandbox-positive
+
+The 2026-05-14 DECISIONS entry documents a structural property of the v0 corpus: the candidate pool splits cleanly into two **non-overlapping** cohorts along `patch_shape` × `UpstreamRefResolver` verdict.
+
+- **Model-attested cohort** (`patch_shape ∈ {version-bump, mixed}`, ≈ 39 / 51 candidates). UpstreamRefResolver routes to `eligible`; Patcher + Reviewer run end-to-end; the natural disposition is **reviewer-attested auto-merge** (Steward rule 13). The Reproducer cannot ship sandbox-positive evidence here because reconstructing the unpatched src needs a network fetcher.
+
+- **Sandbox-positive cohort** (`patch_shape == overlay`, 11 / 51 candidates). Patches += [./CVE-NNNN.patch] or cherry-picked commits applied as patches — Reproducer can reconstruct unpatched by filtering the overlay out (the libtiff template). But every overlay candidate in the current corpus lacks a release tag containing the fix, so UpstreamRefResolver routes them to `ineligible-cherry-pick-required` → bundle.kind=advisory-only → Reproducer rule 2 refuses. The chain never reaches the Reproducer stage to exercise the sandbox-positive path under model-attested rules.
+
+The two real-CVE sandbox-positive bundles (`libtiff CVE-2024-13978`, `mruby CVE-2025-7207`) bypass this gap by being **deterministic-no-model** — hand-authored resolver inputs + hand-written reproducer.nix. They are evidence that sandbox-positive works on the deterministic path, not that it works on the model-attested path.
+
+**No corpus candidate today hits both paths.** This is by design as of v0; v0.1 design work may relax the resolver (allow overlay-via-fetchpatch as `eligible` when a release tag exists) or the Reproducer parser (carve out hash-pinned FOD lookup), at which point a single-bundle full-path candidate becomes possible.
+
+### Curation filters (post-2026-05-14)
+
+| goal | filter on `eval/candidates.jsonl` |
+|---|---|
+| Model-attested auto-merge candidate | `axes.patch_shape ∈ {version-bump, mixed}` AND `expected_v0_eligibility == "auto-merge-eligible"`. Skip Reproducer-sandbox expectations; ship via reviewer-attested. |
+| Deterministic sandbox-positive candidate | `axes.patch_shape == "overlay"` AND a hand-authored `resolver-input.json` that supplies a synthetic upstream-ref pointing at the fix commit. The libtiff/mruby template. |
+| Cross-path candidate (rare, v0.1) | `axes.patch_shape == "overlay"` AND upstream has a release tag containing the fix. None of the current 51 candidates qualify; new harvests should record this. |
+
+---
+
 ## Non-Reproducer bundles, explicitly
 
 Pulling the non-Reproducer slice out separately because it's the load-bearing distinction for the maintainer-trust narrative.
