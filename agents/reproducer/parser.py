@@ -386,9 +386,60 @@ def _parse_reproducer(text: str) -> ReproducerParseResult:
 # ─── reproducer.nix structural checks ────────────────────────────────────
 
 
-_NIX_FORBIDDEN_FETCHERS_RE = re.compile(
-    r"\b(?:fetchurl|fetchzip|fetchFromGitHub|fetchgit|fetchFromGitLab|fetchpatch|builtins\.fetchurl|builtins\.fetchTarball)\b"
+# Fetcher classes that NEVER carry a hash literal at the call site, or
+# whose intended use in a Reproducer would be network-at-runtime even when
+# they do. These remain forbidden unconditionally.
+#
+# - `fetchpatch`        : downloads a patch file from a URL. Reproducer
+#                         contract says patches come from filtering the
+#                         bundle's existing `old.patches`, not new downloads.
+# - `builtins.fetchurl` : impure builtin; no hash required, fetched at eval
+#                         time, not by a derivation. Always network at
+#                         eval/build time.
+# - `builtins.fetchTarball` : same impurity concerns; the hash-taking form
+#                             is awkward and the carve-out has clearer
+#                             coverage via `fetchzip` instead.
+_NIX_HARD_FORBIDDEN_FETCHERS_RE = re.compile(
+    r"\b(?:fetchpatch|builtins\.fetchurl|builtins\.fetchTarball)\b"
 )
+
+# Fetcher classes whose call sites ALWAYS take a `hash = "sha(256|512)-..."`
+# argument and a specific rev/tag in modern nixpkgs. Allowed in reproducer.nix
+# only under the v0.1 hash-pinned carve-out (docs/REPRODUCER_V1.md §4.3,
+# DECISIONS 2026-05-14): the call site must carry a literal SRI hash AND
+# any rev/tag/ref must be a specific value, not a branch name. This unlocks
+# unpatched-src reconstruction for version-bump-shaped patches (the wget2
+# case that surfaced the contract limit on 2026-05-13) without loosening
+# the "no network at runtime" guarantee — the FOD content is pinned by
+# hash at expression time and the Nix builder rejects mismatches.
+_NIX_HASH_PINNABLE_FETCHERS_RE = re.compile(
+    r"\b(?P<fetcher>fetchurl|fetchzip|fetchFromGitHub|fetchFromGitLab|fetchFromGitea|fetchgit)\b"
+)
+
+# A real SRI hash literal: `hash = "sha256-<base64>"` or `hash = "sha512-..."`.
+# The base64 alphabet excludes whitespace and ellipsis-style placeholders;
+# requiring at least 32 base64 chars rules out `"..."` / `""` / truncated
+# values. Equals-padding is optional (Nix accepts both forms).
+_SRI_HASH_LITERAL_RE = re.compile(
+    r'\bhash\s*=\s*"sha(?:256|512)-[A-Za-z0-9+/]{32,}={0,2}"'
+)
+
+# `hash = fakeHash` / `hash = lib.fakeHash` / `hash = pkgs.lib.fakeHash`
+# defeats the carve-out: it triggers an FOD mismatch error AT BUILD TIME,
+# which requires Nix to attempt a network fetch with the wrong hash. Always
+# forbidden when used inside a fetcher's `hash` argument.
+_FAKE_HASH_IN_HASH_FIELD_RE = re.compile(
+    r"\bhash\s*=\s*(?:pkgs\.)?(?:lib\.)?fakeHash\b"
+)
+
+# `rev = "main"` / `tag = "HEAD"` / `ref = "refs/heads/master"` etc. A
+# floating ref pins the hash to a moving target — the hash literal will
+# go stale on any upstream movement, and the sandbox would then fail in
+# a non-reproducible way. Specific tag/rev values only.
+_FLOATING_REF_RE = re.compile(
+    r'\b(?P<key>rev|tag|ref)\s*=\s*"(?P<value>master|main|HEAD|refs/heads/[A-Za-z0-9._/-]+)"'
+)
+
 _META_PROXY_TRUE_RE = re.compile(
     r"\bproxy\s*=\s*true\b"
 )
@@ -449,14 +500,112 @@ def _validate_reproducer_nix_shape(nix_body: str) -> None:
                 f"reproducer.nix must define a `{required}` attribute "
                 "(seen as `{required} = ...`)".replace("{required}", required)
             )
-    # No network fetchers.
-    forbidden = _NIX_FORBIDDEN_FETCHERS_RE.search(nix_body)
-    if forbidden:
+    # Fetcher rules: hard-forbidden classes always rejected; hash-pinnable
+    # classes allowed only when the call site carries a real SRI hash
+    # literal AND no floating ref. v0.1 carve-out for unpatched-src
+    # reconstruction; see docs/REPRODUCER_V1.md §4.3.
+    _validate_fetcher_usage(nix_body)
+
+
+def _validate_fetcher_usage(nix_body: str) -> None:
+    """Enforce the Reproducer's fetcher policy.
+
+    Two tiers:
+
+    1. **Hard-forbidden** (`fetchpatch`, `builtins.fetchurl`,
+       `builtins.fetchTarball`): rejected unconditionally. None of these
+       can satisfy the hash-pinned carve-out — fetchpatch fetches a patch
+       file at build time (patches must come from filtering
+       `old.patches`), and the `builtins.*` variants are impure or
+       hash-less.
+
+    2. **Hash-pinnable** (`fetchurl`, `fetchzip`, `fetchFromGitHub`,
+       `fetchFromGitLab`, `fetchFromGitea`, `fetchgit`): allowed iff
+       every call site carries a literal `hash = "sha256-..."` or
+       `hash = "sha512-..."` (SRI form) inside its argument block AND
+       does NOT use a floating rev/tag (`master` / `main` / `HEAD` /
+       `refs/heads/...`). This unlocks unpatched-src reconstruction for
+       version-bump-shaped patches without giving up the no-network-at-
+       runtime guarantee: the FOD content is pinned at expression time
+       and the Nix builder rejects mismatches before any phase runs.
+    """
+    hard = _NIX_HARD_FORBIDDEN_FETCHERS_RE.search(nix_body)
+    if hard:
         raise ReproducerOutputMalformed(
-            f"reproducer.nix uses forbidden network fetcher {forbidden.group(0)!r}; "
-            "the bundle's existing prefetched src is the only permitted source. "
-            "Inline fixtures via `pkgs.writeText` / `pkgs.writeScript` instead."
+            f"reproducer.nix uses forbidden fetcher {hard.group(0)!r}. "
+            "Patches must come from filtering `old.patches`; the impure "
+            "`builtins.fetchurl` / `builtins.fetchTarball` forms are never "
+            "allowed."
         )
+
+    for m in _NIX_HASH_PINNABLE_FETCHERS_RE.finditer(nix_body):
+        fetcher = m.group("fetcher")
+        arg_block = _extract_brace_block(nix_body, m.end())
+        if arg_block is None:
+            # Not a call site (e.g. a bare identifier reference, or the
+            # symbol appears inside a string literal we don't bother
+            # parsing). The carve-out's job is to gate ARGUMENT shapes;
+            # references without arguments are uninteresting.
+            continue
+
+        if _FAKE_HASH_IN_HASH_FIELD_RE.search(arg_block):
+            raise ReproducerOutputMalformed(
+                f"reproducer.nix: {fetcher!r} call uses `hash = fakeHash`. "
+                "The v0.1 hash-pinned carve-out requires a real SRI hash "
+                "literal at the call site, not fakeHash (which would "
+                "trigger a network fetch at build time to recover the "
+                "real hash)."
+            )
+
+        if not _SRI_HASH_LITERAL_RE.search(arg_block):
+            raise ReproducerOutputMalformed(
+                f"reproducer.nix uses forbidden network fetcher {fetcher!r}. "
+                "The v0.1 hash-pinned carve-out (docs/REPRODUCER_V1.md §4.3) "
+                "allows fetcher calls ONLY when a literal "
+                "`hash = \"sha256-...\"` or `hash = \"sha512-...\"` is present "
+                "at the call site (SRI form, base64-encoded). Found no such "
+                "literal in this fetcher's argument block. For inline "
+                "fixtures use `pkgs.writeText` / `pkgs.writeScript`; for "
+                "unpatched-src reconstruction supply the prior version's "
+                "hash explicitly."
+            )
+
+        floating = _FLOATING_REF_RE.search(arg_block)
+        if floating:
+            raise ReproducerOutputMalformed(
+                f"reproducer.nix: {fetcher!r} uses floating "
+                f"{floating.group('key')}={floating.group('value')!r}. The "
+                "hash-pinned carve-out requires a specific tag/rev/commit, "
+                "not a branch name — a floating ref would let the hash go "
+                "stale on any upstream movement."
+            )
+
+
+def _extract_brace_block(s: str, start: int) -> str | None:
+    """Skip whitespace from index `start`; if the next non-whitespace
+    character is `{`, return the brace-balanced block (inclusive of the
+    outer braces). Return None if the next non-whitespace character
+    isn't `{`, or if the braces don't balance within the remainder of
+    `s`. Used by `_validate_fetcher_usage` to extract a fetcher's
+    argument block for inspection."""
+    i = start
+    n = len(s)
+    while i < n and s[i].isspace():
+        i += 1
+    if i >= n or s[i] != "{":
+        return None
+    depth = 0
+    j = i
+    while j < n:
+        c = s[j]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[i : j + 1]
+        j += 1
+    return None
 
 
 def _detect_meta_proxy_in_nix(nix_body: str) -> bool:
