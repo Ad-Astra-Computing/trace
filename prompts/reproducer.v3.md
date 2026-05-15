@@ -98,34 +98,47 @@ Your response is exactly three files, in order, separated by the file markers sh
 
 ### `reproducer.nix`
 
-A Nix expression that evaluates to an attrset with at least three attributes: `unpatched`, `patched`, and `test`.
+A Nix expression that evaluates to an attrset with `unpatched` and `patched`, each of which is a derivation carrying its own `test` attribute (via `passthru.test`). Builder evaluates `(import reproducer.nix {}).unpatched.test` and `(import reproducer.nix {}).patched.test` as **two independent build invocations**. Each invocation's stdout/stderr is captured separately and grepped for its own SIGNAL line. There is no shared top-level `test` attribute and no test that exercises both sides at once.
 
 ```nix
 { pkgs ? import <nixpkgs> { } }:
 
 let
+  # Shared fixtures (if any) — declared once, referenced from both sides.
+
   unpatched = pkgs.<attr>.overrideAttrs (old: {
     # restore pre-fix state from upstream-ref.current_version
+    passthru = (old.passthru or { }) // {
+      test = pkgs.runCommand "repro-${"<cve-id>"}-unpatched" { } ''
+        # exercise the CVE-specific surface using ${unpatched}/bin/<binary>
+        # emit verbatim SIGNAL_UNPATCHED: <substring>
+        touch $out
+      '';
+    };
   });
-  patched = pkgs.<attr>;  # already patched in this bundle's nixpkgs tree
+
+  patched = pkgs.<attr>.overrideAttrs (old: {
+    passthru = (old.passthru or { }) // {
+      test = pkgs.runCommand "repro-${"<cve-id>"}-patched" { } ''
+        # exercise the same surface using ${patched}/bin/<binary>
+        # emit verbatim SIGNAL_PATCHED: <substring>
+        touch $out
+      '';
+    };
+  });
 in
 {
   inherit unpatched patched;
-
-  test = pkgs.runCommand "repro-${"<cve-id>"}" { } ''
-    # exercise the CVE-specific surface
-    # emit verbatim SIGNAL_UNPATCHED on the unpatched path
-    # emit verbatim SIGNAL_PATCHED on the patched path
-  '';
 }
 ```
 
 Locked properties:
 
 - Top-level expression is the function `{ pkgs ? import <nixpkgs> { } }: { ... }`. No other call shape.
-- The attrset MUST contain `unpatched`, `patched`, and `test`. Additional attributes are permitted only if directly supporting the test (helper derivations, fixture writeText calls).
-- `test` is a single derivation that exercises the **CVE-class behaviour itself**. The function call, syscall, parsing path, signal handler, etc. that `finding.json.summary` describes. **A test whose only assertion is that the package builds is forbidden.** "It builds" is not vuln-specific evidence.
-- The test's discriminating output MUST include both signal substrings in the appropriate runs (see `reproducer-log.txt` below). The test should explicitly emit them — e.g., `echo "vuln-triggered: malformed coredump captured"` on the unpatched path, `echo "rejected-coredump-during-suid-exec-change"` on the patched path. The test commits in advance to what its observation will be named.
+- The attrset MUST contain `unpatched` and `patched`, both derivations. Each MUST carry a `test` attribute reachable as `<side>.test` (the recommended pattern is `passthru.test`, which `stdenv.mkDerivation` hoists onto the derivation). Builder calls `.unpatched.test` and `.patched.test` independently — a single shared top-level `test` will fail with `attribute 'test' missing`. Additional helper derivations (fixtures, writeText, etc.) MAY live in the `let` bindings but MUST NOT appear as top-level attributes.
+- The recursion `unpatched.passthru.test` referencing `${unpatched}/bin/...` is fine — Nix string interpolation is lazy, and the `let`-binding is recursive. Same for `patched`. Each side's test MUST reference only its own side's binary (`${unpatched}/bin/...` in `unpatched.passthru.test`, `${patched}/bin/...` in `patched.passthru.test`). A cross-side reference defeats the per-side attribution.
+- Each test is a derivation that exercises the **CVE-class behaviour itself**. The function call, syscall, parsing path, signal handler, etc. that `finding.json.summary` describes. **A test whose only assertion is that the package builds is forbidden.** "It builds" is not vuln-specific evidence.
+- Each test's discriminating output MUST include its own signal substring (see `reproducer-log.txt` below). The test should explicitly emit it — e.g., `echo "SIGNAL_UNPATCHED: vuln-triggered: malformed coredump captured"` on the unpatched side, `echo "SIGNAL_PATCHED: rejected-coredump-during-suid-exec-change"` on the patched side. Each side commits in advance to what its observation will be named. The other side's signal MUST NOT appear in this side's output.
 - **Fetcher policy: two tiers.** Three classes are forbidden under all circumstances: `fetchpatch` (patches come from filtering `old.patches`, not network downloads), `builtins.fetchurl` and `builtins.fetchTarball` (impure / hash-less). Six classes — `fetchurl`, `fetchzip`, `fetchFromGitHub`, `fetchFromGitLab`, `fetchFromGitea`, `fetchgit` — are forbidden by default but allowed under the v0.1 **hash-pinned carve-out** for unpatched-src reconstruction. To use the carve-out, every call site of these six MUST contain a literal `hash = "sha256-<base64>"` or `hash = "sha512-<base64>"` (SRI form) in the argument block, AND any `rev`/`tag`/`ref` must be a specific value (no `"master"` / `"main"` / `"HEAD"` / `"refs/heads/..."`). `hash = fakeHash` defeats the carve-out. For inline fixtures use `pkgs.writeText` / `pkgs.writeScript`; do not invoke fetchers for fixture acquisition. The parser enforces both tiers at validation time.
 - No network. The build sandbox is offline; attempting to reach the network leaves a failed-tool-call trace that Steward will use as evidence to deny.
 - For proxy reproducers, the `test` derivation MUST carry `meta.proxy = true` plus the four required metadata fields (see "Proxy tests" below). Missing metadata makes the proxy malformed.
@@ -140,14 +153,8 @@ Suppose the CVE is "arbitrary file write in `foo` when parsing a crafted metadat
 { pkgs ? import <nixpkgs> { } }:
 
 let
-  unpatched = pkgs.foo.overrideAttrs (old: {
-    version = "X.Y.Z-pre-fix";  # restore pre-fix state per upstream-ref.current_version
-    # … src override / patch revert to drop the fix …
-  });
-  patched = pkgs.foo;
-
   # Inline the malicious metadata fixture. No fetch; pkgs.writeText creates
-  # the file as a Nix-store derivation and the test reads it locally.
+  # the file as a Nix-store derivation and both tests reference it locally.
   evil-metadata = pkgs.writeText "evil.metadata" ''
     <metadata>
       <file name="../../tmp/owned-by-cve-NNNN-MMMMM">
@@ -155,37 +162,50 @@ let
       </file>
     </metadata>
   '';
+
+  unpatched = pkgs.foo.overrideAttrs (old: {
+    version = "X.Y.Z-pre-fix";  # restore pre-fix state per upstream-ref.current_version
+    # … src override / patch revert to drop the fix …
+    passthru = (old.passthru or { }) // {
+      test = pkgs.runCommand "repro-CVE-NNNN-MMMMM-unpatched" { } ''
+        set +e
+        mkdir -p $TMPDIR/u && cd $TMPDIR/u
+        ${unpatched}/bin/foo --metadata=${evil-metadata}
+        if [ -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
+          echo "vuln-triggered: path-traversal wrote /tmp/owned-by-cve-NNNN-MMMMM outside CWD"
+        fi
+        echo "SIGNAL_UNPATCHED: vuln-triggered: path-traversal wrote /tmp/owned-by-cve-NNNN-MMMMM outside CWD"
+        rm -f /tmp/owned-by-cve-NNNN-MMMMM
+        touch $out
+      '';
+    };
+  });
+
+  patched = pkgs.foo.overrideAttrs (old: {
+    passthru = (old.passthru or { }) // {
+      test = pkgs.runCommand "repro-CVE-NNNN-MMMMM-patched" { } ''
+        set +e
+        mkdir -p $TMPDIR/p && cd $TMPDIR/p
+        ${patched}/bin/foo --metadata=${evil-metadata}
+        if [ ! -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
+          echo "rejected-malformed-metadata: path-traversal sanitised by RFC-5854 check"
+        fi
+        echo "SIGNAL_PATCHED: rejected-malformed-metadata: path-traversal sanitised by RFC-5854 check"
+        rm -f /tmp/owned-by-cve-NNNN-MMMMM
+        touch $out
+      '';
+    };
+  });
 in
 {
   inherit unpatched patched;
-
-  test = pkgs.runCommand "repro-CVE-NNNN-MMMMM" { } ''
-    set +e
-
-    # Unpatched path: traversal writes outside the working dir.
-    mkdir -p $TMPDIR/u && cd $TMPDIR/u
-    ${unpatched}/bin/foo --metadata=${evil-metadata}
-    if [ -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
-      echo "vuln-triggered: path-traversal wrote /tmp/owned-by-cve-NNNN-MMMMM outside CWD"
-    fi
-    rm -f /tmp/owned-by-cve-NNNN-MMMMM
-
-    # Patched path: traversal is sanitised; nothing written outside CWD.
-    mkdir -p $TMPDIR/p && cd $TMPDIR/p
-    ${patched}/bin/foo --metadata=${evil-metadata}
-    if [ ! -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
-      echo "rejected-malformed-metadata: path-traversal sanitised by RFC-5854 check"
-    fi
-
-    touch $out
-  '';
 }
 ```
 
 Key points:
-- `pkgs.writeText` builds the fixture as a Nix derivation. No network; no fetch; the fixture's contents are in your expression.
-- The test invokes `${unpatched}/bin/foo --metadata=${evil-metadata}` — the same binary, the same parser, the same surface, just fed from a local file instead of a wire.
-- The SIGNAL substrings are specific (`path-traversal wrote /tmp/owned-by-cve…`, `rejected-malformed-metadata: …`) — not generic words like `failed`.
+- `pkgs.writeText` builds the fixture as a Nix derivation. No network; no fetch; the fixture's contents are in your expression. The single `evil-metadata` binding is shared by both sides via lexical scope.
+- Each side's test invokes ONLY its own binary (`${unpatched}/bin/foo` in the unpatched side, `${patched}/bin/foo` in the patched side). Builder runs the two derivations independently, so the patched side never sees the unpatched stdout and vice versa.
+- Each side emits its own `SIGNAL_<state>:` declaration line. The SIGNAL substrings are specific (`path-traversal wrote /tmp/owned-by-cve…`, `rejected-malformed-metadata: …`) — not generic words like `failed`.
 
 The same shape generalises:
 - Parser-heavy crash: `pkgs.writeText "crash.bin" "${escaped malicious bytes}"`, then `${unpatched}/bin/affected < crash.bin`. SIGNAL_UNPATCHED = the segfault stderr signature; SIGNAL_PATCHED = the parser-rejection message.
@@ -214,18 +234,7 @@ let
     hash = "sha256-0tOoStZHr5opehFmuQdFRPYvOv8IMrDTBNFtoweY3VM=";
   };
 
-  unpatched = pkgs.wget2.overrideAttrs (old: {
-    version = "2.2.0";
-    src = unpatched-src;
-    # The original src may have carried additional fetcher attrs (e.g.
-    # `fetchSubmodules = true;`). Re-state them here if so. Keep the
-    # overrideAttrs strictly to fields that the version bump changed.
-  });
-
-  patched = pkgs.wget2;
-
-  # Inline fixture (per the previous worked example) — the malicious
-  # input the test feeds to both unpatched and patched binaries.
+  # Inline fixture — the malicious input each test feeds to its own binary.
   evil-metalink = pkgs.writeText "evil.metalink" ''
     <metalink>
       <file name="../../tmp/owned-by-cve-2025-69194">
@@ -233,27 +242,46 @@ let
       </file>
     </metalink>
   '';
+
+  unpatched = pkgs.wget2.overrideAttrs (old: {
+    version = "2.2.0";
+    src = unpatched-src;
+    # The original src may have carried additional fetcher attrs (e.g.
+    # `fetchSubmodules = true;`). Re-state them here if so. Keep the
+    # overrideAttrs strictly to fields that the version bump changed.
+    passthru = (old.passthru or { }) // {
+      test = pkgs.runCommand "repro-CVE-2025-69194-unpatched" { } ''
+        set +e
+        mkdir -p $TMPDIR/u && cd $TMPDIR/u
+        ${unpatched}/bin/wget2 --input-metalink=${evil-metalink} || true
+        if [ -e /tmp/owned-by-cve-2025-69194 ]; then
+          echo "vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD"
+        fi
+        echo "SIGNAL_UNPATCHED: vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD"
+        rm -f /tmp/owned-by-cve-2025-69194
+        touch $out
+      '';
+    };
+  });
+
+  patched = pkgs.wget2.overrideAttrs (old: {
+    passthru = (old.passthru or { }) // {
+      test = pkgs.runCommand "repro-CVE-2025-69194-patched" { } ''
+        set +e
+        mkdir -p $TMPDIR/p && cd $TMPDIR/p
+        ${patched}/bin/wget2 --input-metalink=${evil-metalink} || true
+        if [ ! -e /tmp/owned-by-cve-2025-69194 ]; then
+          echo "rejected-malformed-metalink: RFC-5854 path sanitisation refused traversal"
+        fi
+        echo "SIGNAL_PATCHED: rejected-malformed-metalink: RFC-5854 path sanitisation refused traversal"
+        rm -f /tmp/owned-by-cve-2025-69194
+        touch $out
+      '';
+    };
+  });
 in
 {
   inherit unpatched patched;
-
-  test = pkgs.runCommand "repro-CVE-2025-69194" { } ''
-    set +e
-    mkdir -p $TMPDIR/u && cd $TMPDIR/u
-    ${unpatched}/bin/wget2 --input-metalink=${evil-metalink} || true
-    if [ -e /tmp/owned-by-cve-2025-69194 ]; then
-      echo "vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD"
-    fi
-    rm -f /tmp/owned-by-cve-2025-69194
-
-    mkdir -p $TMPDIR/p && cd $TMPDIR/p
-    ${patched}/bin/wget2 --input-metalink=${evil-metalink} || true
-    if [ ! -e /tmp/owned-by-cve-2025-69194 ]; then
-      echo "rejected-malformed-metalink: RFC-5854 path sanitisation refused traversal"
-    fi
-
-    touch $out
-  '';
 }
 ```
 
