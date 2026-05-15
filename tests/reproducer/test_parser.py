@@ -315,21 +315,50 @@ def test_nix_missing_required_attribute_rejected(missing_attr: str) -> None:
         parse_reproducer_output(raw)
 
 
-@pytest.mark.parametrize("forbidden", [
+# ─── fetcher policy (v0.1 hash-pinned carve-out) ─────────────────────────
+
+
+@pytest.mark.parametrize("hard_forbidden", [
+    "fetchpatch",
+    "builtins.fetchurl",
+    "builtins.fetchTarball",
+])
+def test_hard_forbidden_fetcher_rejected(hard_forbidden: str) -> None:
+    """Three fetcher classes remain forbidden unconditionally even after
+    the hash-pinned carve-out: fetchpatch (patches must come from
+    `old.patches` filtering, not network downloads) and the
+    `builtins.*` variants (impure / hash-less)."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        f"  fixture = {hard_forbidden} {{ url = \"https://example.invalid/x\"; sha256 = \"...\"; }};\n"
+        "in {\n"
+        "  unpatched = pkgs.demo;\n"
+        "  patched = pkgs.demo;\n"
+        "  test = pkgs.runCommand \"r\" { } ''true'';\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    with pytest.raises(ReproducerOutputMalformed, match="forbidden fetcher"):
+        parse_reproducer_output(raw)
+
+
+@pytest.mark.parametrize("soft_forbidden", [
     "fetchurl",
     "fetchzip",
     "fetchFromGitHub",
     "fetchgit",
     "fetchFromGitLab",
-    "fetchpatch",
-    "builtins.fetchurl",
-    "builtins.fetchTarball",
+    "fetchFromGitea",
 ])
-def test_nix_forbidden_network_fetcher_rejected(forbidden: str) -> None:
+def test_hash_pinnable_fetcher_without_sri_hash_rejected(soft_forbidden: str) -> None:
+    """A hash-pinnable fetcher call with no SRI hash literal is still
+    rejected — the v0.1 carve-out only opens the gate for call sites
+    that carry the hash literal at the call site."""
     nix = (
         "{ pkgs ? import <nixpkgs> { } }:\n"
         "let\n"
-        f"  fixture = {forbidden} {{ url = \"https://example.invalid/x\"; sha256 = \"...\"; }};\n"
+        f"  fixture = {soft_forbidden} {{ url = \"https://example.invalid/x\"; sha256 = \"...\"; }};\n"
         "in {\n"
         "  unpatched = pkgs.demo;\n"
         "  patched = pkgs.demo;\n"
@@ -338,6 +367,108 @@ def test_nix_forbidden_network_fetcher_rejected(forbidden: str) -> None:
     )
     raw = _wrap_three_files(nix=nix)
     with pytest.raises(ReproducerOutputMalformed, match="forbidden network fetcher"):
+        parse_reproducer_output(raw)
+
+
+def test_hash_pinned_fetchFromGitLab_allowed_for_unpatched_reconstruction() -> None:
+    """The canonical v0.1 use case: reconstruct the unpatched src by
+    calling the original fetcher with the prior version's hash and tag
+    pinned at the call site. The wget2 case that surfaced the contract
+    limit on 2026-05-13."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  unpatched = pkgs.wget2.overrideAttrs (old: {\n"
+        "    version = \"2.2.0\";\n"
+        "    src = pkgs.fetchFromGitLab {\n"
+        "      owner = \"gnuwget\";\n"
+        "      repo = \"wget2\";\n"
+        "      tag = \"v2.2.0\";\n"
+        "      hash = \"sha256-0tOoStZHr5opehFmuQdFRPYvOv8IMrDTBNFtoweY3VM=\";\n"
+        "    };\n"
+        "  });\n"
+        "in {\n"
+        "  inherit unpatched;\n"
+        "  patched = pkgs.wget2;\n"
+        "  test = pkgs.runCommand \"r\" { } ''true'';\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    # Must not raise — hash literal + specific tag + no fakeHash.
+    parse_reproducer_output(raw)
+
+
+def test_hash_pinned_fetchFromGitHub_with_rev_allowed() -> None:
+    """Same carve-out for fetchFromGitHub with `rev = "v..."` instead of
+    `tag`."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  unpatched_src = pkgs.fetchFromGitHub {\n"
+        "    owner = \"org\";\n"
+        "    repo = \"name\";\n"
+        "    rev = \"v1.2.3\";\n"
+        "    hash = \"sha512-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh==\";\n"
+        "  };\n"
+        "in {\n"
+        "  unpatched = pkgs.demo.overrideAttrs (_: { src = unpatched_src; });\n"
+        "  patched = pkgs.demo;\n"
+        "  test = pkgs.runCommand \"r\" { } ''true'';\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    parse_reproducer_output(raw)
+
+
+def test_hash_pinned_fetcher_with_fakeHash_rejected() -> None:
+    """`hash = fakeHash` defeats the carve-out — it forces an FOD
+    mismatch at build time which is precisely the network-fetch event
+    we're guarding against."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  bad = pkgs.fetchFromGitLab {\n"
+        "    owner = \"o\"; repo = \"r\"; tag = \"v1\";\n"
+        "    hash = pkgs.lib.fakeHash;\n"
+        "  };\n"
+        "in {\n"
+        "  unpatched = pkgs.demo.overrideAttrs (_: { src = bad; });\n"
+        "  patched = pkgs.demo;\n"
+        "  test = pkgs.runCommand \"r\" { } ''true'';\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    with pytest.raises(ReproducerOutputMalformed, match="fakeHash"):
+        parse_reproducer_output(raw)
+
+
+@pytest.mark.parametrize("floating_assignment", [
+    'rev = "main"',
+    'rev = "master"',
+    'tag = "HEAD"',
+    'ref = "refs/heads/main"',
+])
+def test_hash_pinned_fetcher_with_floating_ref_rejected(floating_assignment: str) -> None:
+    """Even with a real SRI hash, a floating rev/tag/ref defeats the
+    carve-out: the hash literal would go stale the next time upstream
+    moves the branch, and the sandbox would then fail non-
+    reproducibly."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  bad = pkgs.fetchFromGitHub {\n"
+        "    owner = \"o\"; repo = \"r\";\n"
+        f"    {floating_assignment};\n"
+        "    hash = \"sha256-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh==\";\n"
+        "  };\n"
+        "in {\n"
+        "  unpatched = pkgs.demo.overrideAttrs (_: { src = bad; });\n"
+        "  patched = pkgs.demo;\n"
+        "  test = pkgs.runCommand \"r\" { } ''true'';\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    with pytest.raises(ReproducerOutputMalformed, match="floating"):
         parse_reproducer_output(raw)
 
 
