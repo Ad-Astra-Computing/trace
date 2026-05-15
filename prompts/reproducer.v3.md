@@ -138,7 +138,21 @@ Locked properties:
 - The attrset MUST contain `unpatched` and `patched`, both derivations. Each MUST carry a `test` attribute reachable as `<side>.test` (the recommended pattern is `passthru.test`, which `stdenv.mkDerivation` hoists onto the derivation). Builder calls `.unpatched.test` and `.patched.test` independently — a single shared top-level `test` will fail with `attribute 'test' missing`. Additional helper derivations (fixtures, writeText, etc.) MAY live in the `let` bindings but MUST NOT appear as top-level attributes.
 - The recursion `unpatched.passthru.test` referencing `${unpatched}/bin/...` is fine — Nix string interpolation is lazy, and the `let`-binding is recursive. Same for `patched`. Each side's test MUST reference only its own side's binary (`${unpatched}/bin/...` in `unpatched.passthru.test`, `${patched}/bin/...` in `patched.passthru.test`). A cross-side reference defeats the per-side attribution.
 - Each test is a derivation that exercises the **CVE-class behaviour itself**. The function call, syscall, parsing path, signal handler, etc. that `finding.json.summary` describes. **A test whose only assertion is that the package builds is forbidden.** "It builds" is not vuln-specific evidence.
-- Each test's discriminating output MUST include its own signal substring (see `reproducer-log.txt` below). The test should explicitly emit it — e.g., `echo "SIGNAL_UNPATCHED: vuln-triggered: malformed coredump captured"` on the unpatched side, `echo "SIGNAL_PATCHED: rejected-coredump-during-suid-exec-change"` on the patched side. Each side commits in advance to what its observation will be named. The other side's signal MUST NOT appear in this side's output.
+- **Predicate-gating: SIGNAL emission must be earned.** This is the core honesty contract. Every test follows a three-part script:
+  1. **Invoke the affected surface** — feed the malicious fixture / make the syscall / etc. — and capture stdout, stderr, and exit code.
+  2. **Check preconditions.** Did the binary actually exercise the affected code path? Common ways it might NOT have: the CLI flag is wrong and the binary printed a usage error; the binary couldn't find a required library; the binary exited before reading the fixture. If any precondition fails, the test MUST exit non-zero **before** the SIGNAL line. A reproducer that "passes" because the binary errored on a typo'd flag is a false positive, and false positives are worse than honest failures.
+  3. **Evaluate the discriminating predicate.** A boolean that is true ONLY when this side's expected behaviour occurred. On the unpatched side: did the vuln trigger as predicted (file written outside CWD, memory corruption signature in stderr, return-value mismatch, etc.)? On the patched side: did the fix's sanitisation / rejection / refusal occur as predicted? Prefer **positive identifying evidence** on both sides — a parser rejection message, a specific error log, a particular return code — over pure absence-checks (`! -e /tmp/owned`). An absence-check alone cannot distinguish "the fix worked" from "the binary never ran the affected code path." If only an absence-check is available, the test MUST also check that the *invocation actually exercised the affected surface* (e.g., that the binary read the fixture; that the parser was invoked; that the relevant function was called) and emit prose evidence in stdout explaining the absence.
+  4. **Emit SIGNAL only inside the success branch.** The `SIGNAL_<state>:` line is the LAST act of a test that passed its precondition AND its predicate. After the SIGNAL line, `touch $out` makes the derivation succeed. In the failure branches (precondition failed or predicate didn't fire), the test exits non-zero WITHOUT emitting the SIGNAL line.
+
+  Anti-patterns that look correct but are forbidden:
+
+  - `echo "SIGNAL_UNPATCHED: ..."` at the end of the script unconditionally, after an if/else that didn't gate it. The SIGNAL line MUST be reachable only through the success branch.
+  - SIGNAL emission immediately after `set +e` plus a swallowed-failure invocation (`${binary}/bin/x ... || true`) without any subsequent check that the binary actually exercised the affected code. The `|| true` is fine for capturing exit codes; the SIGNAL gate is what's missing.
+  - Patched-side predicates that are only `! -e <traversal-target>` with no precondition. If the binary refused the CLI flag entirely, the absence-check passes trivially.
+
+  Builder records each test's stdout, stderr, exit code, and `$out` path. The post-cert *Verify SIGNAL substrings* step greps for the SIGNAL line; the build's exit code determines whether the test succeeded at all. Both must agree: SIGNAL present AND build succeeded means the predicate fired honestly. SIGNAL absent OR build failed means the predicate did not fire, and the cert correctly rejects.
+
+- Each test's SIGNAL line, when emitted, MUST be the literal substring named in `reproducer-log.txt`. The other side's signal MUST NOT appear in this side's output (cross-side leakage would defeat per-side attribution).
 - **Fetcher policy: two tiers.** Three classes are forbidden under all circumstances: `fetchpatch` (patches come from filtering `old.patches`, not network downloads), `builtins.fetchurl` and `builtins.fetchTarball` (impure / hash-less). Six classes — `fetchurl`, `fetchzip`, `fetchFromGitHub`, `fetchFromGitLab`, `fetchFromGitea`, `fetchgit` — are forbidden by default but allowed under the v0.1 **hash-pinned carve-out** for unpatched-src reconstruction. To use the carve-out, every call site of these six MUST contain a literal `hash = "sha256-<base64>"` or `hash = "sha512-<base64>"` (SRI form) in the argument block, AND any `rev`/`tag`/`ref` must be a specific value (no `"master"` / `"main"` / `"HEAD"` / `"refs/heads/..."`). `hash = fakeHash` defeats the carve-out. For inline fixtures use `pkgs.writeText` / `pkgs.writeScript`; do not invoke fetchers for fixture acquisition. The parser enforces both tiers at validation time.
 - No network. The build sandbox is offline; attempting to reach the network leaves a failed-tool-call trace that Steward will use as evidence to deny.
 - For proxy reproducers, the `test` derivation MUST carry `meta.proxy = true` plus the four required metadata fields (see "Proxy tests" below). Missing metadata makes the proxy malformed.
@@ -168,15 +182,45 @@ let
     # … src override / patch revert to drop the fix …
     passthru = (old.passthru or { }) // {
       test = pkgs.runCommand "repro-CVE-NNNN-MMMMM-unpatched" { } ''
-        set +e
+        set -u
         mkdir -p $TMPDIR/u && cd $TMPDIR/u
-        ${unpatched}/bin/foo --metadata=${evil-metadata}
-        if [ -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
-          echo "vuln-triggered: path-traversal wrote /tmp/owned-by-cve-NNNN-MMMMM outside CWD"
+
+        # 1. Invoke the affected surface. Capture stdout/stderr/exit code
+        #    so subsequent checks can use them.
+        ${unpatched}/bin/foo --metadata=${evil-metadata} >run.out 2>run.err
+        rc=$?
+        cat run.out
+        cat run.err >&2
+
+        # 2. Precondition: the binary must have actually exercised the parser.
+        #    If --metadata is an unrecognised flag, or the binary aborted on
+        #    library load, the affected code path was never reached.
+        if grep -qE '^foo: (unrecognized|unknown) (option|flag)|usage: foo' run.err; then
+          echo "PRECONDITION FAILED: unpatched binary did not exercise the metadata parser (errored on usage)"
+          exit 2
         fi
-        echo "SIGNAL_UNPATCHED: vuln-triggered: path-traversal wrote /tmp/owned-by-cve-NNNN-MMMMM outside CWD"
-        rm -f /tmp/owned-by-cve-NNNN-MMMMM
-        touch $out
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+          # rc==0: parser ran clean (vuln may or may not have triggered)
+          # rc==1: parser ran, raised non-fatal error (acceptable for some CVEs)
+          # any other rc indicates a different failure mode; investigate.
+          echo "PRECONDITION FAILED: unpatched binary exited rc=$rc, expected 0 or 1"
+          exit 3
+        fi
+
+        # 3. Discriminating predicate: did the traversal succeed?
+        if [ -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
+          # Positive evidence: the unpatched parser wrote the traversal target.
+          # SIGNAL line is INSIDE this branch. It is emitted only when the
+          # predicate fires.
+          echo "vuln-triggered: path-traversal wrote /tmp/owned-by-cve-NNNN-MMMMM outside CWD"
+          echo "SIGNAL_UNPATCHED: vuln-triggered: path-traversal wrote /tmp/owned-by-cve-NNNN-MMMMM outside CWD"
+          rm -f /tmp/owned-by-cve-NNNN-MMMMM
+          touch $out
+        else
+          echo "PREDICATE FAILED: unpatched binary did not write the traversal target — either the CVE summary is wrong or the binary's behaviour drifted"
+          rm -f /tmp/owned-by-cve-NNNN-MMMMM
+          exit 4
+        fi
       '';
     };
   });
@@ -184,15 +228,51 @@ let
   patched = pkgs.foo.overrideAttrs (old: {
     passthru = (old.passthru or { }) // {
       test = pkgs.runCommand "repro-CVE-NNNN-MMMMM-patched" { } ''
-        set +e
+        set -u
         mkdir -p $TMPDIR/p && cd $TMPDIR/p
-        ${patched}/bin/foo --metadata=${evil-metadata}
-        if [ ! -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
-          echo "rejected-malformed-metadata: path-traversal sanitised by RFC-5854 check"
+
+        # 1. Invoke same surface with same fixture.
+        ${patched}/bin/foo --metadata=${evil-metadata} >run.out 2>run.err
+        rc=$?
+        cat run.out
+        cat run.err >&2
+
+        # 2. Precondition — same shape as unpatched. If the patched binary
+        #    rejects the CLI flag, we'd get a misleading clean run.
+        if grep -qE '^foo: (unrecognized|unknown) (option|flag)|usage: foo' run.err; then
+          echo "PRECONDITION FAILED: patched binary did not exercise the metadata parser (errored on usage)"
+          exit 2
         fi
-        echo "SIGNAL_PATCHED: rejected-malformed-metadata: path-traversal sanitised by RFC-5854 check"
-        rm -f /tmp/owned-by-cve-NNNN-MMMMM
-        touch $out
+
+        # 3. Discriminating predicate. Prefer POSITIVE identification of the
+        #    fix's behaviour over a pure absence-check.
+        #    Positive: parser emitted a rejection message naming the input class.
+        #    Negative-with-precondition: traversal target absent AND we have
+        #    evidence the binary did process the metadata file (e.g., the
+        #    binary recognised the input file at all, even if it silently
+        #    refused the traversal).
+        if grep -qF 'rejected-malformed-metadata: RFC-5854 check' run.err && \
+           [ ! -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
+          # Positive evidence path
+          echo "rejected-malformed-metadata: path-traversal sanitised by RFC-5854 check"
+          echo "SIGNAL_PATCHED: rejected-malformed-metadata: path-traversal sanitised by RFC-5854 check"
+          rm -f /tmp/owned-by-cve-NNNN-MMMMM
+          touch $out
+        elif grep -qE 'metadata: parsed [0-9]+ entries' run.err && \
+             [ ! -e /tmp/owned-by-cve-NNNN-MMMMM ]; then
+          # Silent-refusal path: parser DID process the metadata (evidence
+          # in stderr), but the traversal target was not written. The fix
+          # silently dropped the malformed entry rather than emitting a
+          # rejection message.
+          echo "silently-refused-malformed-metadata: parser processed the file but suppressed the path-traversal entry"
+          echo "SIGNAL_PATCHED: silently-refused-malformed-metadata: parser processed the file but suppressed the path-traversal entry"
+          rm -f /tmp/owned-by-cve-NNNN-MMMMM
+          touch $out
+        else
+          echo "PREDICATE FAILED: patched binary's behaviour did not match either expected fix path"
+          rm -f /tmp/owned-by-cve-NNNN-MMMMM
+          exit 4
+        fi
       '';
     };
   });
@@ -205,7 +285,9 @@ in
 Key points:
 - `pkgs.writeText` builds the fixture as a Nix derivation. No network; no fetch; the fixture's contents are in your expression. The single `evil-metadata` binding is shared by both sides via lexical scope.
 - Each side's test invokes ONLY its own binary (`${unpatched}/bin/foo` in the unpatched side, `${patched}/bin/foo` in the patched side). Builder runs the two derivations independently, so the patched side never sees the unpatched stdout and vice versa.
-- Each side emits its own `SIGNAL_<state>:` declaration line. The SIGNAL substrings are specific (`path-traversal wrote /tmp/owned-by-cve…`, `rejected-malformed-metadata: …`) — not generic words like `failed`.
+- **The SIGNAL line is INSIDE the success branch.** A precondition failure (binary errored on CLI flag, library load, etc.) exits non-zero before SIGNAL emission. A predicate-not-fired exit is also non-zero. A SIGNAL substring present in Builder's stdout capture is therefore proof that BOTH the precondition AND the predicate fired.
+- **The patched side prefers positive evidence over absence-checks.** If the fix's sanitisation emits an identifiable rejection message, grep for it. If the fix silently drops the malformed input, the test must independently confirm the binary processed the fixture at all (so an absence-check can mean "fix worked" rather than "binary never ran"). Pure-absence patched-side predicates are forbidden without that confirmation.
+- The SIGNAL substrings are specific (`path-traversal wrote /tmp/owned-by-cve…`, `rejected-malformed-metadata: …`, `silently-refused-malformed-metadata: …`) — not generic words like `failed`.
 
 The same shape generalises:
 - Parser-heavy crash: `pkgs.writeText "crash.bin" "${escaped malicious bytes}"`, then `${unpatched}/bin/affected < crash.bin`. SIGNAL_UNPATCHED = the segfault stderr signature; SIGNAL_PATCHED = the parser-rejection message.
@@ -251,15 +333,38 @@ let
     # overrideAttrs strictly to fields that the version bump changed.
     passthru = (old.passthru or { }) // {
       test = pkgs.runCommand "repro-CVE-2025-69194-unpatched" { } ''
-        set +e
+        set -u
         mkdir -p $TMPDIR/u && cd $TMPDIR/u
-        ${unpatched}/bin/wget2 --input-metalink=${evil-metalink} || true
+
+        # 1. Invoke. Use the actual wget2 metalink-input flag; verify in
+        #    upstream-ref.json or `${unpatched}/bin/wget2 --help` (out of
+        #    band — you cannot run --help inside the test) which flag the
+        #    affected version accepts. Common variants: --input-metalink,
+        #    --metalink-file, -i (with file containing the metalink).
+        ${unpatched}/bin/wget2 --input-metalink=${evil-metalink} >run.out 2>run.err
+        rc=$?
+        cat run.out
+        cat run.err >&2
+
+        # 2. Precondition: wget2 must have actually parsed the metalink.
+        #    If it errored on an unknown CLI option, the metalink parser
+        #    was never invoked and any subsequent check is a false positive.
+        if grep -qE "Unknown option|unrecognized option|usage: wget2" run.err; then
+          echo "PRECONDITION FAILED: wget2 rejected the CLI flag — the metalink parser was not exercised. The reproducer is using the wrong flag for this version."
+          exit 2
+        fi
+
+        # 3. Discriminating predicate: did the traversal succeed?
         if [ -e /tmp/owned-by-cve-2025-69194 ]; then
           echo "vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD"
+          echo "SIGNAL_UNPATCHED: vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD"
+          rm -f /tmp/owned-by-cve-2025-69194
+          touch $out
+        else
+          echo "PREDICATE FAILED: wget2 2.2.0 did not write the traversal target. Either the CVE PoC needs different metalink shape, or the unpatched src reconstruction is incomplete."
+          rm -f /tmp/owned-by-cve-2025-69194
+          exit 4
         fi
-        echo "SIGNAL_UNPATCHED: vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD"
-        rm -f /tmp/owned-by-cve-2025-69194
-        touch $out
       '';
     };
   });
@@ -267,15 +372,45 @@ let
   patched = pkgs.wget2.overrideAttrs (old: {
     passthru = (old.passthru or { }) // {
       test = pkgs.runCommand "repro-CVE-2025-69194-patched" { } ''
-        set +e
+        set -u
         mkdir -p $TMPDIR/p && cd $TMPDIR/p
-        ${patched}/bin/wget2 --input-metalink=${evil-metalink} || true
-        if [ ! -e /tmp/owned-by-cve-2025-69194 ]; then
-          echo "rejected-malformed-metalink: RFC-5854 path sanitisation refused traversal"
+
+        # 1. Invoke same surface, same fixture, against patched binary.
+        ${patched}/bin/wget2 --input-metalink=${evil-metalink} >run.out 2>run.err
+        rc=$?
+        cat run.out
+        cat run.err >&2
+
+        # 2. Precondition: same as unpatched. Wrong CLI flag would trivially
+        #    pass any absence-check.
+        if grep -qE "Unknown option|unrecognized option|usage: wget2" run.err; then
+          echo "PRECONDITION FAILED: patched wget2 rejected the CLI flag — the metalink parser was not exercised."
+          exit 2
         fi
-        echo "SIGNAL_PATCHED: rejected-malformed-metalink: RFC-5854 path sanitisation refused traversal"
-        rm -f /tmp/owned-by-cve-2025-69194
-        touch $out
+
+        # 3. Discriminating predicate. Prefer the parser-rejection message
+        #    from the fix (commit 684be47 emits an RFC-5854 error to stderr
+        #    on the offending entry). Pure absence-check is a fallback.
+        if grep -qE "metalink.*(unsafe|sanitiz|RFC[- ]?5854|invalid|reject)" run.err && \
+           [ ! -e /tmp/owned-by-cve-2025-69194 ]; then
+          echo "rejected-malformed-metalink: RFC-5854 path sanitisation refused traversal"
+          echo "SIGNAL_PATCHED: rejected-malformed-metalink: RFC-5854 path sanitisation refused traversal"
+          rm -f /tmp/owned-by-cve-2025-69194
+          touch $out
+        elif grep -qE "wget2.*1\.[0-9]+|metalink.*[0-9]+ files" run.err && \
+             [ ! -e /tmp/owned-by-cve-2025-69194 ]; then
+          # Fallback: parser was invoked (we have wget2's own metalink-
+          # processing output in stderr), but the traversal target wasn't
+          # written. The fix silently dropped the malformed entry.
+          echo "silently-refused-malformed-metalink: metalink parser ran but suppressed the path-traversal entry"
+          echo "SIGNAL_PATCHED: silently-refused-malformed-metalink: metalink parser ran but suppressed the path-traversal entry"
+          rm -f /tmp/owned-by-cve-2025-69194
+          touch $out
+        else
+          echo "PREDICATE FAILED: patched wget2 did not produce the expected sanitisation behaviour. stderr did not match a rejection message AND we cannot independently confirm the metalink parser ran."
+          rm -f /tmp/owned-by-cve-2025-69194
+          exit 4
+        fi
       '';
     };
   });
@@ -327,7 +462,7 @@ EXIT: 0
 - **Length bounds.** Each signal substring is ≥ 24 characters and ≤ 200 characters. Shorter is gameable noise; longer is brittle.
 - **Forbidden generic tokens.** A signal whose entire content is one of the following (exact match, after stripping leading and trailing whitespace) is invalid: `error`, `error:`, `failed`, `failure`, `assertion failed`, `aborted`, `core dumped`, `success`, `ok`, `passed`, `done`, `complete`, `exit code 0`, `exit code 1`, `exit status 0`, `exit status 1`, the empty string, or any whitespace-only string. The signal must be specifically tied to the CVE-class outcome — function name + observed misbehaviour, parser-rejection message naming the malformed input class, sandboxed kernel oops fragment, etc.
 - **Distinct signals.** `SIGNAL_UNPATCHED` and `SIGNAL_PATCHED` must NOT be substrings of each other. Identical signals or substring-prefix relationships defeat the discrimination contract.
-- **Test must actually emit them.** Both substrings must be text the `test` derivation explicitly produces in its respective run. Builder verifies presence; the model commits in advance to what those names will be.
+- **Test must actually emit them, only from the success branch.** Both substrings must be text the `test` derivation explicitly produces in its respective run, AND the emission must be inside the success branch of the predicate-gating control flow (see "Predicate-gating: SIGNAL emission must be earned" under reproducer.nix locked properties). A test that emits the SIGNAL line unconditionally after a swallowed-failure invocation defeats the contract — the test would "pass" even when the affected code path was never exercised. Builder verifies presence in the actual run; the build's exit code (0 / non-zero) determines whether the predicate fired.
 
 The two `EXIT:` lines record predicted exit codes. Builder records the actual exit codes. Mismatch is a scorer signal but not a refusal trigger; signal-substring presence is the load-bearing oracle.
 
