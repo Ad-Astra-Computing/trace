@@ -284,6 +284,18 @@ EXIT: <integer exit code>
 
 Locked properties on the two SIGNAL lines:
 
+- **Structural lines, not stdout echoes.** `SIGNAL_UNPATCHED:` and `SIGNAL_PATCHED:` are REQUIRED structural marker lines, each appearing exactly once in its own section. The parser greps lines starting with `SIGNAL_UNPATCHED:` / `SIGNAL_PATCHED:` (case-sensitive); the value after the colon is the signal substring. If your test echoes the substring verbatim to stdout (it should — Builder verifies presence in the actual run), you must STILL emit a separate `SIGNAL_<state>:` line declaring which substring is the signal. Do not collapse the two: the predicted-stdout line shows what the test will print, and the `SIGNAL_<state>:` line names which token in that stdout is the load-bearing oracle. Example:
+
+```
+=== unpatched ===
+The unpatched test feeds wget2 a crafted metalink to trigger path-traversal.
+vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD
+SIGNAL_UNPATCHED: vuln-triggered: metalink path-traversal wrote /tmp/owned-by-cve-2025-69194 outside CWD
+EXIT: 0
+```
+
+(Note the repetition — that's intentional. The predicted-stdout line is the run trace; the SIGNAL line is the contract declaration. The parser requires the latter.)
+
 - **Length bounds.** Each signal substring is ≥ 24 characters and ≤ 200 characters. Shorter is gameable noise; longer is brittle.
 - **Forbidden generic tokens.** A signal whose entire content is one of the following (exact match, after stripping leading and trailing whitespace) is invalid: `error`, `error:`, `failed`, `failure`, `assertion failed`, `aborted`, `core dumped`, `success`, `ok`, `passed`, `done`, `complete`, `exit code 0`, `exit code 1`, `exit status 0`, `exit status 1`, the empty string, or any whitespace-only string. The signal must be specifically tied to the CVE-class outcome — function name + observed misbehaviour, parser-rejection message naming the malformed input class, sandboxed kernel oops fragment, etc.
 - **Distinct signals.** `SIGNAL_UNPATCHED` and `SIGNAL_PATCHED` must NOT be substrings of each other. Identical signals or substring-prefix relationships defeat the discrimination contract.

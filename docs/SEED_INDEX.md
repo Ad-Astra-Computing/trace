@@ -16,7 +16,7 @@ The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exerc
 | [`CVE-2025-7207--mruby`](../traces/example/CVE-2025-7207--mruby/) | human-review-required | deterministic-no-model | `cross-family-pair-unavailable` route; PoC-public-but-sandbox-silent class |
 | [`CVE-2025-9230--openssl_3`](../traces/example/CVE-2025-9230--openssl_3/) | human-review-required | model-attested (Patcher) | `blast-radius-exceeds-threshold` on a transitive dependency of almost the entire tree |
 | [`CVE-2026-25949--traefik`](../traces/example/CVE-2026-25949--traefik/) | human-review-required | model-attested (Patcher + Reviewer) | first live Patcher run; reclassified `ineligible-cherry-pick-required` after Linux cert surfaced a Go-toolchain dependency outside Patcher contract (DECISIONS 2026-05-13) |
-| [`CVE-2025-69194--wget2`](../traces/example/CVE-2025-69194--wget2/) | human-review-required | model-attested (Patcher + Reviewer + Reproducer) | first model-attested sandbox-positive attempt; Reviewer caught a fetchzip prefetch bug; preserved as evidence of cross-family Reviewer value (DECISIONS 2026-05-13) |
+| [`CVE-2025-69194--wget2`](../traces/example/CVE-2025-69194--wget2/) | auto-merge | model-attested (Patcher + Reviewer + Reproducer) | first fully model-attested sandbox-positive bundle in the corpus; uses the v0.1 hash-pinned FOD carve-out (DECISIONS 2026-05-15). Pending bundle-linux-cert.yml dispatch for build.json before Steward allow (currently steward_expected=invalid under rule-6) |
 
 ## Per-bundle detail
 
