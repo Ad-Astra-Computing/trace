@@ -201,3 +201,4 @@
 {"schema_version":"1.0.0","run_at":"2026-05-16T19:32:40Z","window_since":"2026-05-16T18:06:24Z","window_source":"cursor:2026-05-16T18:06:24Z","run_id":"25970917271","discovered":0,"processed":0,"actions":{},"resolver_verdicts":{}}
 {"schema_version":"1.0.0","run_at":"2026-05-16T21:04:37Z","window_since":"2026-05-16T19:32:40Z","window_source":"cursor:2026-05-16T19:32:40Z","run_id":"25972899706","discovered":0,"processed":0,"actions":{},"resolver_verdicts":{}}
 {"schema_version":"1.0.0","run_at":"2026-05-16T22:05:26Z","window_since":"2026-05-16T21:04:37Z","window_source":"cursor:2026-05-16T21:04:37Z","run_id":"25974152398","discovered":0,"processed":0,"actions":{},"resolver_verdicts":{}}
+{"schema_version":"1.0.0","run_at":"2026-05-16T23:08:47Z","window_since":"2026-05-16T22:05:26Z","window_source":"cursor:2026-05-16T22:05:26Z","run_id":"25975398802","discovered":1,"processed":1,"actions":{"skipped-irrelevant":1},"resolver_verdicts":{}}
