@@ -341,7 +341,7 @@ let
         #    band — you cannot run --help inside the test) which flag the
         #    affected version accepts. Common variants: --input-metalink,
         #    --metalink-file, -i (with file containing the metalink).
-        ${unpatched}/bin/wget2 --input-metalink=${evil-metalink} >run.out 2>run.err
+        ${unpatched}/bin/wget2 --force-metalink -i ${evil-metalink} >run.out 2>run.err
         rc=$?
         cat run.out
         cat run.err >&2

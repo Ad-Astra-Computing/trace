@@ -680,3 +680,38 @@ def test_oversize_log_truncated_with_sha256_recorded(tmp_path: Path) -> None:
     assert len(pb["stdout_stderr_log_sha256"]) == 64
     # full_logs preserves the untruncated text.
     assert len(result.full_logs["patched_build"]) == 80000
+
+
+# ─── reproducer-side nixpkgs pin ──────────────────────────────────────────
+
+
+def test_repro_nix_expression_unpinned_uses_system_nixpkgs(tmp_path: Path) -> None:
+    """Default form: no pin → reproducer.nix invoked with `{}`, so its
+    `pkgs ? import <nixpkgs> {}` default resolves via NIX_PATH."""
+    from agents.builder.runner import _repro_nix_expression
+
+    repro = tmp_path / "reproducer.nix"
+    repro.write_text("{ pkgs ? import <nixpkgs> {} }: { unpatched = {}; patched = {}; }")
+    expr = _repro_nix_expression(repro, attr_in_repro="unpatched.test")
+    assert "(import" in expr
+    assert ".unpatched.test)" in expr
+    # No nixpkgs-pin override
+    assert "pkgs = import" not in expr
+
+
+def test_repro_nix_expression_pinned_passes_nixpkgs_path(tmp_path: Path) -> None:
+    """With nixpkgs_pin, reproducer.nix is invoked with `{ pkgs = import
+    <pin> {}; }` so `pkgs.<attr>` references bind to the bundle's pinned
+    tree, not the system default. This is what keeps reproducer-side
+    behaviour deterministic against the bundle's nixpkgs_rev."""
+    from agents.builder.runner import _repro_nix_expression
+
+    repro = tmp_path / "reproducer.nix"
+    repro.write_text("{ pkgs ? import <nixpkgs> {} }: { unpatched = {}; patched = {}; }")
+    pin = tmp_path / "nixpkgs-checkout"
+    pin.mkdir()
+    expr = _repro_nix_expression(
+        repro, attr_in_repro="patched.test", nixpkgs_pin=pin,
+    )
+    assert f"pkgs = import {pin.resolve()}" in expr
+    assert ".patched.test)" in expr
