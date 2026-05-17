@@ -198,6 +198,7 @@ def run_builder(
         unpatched_outcome = build_runner.run(
             nix_expression=_repro_nix_expression(
                 reproducer_nix_path, attr_in_repro="unpatched.test",
+                nixpkgs_pin=nixpkgs_checkout,
             ),
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
             timeout_seconds=timeout_seconds_per_build,
@@ -209,6 +210,7 @@ def run_builder(
         patched_repro_outcome = build_runner.run(
             nix_expression=_repro_nix_expression(
                 reproducer_nix_path, attr_in_repro="patched.test",
+                nixpkgs_pin=nixpkgs_checkout,
             ),
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
             timeout_seconds=timeout_seconds_per_build,
@@ -774,15 +776,35 @@ def _no_check_expression(attr: str) -> str:
     )
 
 
-def _repro_nix_expression(reproducer_nix_path: Path, *, attr_in_repro: str) -> str:
+def _repro_nix_expression(
+    reproducer_nix_path: Path,
+    *,
+    attr_in_repro: str,
+    nixpkgs_pin: Path | None = None,
+) -> str:
     """Build a Nix expression that imports reproducer.nix and selects an attr.
 
     v0 form: `((import <abs-path> {}).<attr>)`. Builder runs nix-build
     against this expression; the BuildRunner captures stdout/stderr,
     which is what the reproducer scorers grep for SIGNAL_UNPATCHED /
     SIGNAL_PATCHED substrings.
+
+    When `nixpkgs_pin` is provided, reproducer.nix is invoked with
+    `pkgs = import <nixpkgs-pin> {}` overriding the default
+    `pkgs ? import <nixpkgs> {}`. This ensures `pkgs.<attr>` references
+    inside reproducer.nix resolve against the bundle's pinned nixpkgs
+    tree (with any patch-apply state in effect), not the system's
+    NIX_PATH-resolved default. Without this pin, reproducer-side
+    behaviour drifts on hosts where the system nixpkgs has moved past
+    the bundle's rev.
     """
     abs_path = str(reproducer_nix_path.resolve())
+    if nixpkgs_pin is not None:
+        pin_abs = str(nixpkgs_pin.resolve())
+        return (
+            f"((import {abs_path} {{ pkgs = import {pin_abs} {{}}; }})"
+            f".{attr_in_repro})"
+        )
     return f"((import {abs_path} {{}}).{attr_in_repro})"
 
 
