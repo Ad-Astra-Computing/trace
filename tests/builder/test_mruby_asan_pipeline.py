@@ -141,24 +141,25 @@ def test_mruby_asan_pipeline_scores_1_0_unpatched_fails_and_patched_passes(
 ) -> None:
     bundle = _scaffold_mruby_bundle(tmp_path)
 
-    # Three FakeBuildRunner responses, in the order Builder dispatches:
-    #   1. patched-build sanity check (not instrumented)
-    #   2. unpatched reproducer-run (instrumentation=asan)
-    #   3. patched reproducer-run   (instrumentation=asan)
+    # Three FakeBuildRunner responses, in the order Builder dispatches
+    # (per F7 / DECISIONS 2026-05-17):
+    #   1. unpatched reproducer-run (instrumentation=asan, pre-patch tree)
+    #   2. patched-build sanity check (not instrumented, post-patch tree)
+    #   3. patched reproducer-run   (instrumentation=asan, post-patch tree)
     captured: dict[str, FakeBuildRunner] = {}
 
     def factory() -> FakeBuildRunner:
         runner = FakeBuildRunner(responses=[
             BuildOutcome(
-                exit_code=0, drv_path=None,
-                out_path="/nix/store/x-mruby-patched-build",
-                stdout_stderr="patched-build ok\n", elapsed_seconds=1.0,
-            ),
-            BuildOutcome(
                 exit_code=1, drv_path=None,
                 out_path=None,
                 stdout_stderr=_UNPATCHED_ASAN_STDERR,
                 elapsed_seconds=12.5,
+            ),
+            BuildOutcome(
+                exit_code=0, drv_path=None,
+                out_path="/nix/store/x-mruby-patched-build",
+                stdout_stderr="patched-build ok\n", elapsed_seconds=1.0,
             ),
             BuildOutcome(
                 exit_code=0, drv_path=None,
@@ -185,12 +186,12 @@ def test_mruby_asan_pipeline_scores_1_0_unpatched_fails_and_patched_passes(
     assert bj["instrumentation"] == "asan"
     calls = captured["runner"].calls
     assert len(calls) == 3
-    # patched-build sanity check: NOT instrumented (per BUILDER_V1.md §2.6,
-    # only the reproducer-run phases get the flag).
-    assert calls[0]["instrumentation"] is None
-    # Both reproducer phases get instrumentation=asan.
-    assert calls[1]["instrumentation"] == "asan"
-    assert calls[2]["instrumentation"] == "asan"
+    # Order under F7: unpatched (asan), patched-build (none), patched (asan).
+    # patched-build sanity check is intentionally NOT instrumented
+    # (per BUILDER_V1.md §2.6, only the reproducer-run phases get the flag).
+    assert calls[0]["instrumentation"] == "asan"  # unpatched reproducer
+    assert calls[1]["instrumentation"] is None    # patched-build sanity
+    assert calls[2]["instrumentation"] == "asan"  # patched reproducer
 
     # ── build.json carries the realistic stdout/stderr. ─────────────────
     assert "AddressSanitizer: heap-buffer-overflow" in bj["unpatched"]["stdout_stderr"]
@@ -241,8 +242,8 @@ def test_mruby_asan_pipeline_unpatched_signal_absent_drops_to_zero(
     bundle = _scaffold_mruby_bundle(tmp_path)
 
     def factory() -> FakeBuildRunner:
+        # Order under F7: unpatched, patched-build, patched.
         return FakeBuildRunner(responses=[
-            BuildOutcome(0, None, "/nix/store/x", "ok\n", 1.0),
             # Unpatched ran but no ASAN diagnostic — e.g. instrumentation
             # didn't take effect.
             BuildOutcome(
@@ -250,6 +251,7 @@ def test_mruby_asan_pipeline_unpatched_signal_absent_drops_to_zero(
                 stdout_stderr="some unrelated mruby output, no ASAN\n",
                 elapsed_seconds=10.0,
             ),
+            BuildOutcome(0, None, "/nix/store/x", "ok\n", 1.0),
             BuildOutcome(
                 exit_code=0, drv_path=None, out_path="/nix/store/x",
                 stdout_stderr=_PATCHED_STDERR,

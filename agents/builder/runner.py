@@ -135,7 +135,10 @@ def run_builder(
         and not reproducer_refusal_path.is_file()
     )
 
-    # ── §2.1. patch-apply ───────────────────────────────────────────────
+    # ── §2.1. patch-presence check ──────────────────────────────────────
+    # patch_apply itself happens later (§2.2b), AFTER the unpatched
+    # reproducer-run, so that unpatched.test evaluates against the
+    # PRE-patch nixpkgs tree. See F7 / DECISIONS 2026-05-17.
     if not has_patch:
         patch_apply = _patch_apply_skipped("no-patch-or-patcher-refused")
         return _refused_result(
@@ -145,6 +148,41 @@ def run_builder(
             dispatch_outcome="refused-no-patch",
             instrumentation=instrumentation,
         )
+
+    # ── §2.2a. unpatched reproducer (PRE-patch tree) ────────────────────
+    # `pkgs.<attr>` in the unpatched override must resolve against the
+    # bundle's pinned nixpkgs at its UNMODIFIED state — without the
+    # trace `patch.diff` applied yet. This is the F7 fix: when patch.diff
+    # drops a nixpkgs-side patch that the prior version still needed,
+    # the unpatched reconstruction must see the pre-drop patches list.
+    if has_reproducer:
+        unpatched_outcome = build_runner.run(
+            nix_expression=_repro_nix_expression(
+                reproducer_nix_path, attr_in_repro="unpatched.test",
+                nixpkgs_pin=nixpkgs_checkout,
+            ),
+            cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
+            timeout_seconds=timeout_seconds_per_build,
+            instrumentation=instrumentation,
+        )
+        unpatched_phase, unpatched_full = _build_phase_block(
+            unpatched_outcome, applied=True, attr="unpatched.test",
+        )
+    else:
+        unpatched_phase = {
+            "applied": False,
+            "outcome": "skipped",
+            "exit_code": None,
+            "drv_path": None,
+            "out_path": None,
+            "elapsed_seconds": None,
+            "stdout_stderr": "",
+            "stdout_stderr_log_sha256": None,
+            "reason": "no-reproducer-or-reproducer-refused",
+        }
+        unpatched_full = ""
+
+    # ── §2.2b. patch-apply ──────────────────────────────────────────────
     if not apply_patch or nixpkgs_checkout is None:
         patch_apply = {
             "applied": False,
@@ -164,15 +202,17 @@ def run_builder(
                 cve_id=cve_id, bundle_id=bundle_id, nixpkgs_rev=nixpkgs_rev,
                 host=host, started_at=started_at,
                 patch_apply=patch_apply,
+                unpatched_phase=unpatched_phase,
+                unpatched_full=unpatched_full,
                 instrumentation=instrumentation,
             )
 
-    # ── §2.2. patched-build ─────────────────────────────────────────────
+    # ── §2.3. patched-build (POST-patch tree) ───────────────────────────
     # When disable_doCheck=true (reproducer-instrumentation.json knob, per
     # docs/REPRODUCER_V1.md §2.7), wrap the attr in an overrideAttrs
     # expression that turns off the check phase. The CVE-class regression
-    # dimension is covered by §2.3's reproducer-runs; patched-build is
-    # just a build-succeeds sanity phase, and a 30+ minute check suite
+    # dimension is covered by §2.4's patched-reproducer run; patched-build
+    # is just a build-succeeds sanity phase, and a 30+ minute check suite
     # is wasted CI time for slow-check packages like libtiff.
     if attr:
         if disable_doCheck:
@@ -193,20 +233,8 @@ def run_builder(
         patched_outcome, applied=True, attr=attr,
     )
 
-    # ── §2.3. reproducer-runs ───────────────────────────────────────────
+    # ── §2.4. patched reproducer (POST-patch tree) ──────────────────────
     if has_reproducer:
-        unpatched_outcome = build_runner.run(
-            nix_expression=_repro_nix_expression(
-                reproducer_nix_path, attr_in_repro="unpatched.test",
-                nixpkgs_pin=nixpkgs_checkout,
-            ),
-            cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
-            timeout_seconds=timeout_seconds_per_build,
-            instrumentation=instrumentation,
-        )
-        unpatched_phase, unpatched_full = _build_phase_block(
-            unpatched_outcome, applied=True, attr="unpatched.test",
-        )
         patched_repro_outcome = build_runner.run(
             nix_expression=_repro_nix_expression(
                 reproducer_nix_path, attr_in_repro="patched.test",
@@ -220,19 +248,7 @@ def run_builder(
             patched_repro_outcome, applied=True, attr="patched.test",
         )
     else:
-        unpatched_phase = {
-            "applied": False,
-            "outcome": "skipped",
-            "exit_code": None,
-            "drv_path": None,
-            "out_path": None,
-            "elapsed_seconds": None,
-            "stdout_stderr": "",
-            "stdout_stderr_log_sha256": None,
-            "reason": "no-reproducer-or-reproducer-refused",
-        }
         patched_repro_phase = dict(unpatched_phase)
-        unpatched_full = ""
         patched_repro_full = ""
 
     # ── §2.4. passthru-tests-enumeration ────────────────────────────────
@@ -530,8 +546,18 @@ def _patch_apply_failed_result(
     host: dict[str, str],
     started_at: str,
     patch_apply: dict[str, Any],
+    unpatched_phase: dict[str, Any] | None = None,
+    unpatched_full: str = "",
     instrumentation: str | None = None,
 ) -> BuilderRunResult:
+    """Return a patch-apply-failed result.
+
+    `unpatched_phase` is the §2.2a unpatched reproducer block (pre-patch
+    tree), which runs BEFORE patch-apply. When patch-apply subsequently
+    fails, the unpatched block is still meaningful evidence and is
+    preserved in build.json. When the caller didn't compute one (e.g.,
+    no reproducer present), pass None to record a `skipped` block.
+    """
     skipped_phase = {
         "applied": False,
         "outcome": "skipped",
@@ -542,6 +568,9 @@ def _patch_apply_failed_result(
         "stdout_stderr": "",
         "stdout_stderr_log_sha256": None,
         "reason": "patch-apply-failed",
+    }
+    full_logs: dict[str, str] = {
+        "patched_build": "", "unpatched": unpatched_full, "patched": "",
     }
     build_json = {
         "schema_version": SCHEMA_VERSION,
@@ -554,7 +583,7 @@ def _patch_apply_failed_result(
         "ended_at": _utc_now_iso(),
         "patch_apply": patch_apply,
         "patched_build": dict(skipped_phase),
-        "unpatched": dict(skipped_phase),
+        "unpatched": unpatched_phase if unpatched_phase is not None else dict(skipped_phase),
         "patched": dict(skipped_phase),
         "passthru_tests_ground_truth": [],
         "sbom_delta_attempted": False,
@@ -563,6 +592,7 @@ def _patch_apply_failed_result(
     }
     return BuilderRunResult(
         build_json=build_json, dispatch_outcome="patch-apply-failed",
+        full_logs=full_logs,
     )
 
 
