@@ -138,8 +138,12 @@ def test_happy_path_dispatch_outcome_ok(tmp_path: Path) -> None:
     # explicitly pass apply_patch=False so patch_apply is recorded as
     # skipped-by-orchestrator.
     runner = FakeBuildRunner(responses=[
-        _ok_outcome("patched-build ok\n"),
+        # Builder runs phases in this order: unpatched.test (pre-patch),
+        # then patched-build (post-patch), then patched.test (post-patch).
+        # See DECISIONS 2026-05-17 (F7) for why unpatched.test runs before
+        # patch-apply.
         _ok_outcome("vuln-triggered: out-of-bounds-read in deserialise()\n"),
+        _ok_outcome("patched-build ok\n"),
         _ok_outcome("rejected-malformed-length-prefix-as-expected-from-CVE-0000-0001\n"),
         # passthru-tests enumeration: returns 0 because we don't have a
         # real nixpkgs checkout for the test runner to enumerate against
@@ -172,8 +176,9 @@ def test_happy_path_dispatch_outcome_ok(tmp_path: Path) -> None:
 def test_happy_path_records_three_full_logs(tmp_path: Path) -> None:
     bundle = _scaffold_bundle(tmp_path)
     runner = FakeBuildRunner(responses=[
-        _ok_outcome("patched-build ok\n"),
+        # Order: unpatched, patched-build, patched. See DECISIONS F7.
         _ok_outcome("unpatched run\n"),
+        _ok_outcome("patched-build ok\n"),
         _ok_outcome("patched run\n"),
     ])
     result = run_builder(
@@ -275,7 +280,11 @@ def test_patch_apply_failed_when_package_dir_unresolvable(tmp_path: Path) -> Non
     """When neither pkgs/by-name/<aa>/<attr>/package.nix nor a nix-eval
     fallback can locate the affected attr's package directory in the
     nixpkgs checkout, _apply_patch returns 'could not resolve' before
-    invoking `git apply`. dispatch_outcome=patch-apply-failed."""
+    invoking `git apply`. dispatch_outcome=patch-apply-failed.
+
+    Per F7, unpatched.test runs BEFORE patch-apply, so the runner
+    receives one call (the unpatched-side reproducer) before the
+    patch-apply failure short-circuits."""
     if not _git_on_path():
         pytest.skip("git not on PATH")
     checkout = tmp_path / "checkout"
@@ -296,8 +305,11 @@ def test_patch_apply_failed_when_package_dir_unresolvable(tmp_path: Path) -> Non
     assert bj["patch_apply"]["git_apply_exit_code"] is None
     assert "could not resolve package directory" in bj["patch_apply"]["reason"]
     assert bj["patched_build"]["outcome"] == "skipped"
+    # unpatched.test ran first against the pre-patch tree and succeeded.
+    assert bj["unpatched"]["outcome"] == "succeeded"
+    assert bj["patched"]["outcome"] == "skipped"
     _assert_valid(bj)
-    assert runner.calls == []
+    assert len(runner.calls) == 1
 
 
 def test_patch_apply_failed_when_diff_mismatches_real_git(tmp_path: Path) -> None:
@@ -327,8 +339,12 @@ def test_patch_apply_failed_when_diff_mismatches_real_git(tmp_path: Path) -> Non
     assert isinstance(bj["patch_apply"]["git_apply_exit_code"], int)
     assert bj["patch_apply"]["git_apply_exit_code"] != 0
     assert "git apply --check --directory=pkgs/by-name/de/demo" in bj["patch_apply"]["reason"]
+    # unpatched.test ran first against the pre-patch tree and succeeded (per F7).
+    assert bj["unpatched"]["outcome"] == "succeeded"
+    assert bj["patched_build"]["outcome"] == "skipped"
+    assert bj["patched"]["outcome"] == "skipped"
     _assert_valid(bj)
-    assert runner.calls == []
+    assert len(runner.calls) == 1
 
 
 def test_patch_apply_succeeds_against_pkgs_by_name_structure(tmp_path: Path) -> None:
@@ -348,9 +364,11 @@ def test_patch_apply_succeeds_against_pkgs_by_name_structure(tmp_path: Path) -> 
 
     bundle = _scaffold_bundle(tmp_path)
     runner = FakeBuildRunner(responses=[
-        _ok_outcome(),  # patched_build
-        _ok_outcome(),  # unpatched reproducer run
-        _ok_outcome(),  # patched reproducer run
+        # Order (per F7): unpatched, patched_build, patched, then
+        # passthru-tests enumeration.
+        _ok_outcome(),  # unpatched reproducer (pre-patch)
+        _ok_outcome(),  # patched_build (post-patch)
+        _ok_outcome(),  # patched reproducer (post-patch)
         _ok_outcome(),  # passthru-tests enumeration
     ])
     result = run_builder(
@@ -458,8 +476,9 @@ def test_instrumentation_asan_true_propagates_to_reproducer_phases(
         json.dumps({"schema_version": "1.0.0", "asan": True})
     )
     runner = FakeBuildRunner(responses=[
-        _ok_outcome("patched-build ok\n"),
+        # Order (per F7): unpatched, patched_build, patched.
         _ok_outcome("unpatched repro\n"),
+        _ok_outcome("patched-build ok\n"),
         _ok_outcome("patched repro\n"),
     ])
     result = run_builder(
@@ -469,13 +488,13 @@ def test_instrumentation_asan_true_propagates_to_reproducer_phases(
     assert result.dispatch_outcome == "ok"
     assert result.build_json["instrumentation"] == "asan"
     _assert_valid(result.build_json)
-    # Three calls: patched_build sanity, unpatched repro, patched repro.
-    # User contract: "apply to both unpatched and patched builds" — those
-    # are the two reproducer phases. The patched_build sanity check is
-    # intentionally NOT instrumented.
+    # Three calls in F7 order: unpatched repro (pre-patch), patched_build
+    # sanity, patched repro (post-patch). User contract: "apply to both
+    # unpatched and patched builds" — those are the two reproducer phases.
+    # The patched_build sanity check is intentionally NOT instrumented.
     assert len(runner.calls) == 3
-    assert runner.calls[0]["instrumentation"] is None  # patched_build
-    assert runner.calls[1]["instrumentation"] == "asan"  # unpatched repro
+    assert runner.calls[0]["instrumentation"] == "asan"  # unpatched repro
+    assert runner.calls[1]["instrumentation"] is None    # patched_build
     assert runner.calls[2]["instrumentation"] == "asan"  # patched repro
 
 
@@ -599,8 +618,9 @@ def test_instrumentation_disable_doCheck_true_wraps_patched_build(
         json.dumps({"schema_version": "1.0.0", "disable_doCheck": True})
     )
     runner = FakeBuildRunner(responses=[
-        _ok_outcome("patched-build ok\n"),
+        # Order (per F7): unpatched, patched_build, patched.
         _ok_outcome("unpatched repro ok\n"),
+        _ok_outcome("patched-build ok\n"),
         _ok_outcome("patched repro ok\n"),
     ])
     result = run_builder(
@@ -608,15 +628,14 @@ def test_instrumentation_disable_doCheck_true_wraps_patched_build(
         nixpkgs_checkout=None, apply_patch=False,
     )
     assert result.dispatch_outcome == "ok"
-    # patched-build phase: nix_expression mode with doCheck=false wrap.
-    pb_call = runner.calls[0]
+    # patched-build phase (runner.calls[1] under F7 ordering):
+    # nix_expression mode with doCheck=false wrap.
+    pb_call = runner.calls[1]
     assert pb_call["attr"] is None
     assert pb_call["nix_expression"] is not None
     assert "overrideAttrs (old: { doCheck = false; })" in pb_call["nix_expression"]
-    # Reproducer-run phases use the regular reproducer.nix path (attr-mode
-    # would have been None either way; they use nix_expression to import
-    # the reproducer.nix file).
-    for call in runner.calls[1:]:
+    # Reproducer-run phases (calls[0], calls[2]) use reproducer.nix.
+    for call in (runner.calls[0], runner.calls[2]):
         assert "reproducer.nix" in (call["nix_expression"] or "")
 
 
@@ -636,7 +655,8 @@ def test_instrumentation_disable_doCheck_false_keeps_attr_mode(
         bundle_dir=bundle, build_runner=runner,
         nixpkgs_checkout=None, apply_patch=False,
     )
-    pb_call = runner.calls[0]
+    # patched-build phase is calls[1] under F7 ordering (unpatched runs first).
+    pb_call = runner.calls[1]
     assert pb_call["attr"] == "demo"
     assert pb_call["nix_expression"] is None
 
@@ -664,9 +684,10 @@ def test_instrumentation_disable_doCheck_not_bool_is_refusal(
 def test_oversize_log_truncated_with_sha256_recorded(tmp_path: Path) -> None:
     huge_log = "x" * 80000  # > 64 KiB
     runner = FakeBuildRunner(responses=[
+        # Order (per F7): unpatched, patched_build (HUGE log), patched.
+        _ok_outcome(),
         BuildOutcome(exit_code=0, drv_path=None, out_path=None,
                      stdout_stderr=huge_log, elapsed_seconds=1.0),
-        _ok_outcome(),
         _ok_outcome(),
     ])
     bundle = _scaffold_bundle(tmp_path)
@@ -697,6 +718,58 @@ def test_repro_nix_expression_unpinned_uses_system_nixpkgs(tmp_path: Path) -> No
     assert ".unpatched.test)" in expr
     # No nixpkgs-pin override
     assert "pkgs = import" not in expr
+
+
+def test_unpatched_test_runs_before_patch_apply(tmp_path: Path) -> None:
+    """F7: unpatched.test must run against the pre-patch nixpkgs tree.
+
+    With apply_patch=True against a real git checkout, the Builder
+    should:
+      1. Run unpatched.test BEFORE patch-apply mutates the working tree.
+      2. Apply the patch.
+      3. Run patched_build and patched.test against the post-patch tree.
+
+    Verified by intercepting the checkout's package.nix content at each
+    BuildRunner call: the first call sees the pre-patch text, the
+    later calls see the post-patch text.
+    """
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    checkout = tmp_path / "checkout"
+    pkg_dir = checkout / "pkgs" / "by-name" / "de" / "demo"
+    pkg_dir.mkdir(parents=True)
+    pkg_path = pkg_dir / "package.nix"
+    pkg_path.write_text('version = "1.0.0";\n')
+    _init_git_checkout(checkout)
+
+    seen_content: list[str] = []
+
+    class RecordingRunner:
+        is_available = True
+        calls: list[dict[str, Any]] = []
+
+        def run(self, *, nix_expression=None, attr=None, cwd, timeout_seconds,
+                instrumentation=None):
+            seen_content.append(pkg_path.read_text())
+            self.calls.append({
+                "attr": attr, "nix_expression": nix_expression,
+                "instrumentation": instrumentation,
+            })
+            return _ok_outcome()
+
+    runner = RecordingRunner()
+    bundle = _scaffold_bundle(tmp_path)
+    run_builder(
+        bundle_dir=bundle, build_runner=runner,
+        nixpkgs_checkout=checkout, apply_patch=True,
+    )
+    # First BuildRunner call is unpatched.test against the PRE-patch tree.
+    assert seen_content[0] == 'version = "1.0.0";\n', seen_content
+    assert "unpatched.test" in (runner.calls[0]["nix_expression"] or "")
+    # Subsequent calls (patched_build, patched.test) see the POST-patch tree.
+    assert seen_content[1] == 'version = "1.0.1";\n', seen_content
+    assert seen_content[2] == 'version = "1.0.1";\n', seen_content
+    assert "patched.test" in (runner.calls[2]["nix_expression"] or "")
 
 
 def test_repro_nix_expression_pinned_passes_nixpkgs_path(tmp_path: Path) -> None:
