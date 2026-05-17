@@ -171,7 +171,8 @@ def _factory(response: str):
 
 def _build_runner_factory():
     """Produces three OK BuildOutcomes per call to handle the three nix-build
-    invocations Builder makes (patched-build + unpatched-test + patched-test).
+    invocations Builder makes. Order per F7b (commit 63f37ae):
+    unpatched-test (pre-patch tree) → patched-build → patched-test.
 
     The unpatched run emits the signal substring the reproducer named;
     the patched run emits the patched-side signal. Builder feeds both
@@ -183,14 +184,14 @@ def _build_runner_factory():
 
     def make() -> FakeBuildRunner:
         return FakeBuildRunner(responses=[
-            BuildOutcome(exit_code=0, drv_path="/nix/store/aaa.drv",
-                         out_path="/nix/store/aaa-patched-build",
-                         stdout_stderr="+ patched build ok\n",
-                         elapsed_seconds=1.0),
             BuildOutcome(exit_code=0, drv_path="/nix/store/bbb.drv",
                          out_path="/nix/store/bbb-repro-unpatched",
                          stdout_stderr=f"+ run unpatched\n{sig_unpatched}\n",
                          elapsed_seconds=0.5),
+            BuildOutcome(exit_code=0, drv_path="/nix/store/aaa.drv",
+                         out_path="/nix/store/aaa-patched-build",
+                         stdout_stderr="+ patched build ok\n",
+                         elapsed_seconds=1.0),
             BuildOutcome(exit_code=0, drv_path="/nix/store/ccc.drv",
                          out_path="/nix/store/ccc-repro-patched",
                          stdout_stderr=f"+ run patched\n{sig_patched}\n",
