@@ -51,6 +51,7 @@
         "ineligible-no-passthru-tests",
         "ineligible-no-vuln-reproducer",
         "sandbox-poc-requires-network",
+        "poc-construction-exceeds-anchor-depth",
         "blast-radius-exceeds-threshold",
         "major-version-jump-requires-review",
         "large-sbom-delta",

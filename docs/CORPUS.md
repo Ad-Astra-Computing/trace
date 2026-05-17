@@ -121,11 +121,14 @@ The two real-CVE sandbox-positive bundles (`libtiff CVE-2024-13978`, `mruby CVE-
 
 The wget2 cert arc surfaced that `patch_shape` alone is insufficient to predict whether a CVE's PoC will fire in the Nix build sandbox. A CVE's *PoC class* must independently qualify. Codified after F6.
 
-A candidate qualifies as a v0.1 **sandbox-positive anchor** iff its PoC meets ALL three:
+A candidate qualifies as a v0.1 **sandbox-positive anchor** iff its PoC meets ALL four:
 
 1. **Local-file + binary-invocation PoC.** The malicious input is constructible via `pkgs.writeText` / `pkgs.writeScript` / inline binary fixture; the affected code path is reached by passing that file to the affected binary. No network egress required.
 2. **No external network dependency.** No "binary fetches attacker-controlled URL", no "DNS lookup resolves to evil host", no "client connects to remote server". The Nix build sandbox is network-isolated by design; any test depending on network is non-portable across the cert workflow.
 3. **No daemon / listener requirement.** No "spawn server, client connects". Loopback listeners work technically in the sandbox but add test-side complexity (port-coordination, kill-on-timeout, leak-on-failure) we explicitly avoid at v0.1.
+4. **PoC construction depth ≤ model-attestation-budget** (added post-2026-05-17 F8). The PoC must be constructible by a sonnet-class model given the CVE summary + upstream fix commit + a single iteration of the Reproducer prompt, without protocol-level fixture engineering. Concretely: if triggering the bug requires authoring a parser schema, a protocol handshake, a specific memory-layout-sensitive input, or matching a hard-to-discover internal code path, the CVE is not a v0.1 anchor candidate.
+
+The fourth criterion was added after the libtasn1 CVE-2025-13151 anchor attempt (DECISIONS 2026-05-17 post-close). libtasn1 passed criteria 1–3 cleanly but the actual PoC requires constructing an ASN.1 schema that walks the parser to a specific name-stitching call site that overruns a stack buffer by exactly one byte. Surface description "stack-based buffer overflow in `asn1_expand_octet_string` on malformed OCTET STRING input" was misleading: a sonnet-class model interprets that as "feed DER to the parser tool," which doesn't actually exercise the bug. The fourth criterion catches this class.
 
 Qualifying CVE classes: parser crashes on malformed file input, integer-overflow on crafted numeric input, syscall-level boundary violations, memory-safety classes triggered by file-based fuzz inputs, malformed-archive handling, path-traversal where the binary writes the path **directly from input** (not via a fetch step).
 
@@ -140,7 +143,18 @@ Filter for harvesting:
 | The upstream fix is in a function reachable from `main()` via a local-file CLI argument | strong qualifying signal |
 | The upstream fix is in a network-protocol handler (`http.c`, `dns.c`, `metalink.c`, etc.) | strong disqualifying signal at v0.1 |
 
-For future harvesting passes, this filter goes alongside the patch-shape filter. A candidate qualifies for the v0.1 anchor slot iff it satisfies BOTH (model-attested + version-bump) AND (sandbox-positive PoC suitability).
+For future harvesting passes, this filter goes alongside the patch-shape filter. A candidate qualifies for the v0.1 anchor slot iff it satisfies BOTH (model-attested + version-bump) AND (sandbox-positive PoC suitability — all four criteria).
+
+### Retired v0.1 anchor attempts
+
+Two model-attested candidates have run the chain through the filter and been retired for distinct, codified reasons:
+
+| candidate | failed criterion | new `kind_reason` | what it taught |
+|---|---|---|---|
+| `CVE-2025-69194--wget2` | #2 (no external network) | `sandbox-poc-requires-network` | F1–F7 contract slice (DECISIONS 2026-05-17). The framework's honesty contract held end-to-end; the sandbox-positive *contract* works, but wget2's metalink CVE needs HTTP. Codified criteria 1–3. |
+| `CVE-2025-13151--libtasn1` | #4 (construction depth) | `poc-construction-exceeds-anchor-depth` | F8 (DECISIONS 2026-05-17 post-close). Surface description matched a parser-shaped CVE, but exploitation requires constructing a specific ASN.1 schema that walks the decoder to a 1-byte off-by-one site. Sonnet-class model picked the wrong CLI tool (asn1Parser vs asn1Decoding). Codified criterion 4. |
+
+Each retirement is itself the demonstration: the framework refused to fake a green signal on a candidate the filter passed. The filter is a learned object, not a designed one — it sharpens through honest failures.
 
 ---
 
