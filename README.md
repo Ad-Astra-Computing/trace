@@ -13,9 +13,11 @@ documented; see [Boundaries](#boundaries) below.
 
 ## Status
 
-* **Latest tag**: [v0.3.0](CHANGELOG.md) (Builder lands; Steward rules
-  6-13; SPEC §5 reviewer-attested auto-merge path; `patch_shape` axis
-  on candidate + corpus rows; v0 cohort split made explicit).
+* **Latest tag**: [v0.4.0](CHANGELOG.md) (F1–F7 contract slice on
+  wget2: drop-only patches, per-side `passthru.test`, gated SIGNAL
+  emission, Builder pins `pkgs` to bundle nixpkgs, unpatched.test
+  runs against pre-patch tree; wget2 retired as v0.1 anchor with new
+  sandbox-PoC suitability filter codified in the corpus).
 * **Phase**: research artifact. Bundles live in `traces/example/` as
   files; review happens in PRs against the fork. No UI.
 * **Frozen scope**: nixpkgs `nixos-unstable`, derivations with

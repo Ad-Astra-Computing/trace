@@ -29,7 +29,7 @@ The corpus is intentionally small. trace's claim isn't "we automate CVE remediat
 | `CVE-2025-67899--uriparser` | `major-version-jump-requires-review` | upstream fix only in 1.0.0 (major jump from 0.9.9); Patcher refused under rule 8 (no minor-version backport available). Reproducer also refused (rule 3, stack-consumption recursion class). |
 | `CVE-2025-7207--mruby` | `cross-family-pair-unavailable` | only one Anthropic Sonnet model qualified for Reproducer under the v0 cross-family rule; pair with Patcher (Opus) leaves no Sonnet variant for cross-family. Reproducer authored hand-on with ASAN-instrumented mruby (slice 3a, 12 May 2026). |
 | `CVE-2026-25949--traefik` | `ineligible-cherry-pick-required` | minimal CVE-driven diff is contract-correct but doesn't build at the pinned nixpkgs rev: traefik 3.6.8 needs Go ≥ 1.25, which would require the maintainer-driven `buildGo124Module → buildGo125Module` toolchain bump the Patcher contract forbids. Surfaced by cert run 25777382142, slice C 2026-05-13. |
-| `CVE-2025-69194--wget2` | `ineligible-no-vuln-reproducer` | first model-attested sandbox-positive attempt (CVSS 9.8 Metalink path-traversal). Patcher emitted version-bump-only diff trusting wrong `prefetch_hashes` (root cause: `bundle assemble --fetchzip` override expression is unsound); Reviewer (sonnet-4-5) correctly rejected. Reproducer refused under rule 3 (over-cautious; CVE has a local-file PoC). Preserved as evidence of cross-family Reviewer value + the fetchzip prefetch bug. See DECISIONS 2026-05-13. |
+| `CVE-2025-69194--wget2` | `sandbox-poc-requires-network` | (CVSS 9.8 Metalink path-traversal.) Drove the F1–F7 contract slice across six cert dispatches (DECISIONS 2026-05-13 → 2026-05-17). Contract layer functioned end-to-end on cert 6: `patched_build` succeeded, both reproducer-side derivations built clean, both binaries ran against the metalink fixture, both honestly exited `PREDICATE FAILED` (no SIGNAL minted). Retired as v0.1 anchor because wget2's metalink PoC requires a fetchable URL (wget2 rejects `file://` / `data:` schemes), and the Nix build sandbox is network-isolated. Preserved in the corpus as evidence the framework refused to fake a green result; the bundle ships F1's `patch-drop-rationale.md` and the F7-correct reproducer.nix shape as reference. |
 
 Six of eight real-CVE bundles are non-Reproducer-shaped (mbedtls / bind / systemd / openssl_3 / uriparser / traefik). The Reproducer dimension is load-bearing only where the CVE-class signal is producible deterministically in a sandbox without instrumentation that trace's v0 Builder doesn't yet ship. That's a deliberate cohort split, not a gap.
 
@@ -116,6 +116,31 @@ The two real-CVE sandbox-positive bundles (`libtiff CVE-2024-13978`, `mruby CVE-
 | Model-attested auto-merge candidate | `axes.patch_shape ∈ {version-bump, mixed}` AND `expected_v0_eligibility == "auto-merge-eligible"`. Skip Reproducer-sandbox expectations; ship via reviewer-attested. |
 | Deterministic sandbox-positive candidate | `axes.patch_shape == "overlay"` AND a hand-authored `resolver-input.json` that supplies a synthetic upstream-ref pointing at the fix commit. The libtiff/mruby template. |
 | Cross-path candidate (rare, v0.1) | `axes.patch_shape == "overlay"` AND upstream has a release tag containing the fix. None of the current 51 candidates qualify; new harvests should record this. |
+
+### Sandbox-positive PoC suitability filter (post-2026-05-17, F6)
+
+The wget2 cert arc surfaced that `patch_shape` alone is insufficient to predict whether a CVE's PoC will fire in the Nix build sandbox. A CVE's *PoC class* must independently qualify. Codified after F6.
+
+A candidate qualifies as a v0.1 **sandbox-positive anchor** iff its PoC meets ALL three:
+
+1. **Local-file + binary-invocation PoC.** The malicious input is constructible via `pkgs.writeText` / `pkgs.writeScript` / inline binary fixture; the affected code path is reached by passing that file to the affected binary. No network egress required.
+2. **No external network dependency.** No "binary fetches attacker-controlled URL", no "DNS lookup resolves to evil host", no "client connects to remote server". The Nix build sandbox is network-isolated by design; any test depending on network is non-portable across the cert workflow.
+3. **No daemon / listener requirement.** No "spawn server, client connects". Loopback listeners work technically in the sandbox but add test-side complexity (port-coordination, kill-on-timeout, leak-on-failure) we explicitly avoid at v0.1.
+
+Qualifying CVE classes: parser crashes on malformed file input, integer-overflow on crafted numeric input, syscall-level boundary violations, memory-safety classes triggered by file-based fuzz inputs, malformed-archive handling, path-traversal where the binary writes the path **directly from input** (not via a fetch step).
+
+Disqualifying CVE classes: HTTP-client CVEs requiring real or simulated remote responses (the wget2 CVE-2025-69194 class), DNS-resolution CVEs, network-protocol parsers consuming network data, server-side CVEs requiring inbound connections. These are valuable to address eventually but are not v0.1-anchor material.
+
+Filter for harvesting:
+
+| signal | check |
+|---|---|
+| CVE summary uses words like "remote attacker", "via HTTP", "via DNS", "metalink", "URL fetching" | likely disqualifying — confirm before adding to candidate pool |
+| CVE summary uses words like "crafted file", "malformed input", "parser", "deserialise", "overflow on file" | likely qualifying — verify PoC shape |
+| The upstream fix is in a function reachable from `main()` via a local-file CLI argument | strong qualifying signal |
+| The upstream fix is in a network-protocol handler (`http.c`, `dns.c`, `metalink.c`, etc.) | strong disqualifying signal at v0.1 |
+
+For future harvesting passes, this filter goes alongside the patch-shape filter. A candidate qualifies for the v0.1 anchor slot iff it satisfies BOTH (model-attested + version-bump) AND (sandbox-positive PoC suitability).
 
 ---
 
