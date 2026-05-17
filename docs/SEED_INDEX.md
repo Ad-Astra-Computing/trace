@@ -16,7 +16,7 @@ The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exerc
 | [`CVE-2025-7207--mruby`](../traces/example/CVE-2025-7207--mruby/) | human-review-required | deterministic-no-model | `cross-family-pair-unavailable` route; PoC-public-but-sandbox-silent class |
 | [`CVE-2025-9230--openssl_3`](../traces/example/CVE-2025-9230--openssl_3/) | human-review-required | model-attested (Patcher) | `blast-radius-exceeds-threshold` on a transitive dependency of almost the entire tree |
 | [`CVE-2026-25949--traefik`](../traces/example/CVE-2026-25949--traefik/) | human-review-required | model-attested (Patcher + Reviewer) | first live Patcher run; reclassified `ineligible-cherry-pick-required` after Linux cert surfaced a Go-toolchain dependency outside Patcher contract (DECISIONS 2026-05-13) |
-| [`CVE-2025-69194--wget2`](../traces/example/CVE-2025-69194--wget2/) | auto-merge | model-attested (Patcher + Reviewer + Reproducer) | first fully model-attested sandbox-positive bundle in the corpus; uses the v0.1 hash-pinned FOD carve-out (DECISIONS 2026-05-15). Pending bundle-linux-cert.yml dispatch for build.json before Steward allow (currently steward_expected=invalid under rule-6) |
+| [`CVE-2025-69194--wget2`](../traces/example/CVE-2025-69194--wget2/) | human-review-required | model-attested (Patcher + Reviewer + Reproducer) | retired as v0.1 anchor after F1–F7 contract slice (DECISIONS 2026-05-17 close). `kind_reason: sandbox-poc-requires-network` — wget2's metalink CVE PoC needs a fetchable URL, wget2 rejects `file://`/`data:` schemes. Six contract findings closed cleanly across six cert dispatches; the framework refused to fake a green result on the seventh (F6). Preserved as evidence of the contract layer working end-to-end. |
 
 ## Per-bundle detail
 
@@ -68,6 +68,15 @@ mruby `scope_new` heap-buffer-overflow at `mrbgems/mruby-compiler/core/codegen.c
 openssl_3 3.0.17 → 3.0.18 CMS RFC 3211 KEK-unwrap OOB read/write (CVSS 7.5 HIGH). Resolver verdict: eligible at patch-release tier. Patch content byte-identical to the historical nixpkgs fix at `9e4cf668a33a`.
 
 * **Pedagogical role**: `blast-radius-exceeds-threshold` route on the most extreme transitive-dependency case in the corpus. openssl is a dep of almost everything; reverse-closure count is `>5000`. The bundle proves the threshold gate handles the upper bucket cleanly, with a structurally-clean patch and a high-CVSS finding.
+
+### `CVE-2025-69194--wget2` · human-review-required · model-attested
+
+GNU wget2 Metalink path-traversal (CVSS 9.8 CWE-22). The bundle drove the F1–F7 contract slice across six cert dispatches (2026-05-13 → 2026-05-17), surfacing seven distinct structural findings in the framework. Six were closed at the contract layer with empirical proof; F6 (the wget2-PoC-needs-network shape) triggered retirement as v0.1 anchor.
+
+* **Pedagogical role**: `sandbox-poc-requires-network` route. The retirement is itself the demonstration: the framework refused to mint a green signal on a reproducer that didn't actually exercise the CVE. F3's predicate-gating contract held; cert 6 ([25982588546](https://github.com/Ad-Astra-Computing/trace/actions/runs/25982588546)) shows both reproducer-side derivations built clean, both wget2 binaries ran honestly, both exited `PREDICATE FAILED` with no SIGNAL minted.
+* **What it proves at the contract layer**: F1 (Patcher drop-only relaxation for obsoleted nixpkgs-side patches), F2 (per-side `passthru.test`), F3 (gated SIGNAL emission), F4 (Builder pkgs-pin to bundle's nixpkgs), F5 (`--force-metalink -i` CLI), F7 (pre/post-patch tree separation). See DECISIONS 2026-05-13 → 2026-05-17 for the full arc.
+* **Why retired**: wget2's metalink CVE class requires a fetchable URL to trigger the path-traversal write. wget2 rejects `file://` / `data:` schemes; the Nix build sandbox is network-isolated. Bridging this gap would require either spawning a local HTTP responder inside the test (overfitting the framework to wget2's shape) or replacing the filesystem-based predicate with parser-side observation (overfitting to wget2's debug output). Neither belongs in v0.1 generic scaffolding. The corpus's anchor-selection filter (DECISIONS 2026-05-17 close, `docs/CORPUS.md` § Sandbox-positive PoC suitability filter) was codified to prevent this CVE class from being selected as a future v0.1 anchor.
+* **Preserved artifacts**: F1's `patch-drop-rationale.md`, F7-correct `reproducer.nix` shape, six `_*-run-archive/` directories documenting the slice arc, and the final post-patch-drop `patch.diff` are reference material for future contract work.
 
 ### `CVE-2026-25949--traefik` · auto-merge · model-attested
 

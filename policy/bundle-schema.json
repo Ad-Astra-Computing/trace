@@ -50,6 +50,7 @@
         "ineligible-low-confidence-mapping",
         "ineligible-no-passthru-tests",
         "ineligible-no-vuln-reproducer",
+        "sandbox-poc-requires-network",
         "blast-radius-exceeds-threshold",
         "major-version-jump-requires-review",
         "large-sbom-delta",
