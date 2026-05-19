@@ -61,6 +61,9 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
       package_source                              (str, original package.nix)
       patch_diff, patch_rationale_md              (str, Patcher outputs)
       package_source_path                         (str, informational)
+      bundle_local_pocs                            (list[dict], prompt v5;
+                                                   optional for backwards
+                                                   compat. See execute._collect_bundle_local_pocs)
     """
     required = {
         "finding", "upstream_ref", "impact", "maintainers",
@@ -100,6 +103,20 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
         "# patch-rationale.md (Patcher's emitted rationale)",
         inputs["patch_rationale_md"],
     ]
+
+    # v5 grounding: surface bundle-local PoC artifacts under repro/.
+    # When the bundle ships a PoC at repro/<name>.<ext> (e.g. a
+    # fuzzer-attached crash file from upstream), the model sees the
+    # path + sha256 + size, plus either inline content (small files)
+    # or first/last 256-byte previews (oversized files). The path is
+    # the authoritative reference the reproducer.nix should use; the
+    # inlined / preview content is for the model to understand shape.
+    pocs = inputs.get("bundle_local_pocs")
+    if isinstance(pocs, list) and pocs:
+        parts.append("")
+        parts.append("# Bundle-local PoC artifacts (under repro/; v5 contract)")
+        parts.append(j(pocs))
+
     return "\n".join(parts)
 
 

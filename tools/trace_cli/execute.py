@@ -1222,8 +1222,151 @@ def _append_reviewer_replay_entry(
 
 
 REPRODUCER_PROMPT_PATH_DEFAULT = (
-    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v4.md"
+    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v5.md"
 )
+
+# Bundle-local PoC artifact surfacing (DECISIONS 2026-05-19 (Reproducer v5)):
+# the Reproducer's user message now includes a "Bundle-local PoC artifacts"
+# section listing files under bundle_dir/repro/. Caps protect against
+# pathological inputs. Codex peer ack on these specific values.
+POC_PER_FILE_INLINE_CAP = 4096
+POC_TOTAL_INLINE_CAP = 32768
+POC_MAX_COUNT = 16
+POC_PREVIEW_BYTES = 256
+
+
+def _collect_bundle_local_pocs(bundle_dir: Path) -> list[dict[str, Any]]:
+    """Enumerate bundle_dir/repro/ for Reproducer-visible PoC artifacts.
+
+    Returns a list of dicts, one per file. Shape:
+      {
+        "path": "repro/crash_poc.csm",        # POSIX relative
+        "sha256": "<hex>",
+        "size_bytes": <int>,
+        "kind": "text" | "binary",
+        "inline": <bool>,                      # true iff size <= POC_PER_FILE_INLINE_CAP
+        "content_base64": "<b64>" | None,      # iff inline AND binary
+        "content_text": "<str>" | None,        # iff inline AND text
+        "preview_base64_first_256": "<b64>" | None,   # iff NOT inline
+        "preview_base64_last_256": "<b64>" | None,    # iff NOT inline
+      }
+
+    Refuses:
+      * symlinks (silently skipped with skip_reason='symlink-rejected')
+      * paths containing '..' or absolute paths (skip_reason='path-rejected')
+      * hidden files (.*) (skip_reason='hidden-file-rejected')
+      * more than POC_MAX_COUNT files (extra items skipped with skip_reason='count-cap-exceeded')
+      * total inline bytes exceeding POC_TOTAL_INLINE_CAP (later files lose inline content,
+        retain path+sha256+size)
+
+    Skipped entries are returned with skip_reason set instead of content fields,
+    so the Reproducer prompt sees the path was considered and rejected.
+    """
+    import base64
+    import hashlib
+
+    repro_dir = bundle_dir / "repro"
+    if not repro_dir.is_dir():
+        return []
+
+    candidates: list[Path] = []
+    skipped: list[dict[str, Any]] = []
+    for p in sorted(repro_dir.rglob("*")):
+        if not p.exists() or p.is_dir():
+            continue
+        # symlink check first — Path.is_symlink() works even when target missing
+        if p.is_symlink():
+            skipped.append({
+                "path": _safe_relpath(p, bundle_dir),
+                "skip_reason": "symlink-rejected",
+            })
+            continue
+        # Reject anything that doesn't normalize cleanly back into bundle_dir/repro
+        try:
+            rel = p.resolve().relative_to(repro_dir.resolve())
+        except ValueError:
+            skipped.append({
+                "path": _safe_relpath(p, bundle_dir),
+                "skip_reason": "path-rejected",
+            })
+            continue
+        # Hidden / dotfile rejection
+        if any(part.startswith(".") for part in rel.parts):
+            skipped.append({
+                "path": _safe_relpath(p, bundle_dir),
+                "skip_reason": "hidden-file-rejected",
+            })
+            continue
+        candidates.append(p)
+
+    # Apply count cap.
+    accepted: list[dict[str, Any]] = []
+    total_inline_bytes = 0
+    for idx, p in enumerate(candidates):
+        if idx >= POC_MAX_COUNT:
+            accepted.append({
+                "path": f"repro/{p.relative_to(repro_dir).as_posix()}",
+                "skip_reason": "count-cap-exceeded",
+            })
+            continue
+        try:
+            data = p.read_bytes()
+        except OSError as exc:
+            accepted.append({
+                "path": f"repro/{p.relative_to(repro_dir).as_posix()}",
+                "skip_reason": f"read-error: {exc.strerror}",
+            })
+            continue
+        sha = hashlib.sha256(data).hexdigest()
+        size = len(data)
+        # Heuristic: assume "text" if entire content decodes UTF-8 without
+        # control characters (other than common whitespace). Otherwise binary.
+        is_text = _looks_textual(data)
+        entry: dict[str, Any] = {
+            "path": f"repro/{p.relative_to(repro_dir).as_posix()}",
+            "sha256": sha,
+            "size_bytes": size,
+            "kind": "text" if is_text else "binary",
+        }
+        if size <= POC_PER_FILE_INLINE_CAP and total_inline_bytes + size <= POC_TOTAL_INLINE_CAP:
+            entry["inline"] = True
+            total_inline_bytes += size
+            if is_text:
+                entry["content_text"] = data.decode("utf-8", errors="replace")
+            else:
+                entry["content_base64"] = base64.b64encode(data).decode("ascii")
+        else:
+            entry["inline"] = False
+            entry["preview_base64_first_256"] = base64.b64encode(data[:POC_PREVIEW_BYTES]).decode("ascii")
+            entry["preview_base64_last_256"] = base64.b64encode(data[-POC_PREVIEW_BYTES:]).decode("ascii")
+        accepted.append(entry)
+
+    return accepted + skipped
+
+
+def _safe_relpath(p: Path, base: Path) -> str:
+    """Best-effort POSIX-relative path string for a skipped entry. Falls
+    back to the basename if relative_to() fails (e.g. symlink outside base)."""
+    try:
+        return p.relative_to(base).as_posix()
+    except ValueError:
+        return p.name
+
+
+def _looks_textual(data: bytes) -> bool:
+    """Heuristic: treat as 'text' if UTF-8-decodable with mostly printable
+    characters (control characters limited to tab, newline, CR). Used only
+    to choose between inlining as content_text vs content_base64; the
+    sha256 + size are the load-bearing fields."""
+    if not data:
+        return True
+    try:
+        s = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    allowed_controls = {"\t", "\n", "\r"}
+    bad = sum(1 for ch in s if ord(ch) < 32 and ch not in allowed_controls)
+    return bad <= len(s) // 50  # ≤ 2% control noise tolerable
 
 
 def _execute_reproducer(
@@ -1331,6 +1474,13 @@ def _execute_reproducer(
     else:
         adapter = _build_adapter_from_model_id(model_id, role_label="reproducer")
 
+    # v5 grounding (prompt v4 → v5, DECISIONS 2026-05-19 (Reproducer v5)):
+    # surface bundle-local PoC artifacts under bundle_dir/repro/ as a
+    # new "Bundle-local PoC artifacts" section in the user message. Caps,
+    # symlink rejection, traversal rejection, and the path+sha256 form
+    # for oversized files match the codex-peer-acked design.
+    pocs = _collect_bundle_local_pocs(bundle_dir)
+
     inputs = {
         "finding": finding,
         "upstream_ref": upstream_ref,
@@ -1340,6 +1490,7 @@ def _execute_reproducer(
         "package_source_path": package_path.name,
         "patch_diff": patch_diff,
         "patch_rationale_md": patch_rationale_md,
+        "bundle_local_pocs": pocs,
     }
 
     started_at = _utc_now_iso()
@@ -1481,7 +1632,7 @@ def _build_reproducer_invocation(
         "ended_at": ended_at,
         "model": _build_reproducer_model_block(reproducer_run),
         "prompt": {
-            "path": "prompts/reproducer.v4.md",
+            "path": "prompts/reproducer.v5.md",
             "sha256": reproducer_run["prompt_sha256"],
         },
         "inputs": inputs,
