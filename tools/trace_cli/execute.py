@@ -684,6 +684,11 @@ def _write_role_invocation_sidecar(
             "actual_cost_usd": cost,
         },
     }
+    # v2 attestation validator field: propagate from reviewer_run_meta if present.
+    # For non-reviewer roles this key will be absent from role_run_meta and is
+    # not written (keeps sidecar shape clean for Patcher/Reproducer).
+    if "attestation_grounded" in role_run_meta:
+        payload["attestation_grounded"] = role_run_meta["attestation_grounded"]
     sidecar_path = bundle_dir / f"{role}-invocation.json"
     body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8") + b"\n"
     _atomic_write_bytes(sidecar_path, body)
@@ -1012,6 +1017,23 @@ def _execute_reviewer(
             "bytes": len(refusal_body),
         }]
 
+    # v2 attestation validator (DECISIONS 2026-05-19 corpus-saturation +
+    # Reviewer-validator entry). Compare the Reviewer's emitted
+    # Cross-family attestation fields against the executor-supplied
+    # Model attestation context block. Mismatches are flagged in
+    # reviewer_run_meta and in validators_passed; they are not blocking
+    # (the deterministic cross-family gate already enforces pairing) but
+    # they surface prompt-accuracy failures for downstream scoring.
+    mac = inputs.get("model_attestation_context") or {}
+    expected_reviewer_family = mac.get("reviewer_family", "<unknown>")
+    expected_patcher_family = mac.get("patcher_family", "<unknown>")
+    emitted_cf = result.parsed.cross_family
+    attestation_grounded: bool | None = None
+    if emitted_cf and expected_reviewer_family != "<unknown>":
+        reviewer_match = (emitted_cf.reviewer_family == expected_reviewer_family)
+        patcher_match = (emitted_cf.patcher_family_observed == expected_patcher_family)
+        attestation_grounded = reviewer_match and patcher_match
+
     reviewer_run_meta: dict[str, Any] = {
         "prompt_sha256": result.prompt_sha256,
         "user_content_sha256": result.user_content_sha256,
@@ -1023,6 +1045,10 @@ def _execute_reviewer(
         "refusal_rule": result.parsed.refusal_rule,
         "refusal_reason": result.parsed.refusal_reason,
         "adapter": result.model_response.extras.get("adapter"),
+        # v2 attestation: were the Cross-family attestation fields copied
+        # verbatim from the Model attestation context block? None when the
+        # context block was unavailable (e.g. pre-v2 callers).
+        "attestation_grounded": attestation_grounded,
     }
 
     replay_invocation = _build_reviewer_invocation(
@@ -1187,7 +1213,14 @@ def _build_reviewer_model_block(reviewer_run: dict[str, Any]) -> dict[str, Any]:
 def _reviewer_validators_for(reviewer_run: dict[str, Any]) -> list[str]:
     if reviewer_run.get("kind") == "refusal":
         return ["refusal-shape"]
-    return ["schema-valid-output"]
+    validators = ["schema-valid-output"]
+    grounded = reviewer_run.get("attestation_grounded")
+    if grounded is True:
+        validators.append("attestation-grounded")
+    elif grounded is False:
+        validators.append("attestation-mismatch")
+    # grounded is None → pre-v2 caller, no attestation context surfaced; omit
+    return validators
 
 
 def _append_reviewer_replay_entry(
