@@ -315,3 +315,48 @@ def test_reviewer_user_content_surfaces_attestation_block(tmp_path: Path) -> Non
     assert "patcher_model_id: claude-opus-4-7" in uc
     assert "patcher_family: anthropic-opus" in uc
     assert "cross_family_rule_honored_expected: true" in uc
+
+
+def test_reviewer_attestation_grounded_when_model_copies_correctly(tmp_path: Path) -> None:
+    """When the Reviewer emits the family strings verbatim from the
+    attestation context, validators_passed should include 'attestation-grounded'
+    and reviewer-invocation.json should record attestation_grounded=True."""
+    bundle_dir = _build_reviewable_bundle(tmp_path)
+    execute(
+        role="reviewer",
+        bundle_dir=bundle_dir,
+        invocation={"invocation_id": None, "inputs": [], "outputs": []},
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        # REVIEW_OK has reviewer_family=anthropic-sonnet, patcher_family_observed=anthropic-opus
+        adapter_factory=_factory(REVIEW_OK),
+    )
+    import json
+    sidecar = next(bundle_dir.glob("reviewer-invocation.json"))
+    d = json.loads(sidecar.read_text())
+    # attestation_grounded=True: model emitted exactly what the context block said
+    assert d["attestation_grounded"] is True
+
+
+def test_reviewer_attestation_mismatch_flagged_when_model_hallucinates(tmp_path: Path) -> None:
+    """When the Reviewer emits wrong family strings (hallucination), validators_passed
+    should include 'attestation-mismatch' and attestation_grounded=False."""
+    bundle_dir = _build_reviewable_bundle(tmp_path)
+    # Fabricate a review.md where the model hallucinated the wrong family name
+    hallucinated_review = REVIEW_OK.replace(
+        "reviewer_family: anthropic-sonnet",
+        "reviewer_family: anthropic-claude",  # hallucination: wrong self-name
+    )
+    execute(
+        role="reviewer",
+        bundle_dir=bundle_dir,
+        invocation={"invocation_id": None, "inputs": [], "outputs": []},
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(hallucinated_review),
+    )
+    import json
+    sidecar = next(bundle_dir.glob("reviewer-invocation.json"))
+    d = json.loads(sidecar.read_text())
+    # attestation_grounded=False: model emitted wrong reviewer_family
+    assert d["attestation_grounded"] is False
