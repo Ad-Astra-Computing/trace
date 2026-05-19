@@ -567,20 +567,21 @@ def test_reproducer_in_model_backed_roles_set():
     assert "reproducer" in MODEL_BACKED_ROLES
 
 
-def test_reproducer_prompt_path_default_is_v4():
-    """Locked: the runner loads `prompts/reproducer.v4.md` by default.
+def test_reproducer_prompt_path_default_is_v5():
+    """Locked: the runner loads `prompts/reproducer.v5.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit.
-    A test that asserts the default prompt path catches the v3 → v4 (and
-    future v4 → v5) wiring step regressing silently. F9/F9b/F9c lessons
-    live in v4; loading v3 silently downgrades the contract. See the
-    DECISIONS entry for the django slice (2026-05-19).
+    A test that asserts the default prompt path catches the prompt-bump
+    wiring step regressing silently. The v4→v5 bump adds the bundle-local
+    PoC input contract; loading v4 silently degrades back to refuse-under-
+    rule-4 for fuzzer-class CVEs (assimp shape). See DECISIONS 2026-05-19
+    (Reproducer v5) for the peer-acked design.
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v4.md", (
-        f"runner default reproducer prompt should be v4 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
-        "If you are bumping the prompt to v5+, update this test in the same commit."
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v5.md", (
+        f"runner default reproducer prompt should be v5 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt to v6+, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {REPRODUCER_PROMPT_PATH_DEFAULT}"
@@ -632,3 +633,175 @@ def test_reproducer_does_not_touch_existing_build_json(tmp_path):
         adapter_factory=_factory(_valid_reproducer_response()),
     )
     assert (bundle_dir / "build.json").read_bytes() == sentinel
+
+
+# ─── v5: bundle-local PoC artifact surfacing (DECISIONS 2026-05-19) ────────
+
+import base64
+
+from tools.trace_cli.execute import (
+    POC_MAX_COUNT,
+    POC_PER_FILE_INLINE_CAP,
+    POC_PREVIEW_BYTES,
+    POC_TOTAL_INLINE_CAP,
+    _collect_bundle_local_pocs,
+)
+
+
+def _make_repro_dir(tmp_path: Path) -> Path:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    repro = bundle_dir / "repro"
+    repro.mkdir()
+    return bundle_dir
+
+
+def test_collect_pocs_happy_path_small_text(tmp_path):
+    """A small text file under repro/ is inlined with content_text +
+    sha256 + size_bytes; kind classified as 'text'."""
+    bd = _make_repro_dir(tmp_path)
+    (bd / "repro" / "crash_input.txt").write_text("malformed data\n")
+    pocs = _collect_bundle_local_pocs(bd)
+    assert len(pocs) == 1
+    entry = pocs[0]
+    assert entry["path"] == "repro/crash_input.txt"
+    assert entry["kind"] == "text"
+    assert entry["inline"] is True
+    assert entry["size_bytes"] == len("malformed data\n")
+    assert entry["content_text"] == "malformed data\n"
+    assert "sha256" in entry and len(entry["sha256"]) == 64
+
+
+def test_collect_pocs_happy_path_small_binary(tmp_path):
+    """A small binary file under repro/ is inlined as base64 with the
+    kind set to 'binary'."""
+    bd = _make_repro_dir(tmp_path)
+    payload = bytes(range(256))  # 256 bytes, all-byte-values, clearly binary
+    (bd / "repro" / "crash_poc.bin").write_bytes(payload)
+    pocs = _collect_bundle_local_pocs(bd)
+    assert len(pocs) == 1
+    entry = pocs[0]
+    assert entry["kind"] == "binary"
+    assert entry["inline"] is True
+    assert base64.b64decode(entry["content_base64"]) == payload
+
+
+def test_collect_pocs_oversized_file_uses_previews_not_inline(tmp_path):
+    """A file larger than POC_PER_FILE_INLINE_CAP is NOT inlined;
+    previews of first/last 256 bytes are surfaced instead."""
+    bd = _make_repro_dir(tmp_path)
+    big = b"A" * (POC_PER_FILE_INLINE_CAP + 100)
+    (bd / "repro" / "big.bin").write_bytes(big)
+    pocs = _collect_bundle_local_pocs(bd)
+    assert len(pocs) == 1
+    entry = pocs[0]
+    assert entry["inline"] is False
+    assert "content_text" not in entry
+    assert "content_base64" not in entry
+    assert base64.b64decode(entry["preview_base64_first_256"]) == big[:POC_PREVIEW_BYTES]
+    assert base64.b64decode(entry["preview_base64_last_256"]) == big[-POC_PREVIEW_BYTES:]
+
+
+def test_collect_pocs_rejects_symlinks(tmp_path):
+    """Symlinks under repro/ must be rejected with skip_reason=symlink-rejected.
+    Trust boundary: a symlink could point outside the bundle dir."""
+    bd = _make_repro_dir(tmp_path)
+    real = bd / "real_target.txt"
+    real.write_text("real content")
+    link = bd / "repro" / "evil_link"
+    link.symlink_to(real)
+    pocs = _collect_bundle_local_pocs(bd)
+    assert len(pocs) == 1
+    entry = pocs[0]
+    assert entry.get("skip_reason") == "symlink-rejected"
+    # Skipped entries don't expose content.
+    assert "sha256" not in entry
+
+
+def test_collect_pocs_rejects_hidden_files(tmp_path):
+    """Dotfiles under repro/ must be rejected with skip_reason=hidden-file-rejected."""
+    bd = _make_repro_dir(tmp_path)
+    (bd / "repro" / ".hidden").write_text("should be skipped")
+    (bd / "repro" / "visible.txt").write_text("ok")
+    pocs = _collect_bundle_local_pocs(bd)
+    skip = [e for e in pocs if e.get("skip_reason") == "hidden-file-rejected"]
+    visible = [e for e in pocs if e.get("path", "").endswith("visible.txt")]
+    assert len(skip) == 1
+    assert len(visible) == 1
+    assert visible[0]["inline"] is True
+
+
+def test_collect_pocs_count_cap_enforced(tmp_path):
+    """More than POC_MAX_COUNT files in repro/ — extras get skip_reason=count-cap-exceeded.
+    Prevents prompt bloat from pathological bundles."""
+    bd = _make_repro_dir(tmp_path)
+    for i in range(POC_MAX_COUNT + 3):
+        (bd / "repro" / f"poc_{i:02d}.txt").write_text(f"poc {i}\n")
+    pocs = _collect_bundle_local_pocs(bd)
+    accepted = [e for e in pocs if e.get("inline") is True]
+    capped = [e for e in pocs if e.get("skip_reason") == "count-cap-exceeded"]
+    assert len(accepted) == POC_MAX_COUNT
+    assert len(capped) == 3
+
+
+def test_collect_pocs_total_inline_cap_enforced(tmp_path):
+    """When the cumulative inline byte total would exceed POC_TOTAL_INLINE_CAP,
+    later files use the preview form instead of inline content."""
+    bd = _make_repro_dir(tmp_path)
+    # 10 files at 3500 bytes each = 35,000 bytes total; cap is 32,768.
+    # Files are processed in sorted order, so the 10th file should fall back to preview.
+    for i in range(10):
+        (bd / "repro" / f"poc_{i}.bin").write_bytes(b"X" * 3500)
+    pocs = _collect_bundle_local_pocs(bd)
+    inlines = [e for e in pocs if e.get("inline") is True]
+    previews = [e for e in pocs if e.get("inline") is False]
+    # At least the last file should be preview-only; first 9 fit (9*3500=31500 < 32768).
+    assert len(inlines) <= 9
+    assert len(previews) >= 1
+
+
+def test_collect_pocs_empty_when_no_repro_dir(tmp_path):
+    """If bundle has no repro/ directory at all, return empty list (not error)."""
+    bd = tmp_path / "bundle"
+    bd.mkdir()
+    pocs = _collect_bundle_local_pocs(bd)
+    assert pocs == []
+
+
+def test_reproducer_runner_renders_pocs_block(tmp_path):
+    """End-to-end: when bundle_dir/repro/ has a PoC, the Reproducer's user
+    message includes the v5 bundle-local PoC artifacts section."""
+    bundle_dir = _build_post_patcher_bundle(tmp_path)
+    (bundle_dir / "repro").mkdir()
+    (bundle_dir / "repro" / "crash_poc.csm").write_bytes(b"\x00\x01\x02malformed CSM bytes")
+
+    captured: dict = {}
+
+    class CapturingAdapter:
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def invoke(self, *, system_prompt, user_content, sampling):
+            captured["user_content"] = user_content
+            from agents.patcher.adapter import ModelResponse
+            return ModelResponse(
+                text=_valid_reproducer_response(),
+                model_id=self.model_id,
+                input_tokens=1,
+                output_tokens=1,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=0,
+                stop_reason="end_turn",
+            )
+
+    execute(
+        role="reproducer",
+        bundle_dir=bundle_dir,
+        invocation=_fresh_invocation(),
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=lambda mid: CapturingAdapter(mid),
+    )
+    uc = captured["user_content"]
+    assert "# Bundle-local PoC artifacts" in uc
+    assert "repro/crash_poc.csm" in uc
