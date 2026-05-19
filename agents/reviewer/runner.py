@@ -55,6 +55,10 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
       package_source                              (str, original package.nix)
       patch_diff, patch_rationale_md              (str, Patcher outputs)
       package_source_path, patch_diff_path, ...    (informational)
+      model_attestation_context                   (dict, prompt v2; optional
+                                                   for backwards compat with
+                                                   v1 prompt or callers that
+                                                   bypass the executor)
     """
     required = {
         "finding", "upstream_ref", "impact", "maintainers",
@@ -69,8 +73,37 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
     def j(o: Any) -> str:
         return _json.dumps(o, indent=2, sort_keys=True)
 
+    parts: list[str] = []
+
+    # v2 grounding: surface the model attestation context block at the
+    # very top so the Reviewer sees it before reading the bundle.
+    # Omitted when the executor (or test caller) doesn't supply one —
+    # the v2 prompt's "copy verbatim" instruction degrades to a fall-
+    # back where the model sees no block and must hand-derive the
+    # values, which is the v1 behavior.
+    mac = inputs.get("model_attestation_context")
+    if isinstance(mac, dict) and mac:
+        parts.append("# Model attestation context (executor-supplied; load-bearing — copy verbatim)")
+        parts.append(
+            f"reviewer_model_id: {mac.get('reviewer_model_id', '<unknown>')}"
+        )
+        parts.append(
+            f"reviewer_family: {mac.get('reviewer_family', '<unknown>')}"
+        )
+        parts.append(
+            f"patcher_model_id: {mac.get('patcher_model_id', '<unknown>')}"
+        )
+        parts.append(
+            f"patcher_family: {mac.get('patcher_family', '<unknown>')}"
+        )
+        parts.append(
+            "cross_family_rule_honored_expected: "
+            + ("true" if mac.get("cross_family_rule_honored_expected") else "false")
+        )
+        parts.append("")
+
     pkg_path = inputs.get("package_source_path", "<package.nix>")
-    parts: list[str] = [
+    parts.extend([
         "# finding.json",
         j(inputs["finding"]),
         "",
@@ -91,7 +124,7 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
         "",
         "# patch-rationale.md (Patcher's emitted rationale)",
         inputs["patch_rationale_md"],
-    ]
+    ])
     return "\n".join(parts)
 
 

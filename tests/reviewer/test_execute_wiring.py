@@ -259,3 +259,59 @@ def test_reviewer_requires_patch_diff_on_disk(tmp_path: Path) -> None:
             model_id="claude-sonnet-4-6",
             adapter_factory=_factory(REVIEW_OK),
         )
+
+
+# ─── v2 prompt wiring (DECISIONS 2026-05-19) ───────────────────────────────
+
+
+def test_reviewer_prompt_path_default_is_v2() -> None:
+    """The Reviewer runner must default to prompt v2. F11-era hallucination
+    fix: v2 grounds Cross-family attestation in an executor-supplied
+    Model attestation context block; if execute.py still pointed at v1,
+    the prompt-bump would be a no-op."""
+    from tools.trace_cli.execute import REVIEWER_PROMPT_PATH_DEFAULT
+    assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v2.md"
+    assert REVIEWER_PROMPT_PATH_DEFAULT.is_file()
+
+
+def test_reviewer_user_content_surfaces_attestation_block(tmp_path: Path) -> None:
+    """The Reviewer's user message must surface the Model attestation
+    context block at the very top so the model copies the family
+    strings verbatim, not from inference."""
+    bundle_dir = _build_reviewable_bundle(tmp_path)
+
+    captured: dict = {}
+
+    class CapturingAdapter:
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def invoke(self, *, system_prompt, user_content, sampling):
+            captured["user_content"] = user_content
+            captured["system_prompt"] = system_prompt
+            from agents.patcher.adapter import ModelResponse
+            return ModelResponse(
+                text=REVIEW_OK,
+                model_id=self.model_id,
+                input_tokens=1,
+                output_tokens=1,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=0,
+                stop_reason="end_turn",
+            )
+
+    execute(
+        role="reviewer",
+        bundle_dir=bundle_dir,
+        invocation={"invocation_id": None, "inputs": [], "outputs": []},
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=lambda mid: CapturingAdapter(mid),
+    )
+    uc = captured["user_content"]
+    assert "# Model attestation context" in uc
+    assert "reviewer_model_id: claude-sonnet-4-5-20250929" in uc
+    assert "reviewer_family: anthropic-sonnet" in uc
+    assert "patcher_model_id: claude-opus-4-7" in uc
+    assert "patcher_family: anthropic-opus" in uc
+    assert "cross_family_rule_honored_expected: true" in uc
