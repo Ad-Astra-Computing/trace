@@ -567,6 +567,26 @@ def test_reproducer_in_model_backed_roles_set():
     assert "reproducer" in MODEL_BACKED_ROLES
 
 
+def test_reproducer_prompt_path_default_is_v4():
+    """Locked: the runner loads `prompts/reproducer.v4.md` by default.
+
+    Reproducer prompt versioning is a contract change, not a doc-only edit.
+    A test that asserts the default prompt path catches the v3 → v4 (and
+    future v4 → v5) wiring step regressing silently. F9/F9b/F9c lessons
+    live in v4; loading v3 silently downgrades the contract. See the
+    DECISIONS entry for the django slice (2026-05-19).
+    """
+    from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
+
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v4.md", (
+        f"runner default reproducer prompt should be v4 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt to v5+, update this test in the same commit."
+    )
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
+        f"default prompt path does not exist on disk: {REPRODUCER_PROMPT_PATH_DEFAULT}"
+    )
+
+
 def test_reproducer_unknown_model_id_rejected_without_factory(tmp_path):
     bundle_dir = _build_post_patcher_bundle(tmp_path)
     with pytest.raises(ExecutionError, match="no adapter wired"):

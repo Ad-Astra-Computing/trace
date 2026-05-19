@@ -465,6 +465,81 @@ Key points on the carve-out:
 - This pattern is NOT a license to fetch new fixtures. The malicious metalink is still inlined via `pkgs.writeText`. Use the carve-out ONLY for the source archive of a prior package version when reconstructing unpatched.
 - If the patch is a `patches += [./CVE.patch]` overlay (the libtiff shape, not a version bump), do NOT use this pattern — filter the patch out of `old.patches` instead: `pkgs.<attr>.overrideAttrs (old: { patches = lib.filter (p: !lib.hasSuffix "CVE-NNNN.patch" (toString p)) old.patches; })`. The hash-pinned carve-out is for version-bump shapes only.
 
+### Worked example — generated-SQL PoC for compiler/query-generation CVEs (added v4)
+
+Some CVE classes do not have a runtime "the bug fired" oracle the sandbox can observe. The canonical case is **SQL injection in an ORM's query compiler**: the bug is that the *generated SQL string* contains an injection payload that the *intended* backend (MySQL, PostgreSQL, etc.) would execute. Standing up the backend daemon to actually execute the SQL is forbidden by F8 criterion 3 (no daemon). But the generated-SQL string itself IS the vulnerable artifact, and upstream's own regression tests prove the fix by asserting on that string — not by running it against a live backend.
+
+For this class, the v0.1 sandbox-positive PoC shape is **assert on generated SQL/identifier output**, not on observed runtime behaviour. Five guardrails (codified after the django CVE-2025-59681 slice, 2026-05-19):
+
+1. **Name it explicitly.** The reproducer log's commentary says `generated-SQL PoC` so the reader knows what kind of evidence is being claimed. Not "end-to-end DB exploitation" — that's a different evidence class and would need a live backend.
+
+2. **Execute the real backend's compiler path, not a hand-rolled string builder or mock.** If the CVE description says "vulnerable on MySQL/MariaDB", the test settings MUST configure `'ENGINE': 'django.db.backends.mysql'` even though no actual MySQL connection happens. The backend's SQL-compiler module is what your test exercises; using SQLite for "simplicity" defeats the test because SQLite's compiler does not have the vulnerable surface. The same rule applies to any backend-specific vuln: the ENGINE/dialect string in your test settings must name the affected backend.
+
+3. **`SIGNAL_UNPATCHED` says "vulnerable SQL generated", not "injection executed".** Pick a substring that names the regression surface: `vulnerable-sql-generated: malicious column-alias passed verbatim into compiled query`. Not `sql-injection-succeeded` (overclaims) or `bug-triggered` (generic).
+
+4. **`SIGNAL_PATCHED` says "malicious input rejected/escaped in generated SQL".** Either the compiler raised a validation exception (positive branch: `grep -qE "ValueError|TypeError|invalid alias"` against captured stderr) or the compiler produced an SQL string where the malicious fragment is properly quoted/escaped (positive branch: `grep -qE "<escaped-form>"` against captured stdout). The fallback "input absent from generated SQL" branch is a *secondary* path under the v4 same-substring rule; it MUST emit the SAME canonical `SIGNAL_PATCHED` substring as the primary branch.
+
+5. **Cite upstream regression-test pattern in `patch-rationale.md` and `reproducer-log.txt`.** This shape is acceptable only when upstream itself uses generated-SQL assertion as the regression surface. The django CVE-2025-59681 fix's test file (`tests/queryset_pickle/tests.py` or equivalent) asserts on `qs.query.__str__()` — that's precedent. CVE classes where upstream relies on runtime execution to prove the fix are NOT eligible for this shape; refuse under rule 3 instead and request a more conventional PoC.
+
+Sketch (django CVE-2025-59681 shape):
+
+```nix
+{ pkgs ? import <nixpkgs> { } }:
+let
+  unpatched-src = pkgs.fetchFromGitHub {
+    owner = "django"; repo = "django";
+    rev = "refs/tags/4.2.24";
+    hash = "sha256-zDPK30u2QFbHCqnlTMqF1w9iN2sPDphhyKU1u+Mp5ho=";
+  };
+  # Test script: configures Django with the affected backend's ENGINE,
+  # invokes the vulnerable QuerySet method, captures the generated SQL,
+  # and asserts on the SQL string content.
+  test-script = pkgs.writeScript "test-cve-2025-59681.py" ''
+    #!${pkgs.python3}/bin/python3
+    import django
+    from django.conf import settings
+    settings.configure(
+        DATABASES={'default': {
+            # G2: MUST be the affected backend's ENGINE.
+            # MySQL/MariaDB is the vulnerable surface; SQLite is not.
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': 'test_db',
+            'HOST': 'localhost', 'USER': 'root', 'PASSWORD': '',
+        }},
+        INSTALLED_APPS=['testapp'], SECRET_KEY='x', USE_TZ=True,
+    )
+    django.setup()
+    from django.db.models import Count
+    from django.db import models
+    class TestModel(models.Model):
+        name = models.CharField(max_length=100)
+        class Meta: app_label = 'testapp'
+
+    malicious_alias = '`x` FROM testapp_testmodel; DROP TABLE users -- '
+    try:
+        # G2: real compiler path. No connection happens at SQL-generation time;
+        # qs.query.__str__() walks the compiler without opening a socket.
+        qs = TestModel.objects.annotate(**{malicious_alias: Count('id')})
+        sql = str(qs.query)
+        if 'DROP TABLE users' in sql or '; DROP' in sql:
+            # G3: SIGNAL names "generated SQL contains injection", not "exec'd"
+            print("SIGNAL_UNPATCHED: vulnerable-sql-generated: malicious column-alias passed verbatim into compiled MySQL SQL")
+    except (ValueError, TypeError) as e:
+        # G4: validation-rejection branch; same canonical SIGNAL_PATCHED substring
+        print(f"validation-rejected: {e}")
+        print("SIGNAL_PATCHED: alias-validation-rejected: backend compiler refused the malicious column-alias")
+  '';
+
+  # ... unpatched and patched derivations, each running test-script ...
+in { inherit unpatched patched; }
+```
+
+Key points:
+- The test runs Python locally with `${unpatched}/${pkgs.python3.sitePackages}` on `PYTHONPATH`. No DB connection; `qs.query.__str__()` walks the compiler tree without `.execute()`.
+- The settings module names the affected backend (MySQL here). On Postgres-specific CVEs, use `'django.db.backends.postgresql'`. On Oracle-specific CVEs, use `'django.db.backends.oracle'`. The compiler module gets imported and exercised regardless of whether a connection is open.
+- If the compiler imports a driver module (`mysqlclient`, `psycopg`, etc.) at import time, the test may fail at import. In that case, set the dialect via `DATABASES` but tell Django not to actually load the driver (e.g., access the compiler indirectly via `django.db.models.sql.compiler.SQLCompiler` with an explicit `connection.features` override). Refuse under rule 4 if no such bypass exists for the affected backend.
+- Same v4 same-substring rule: both primary (validation-rejection) and fallback (no-injection-in-SQL) branches must emit the identical canonical `SIGNAL_PATCHED` substring.
+
 ### `reproducer-log.txt`
 
 The predicted execution log. Two sections (or three if proxy), separated by line markers exactly as shown:
