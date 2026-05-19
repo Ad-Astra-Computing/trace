@@ -506,6 +506,61 @@ def _validate_reproducer_nix_shape(nix_body: str) -> None:
     # reconstruction; see docs/REPRODUCER_V1.md §4.3.
     _validate_fetcher_usage(nix_body)
 
+    # v6: narrow lint against the `|| true ... rc=$?` exit-capture anti-
+    # pattern. `|| true` makes the pipeline succeed with rc=0, so the
+    # subsequent `rc=$?` is ALWAYS 0 — SIGSEGV-class signal predicates
+    # (`[ "$rc" -eq 139 ]`) then never fire. The correct form is the
+    # bracketed `set +e; <cmd>; rc=$?; set -e`. Surfaced as F13 / assimp
+    # v5 re-cert run 26085849172. We DO NOT ban all `|| true` usage —
+    # only the immediate `|| true` followed by `rc=$?` capture form.
+    _validate_exit_capture_pattern(nix_body)
+
+
+_EXIT_CAPTURE_ANTI_PATTERN_RE = re.compile(
+    # Match `... >run.err 2>&1 || true` (or any `|| true` line ending) followed,
+    # within a few lines of whitespace/comments, by a bash exit-code capture
+    # `rc=$?` or `EXIT=$?` or similar identifier=$?.
+    # We allow trailing whitespace + up to two blank/comment lines between.
+    r"\|\|\s*true\s*\n"      # `|| true` line ends
+    r"(?:[ \t]*#[^\n]*\n|[ \t]*\n){0,2}"  # 0-2 blank/comment lines
+    r"[ \t]*[A-Za-z_][A-Za-z0-9_]*\s*=\s*\$\?",  # `<name>=$?`
+    re.MULTILINE,
+)
+
+
+def _validate_exit_capture_pattern(nix_body: str) -> None:
+    """Reject the v4/v5 broken exit-capture pattern (v6, F13).
+
+    `<cmd> >run.err 2>&1 || true` followed immediately by `rc=$?` is the
+    anti-pattern: `|| true` makes the pipeline succeed with rc=0, so the
+    rc capture is always 0 regardless of what `<cmd>` did. SIGSEGV-class
+    predicates branching on `[ "$rc" -eq 139 ]` then never fire.
+
+    The correct form is the bracketed `set +e; <cmd>; rc=$?; set -e`.
+    See prompts/reproducer.v6.md § Sandbox model § 4 and the assimp v5
+    re-cert (DECISIONS 2026-05-19 Reproducer v5 + assimp re-cert entry).
+
+    Other uses of `|| true` (cleanup, optional probes that don't gate
+    the predicate) remain allowed — only the immediate `|| true` →
+    `<name>=$?` capture family is banned.
+    """
+    m = _EXIT_CAPTURE_ANTI_PATTERN_RE.search(nix_body)
+    if m:
+        # Find the line number for the offending `|| true` for diagnostic.
+        line_no = nix_body[:m.start()].count("\n") + 1
+        raise ReproducerOutputMalformed(
+            f"reproducer.nix uses the broken `|| true; <name>=$?` exit-capture "
+            f"pattern at line {line_no}. `|| true` makes the pipeline succeed "
+            f"with rc=0, so the subsequent `<name>=$?` is ALWAYS 0 regardless "
+            f"of what the command did (including SIGSEGV, which would normally "
+            f"be rc=139). Use the bracketed form instead:\n\n"
+            f"    set +e\n"
+            f"    <command> >run.err 2>&1\n"
+            f"    rc=$?\n"
+            f"    set -e\n\n"
+            f"This is v6 capture discipline; see prompts/reproducer.v6.md § Sandbox model § 4."
+        )
+
 
 def _validate_fetcher_usage(nix_body: str) -> None:
     """Enforce the Reproducer's fetcher policy.
