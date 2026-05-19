@@ -845,7 +845,7 @@ def _append_patcher_replay_entry(
 # ─── reviewer execution ────────────────────────────────────────────────────
 
 
-REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v1.md"
+REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v2.md"
 
 
 def _execute_reviewer(
@@ -951,6 +951,16 @@ def _execute_reviewer(
     else:
         adapter = _build_adapter_from_model_id(model_id, role_label="reviewer")
 
+    # v2 grounding (prompt v1 → v2, DECISIONS 2026-05-19): surface the
+    # Patcher's family + Reviewer's own family + the expected
+    # rule-honored bit as load-bearing context the model copies
+    # verbatim. The deterministic cross-family gate above is independent
+    # enforcement; this block is the model-side attestation surface the
+    # Reviewer reads into review.md.
+    patcher_model_id = _read_patcher_model_id_from_replay(bundle_dir) or "<unknown>"
+    rule_honored_expected = bool(
+        patcher_family and requested_family and patcher_family != requested_family
+    )
     inputs = {
         "finding": finding,
         "upstream_ref": upstream_ref,
@@ -960,6 +970,13 @@ def _execute_reviewer(
         "package_source_path": package_path.name,
         "patch_diff": patch_diff,
         "patch_rationale_md": patch_rationale_md,
+        "model_attestation_context": {
+            "reviewer_model_id": model_id,
+            "reviewer_family": requested_family or "<unknown>",
+            "patcher_model_id": patcher_model_id,
+            "patcher_family": patcher_family or "<unknown>",
+            "cross_family_rule_honored_expected": rule_honored_expected,
+        },
     }
 
     started_at = _utc_now_iso()
@@ -1096,6 +1113,17 @@ def _build_adapter_from_model_id(model_id: str, *, role_label: str):
 def _read_patcher_family_from_replay(bundle_dir: Path) -> str | None:
     """Inspect replay.json for the most recent patcher invocation's
     declared family; returns None if no patcher invocation is recorded."""
+    model_id = _read_patcher_model_id_from_replay(bundle_dir)
+    if model_id is None:
+        return None
+    return _model_id_family(model_id)
+
+
+def _read_patcher_model_id_from_replay(bundle_dir: Path) -> str | None:
+    """Inspect replay.json for the most recent patcher invocation's
+    declared model_id; returns None if no patcher invocation is
+    recorded. Used by the Reviewer wiring to surface the load-bearing
+    Model attestation context block in v2."""
     rj = bundle_dir / "replay.json"
     if not rj.is_file():
         return None
@@ -1110,9 +1138,7 @@ def _read_patcher_family_from_replay(bundle_dir: Path) -> str | None:
         if not invs:
             continue
         last = invs[-1]
-        model_id = (last.get("model") or {}).get("model_id") or ""
-        # Map by id first; fall back to a granular family from the model_id.
-        return _model_id_family(model_id)
+        return (last.get("model") or {}).get("model_id") or None
     return None
 
 
@@ -1138,7 +1164,7 @@ def _build_reviewer_invocation(
         "started_at": started_at,
         "ended_at": ended_at,
         "model": _build_reviewer_model_block(reviewer_run),
-        "prompt": {"path": "prompts/reviewer.v1.md", "sha256": reviewer_run["prompt_sha256"]},
+        "prompt": {"path": "prompts/reviewer.v2.md", "sha256": reviewer_run["prompt_sha256"]},
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
         "rng_seed": None,
