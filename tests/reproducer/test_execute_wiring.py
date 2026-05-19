@@ -567,21 +567,21 @@ def test_reproducer_in_model_backed_roles_set():
     assert "reproducer" in MODEL_BACKED_ROLES
 
 
-def test_reproducer_prompt_path_default_is_v5():
-    """Locked: the runner loads `prompts/reproducer.v5.md` by default.
+def test_reproducer_prompt_path_default_is_v6():
+    """Locked: the runner loads `prompts/reproducer.v6.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit.
-    A test that asserts the default prompt path catches the prompt-bump
-    wiring step regressing silently. The v4→v5 bump adds the bundle-local
-    PoC input contract; loading v4 silently degrades back to refuse-under-
-    rule-4 for fuzzer-class CVEs (assimp shape). See DECISIONS 2026-05-19
-    (Reproducer v5) for the peer-acked design.
+    The v5→v6 bump codifies two findings from the assimp v5 re-cert:
+    precondition discipline for crash-class CVEs (F12) and the `|| true`
+    exit-capture anti-pattern (F13). Loading v5 silently downgrades the
+    contract. See DECISIONS 2026-05-19 (Reproducer v5 + assimp re-cert)
+    for the worked-example evidence.
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v5.md", (
-        f"runner default reproducer prompt should be v5 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
-        "If you are bumping the prompt to v6+, update this test in the same commit."
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v6.md", (
+        f"runner default reproducer prompt should be v6 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt to v7+, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {REPRODUCER_PROMPT_PATH_DEFAULT}"

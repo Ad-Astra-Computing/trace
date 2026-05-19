@@ -870,3 +870,108 @@ def test_refusal_missing_reason_line_rejected() -> None:
     )
     with pytest.raises(ReproducerOutputMalformed, match="rule:|reason:"):
         parse_reproducer_output(raw)
+
+
+# ─── v6: exit-capture anti-pattern lint (F13) ──────────────────────────────
+
+
+def test_v6_or_true_with_rc_capture_immediately_after_rejected() -> None:
+    """The exact anti-pattern from the assimp v5 re-cert: `<cmd> || true`
+    immediately followed by `rc=$?`. The `|| true` makes the pipeline
+    succeed with rc=0, so the rc capture is always 0 — SIGSEGV signal
+    predicates branching on `[ "$rc" -eq 139 ]` never fire. F13."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  unpatched = pkgs.demo.overrideAttrs (old: { passthru.test = pkgs.runCommand \"u\" {} ''\n"
+        "    ${pkgs.demo}/bin/demo --crash >run.err 2>&1 || true\n"
+        "    rc=$?\n"
+        "    if [ \"$rc\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        "  ''; });\n"
+        "  patched = pkgs.demo;\n"
+        "  test = unpatched.passthru.test;\n"
+        "in {\n"
+        "  inherit unpatched patched test;\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    with pytest.raises(ReproducerOutputMalformed, match="broken `\\|\\| true.*exit-capture"):
+        parse_reproducer_output(raw)
+
+
+def test_v6_or_true_with_rc_capture_separated_by_blank_line_rejected() -> None:
+    """The lint tolerates 0-2 blank/comment lines between `|| true` and
+    `<name>=$?` — common shape where the model puts an inline comment
+    before the rc capture. Still the same anti-pattern."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  unpatched = pkgs.demo.overrideAttrs (old: { passthru.test = pkgs.runCommand \"u\" {} ''\n"
+        "    ${pkgs.demo}/bin/demo --crash >run.err 2>&1 || true\n"
+        "\n"
+        "    # capture the rc\n"
+        "    EXIT=$?\n"
+        "    if [ \"$EXIT\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        "  ''; });\n"
+        "  patched = pkgs.demo;\n"
+        "  test = unpatched.passthru.test;\n"
+        "in {\n"
+        "  inherit unpatched patched test;\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    with pytest.raises(ReproducerOutputMalformed, match="broken `\\|\\| true.*exit-capture"):
+        parse_reproducer_output(raw)
+
+
+def test_v6_bracketed_capture_pattern_accepted() -> None:
+    """The correct v6 capture form: `set +e; <cmd>; rc=$?; set -e`.
+    No `|| true`, so the rc capture sees the real exit code (including
+    SIGSEGV rc=139). Must parse cleanly."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  unpatched = pkgs.demo.overrideAttrs (old: { passthru.test = pkgs.runCommand \"u\" {} ''\n"
+        "    set +e\n"
+        "    ${pkgs.demo}/bin/demo --crash >run.err 2>&1\n"
+        "    rc=$?\n"
+        "    set -e\n"
+        "    if [ \"$rc\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        "  ''; });\n"
+        "  patched = pkgs.demo;\n"
+        "  test = unpatched.passthru.test;\n"
+        "in {\n"
+        "  inherit unpatched patched test;\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    result = parse_reproducer_output(raw)
+    assert result.kind == "reproducer"
+
+
+def test_v6_or_true_in_cleanup_context_not_rejected() -> None:
+    """`|| true` is legitimate in cleanup contexts (e.g., `rm -rf $TMPDIR/x || true`
+    so a failure to clean doesn't abort the test). Only the immediate
+    `|| true` followed by `<name>=$?` exit-capture is banned. A `|| true`
+    that is NOT followed by a `$?` capture must parse cleanly."""
+    nix = (
+        "{ pkgs ? import <nixpkgs> { } }:\n"
+        "let\n"
+        "  unpatched = pkgs.demo.overrideAttrs (old: { passthru.test = pkgs.runCommand \"u\" {} ''\n"
+        "    rm -rf $TMPDIR/u || true\n"
+        "    mkdir -p $TMPDIR/u\n"
+        "    set +e\n"
+        "    ${pkgs.demo}/bin/demo --crash >run.err 2>&1\n"
+        "    rc=$?\n"
+        "    set -e\n"
+        "    if [ \"$rc\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        "  ''; });\n"
+        "  patched = pkgs.demo;\n"
+        "  test = unpatched.passthru.test;\n"
+        "in {\n"
+        "  inherit unpatched patched test;\n"
+        "}\n"
+    )
+    raw = _wrap_three_files(nix=nix)
+    result = parse_reproducer_output(raw)
+    assert result.kind == "reproducer"
