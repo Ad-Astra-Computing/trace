@@ -567,8 +567,8 @@ def test_reproducer_in_model_backed_roles_set():
     assert "reproducer" in MODEL_BACKED_ROLES
 
 
-def test_reproducer_prompt_path_default_is_v7():
-    """Locked: the runner loads `prompts/reproducer.v7.md` by default.
+def test_reproducer_prompt_path_default_is_v8():
+    """Locked: the runner loads `prompts/reproducer.v8.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit.
     The v5→v6 bump codifies two findings from the assimp v5 re-cert:
@@ -579,9 +579,9 @@ def test_reproducer_prompt_path_default_is_v7():
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v7.md", (
-        f"runner default reproducer prompt should be v7 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
-        "If you are bumping the prompt to v8+, update this test in the same commit."
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v8.md", (
+        f"runner default reproducer prompt should be v8 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt to v9+, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {REPRODUCER_PROMPT_PATH_DEFAULT}"
