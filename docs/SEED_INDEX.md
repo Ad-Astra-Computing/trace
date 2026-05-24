@@ -157,7 +157,7 @@ expat 2.6.4 → 2.7.0 CWE-674 uncontrolled recursion via linear XML entity chain
   3. **F18** (2026-05-24): Nix build sandbox inherits `ulimit -s unlimited` from the nix-daemon; without a stack limit, the 60K entity chain exits rc=0 (no crash). Fix: `ulimit -s 8192` added to both runCommand scripts. Evidence: cert run [26323566165](https://github.com/Ad-Astra-Computing/trace/actions/runs/26323566165) failed at SIGNAL verify: "PREDICATE FAILED: xmlwf did not crash with SIGSEGV/SIGABRT (rc=0)."
 * **Cert runs**:
   * [26323566165](https://github.com/Ad-Astra-Computing/trace/actions/runs/26323566165) (pre-F18, 2026-05-23): Builder ✓, SIGNAL verify ✗ (`unpatched.outcome=failed`, SIGNAL_UNPATCHED absent — unlimited stack in sandbox).
-  * [26347401054](https://github.com/Ad-Astra-Computing/trace/actions/runs/26347401054) (pre-F18 commit, same reproducer.nix): Builder in progress at F18 commit time; expected same failure.
+  * [26347401054](https://github.com/Ad-Astra-Computing/trace/actions/runs/26347401054) (pre-F18 commit, same reproducer.nix): Builder ✓, SIGNAL verify ✗ (step 11 failure — `unpatched.outcome=failed`, SIGNAL_UNPATCHED absent — same unlimited-stack root cause as 26323566165).
   * [26348784388](https://github.com/Ad-Astra-Computing/trace/actions/runs/26348784388) (post-F18 ulimit fix, 2026-05-24): in progress.
 
 ### `CVE-2025-47256--libxmp` · auto-merge · staging (Phase 2)
