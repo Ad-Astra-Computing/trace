@@ -8,7 +8,19 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ## Unreleased
 
-(none)
+### N=3 sandbox-positive corpus; Phase 2 harvest baseline; hash-verifiability scorer fix
+
+**N=3 sandbox-positive corpus (git-lfs, assimp, expat).** Extends the sandbox-positive cert-green corpus from N=2 (git-lfs, assimp) to N=3 by adding expat CVE-2024-8176 (CWE-674 non-TCO stack overflow via linear entity chain). Clean 2.6.4→2.7.0 version-bump; blast-radius-exceeds-threshold route (~4291 reverse-closure deps). The N=3 cohort eval (Patcher + Reviewer) scores: `patch_rate=1.000`, `accept_rate=1.000`, `evidence_cited_mean=1.000`, `attestation_correct_rate=0.667` (git-lfs pre-validator era), `reviewer_steward_disagreement_rate=0.667` (assimp + expat blast-radius escalation — expected, not a defect). Reproducer rate reported after expat Linux cert closes.
+
+**Key finding — CWE-674 sub-class discriminator.** The TCO-distinguisher for CWE-674 recursion CVEs: if the recursive function maintains non-trivial per-frame state (return value propagation, accumulator, sub-expression tracking), gcc cannot tail-call-optimize it and the default stack will overflow reliably. Expat's `doContent` / `contentProcessor` carries XML parse state across frames — non-TCO. Contrast uriparser (F11) and libxml2 (same class, TCO'd at -O2). The new filter prevents future F11-class retirements on CWE-674 candidates.
+
+**Phase 2 harvest: two new candidates in `eval/candidates.jsonl`.** CWE-191 integer underflow → stack buffer underwrite class (CVE-2025-47256, libxmp) and CWE-190 integer overflow → memcpy SIGSEGV class (CVE-2025-68431, libheif). libxmp staged (bundle bootstrapped, Patcher pending); libheif queued. COMPLEXITY NOTE for libxmp: nixpkgs 4.6.2→4.6.3 diff is a complete package rewrite (fetchurl → fetchFromGitHub, autotools → CMake/Ninja, LGPL 2.1+ → MIT), classified as `patch_shape=package-rewrite`. fetchFromGitHub hash manually pinned in upstream-ref.json (schema_version 1.1.0, source=manual-pinned).
+
+**Hash-verifiability scorer false-positive fix (`agents/scorers/hash_verifiability.py`).** The silent-omission detection path incorrectly flagged hash attributes left unchanged across a version bump when the unchanged value was already grounded against the prefetch table (i.e., the module upgrade didn't change the vendored dependencies). Fixed by exempting any attribute whose current `package.nix` value appears in `prefetch_values` from the omission count. The git-lfs bundle (3.7.0→3.7.1, Go CVE fix, vendorHash legitimately unchanged) scored 0.9 composite before the fix; 1.0 composite after. Existing corpus-1 cohort tests (mbedtls, bind, traefik) unaffected.
+
+**lrzip CVE-2025-15571 retired (F8b-concurrency).** Third F8 sub-class codified: CWE-476 CVEs where the upstream issue describes a concurrency race condition or mentions ASAN delays as required for reproduction are NOT reliably sandbox-positive at default optimization. The crash at `0x000000000080` (offset within freed struct, not address zero) requires `clear_rulist` to race against `ucompthread` — a race window that only ASAN's sleep-injection widens reliably. Pre-cert local probe was sufficient evidence; cert dispatch skipped. Patcher (opus) + Reviewer (sonnet) artifacts preserved as evidence of the patch chain.
+
+**Corpus table: N=20 bundles.** SEED_INDEX updated to twenty entries.
 
 ---
 
