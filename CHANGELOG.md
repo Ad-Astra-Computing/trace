@@ -20,6 +20,8 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 **lrzip CVE-2025-15571 retired (F8b-concurrency).** Third F8 sub-class codified: CWE-476 CVEs where the upstream issue describes a concurrency race condition or mentions ASAN delays as required for reproduction are NOT reliably sandbox-positive at default optimization. The crash at `0x000000000080` (offset within freed struct, not address zero) requires `clear_rulist` to race against `ucompthread` — a race window that only ASAN's sleep-injection widens reliably. Pre-cert local probe was sufficient evidence; cert dispatch skipped. Patcher (opus) + Reviewer (sonnet) artifacts preserved as evidence of the patch chain.
 
+**F18 — Nix build sandbox inherits unlimited stack from nix-daemon.** Discovered during expat cert (cert run 26323566165): in `pkgs.runCommand` scripts on the GHA ubuntu-latest runner with DeterminateSystems nix-installer, the process inherits `ulimit -s unlimited` from the nix-daemon. This causes stack-overflow CVEs whose reproducer depends on the standard 8MB Linux stack limit to not crash. Fix: explicitly set `ulimit -s 8192` in reproducer.nix `runCommand` scripts for CWE-121/CWE-674 bundles. The F18 fix is now a prompt-level lesson for the next Reproducer prompt version (v9 era).
+
 **Corpus table: N=20 bundles.** SEED_INDEX updated to twenty entries.
 
 ---
