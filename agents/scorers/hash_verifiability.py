@@ -215,15 +215,24 @@ class HashVerifiabilityScorer:
         # also touched by the diff. Untouched hash attrs after a version
         # bump are ungrounded (the diff is implying they didn't change,
         # but a real version bump almost always invalidates them).
+        #
+        # Exception: if the prefetch table is present and the attr's
+        # current value in package.nix already matches a grounded prefetch
+        # value, the attr is implicitly correct — the model correctly left
+        # it unchanged because the dependency content didn't change across
+        # the version bump (e.g. vendorHash stays the same when Go vendor
+        # modules are unaffected by the CVE fix).
         version_bumped = _diff_changes_version(diff_text)
         omitted_attrs: list[str] = []
         if version_bumped:
             pkg_path = bundle_dir / "package.nix"
             if pkg_path.is_file():
                 original = pkg_path.read_text()
-                original_hash_attrs = {
-                    m.group("name") for m in _HASH_ASSIGN_RE.finditer(original)
-                }
+                # Build a map of attr_name -> current_value from original package.nix.
+                original_hash_map: dict[str, str] = {}
+                for m in _HASH_ASSIGN_RE.finditer(original):
+                    original_hash_map[m.group("name")] = m.group("value").strip()
+                original_hash_attrs = set(original_hash_map)
                 touched_attrs = {entry["attr"] for entry in introduced}
                 # Also include attrs touched on the removed side (some
                 # diffs delete an entry then re-add a different attr).
@@ -232,7 +241,19 @@ class HashVerifiabilityScorer:
                 touched_attrs |= {
                     m.group("name") for m in _HASH_ASSIGN_RE.finditer(removed_text)
                 }
-                omitted_attrs = sorted(original_hash_attrs - touched_attrs)
+                candidate_omissions = original_hash_attrs - touched_attrs
+                # Filter out attrs whose current value is already grounded
+                # against the prefetch table (i.e. deliberately unchanged).
+                for attr in sorted(candidate_omissions):
+                    if prefetch_table_present:
+                        current_value = original_hash_map.get(attr, "")
+                        bare = current_value.strip('"').strip("'")
+                        if bare in prefetch_values:
+                            # Current value matches a grounded prefetch hash;
+                            # leaving it untouched is correct — not an omission.
+                            continue
+                    omitted_attrs.append(attr)
+                omitted_attrs = sorted(omitted_attrs)
 
         # Tally: every introduced hash whose verdict is not in the grounded
         # set is a violation; every omitted hash after a version bump is a
