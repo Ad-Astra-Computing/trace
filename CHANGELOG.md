@@ -6,6 +6,12 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ---
 
+## Unreleased
+
+**libheif CVE-2025-68431 retired at preflight (F8c-fixture-availability sub-class).** Phase 2 candidate libheif failed the F8 preflight gate before bundle bootstrap: upstream fix commit [`b8c12a7b70`](https://github.com/strukturag/libheif/commit/b8c12a7b70) ships no test fixture (1-line `pixelimage.cc` change only); no public PoC attached to advisory/GHSA/issue; project's 30+ fuzz corpus files use opaque clusterfuzz-hash names with no overlay/iovl identifier. ISOBMFF container construction is well beyond sonnet-class model attestation budget. New filter sub-class F8c-fixture-availability codified in `docs/CORPUS.md`: parser-heavy CVEs in non-trivial container formats with no co-landed test fixture AND no public PoC are F8 retirements at harvest time. Active Phase 2 candidates: libxmp only (bundle staged, Patcher pending API-key availability).
+
+---
+
 ## v0.5.0 — 25 May 2026
 
 ### N=3 sandbox-positive corpus; Phase 2 harvest baseline; hash-verifiability scorer fix
