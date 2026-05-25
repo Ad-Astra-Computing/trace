@@ -6,11 +6,13 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ---
 
-## Unreleased
+## v0.5.0 — 25 May 2026
 
 ### N=3 sandbox-positive corpus; Phase 2 harvest baseline; hash-verifiability scorer fix
 
-**N=3 sandbox-positive corpus (git-lfs, assimp, expat).** Extends the sandbox-positive cert-green corpus from N=2 (git-lfs, assimp) to N=3 by adding expat CVE-2024-8176 (CWE-674 non-TCO stack overflow via linear entity chain). Clean 2.6.4→2.7.0 version-bump; blast-radius-exceeds-threshold route (~4291 reverse-closure deps). The N=3 cohort eval scores: Patcher `patch_rate=1.000` (3/3 at composite ≥0.95), Reviewer `accept_rate=1.000` / `evidence_cited_mean=1.000` / `attestation_correct_rate=0.667` (git-lfs pre-validator era) / `reviewer_steward_disagreement_rate=0.667` (assimp + expat blast-radius escalation — expected), Reproducer `repro_rate mean=0.667` (git-lfs 0.0 v4-era F13-pattern technical debt, assimp 1.0, expat 1.0). Expat cert run [26348784388](https://github.com/Ad-Astra-Computing/trace/actions/runs/26348784388) closed end-to-end green 2026-05-25 after F18 ulimit fix.
+v0.5.0 establishes the **N=3 sandbox-positive baseline**: Patcher and Reviewer are green across the cohort; Reproducer is 2/3 green with the remaining failure documented as v4-era F13 technical debt, NOT a v8 regression. N=3 is the closed baseline; Phase 2 harvest (libxmp, libheif) continues after this tag and lands in v0.5.1 / v0.6.0.
+
+**N=3 sandbox-positive corpus (git-lfs, assimp, expat).** Extends the sandbox-positive cert-green corpus from N=2 (git-lfs, assimp) to N=3 by adding expat CVE-2024-8176 (CWE-674 non-TCO stack overflow via linear entity chain). Clean 2.6.4→2.7.0 version-bump; blast-radius-exceeds-threshold route (~4291 reverse-closure deps). The N=3 cohort eval scores: Patcher `patch_rate=1.000` (3/3 at composite ≥0.95), Reviewer `accept_rate=1.000` / `evidence_cited_mean=1.000` / `attestation_correct_rate=0.667` (git-lfs pre-validator era) / `reviewer_steward_disagreement_rate=0.667` (assimp + expat blast-radius escalation — expected), Reproducer `repro_rate mean=0.667` (git-lfs 0.0, assimp 1.0, expat 1.0). The git-lfs 0.0 reflects the F13 broken `|| true; rc=$?` exit-capture pattern in its v4-era reproducer.nix — a known v4 contract gap, codified into Reproducer prompt v6 and beyond, not a v8 regression. The cert itself was green; the artifact-quality scorer reports the contract-shape gap honestly. Expat cert run [26348784388](https://github.com/Ad-Astra-Computing/trace/actions/runs/26348784388) closed end-to-end green 2026-05-25 after F18 ulimit fix.
 
 **Key finding — CWE-674 sub-class discriminator.** The TCO-distinguisher for CWE-674 recursion CVEs: if the recursive function maintains non-trivial per-frame state (return value propagation, accumulator, sub-expression tracking), gcc cannot tail-call-optimize it and the default stack will overflow reliably. Expat's `doContent` / `contentProcessor` carries XML parse state across frames — non-TCO. Contrast uriparser (F11) and libxml2 (same class, TCO'd at -O2). The new filter prevents future F11-class retirements on CWE-674 candidates.
 
