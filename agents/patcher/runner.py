@@ -152,8 +152,19 @@ def run_patcher(
     )
     raw = response.text or ""
 
-    # fail LOUDLY on malformed output — no swallowing
-    parsed = parse_patcher_output(raw)
+    # fail LOUDLY on malformed output — no swallowing. Attach model context to
+    # the exception so the executor can persist `.patcher-failures/<uuid>/raw-
+    # response.txt` + `failure.json` for debugging without inventing model
+    # state at the catch site. (Added 2026-05-25 with patcher.v2 / F19.)
+    try:
+        parsed = parse_patcher_output(raw)
+    except PatcherOutputMalformed as exc:
+        exc.raw_response = raw
+        exc.raw_response_sha256 = _sha256_text(raw)
+        exc.model_id = response.model_id
+        exc.prompt_sha256 = _sha256_text(system_prompt)
+        exc.user_content_sha256 = _sha256_text(user_content)
+        raise
 
     return PatcherRunResult(
         kind=parsed.kind,

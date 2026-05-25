@@ -375,7 +375,60 @@ def _match_and_hash_outputs(
 # ─── patcher (model-backed) ─────────────────────────────────────────────────
 
 
-PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v1.md"
+PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v2.md"
+
+
+def _persist_patcher_failure(
+    *,
+    bundle_dir: Path,
+    exc: Any,  # agents.patcher.PatcherOutputMalformed
+    model_id: str,
+    started_at: str,
+) -> None:
+    """Persist a failed Patcher invocation's context for debugging.
+
+    Writes `.patcher-failures/<uuid>/raw-response.txt` (the model's actual
+    output) and `failure.json` (model_id, prompt sha, raw response sha,
+    parser error, timestamp). The directory is NOT part of the replay
+    manifest and is gitignored. If the exception lacks raw_response
+    context (e.g., raised before run_patcher reached the parser), this
+    helper writes only the metadata it can resolve. (Added 2026-05-25
+    with patcher.v2 / F19.)
+    """
+    import uuid
+
+    raw = getattr(exc, "raw_response", None)
+    raw_sha = getattr(exc, "raw_response_sha256", None)
+    prompt_sha = getattr(exc, "prompt_sha256", None)
+    user_content_sha = getattr(exc, "user_content_sha256", None)
+
+    failure_id = str(uuid.uuid4())
+    fail_dir = bundle_dir / ".patcher-failures" / failure_id
+    try:
+        fail_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        # Vanishingly improbable UUID collision; bail out rather than
+        # overwrite. The next live attempt will mint a fresh UUID.
+        return
+
+    if raw is not None:
+        _atomic_write_bytes(fail_dir / "raw-response.txt", raw.encode("utf-8"))
+
+    failure_meta = {
+        "schema_version": "1.0.0",
+        "failure_id": failure_id,
+        "started_at": started_at,
+        "failed_at": _utc_now_iso(),
+        "model_id": getattr(exc, "model_id", None) or model_id,
+        "prompt_sha256": prompt_sha,
+        "prompt_path": "prompts/patcher.v2.md",
+        "user_content_sha256": user_content_sha,
+        "raw_response_sha256": raw_sha,
+        "parser_error": str(exc),
+        "raw_response_bytes": (len(raw.encode("utf-8")) if raw else 0),
+    }
+    failure_body = (json.dumps(failure_meta, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    _atomic_write_bytes(fail_dir / "failure.json", failure_body)
 
 
 def _execute_patcher(
@@ -421,7 +474,7 @@ def _execute_patcher(
         if kind == "advisory-only":
             raise PatcherDispatchRefused(
                 "refuses: bundle.kind=='advisory-only'. Patcher must not "
-                "be invoked on advisory-only bundles per prompts/patcher.v1.md "
+                "be invoked on advisory-only bundles per prompts/patcher.v2.md "
                 "refusal rules + SPEC §1.2 separation of concerns."
             )
 
@@ -497,7 +550,12 @@ def _execute_patcher(
     }
 
     # Parse-before-write: if run_patcher raises PatcherOutputMalformed, we
-    # exit without touching any files. The caller sees EXIT_INVALID.
+    # exit without touching any bundle artifacts (no patch.diff, no
+    # replay invocation). To preserve debugging context — the model already
+    # billed for the call — we persist `.patcher-failures/<uuid>/raw-
+    # response.txt` + `failure.json` outside the signed bundle surface.
+    # The directory is not part of the replay manifest and is gitignored at
+    # the repo level. (Added 2026-05-25 with patcher.v2 / F19.)
     started_at = _utc_now_iso()
     try:
         result = run_patcher(
@@ -506,6 +564,12 @@ def _execute_patcher(
             prompt_path=PATCHER_PROMPT_PATH_DEFAULT,
         )
     except PatcherOutputMalformed as exc:
+        _persist_patcher_failure(
+            bundle_dir=bundle_dir,
+            exc=exc,
+            model_id=model_id,
+            started_at=started_at,
+        )
         raise ExecutionError(f"patcher output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
 
@@ -794,7 +858,7 @@ def _build_patcher_invocation(
         "started_at": started_at,
         "ended_at": ended_at,
         "model": _build_patcher_model_block(patcher_run),
-        "prompt": {"path": "prompts/patcher.v1.md", "sha256": patcher_run["prompt_sha256"]},
+        "prompt": {"path": "prompts/patcher.v2.md", "sha256": patcher_run["prompt_sha256"]},
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
         "rng_seed": None,

@@ -171,6 +171,29 @@ def _factory(response_text: str):
     return _make
 
 
+# ─── version pin ──────────────────────────────────────────────────────────
+
+
+def test_patcher_prompt_path_default_is_v2():
+    """Locked: the runner loads `prompts/patcher.v2.md` by default.
+
+    Patcher prompt versioning is a contract change. v1 → v2 codifies F19:
+    opus-4-7 emitted prose preamble on the libxmp package-rewrite input
+    (CVE-2025-47256, 2026-05-25). v2 enforces 'first byte = `=`' explicitly
+    and ships a worked example for a package-rewrite-shape diff. Loading
+    v1 silently downgrades the contract. See DECISIONS 2026-05-25 (F19).
+    """
+    from tools.trace_cli.execute import PATCHER_PROMPT_PATH_DEFAULT
+
+    assert PATCHER_PROMPT_PATH_DEFAULT.name == "patcher.v2.md", (
+        f"runner default patcher prompt should be v2 (got {PATCHER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt to v3+, update this test in the same commit."
+    )
+    assert PATCHER_PROMPT_PATH_DEFAULT.is_file(), (
+        f"default prompt path does not exist on disk: {PATCHER_PROMPT_PATH_DEFAULT}"
+    )
+
+
 # ─── happy path: patch writes outputs ──────────────────────────────────────
 
 

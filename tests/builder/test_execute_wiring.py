@@ -86,7 +86,7 @@ def _build_post_reproducer_bundle(
                     "version": "test",
                     "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 8192},
                 },
-                "prompt": {"path": "prompts/patcher.v1.md", "sha256": "a" * 64},
+                "prompt": {"path": "prompts/patcher.v2.md", "sha256": "a" * 64},
                 "inputs": [],
                 "outputs": [],
                 "rng_seed": None,
