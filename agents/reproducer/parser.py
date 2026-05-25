@@ -108,7 +108,20 @@ PASSTHRU_KIND_ENUM: frozenset[str] = frozenset({
 
 
 class ReproducerOutputMalformed(Exception):
-    """Raised when model output does not match the prompt contract."""
+    """Raised when model output does not match the prompt contract.
+
+    Carries optional `raw_response` / `raw_response_sha256` / `model_id` /
+    `prompt_sha256` / `user_content_sha256` attributes, attached by
+    `run_reproducer` so the executor can persist the failing artifact to
+    `.reproducer-failures/<uuid>/` for debugging. Mirrors the Patcher
+    failure-capture pattern (F19, 2026-05-25).
+    """
+
+    raw_response: str | None = None
+    raw_response_sha256: str | None = None
+    model_id: str | None = None
+    prompt_sha256: str | None = None
+    user_content_sha256: str | None = None
 
 
 # ─── result types ─────────────────────────────────────────────────────────
