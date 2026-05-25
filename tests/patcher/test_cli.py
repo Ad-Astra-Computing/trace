@@ -29,7 +29,7 @@ from agents.patcher.cli import main
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PROMPT_PATH = REPO_ROOT / "prompts" / "patcher.v1.md"
+PROMPT_PATH = REPO_ROOT / "prompts" / "patcher.v2.md"
 
 
 _RATIONALE = """## Upstream reference

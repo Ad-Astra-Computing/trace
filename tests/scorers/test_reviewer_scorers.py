@@ -303,7 +303,7 @@ def _seed_replay_with_patcher(bd: Path, patcher_model_id: str) -> None:
                     "version": "x",
                     "sampling": {"temperature": 0.0, "top_p": 1.0, "max_tokens": 1024},
                 },
-                "prompt": {"path": "prompts/patcher.v1.md", "sha256": "f" * 64},
+                "prompt": {"path": "prompts/patcher.v2.md", "sha256": "f" * 64},
                 "inputs": [{"path": "finding.json", "sha256": "0" * 64}],
                 "outputs": [{"path": "patch.diff", "sha256": "0" * 64}],
                 "rng_seed": None,

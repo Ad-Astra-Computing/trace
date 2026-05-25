@@ -1,6 +1,6 @@
 """Parser tests for Patcher output.
 
-Contract from prompts/patcher.v1.md: exactly two blocks on success,
+Contract from prompts/patcher.v2.md: exactly two blocks on success,
 exactly one refusal block otherwise, nothing outside the blocks, five
 rationale headings in order. Parser fails loudly on anything else.
 """
