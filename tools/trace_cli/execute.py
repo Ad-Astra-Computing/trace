@@ -574,7 +574,7 @@ def _execute_patcher(
             exc=exc,
             model_id=model_id,
             started_at=started_at,
-            prompt_path_relative="prompts/patcher.v2.md",
+            prompt_path_relative=f"prompts/{PATCHER_PROMPT_PATH_DEFAULT.name}",
         )
         raise ExecutionError(f"patcher output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
@@ -1068,7 +1068,7 @@ def _execute_reviewer(
             exc=exc,
             model_id=model_id,
             started_at=started_at,
-            prompt_path_relative="prompts/reviewer.v2.md",
+            prompt_path_relative=f"prompts/{REVIEWER_PROMPT_PATH_DEFAULT.name}",
         )
         raise ExecutionError(f"reviewer output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
@@ -1618,7 +1618,7 @@ def _execute_reproducer(
             exc=exc,
             model_id=model_id,
             started_at=started_at,
-            prompt_path_relative="prompts/reproducer.v9.md",
+            prompt_path_relative=f"prompts/{REPRODUCER_PROMPT_PATH_DEFAULT.name}",
         )
         raise ExecutionError(f"reproducer output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
