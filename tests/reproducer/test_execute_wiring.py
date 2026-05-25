@@ -567,21 +567,23 @@ def test_reproducer_in_model_backed_roles_set():
     assert "reproducer" in MODEL_BACKED_ROLES
 
 
-def test_reproducer_prompt_path_default_is_v8():
-    """Locked: the runner loads `prompts/reproducer.v8.md` by default.
+def test_reproducer_prompt_path_default_is_v9():
+    """Locked: the runner loads `prompts/reproducer.v9.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit.
-    The v5→v6 bump codifies two findings from the assimp v5 re-cert:
-    precondition discipline for crash-class CVEs (F12) and the `|| true`
-    exit-capture anti-pattern (F13). Loading v5 silently downgrades the
-    contract. See DECISIONS 2026-05-19 (Reproducer v5 + assimp re-cert)
-    for the worked-example evidence.
+    The v8→v9 bump codifies F18: the Nix build sandbox inherits
+    `ulimit -s unlimited` from the nix-daemon, so stack-class CVEs
+    (CWE-121/CWE-674/CWE-787-stack-side) require an explicit
+    `ulimit -s 8192` inside `runCommand` test scripts. Loading v8
+    silently downgrades the contract. See DECISIONS 2026-05-24 (F18)
+    and the expat cert evidence (runs 26323566165 / 26347401054 pre-fix,
+    26348784388 post-fix).
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v8.md", (
-        f"runner default reproducer prompt should be v8 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
-        "If you are bumping the prompt to v9+, update this test in the same commit."
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v9.md", (
+        f"runner default reproducer prompt should be v9 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt to v10+, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {REPRODUCER_PROMPT_PATH_DEFAULT}"
