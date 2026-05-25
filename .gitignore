@@ -24,8 +24,10 @@ __pycache__/
 # but not source-controlled artifacts.
 /inbox/
 
-# Patcher parse-failure capture (F19, 2026-05-25). Written under each
+# Model-role parse-failure capture (F19, 2026-05-25). Written under each
 # bundle dir when the model output fails the parser contract; carries
 # raw-response.txt + failure.json for debugging. Not part of the signed
 # replay manifest; not source-controlled.
 **/.patcher-failures/
+**/.reviewer-failures/
+**/.reproducer-failures/

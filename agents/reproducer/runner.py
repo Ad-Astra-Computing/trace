@@ -160,7 +160,18 @@ def run_reproducer(
         sampling=sampling_used,
     )
     raw_response_sha256 = _sha256_text(response.text)
-    parsed = parse_reproducer_output(response.text)
+    # Attach model context to ReproducerOutputMalformed so the executor can
+    # persist `.reproducer-failures/<uuid>/raw-response.txt` for debugging.
+    # Mirrors the Patcher failure-capture pattern (F19, 2026-05-25).
+    try:
+        parsed = parse_reproducer_output(response.text)
+    except ReproducerOutputMalformed as exc:
+        exc.raw_response = response.text or ""
+        exc.raw_response_sha256 = raw_response_sha256
+        exc.model_id = response.model_id
+        exc.prompt_sha256 = prompt_sha256
+        exc.user_content_sha256 = user_content_sha256
+        raise
 
     return ReproducerRunResult(
         parsed=parsed,

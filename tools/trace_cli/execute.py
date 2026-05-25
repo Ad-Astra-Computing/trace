@@ -378,22 +378,25 @@ def _match_and_hash_outputs(
 PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v2.md"
 
 
-def _persist_patcher_failure(
+def _persist_role_failure(
     *,
+    role: str,  # "patcher" | "reviewer" | "reproducer"
     bundle_dir: Path,
-    exc: Any,  # agents.patcher.PatcherOutputMalformed
+    exc: Any,  # *OutputMalformed exception with optional raw_response attrs
     model_id: str,
     started_at: str,
+    prompt_path_relative: str,
 ) -> None:
-    """Persist a failed Patcher invocation's context for debugging.
+    """Persist a failed model invocation's context for debugging.
 
-    Writes `.patcher-failures/<uuid>/raw-response.txt` (the model's actual
+    Writes `.{role}-failures/<uuid>/raw-response.txt` (the model's actual
     output) and `failure.json` (model_id, prompt sha, raw response sha,
     parser error, timestamp). The directory is NOT part of the replay
-    manifest and is gitignored. If the exception lacks raw_response
-    context (e.g., raised before run_patcher reached the parser), this
-    helper writes only the metadata it can resolve. (Added 2026-05-25
-    with patcher.v2 / F19.)
+    manifest and is gitignored at the repo level. If the exception lacks
+    raw_response context (e.g., raised before run_<role> reached the
+    parser), this helper writes only the metadata it can resolve.
+    (Added 2026-05-25 with patcher.v2 / F19; extended to reproducer
+    2026-05-25 after the libxmp reproducer hit the same gap.)
     """
     import uuid
 
@@ -403,7 +406,7 @@ def _persist_patcher_failure(
     user_content_sha = getattr(exc, "user_content_sha256", None)
 
     failure_id = str(uuid.uuid4())
-    fail_dir = bundle_dir / ".patcher-failures" / failure_id
+    fail_dir = bundle_dir / f".{role}-failures" / failure_id
     try:
         fail_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -416,12 +419,13 @@ def _persist_patcher_failure(
 
     failure_meta = {
         "schema_version": "1.0.0",
+        "role": role,
         "failure_id": failure_id,
         "started_at": started_at,
         "failed_at": _utc_now_iso(),
         "model_id": getattr(exc, "model_id", None) or model_id,
         "prompt_sha256": prompt_sha,
-        "prompt_path": "prompts/patcher.v2.md",
+        "prompt_path": prompt_path_relative,
         "user_content_sha256": user_content_sha,
         "raw_response_sha256": raw_sha,
         "parser_error": str(exc),
@@ -564,11 +568,13 @@ def _execute_patcher(
             prompt_path=PATCHER_PROMPT_PATH_DEFAULT,
         )
     except PatcherOutputMalformed as exc:
-        _persist_patcher_failure(
+        _persist_role_failure(
+            role="patcher",
             bundle_dir=bundle_dir,
             exc=exc,
             model_id=model_id,
             started_at=started_at,
+            prompt_path_relative="prompts/patcher.v2.md",
         )
         raise ExecutionError(f"patcher output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
@@ -1056,6 +1062,14 @@ def _execute_reviewer(
             prompt_path=REVIEWER_PROMPT_PATH_DEFAULT,
         )
     except ReviewerOutputMalformed as exc:
+        _persist_role_failure(
+            role="reviewer",
+            bundle_dir=bundle_dir,
+            exc=exc,
+            model_id=model_id,
+            started_at=started_at,
+            prompt_path_relative="prompts/reviewer.v2.md",
+        )
         raise ExecutionError(f"reviewer output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
 
@@ -1598,6 +1612,14 @@ def _execute_reproducer(
             prompt_path=REPRODUCER_PROMPT_PATH_DEFAULT,
         )
     except ReproducerOutputMalformed as exc:
+        _persist_role_failure(
+            role="reproducer",
+            bundle_dir=bundle_dir,
+            exc=exc,
+            model_id=model_id,
+            started_at=started_at,
+            prompt_path_relative="prompts/reproducer.v9.md",
+        )
         raise ExecutionError(f"reproducer output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
 
