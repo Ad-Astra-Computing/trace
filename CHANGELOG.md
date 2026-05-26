@@ -8,6 +8,18 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ## Unreleased
 
+### Phase 3 arc open; libpng resurrection attempt; schema + cost improvements
+
+**F18 finding (expat) documented.** Added to v0.6.0 DECISIONS, SEED_INDEX, and expect.json. The F18 `ulimit -s` Nix sandbox stack-limit fix codified: default Nix sandbox stack is 8 MiB; expat's 60K-level entity chain exhausts it without `ulimit -s unlimited`. Cert [26348784388](https://github.com/Ad-Astra-Computing/trace/actions/runs/26348784388) GREEN.
+
+**openexr + poppler retired (Phase 3 preflight failures).** openexr CVE-2026-26981 retired: nixpkgs pre-fix version 3.2.4 is outside the CVE affected range (3.3.0–3.3.6); Reproducer cannot fire SIGNAL_UNPATCHED. Data errors corrected: `upstream_tag_or_release` v3.3.7 → v3.3.8, `version_bump_complexity` patch-release → multi-release. poppler CVE-2025-43903 retired: CWE-347 (signature verification bypass), not crash-class; F8 failure (protocol-level fixture engineering required).
+
+**`eval-candidate-schema.json` extended: `"retired"` added to `expected_v0_eligibility` and `expected_bundle_kind` enums.** Retired candidates now carry schema-valid state rather than ad-hoc strings. Triggered by the openexr + poppler retirements.
+
+**libpng CVE-2025-66293 resurrection (cert in flight).** Previously retired under F11 (silent OOB read) + CI build timeout. F21-class ASAN pattern applied to `reproducer.nix`: `patches=[]` + `hardeningDisable` + `NIX_CFLAGS_COMPILE=-fsanitize=address`, `ASAN_OPTIONS=halt_on_error=1:exitcode=42`. SIGNAL_UNPATCHED now gates on rc=42. Cert [26455695210](https://github.com/Ad-Astra-Computing/trace/actions/runs/26455695210) dispatched.
+
+**v0.6.0 cost report: N=6 merge-ready; $0.35 mean per bundle.** Three-role (patcher+reviewer+reproducer) bundles cluster $0.40–$0.46. Full report at `data/reports/throughput-20260526T150039Z.{json,md}`.
+
 ---
 
 ## v0.6.0 — 26 May 2026
