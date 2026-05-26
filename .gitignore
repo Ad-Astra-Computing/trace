@@ -31,3 +31,6 @@ __pycache__/
 **/.patcher-failures/
 **/.reviewer-failures/
 **/.reproducer-failures/
+
+# Claude Code session state (auto-memory, settings)
+.claude/
