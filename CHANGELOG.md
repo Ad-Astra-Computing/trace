@@ -8,11 +8,28 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ## Unreleased
 
-**matio CVE-2025-2337 cert-green (Phase 2 N=3 sandbox-positive anchor; first F21-class bundle).** CVE-2025-2337 + CVE-2025-2338 (co-fixed) — memory safety in matio <= 1.5.28 MAT v5 parser. Version bump 1.5.28→1.5.29; blast radius <50. F21-class: OOB read is silent at default optimization. Unpatched build rebuilt with ASAN (NIX_CFLAGS_COMPILE=-fsanitize=address); fixture: miMATRIX element claiming 1000 doubles with only 1 provided — strdup_vprintf stack-buffer-overflow rc=42. Patched 1.5.29 handles truncated real-data gracefully (rc=0). Cert [26440903201](https://github.com/Ad-Astra-Computing/trace/actions/runs/26440903201) GREEN 2026-05-26. N=5 sandbox-positive; Phase 2 N=3 complete.
+---
 
-**micropython CVE-2026-1998 cert-green (Phase 2 N=2 sandbox-positive anchor).** CWE-119/CWE-843 type confusion in `mp_import_all()`: micropython 1.27.0 crashes (SIGSEGV rc=139) when a non-module object is in `sys.modules` and `from x import *` is used. Overlay fetchpatch fix (hash `sha256-j8xr4oqmrsYumJvyA71bx+/dg2HiUxSxdjKUR/2sclI=`, upstream commit `570744d0`, PR #18671). Patcher (opus-4-7, patcher.v2.md): correct fetchpatch block with grounded hash. Reviewer (sonnet-4-6): accepted, cross-family attestation correct. Reproducer (sonnet-4-5, reproducer.v10.md): filter-by-name unpatched derivation, SIGSEGV/SIGABRT predicate. Cert [26432528586](https://github.com/Ad-Astra-Computing/trace/actions/runs/26432528586) GREEN 2026-05-26. First cert-proven overlay-patch-shape bundle; sandbox-positive corpus extends to N=4.
+## v0.6.0 — 26 May 2026
 
-**libheif CVE-2025-68431 retired at preflight (F8c-fixture-availability sub-class).** Phase 2 candidate libheif failed the F8 preflight gate before bundle bootstrap: upstream fix commit [`b8c12a7b70`](https://github.com/strukturag/libheif/commit/b8c12a7b70) ships no test fixture (1-line `pixelimage.cc` change only); no public PoC attached to advisory/GHSA/issue; project's 30+ fuzz corpus files use opaque clusterfuzz-hash names with no overlay/iovl identifier. ISOBMFF container construction is well beyond sonnet-class model attestation budget. New filter sub-class F8c-fixture-availability codified in `docs/CORPUS.md`: parser-heavy CVEs in non-trivial container formats with no co-landed test fixture AND no public PoC are F8 retirements at harvest time.
+### N=5 sandbox-positive corpus; Phase 2 complete; F21-class (ASAN) cert pattern proven
+
+v0.6.0 closes **Phase 2** of the trace research arc. Phase 2 adds three cert-green bundles to the sandbox-positive corpus (libxmp, micropython, matio), bringing the total to **N=5**. The key technical contribution of Phase 2 is proving two distinct sandbox-positive patterns:
+
+1. **Direct-crash**: micropython CWE-843 type confusion → SIGSEGV rc=139 at default GCC optimization. No ASAN required.
+2. **F21-class ASAN**: libxmp CWE-191 integer underwrite and matio CWE-unknown OOB read — both exit rc=0 without ASAN; ASAN instrumentation makes the crash deterministic (rc=42 with halt_on_error=1).
+
+The ASAN-instrumented build pattern is now codified and repeatable: `hardeningDisable=["all"]`, `NIX_CFLAGS_COMPILE="-fsanitize=address -g -O1 -fno-omit-frame-pointer"` (NOT NIX_LDFLAGS), `ASAN_OPTIONS="halt_on_error=1:exitcode=42"`, and reproducer-log.txt SIGNAL substrings must be prefix-substrings of what reproducer.nix echo statements emit at runtime.
+
+**matio CVE-2025-2337 cert-green (Phase 2 N=3; first F21-class version-bump bundle).** CVE-2025-2337 + CVE-2025-2338 (co-fixed) — memory safety in matio <= 1.5.28 MAT v5 parser. Version bump 1.5.28→1.5.29; blast radius <50. F21-class: OOB read is silent at default optimization. ASAN instrumented unpatched build; fixture claims 1000 doubles but provides 1 — strdup_vprintf stack-buffer-overflow rc=42. Cert [26440903201](https://github.com/Ad-Astra-Computing/trace/actions/runs/26440903201) GREEN.
+
+**micropython CVE-2026-1998 cert-green (Phase 2 N=2; first overlay-patch-shape bundle).** CWE-119/CWE-843 type confusion in `mp_import_all()`. Overlay fetchpatch fix; no ASAN required; SIGSEGV rc=139 on unpatched. Cert [26432528586](https://github.com/Ad-Astra-Computing/trace/actions/runs/26432528586) GREEN.
+
+**libxmp CVE-2025-47256 cert-green (Phase 2 N=1; F21-class ASAN baseline).** CWE-191 integer underwrite in `depack_pha()`; package-rewrite patch shape (fetchurl→fetchFromGitHub, autotools→CMake). ASAN instrumented. Cert [26387003737](https://github.com/Ad-Astra-Computing/trace/actions/runs/26387003737) GREEN.
+
+**Phase 2 harvest saturation.** After N=3 Phase 2 cert-green, the remaining auto-merge-eligible candidates in the 54-entry corpus are all config-sensitive, DoS-shaped, or impractical for sandbox-positive repro. A targeted second harvest (nixpkgs git history scan) found matio (done) and openexr (CVE-2026-26981/27622, version-bump 3.3.5→3.3.8, buffer overflow) — but openexr has blast radius >1000, making it `human-review-required` (Phase 3 material). Phase 2 auto-merge expansion is closed at N=3. openexr added to candidates.jsonl for Phase 3.
+
+**libheif CVE-2025-68431 retired at preflight (F8c-fixture-availability sub-class).** F8c codified in `docs/CORPUS.md`: parser-heavy CVEs in non-trivial container formats with no co-landed test fixture AND no public PoC.
 
 ---
 
