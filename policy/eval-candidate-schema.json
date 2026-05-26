@@ -92,11 +92,11 @@
     },
     "expected_v0_eligibility": {
       "type": "string",
-      "enum": ["auto-merge-eligible", "requires-human-review", "advisory-only"]
+      "enum": ["auto-merge-eligible", "requires-human-review", "advisory-only", "retired"]
     },
     "expected_bundle_kind": {
       "type": "string",
-      "enum": ["auto-merge", "human-review-required", "advisory-only"]
+      "enum": ["auto-merge", "human-review-required", "advisory-only", "retired"]
     },
     "expected_upstream_ref_verdict": {
       "type": "string",
