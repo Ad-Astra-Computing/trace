@@ -8,7 +8,7 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ## Unreleased
 
-### Phase 3 arc open; libpng resurrection attempt; schema + cost improvements
+### Phase 3 arc open; libpng retired (F22); schema + cost improvements
 
 **F18 finding (expat) documented.** Added to v0.6.0 DECISIONS, SEED_INDEX, and expect.json. The F18 `ulimit -s` Nix sandbox stack-limit fix codified: default Nix sandbox stack is 8 MiB; expat's 60K-level entity chain exhausts it without `ulimit -s unlimited`. Cert [26348784388](https://github.com/Ad-Astra-Computing/trace/actions/runs/26348784388) GREEN.
 
@@ -16,7 +16,7 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 **`eval-candidate-schema.json` extended: `"retired"` added to `expected_v0_eligibility` and `expected_bundle_kind` enums.** Retired candidates now carry schema-valid state rather than ad-hoc strings. Triggered by the openexr + poppler retirements.
 
-**libpng CVE-2025-66293 resurrection (cert in flight).** Previously retired under F11 (silent OOB read) + CI build timeout. F21-class ASAN pattern applied to `reproducer.nix`: `patches=[]` + `hardeningDisable` + `NIX_CFLAGS_COMPILE=-fsanitize=address`, `ASAN_OPTIONS=halt_on_error=1:exitcode=42`. SIGNAL_UNPATCHED now gates on rc=42. Cert [26455695210](https://github.com/Ad-Astra-Computing/trace/actions/runs/26455695210) dispatched.
+**libpng CVE-2025-66293 definitively retired (F22).** Resurrection attempt via F21-class ASAN failed at cert [26455695210](https://github.com/Ad-Astra-Computing/trace/actions/runs/26455695210) with two independent hard failures: (1) patch-apply-failed — Builder resolver cannot find libpng's package directory at nixpkgs_rev `3ab61cef9c...` (predates pkgs/by-name/ migration); (2) ASAN compile timeout — libpng 1.6.51 from source under ASAN elapsed 3600.012s, exceeding the Builder's 3600s limit. Both are CI infrastructure limits. New retirement class F22 (ASAN compile timeout) codified. `build.json` committed (bundle_id `93800cc9b80b3092`).
 
 **v0.6.0 cost report: N=6 merge-ready; $0.35 mean per bundle.** Three-role (patcher+reviewer+reproducer) bundles cluster $0.40–$0.46. Full report at `data/reports/throughput-20260526T150039Z.{json,md}`.
 
