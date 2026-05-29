@@ -53,6 +53,9 @@ def main(argv: list[str]) -> int:
     )
     subs = parser.add_subparsers(dest="cmd", required=True)
 
+    from tools.trace_cli import pr as _pr_module
+    _pr_module.add_parser(subs)
+
     rv = subs.add_parser("review", help="panel review rubric tooling")
     rv_subs = rv.add_subparsers(dest="review_cmd", required=True)
     rv_sum = rv_subs.add_parser(
@@ -289,6 +292,9 @@ def main(argv: list[str]) -> int:
     )
 
     args = parser.parse_args(argv)
+    if args.cmd == "pr":
+        from tools.trace_cli import pr as _pr_module
+        return _pr_module.run(args)
     if args.cmd == "replay":
         return _cmd_replay(args)
     if args.cmd == "review":
