@@ -72,7 +72,7 @@ jobs:
           echo "Sanity check passed."
 
       - name: Upload snapshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: nixpkgs-snapshot
           path: out/nixpkgs-snapshot.json
