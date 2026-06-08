@@ -184,7 +184,28 @@ def run(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return EXIT_USAGE
-        fork_owner, fork_repo = parts
+        override_owner, override_repo = parts
+        # Trust boundary (policy/nixpkgs-fork.json trust_boundary.never_writes_to):
+        # trace must NEVER push a branch or open a PR against the upstream repo.
+        # The override is a testing convenience, not an escape hatch around the
+        # fork-only contract. Reject the policy's declared upstream explicitly.
+        upstream = policy["fork"].get("upstream", {})
+        upstream_owner = upstream.get("owner", "")
+        upstream_repo = upstream.get("repo", "")
+        if (
+            override_owner.lower() == upstream_owner.lower()
+            and override_repo.lower() == upstream_repo.lower()
+        ):
+            print(
+                f"error: --fork / TRACE_NIXPKGS_FORK={fork_override!r} targets the "
+                f"upstream repo {upstream_owner}/{upstream_repo}, which violates the "
+                f"fork-only trust boundary (policy/nixpkgs-fork.json "
+                f"trust_boundary.never_writes_to). trace opens PRs against the fork "
+                f"only; upstream submission is a separate human-driven step.",
+                file=sys.stderr,
+            )
+            return EXIT_INVALID
+        fork_owner, fork_repo = override_owner, override_repo
         fork_url = f"https://github.com/{fork_owner}/{fork_repo}"
 
     # ── 5. derive branch + PR title ────────────────────────────────────────

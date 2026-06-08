@@ -182,6 +182,30 @@ def test_rejects_invalid_fork_format(tmp_path: Path, capsys) -> None:
     assert "owner/repo" in err
 
 
+def test_rejects_upstream_as_fork_override(tmp_path: Path, capsys) -> None:
+    """Trust boundary: --fork / TRACE_NIXPKGS_FORK must never target the
+    policy's declared upstream (NixOS/nixpkgs). trace opens PRs against the
+    fork only; upstream submission is a separate human-driven step."""
+    bd = _bundle_dir(tmp_path)
+    pp = _policy_dir(tmp_path)
+    rc = pr_mod.run(_args(bd, pp, fork="NixOS/nixpkgs"))
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "trust boundary" in err.lower()
+    assert "NixOS/nixpkgs" in err
+
+
+def test_rejects_upstream_override_case_insensitive(tmp_path: Path, capsys) -> None:
+    """The upstream-deny guard must be case-insensitive so a casing trick
+    (nixos/NixPkgs) cannot slip past it."""
+    bd = _bundle_dir(tmp_path)
+    pp = _policy_dir(tmp_path)
+    rc = pr_mod.run(_args(bd, pp, fork="nixos/NixPkgs"))
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "trust boundary" in err.lower()
+
+
 # ─── dry-run tests ────────────────────────────────────────────────────────────
 
 
