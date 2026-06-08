@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload inbox entry as artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: inbox-${{ inputs.cve_id }}
           path: |

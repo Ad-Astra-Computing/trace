@@ -95,7 +95,7 @@ jobs:
 
       - name: Restore scout state (cursor + retry queue)
         id: state-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           # state/ holds two files written by this workflow:
           #   scout-cursor.json   discovery watermark (last_run_utc)
@@ -370,7 +370,7 @@ jobs:
         # (retry queue may have changed). The cache key is per-run so
         # this never overwrites; restore picks the freshest by prefix.
         if: steps.snapshot.outputs.ready == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: state
           key: scout-state-v1-${{ github.run_id }}
@@ -526,7 +526,7 @@ jobs:
 
       - name: Upload inbox + run summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: scout-cron-${{ github.run_id }}
           path: |
