@@ -189,7 +189,7 @@ jobs:
           fi
 
       - name: Upload reproducer artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: ${{ always() }}
         with:
           name: mruby-asan-cert-${{ github.run_id }}
