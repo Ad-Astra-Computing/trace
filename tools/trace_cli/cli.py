@@ -218,6 +218,9 @@ def main(argv: list[str]) -> int:
                        help="override nixpkgs_rev (default: read from impact.json)")
     b_fin.add_argument("--cve-id", default=None,
                        help="override cve_id (default: read from upstream-ref.json)")
+    b_fin.add_argument("--evidence-path", default=None,
+                       choices=("reproducer", "reviewer-attested"),
+                       help="auto_merge_evidence_path override (default: preserve from existing bundle.json)")
     b_fin.add_argument("--format", choices=("human", "json"), default="human")
 
     from tools.trace_cli import verify as _verify_module
@@ -486,6 +489,7 @@ def _cmd_bundle_finalize(args: argparse.Namespace) -> int:
             created_at=args.created_at,
             nixpkgs_rev=args.nixpkgs_rev,
             cve_id=args.cve_id,
+            auto_merge_evidence_path=getattr(args, "evidence_path", None),
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)

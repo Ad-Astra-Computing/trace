@@ -390,8 +390,9 @@ _CANONICAL_FILES: list[tuple[str, str, bool]] = [
     ("reproducer-refusal.json", "reproducer",        True),
     ("build.json",          "builder",               False),
     ("review.md",           "reviewer",              True),
-    ("review-refusal.json", "reviewer",              True),
-    ("sbom-delta.json",     "upstream-ref-resolver", True),
+    ("review-refusal.json",       "reviewer",              True),
+    ("review-scoring-report.json", "reviewer",             False),
+    ("sbom-delta.json",           "upstream-ref-resolver", True),
     ("replay.json",         "steward",               True),
     ("provenance.jsonl",    "steward",               False),
     ("bundle.sig",          "steward",               False),
@@ -432,6 +433,7 @@ def finalize_bundle(
     created_at: str | None = None,
     nixpkgs_rev: str | None = None,
     cve_id: str | None = None,
+    auto_merge_evidence_path: str | None = None,
 ) -> FinalizeResult:
     """Compute file hashes + write bundle.json + replay.json.
 
@@ -486,10 +488,29 @@ def finalize_bundle(
         f"{cve_id}|{nixpkgs_rev}|{created_at}".encode("utf-8")
     ).hexdigest()[:16]
 
+    # Preserve auto_merge_evidence_path from existing bundle.json if not overridden.
+    existing_bundle_path = bundle_dir / "bundle.json"
+    if auto_merge_evidence_path is None and existing_bundle_path.is_file():
+        try:
+            existing_bundle = json.loads(existing_bundle_path.read_text())
+            auto_merge_evidence_path = existing_bundle.get("auto_merge_evidence_path")
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # reviewer-attested bundles must not include reproducer / review-refusal files.
+    _reviewer_attested_excluded = frozenset({
+        "reproducer.nix", "reproducer-log.txt", "review-refusal.json",
+    })
+
     files_block: dict[str, dict] = {}
     real_hash_names: list[str] = []
     placeholder_names: list[str] = []
     for fname, producer, replay_critical in _CANONICAL_FILES:
+        if (
+            auto_merge_evidence_path == "reviewer-attested"
+            and fname in _reviewer_attested_excluded
+        ):
+            continue
         path = bundle_dir / fname
         if path.is_file() and fname != "bundle.json":
             data = path.read_bytes()
@@ -553,6 +574,8 @@ def finalize_bundle(
         "nixpkgs_rev": nixpkgs_rev,
         "kind": bundle_kind,
         **({"kind_reason": kind_reason} if kind_reason else {}),
+        **({"auto_merge_evidence_path": auto_merge_evidence_path}
+           if auto_merge_evidence_path else {}),
         "created_at": created_at,
         "policy_version": "0" * 64,
         "bundle_schema_version": "1" * 64,
@@ -563,7 +586,7 @@ def finalize_bundle(
             "signed_files": [
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
                 for fname, _, replay_critical in _CANONICAL_FILES
-                if replay_critical and fname != "bundle.sig"
+                if replay_critical and fname != "bundle.sig" and fname in files_block
             ],
         },
     }
