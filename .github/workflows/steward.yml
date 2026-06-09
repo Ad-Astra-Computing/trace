@@ -279,8 +279,9 @@ jobs:
           from pathlib import Path
 
           # Build the opa input doc per docs/STEWARD_V1.md sec.1.
-          # Optional fields (build, repro_scoring, review_scoring) are
-          # omitted when absent so Rego's `not input.foo` semantics work.
+          # Optional fields (build, repro_scoring, review_scoring,
+          # reproducer_refusal) are omitted when absent so Rego's
+          # `not input.foo` semantics work.
           out = Path("$OUT")
           def _load(name):
               p = out / name
@@ -304,6 +305,7 @@ jobs:
               ("build", "build.json"),
               ("repro_scoring", "repro-scoring-report.json"),
               ("review_scoring", "review-scoring-report.json"),
+              ("reproducer_refusal", "reproducer-refusal.json"),
           ):
               loaded = _load(opt_filename)
               if loaded is not None:
