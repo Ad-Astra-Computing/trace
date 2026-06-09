@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -432,6 +433,9 @@ def _apply_patch(
     }
 
 
+_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$")
+
+
 def _resolve_attr_package_dir(
     nixpkgs_checkout: Path, attr: str | None,
 ) -> str | None:
@@ -441,7 +445,10 @@ def _resolve_attr_package_dir(
     Tries in order:
       1. `pkgs/by-name/<aa>/<attr>/package.nix`        (current convention)
       2. `pkgs/by-name/<a>/<attr>/package.nix`         (single-char dir)
-      3. `nix eval --raw <checkout>#<attr>.meta.position`  (legacy paths)
+      3. `nix eval --raw <checkout>#<attr>.meta.position`  (flake ref, works
+         for top-level attrs exposed by the nixpkgs flake)
+      4. `nix eval --raw --impure --expr ...`           (legacy expression eval,
+         works for nested sets such as rubyPackages.sinatra)
 
     Returns the directory portion of whichever resolution succeeds first.
     """
@@ -456,31 +463,52 @@ def _resolve_attr_package_dir(
         if (nixpkgs_checkout / rel / "package.nix").is_file():
             return str(rel).replace("\\", "/")
 
-    # Fallback: use `nix eval` to find meta.position (legacy paths
-    # outside pkgs/by-name). This is best-effort — if nix is unavailable
-    # or the eval fails, return None and let the caller record the
-    # patch-apply-failed reason.
-    flake_ref = f"{nixpkgs_checkout.resolve()}#{attr}.meta.position"
+    # Guard: only pass attr through nix eval if it looks like a safe identifier
+    # chain (alphanumeric + underscore, dot-separated). Prevents nix-expression
+    # injection from a malformed resolver-input.json attr_path.
+    if not _ATTR_SAFE_RE.match(attr):
+        return None
+
+    checkout_abs = str(nixpkgs_checkout.resolve())
+
+    def _position_from_proc(proc: subprocess.CompletedProcess[str]) -> str | None:
+        if proc.returncode != 0:
+            return None
+        position = (proc.stdout or "").strip()
+        file_path_str = position.rsplit(":", 1)[0]
+        if not file_path_str:
+            return None
+        file_path = Path(file_path_str)
+        try:
+            rel = file_path.parent.relative_to(nixpkgs_checkout.resolve())
+        except ValueError:
+            return None
+        return str(rel).replace("\\", "/")
+
+    # Attempt 3: flake ref — works when <attr> is a top-level nixpkgs output.
     try:
         proc = subprocess.run(
-            ["nix", "eval", "--raw", flake_ref],
+            ["nix", "eval", "--raw", f"{checkout_abs}#{attr}.meta.position"],
             check=False, capture_output=True, text=True, timeout=60,
         )
+        result = _position_from_proc(proc)
+        if result is not None:
+            return result
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # Attempt 4: legacy expression eval — handles nested package sets
+    # (rubyPackages.*, python3Packages.*, etc.) that are not top-level flake
+    # outputs. Uses --impure so nix can read the nixpkgs directory from disk.
+    try:
+        expr = f"(import {checkout_abs} {{}}).{attr}.meta.position"
+        proc = subprocess.run(
+            ["nix", "eval", "--raw", "--impure", "--expr", expr],
+            check=False, capture_output=True, text=True, timeout=60,
+        )
+        return _position_from_proc(proc)
     except (OSError, subprocess.SubprocessError):
         return None
-    if proc.returncode != 0:
-        return None
-    position = (proc.stdout or "").strip()
-    # `meta.position` is `<absolute path>:<line>`. Strip the line suffix.
-    file_path_str = position.rsplit(":", 1)[0]
-    if not file_path_str:
-        return None
-    file_path = Path(file_path_str)
-    try:
-        rel = file_path.parent.relative_to(nixpkgs_checkout.resolve())
-    except ValueError:
-        return None
-    return str(rel).replace("\\", "/")
 
 
 def _patch_apply_skipped(reason: str) -> dict[str, Any]:
