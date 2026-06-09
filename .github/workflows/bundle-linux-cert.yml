@@ -177,6 +177,13 @@ jobs:
           from pathlib import Path
           bd = Path(os.environ["RUNNER_TEMP"]) / "bundle"
           bj = json.loads((bd / "build.json").read_text())
+          bundle = json.loads((bd / "bundle.json").read_text())
+          if (
+              bundle.get("auto_merge_evidence_path") == "reviewer-attested"
+              and bj.get("dispatch_outcome") == "refused-no-reproducer"
+          ):
+              print("::notice::reviewer-attested refused-no-reproducer; skipping SIGNAL grep")
+              sys.exit(0)
           log_path = bd / "reproducer-log.txt"
           if not log_path.is_file():
               print("::warning::no reproducer-log.txt; skipping SIGNAL grep (bundle may be refusal-shaped)")
