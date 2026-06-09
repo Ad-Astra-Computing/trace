@@ -31,6 +31,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 POLICY_PATH_DEFAULT = "policy/nixpkgs-fork.json"
@@ -87,6 +88,16 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help=(
             "base branch of the fork to target (default: policy's "
             "fork.default_branch, typically master)."
+        ),
+    )
+    p.add_argument(
+        "--push-url",
+        default=None,
+        help=(
+            "explicit git remote URL for the push (e.g. an https URL when "
+            "your token has `workflow` scope). Defaults to the policy fork's "
+            "ssh_url — SSH avoids the PAT workflow-scope restriction that "
+            "blocks pushing a branch carrying nixpkgs's own workflow files."
         ),
     )
     p.add_argument(
@@ -172,6 +183,12 @@ def run(args: argparse.Namespace) -> int:
     fork_owner = policy["fork"]["owner"]
     fork_repo = policy["fork"]["repo"]
     fork_url = policy["fork"]["url"]
+    # Push over SSH by default: a branch based on the bundle's frozen
+    # nixpkgs_rev carries nixpkgs's own .github/workflows/ files, and a
+    # GitHub PAT can't push those without `workflow` scope. SSH keys carry
+    # no such restriction and are the project's established auth path.
+    # Clone stays https (read-only); gh handles PR creation by owner/repo.
+    push_url = policy["fork"].get("ssh_url") or fork_url
     base_branch = args.base or policy["pr_convention"]["base_branch"]
 
     # --fork CLI flag / TRACE_NIXPKGS_FORK env override
@@ -207,6 +224,31 @@ def run(args: argparse.Namespace) -> int:
             return EXIT_INVALID
         fork_owner, fork_repo = override_owner, override_repo
         fork_url = f"https://github.com/{fork_owner}/{fork_repo}"
+        push_url = f"git@github.com:{fork_owner}/{fork_repo}.git"
+
+    # Explicit --push-url wins over the derived SSH form (e.g. an https push
+    # in an environment whose token carries `workflow` scope).
+    if getattr(args, "push_url", None):
+        # Trust boundary: --push-url is an alternate-transport handle for the
+        # configured fork, never a destination override. Fail-closed allowlist
+        # (see _validate_push_url_override): only https://github.com/<fork>
+        # passes, so upstream, mirrors, and bare aliases like `origin` are all
+        # rejected without a URL-canonicalization arms race.
+        # Validate and push the byte-identical string (strip surrounding
+        # whitespace once here) so the allowlist can't accept one string while
+        # git pushes another.
+        candidate = args.push_url.strip()
+        reason = _validate_push_url_override(candidate, fork_owner, fork_repo)
+        if reason:
+            print(
+                f"error: --push-url={args.push_url!r} {reason}. It only swaps "
+                f"transport/auth for the configured fork — the fork-only trust "
+                f"boundary (policy/nixpkgs-fork.json trust_boundary) forbids "
+                f"pushing anywhere else.",
+                file=sys.stderr,
+            )
+            return EXIT_INVALID
+        push_url = candidate
 
     # ── 5. derive branch + PR title ────────────────────────────────────────
     branch_fmt = policy["patch_branch_convention"]["format"]
@@ -304,9 +346,9 @@ def run(args: argparse.Namespace) -> int:
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
-    rc = _git_push(nixpkgs_dir, fork_url, branch)
+    rc = _git_push(nixpkgs_dir, push_url, branch)
     if rc != 0:
-        print(f"error: git push to {fork_url} failed", file=sys.stderr)
+        print(f"error: git push to {push_url} failed", file=sys.stderr)
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
@@ -471,6 +513,51 @@ def _git_commit(nixpkgs: Path, message: str) -> int:
     if r.returncode != 0:
         print(f"  git commit stderr:\n  {r.stderr[:800]}", file=sys.stderr)
     return r.returncode
+
+
+def _validate_push_url_override(
+    url: str, fork_owner: str, fork_repo: str
+) -> str | None:
+    """Validate an operator-supplied --push-url against the fork-only trust
+    boundary. Returns None if the URL is an acceptable alternate-transport
+    handle for the *configured fork*, else a short reason string.
+
+    --push-url only swaps transport/auth (e.g. https when the token carries
+    `workflow` scope) for the same fork; it is NOT a destination override.
+    So this is a fail-closed allowlist — the only accepted shape is a plain
+    `https://github.com/<fork_owner>/<fork_repo>(.git)`. Everything else
+    (upstream, mirrors, bare aliases like `origin`, ssh/scp forms, embedded
+    credentials, ports, query strings, fragments, extra path segments,
+    non-GitHub hosts) is rejected. We reject — never strip — query/fragment/
+    userinfo so the string we validate is byte-for-byte the string we push;
+    silently normalizing is exactly how canonicalization bypasses arise. The
+    caller passes the exact string it will push (see run()).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return "must be an https:// URL (the override only swaps transport)"
+    if parsed.username or parsed.password:
+        return "must not embed credentials; use a git credential helper"
+    if parsed.query or parsed.fragment or parsed.params:
+        return "must not contain a query string, fragment, or path parameters"
+    # .hostname is lowercased + strips any userinfo; .port raises on garbage.
+    try:
+        port = parsed.port
+    except ValueError:
+        return "has an invalid port"
+    if port is not None:
+        return "must not specify a port"
+    if (parsed.hostname or "") != "github.com":
+        return "host must be github.com"
+    segs = [p for p in parsed.path.split("/") if p]
+    if len(segs) != 2:
+        return "path must be exactly /<owner>/<repo>"
+    owner, repo = segs[0], segs[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if (owner.lower(), repo.lower()) != (fork_owner.lower(), fork_repo.lower()):
+        return f"must target the configured fork {fork_owner}/{fork_repo}"
+    return None
 
 
 def _git_push(nixpkgs: Path, fork_url: str, branch: str) -> int:

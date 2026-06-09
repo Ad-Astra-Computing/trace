@@ -104,6 +104,7 @@ def _args(
     fork: str | None = None,
     base: str | None = None,
     cert_run_url: str | None = None,
+    push_url: str | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         cmd="pr",
@@ -112,6 +113,7 @@ def _args(
         fork=fork,
         base=base,
         cert_run_url=cert_run_url,
+        push_url=push_url,
         dry_run=dry_run,
         policy=policy_path,
     )
@@ -250,6 +252,106 @@ def test_dry_run_aborts_if_apply_check_fails(tmp_path: Path, capsys) -> None:
     assert rc != 0
     err = capsys.readouterr().err
     assert "check" in err.lower() or "apply" in err.lower()
+
+
+def test_push_uses_ssh_url_from_policy(tmp_path: Path) -> None:
+    """The branch push must go over SSH (policy fork.ssh_url), not https:
+    a branch based on the frozen nixpkgs_rev carries nixpkgs's own
+    .github/workflows/ files, which a PAT can't push without `workflow`
+    scope. SSH avoids that. Clone stays https."""
+    bd = _bundle_dir(tmp_path)
+    pp = _policy_dir(tmp_path)
+    nixpkgs_dir = tmp_path / "nixpkgs"
+    pkg_dir = nixpkgs_dir / "pkgs" / "by-name" / "li" / "libtiff"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "package.nix").write_text('{ version = "4.7.0"; }')
+
+    with mock.patch("subprocess.run") as mock_run:
+        # git ops + gh return 0; gh pr create returns a PR url on stdout.
+        def _fake(cmd, *a, **k):
+            stdout = "https://github.com/Ad-Astra-Computing/nixpkgs/pull/1" if cmd[:2] == ["gh", "pr"] else ""
+            return mock.MagicMock(returncode=0, stdout=stdout, stderr="")
+        mock_run.side_effect = _fake
+        rc = pr_mod.run(_args(bd, pp, nixpkgs_checkout=nixpkgs_dir))
+
+    assert rc == 0
+    push_calls = [c.args[0] for c in mock_run.call_args_list
+                  if c.args and c.args[0][:2] == ["git", "push"]]
+    assert push_calls, "expected a git push"
+    # the push target must be the SSH url, never the https fork url
+    assert any("git@github.com:Ad-Astra-Computing/nixpkgs.git" in arg
+               for arg in push_calls[0]), push_calls[0]
+    assert not any("https://github.com" in arg for arg in push_calls[0])
+
+
+def _mk_nixpkgs(tmp_path: Path) -> Path:
+    """A minimal checkout with the libtiff package dir the bundle targets."""
+    nixpkgs_dir = tmp_path / "nixpkgs"
+    pkg_dir = nixpkgs_dir / "pkgs" / "by-name" / "li" / "libtiff"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "package.nix").write_text('{ version = "4.7.0"; }')
+    return nixpkgs_dir
+
+
+def test_push_url_flag_overrides_ssh_default(tmp_path: Path) -> None:
+    """--push-url swaps the default ssh transport for https against the SAME
+    configured fork (the workflow-scope-token use case)."""
+    bd = _bundle_dir(tmp_path)
+    pp = _policy_dir(tmp_path)
+    nixpkgs_dir = _mk_nixpkgs(tmp_path)
+    custom = "https://github.com/Ad-Astra-Computing/nixpkgs.git"
+
+    with mock.patch("subprocess.run") as mock_run:
+        def _fake(cmd, *a, **k):
+            stdout = "https://github.com/x/y/pull/2" if cmd[:2] == ["gh", "pr"] else ""
+            return mock.MagicMock(returncode=0, stdout=stdout, stderr="")
+        mock_run.side_effect = _fake
+        rc = pr_mod.run(_args(bd, pp, nixpkgs_checkout=nixpkgs_dir, push_url=custom))
+
+    assert rc == 0
+    push_calls = [c.args[0] for c in mock_run.call_args_list
+                  if c.args and c.args[0][:2] == ["git", "push"]]
+    assert push_calls and any(custom in arg for arg in push_calls[0])
+    # the override beat the ssh default
+    assert not any("git@github.com" in arg for arg in push_calls[0])
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        # --- upstream, every spelling git would accept ---
+        "git@github.com:NixOS/nixpkgs.git",            # scp-form ssh
+        "https://github.com/nixos/NixPkgs.git",        # https, case-folded
+        "ssh://git@github.com:22/NixOS/nixpkgs.git",   # explicit port
+        "https://github.com/NixOS/nixpkgs.git#x",      # client-side fragment
+        "https://github.com/NixOS/nixpkgs?foo=1",      # query string
+        "https://github.com/Ad-Astra-Computing/nixpkgs;foo",    # path params
+        # --- other destinations the fork-only boundary forbids ---
+        "origin",                                       # bare remote alias
+        "https://git.example.com/group/nixpkgs",       # non-GitHub mirror
+        "https://git.example.com/g/sub/nixpkgs.git",   # nested-path mirror
+        "https://x:tok@github.com/Ad-Astra-Computing/nixpkgs",  # creds in URL
+        "https://github.com/Other-Owner/nixpkgs",      # wrong owner
+        "https://github.com:443/Ad-Astra-Computing/nixpkgs",    # explicit port
+    ],
+)
+def test_push_url_rejects_non_fork_targets(
+    tmp_path: Path, capsys, bad: str
+) -> None:
+    """--push-url is a transport override for the configured fork, not a
+    destination override. Anything that doesn't normalize to a plain
+    https://github.com/<fork> is rejected fail-closed, and nothing is pushed."""
+    bd = _bundle_dir(tmp_path)
+    pp = _policy_dir(tmp_path)
+    nixpkgs_dir = _mk_nixpkgs(tmp_path)
+
+    with mock.patch("subprocess.run") as mock_run:
+        rc = pr_mod.run(_args(bd, pp, nixpkgs_checkout=nixpkgs_dir, push_url=bad))
+
+    assert rc != 0, f"{bad!r} should be rejected"
+    assert "trust boundary" in capsys.readouterr().err.lower()
+    assert not [c for c in mock_run.call_args_list
+                if c.args and c.args[0][:2] == ["git", "push"]]
 
 
 # ─── helper unit tests ────────────────────────────────────────────────────────
