@@ -396,6 +396,15 @@ def test_resolve_attr_package_dir_returns_none_for_missing_attr(tmp_path: Path) 
     assert _resolve_attr_package_dir(checkout, "") is None
 
 
+def test_resolve_attr_package_dir_rejects_unsafe_attr(tmp_path: Path) -> None:
+    """Attrs that fail _ATTR_SAFE_RE must return None without calling nix eval."""
+    from agents.builder.runner import _resolve_attr_package_dir
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    for bad in ["ruby}; builtins.readFile /etc/passwd; ({", "a b", "1start", ".leading", "a..b", ""]:
+        assert _resolve_attr_package_dir(checkout, bad) is None, f"expected None for {bad!r}"
+
+
 def test_resolve_attr_package_dir_finds_pkgs_by_name(tmp_path: Path) -> None:
     """Direct unit test: pkgs/by-name/<aa>/<attr>/package.nix → returns
     the relative directory path."""
