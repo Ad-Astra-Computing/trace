@@ -468,6 +468,7 @@ jobs:
           PY
 
       - name: Verify signature against locked identity policy
+        id: verify_sig
         if: ${{ steps.gate.outputs.allow == 'true' }}
         run: |
           set -euo pipefail
@@ -513,6 +514,23 @@ jobs:
           echo "See steward-decision.json in the uploaded artifacts."
           # Exit 0 so the artifacts upload step still runs; a deny is
           # data, not infra failure.
+
+      - name: Write run summary
+        if: ${{ always() }}
+        # Plain python3 (stdlib-only renderer) — NOT `nix develop --command`,
+        # whose startup banner would contaminate the step summary. Run as a
+        # standalone file so the package __init__ isn't imported. The renderer
+        # reads only verdict + public Rekor/identity fields; it never touches
+        # bundle.sig or cosign-cert.pem.
+        run: |
+          python3 "${GITHUB_WORKSPACE}/tools/trace_cli/ci_summary.py" \
+            --mode steward \
+            --bundle-dir "${{ steps.paths.outputs.out }}" \
+            --bundle-name "${{ steps.paths.outputs.label }}" \
+            --decision "${{ steps.paths.outputs.out }}/steward-decision.json" \
+            --artifact-name "steward-smoke-${{ steps.paths.outputs.label }}" \
+            --verified "${{ steps.verify_sig.outcome }}" \
+            >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload bundle + decision artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

@@ -279,6 +279,21 @@ jobs:
                   print(f"deny entries: {json.dumps(deny, indent=2)}")
           PY
 
+      - name: Write run summary
+        if: ${{ always() }}
+        # Plain python3 (stdlib-only renderer) — NOT `nix develop --command`,
+        # whose startup banner would contaminate the step summary. Run as a
+        # standalone file so the package __init__ isn't imported.
+        run: |
+          python3 "${GITHUB_WORKSPACE}/tools/trace_cli/ci_summary.py" \
+            --mode cert \
+            --bundle-dir "${RUNNER_TEMP}/bundle" \
+            --bundle-name "${{ inputs.bundle }}" \
+            --kind "${{ steps.meta.outputs.kind }}" \
+            --decision "${RUNNER_TEMP}/opa-decision.json" \
+            --artifact-name "bundle-linux-cert-${{ inputs.bundle }}-${{ github.run_id }}" \
+            >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: ${{ always() }}
