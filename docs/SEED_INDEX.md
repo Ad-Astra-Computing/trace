@@ -233,6 +233,20 @@ libtiff 4.7.0 heap-buffer-overflow (CWE-416/CWE-122) in `quant_fsdither()` Floyd
 * **Cert-6**: [26649064443](https://github.com/Ad-Astra-Computing/trace/actions/runs/26649064443) FAILED (commit `742ab86`, 2026-05-29, dispatched before cert-5 concluded). cmake configure approach consumed the full 10800s budget; reproducer.nix reverted to cert-5 state.
 * **Preflights passed (2026-05-26)**: fix commit fe10872e merged May 25, 2025; v4.7.1 tagged September 18, 2025 (fix is in the release); F8 viable (any valid RGB TIFF triggers the off-by-one, no protocol engineering needed).
 
+### `CVE-2025-61921--sinatra` · auto-merge · reviewer-attested (N=20 batch, bundle 6)
+
+Sinatra 4.1.1 → 4.2.1 CWE-1333 ReDoS in ETag header value generation. The `/\s*,\s*/` pattern used to parse multi-value ETag headers has catastrophic backtracking on specially crafted input. Fix in 4.2.1 replaces the regex with string-split logic.
+
+* **nixpkgs layout**: `attr_path=rubyPackages.sinatra`. The gem stanza lives in `pkgs/top-level/ruby-packages.nix` (not pkgs/by-name convention). This is the first corpus bundle with a nested package-set attr path.
+* **Reproducer refusal**: ReDoS is timing-based (catastrophic regex backtracking = CPU exhaustion, not a crash). Nix sandbox enforces deterministic execution with no wall-clock timing guarantees. `reproducer-refusal.json` rule 3.
+* **Reviewer (claude-sonnet-4-6, invocation f011c9ee)**: accept. merge_ready_rate=1.0, 9/9 citations recognised.
+* **patch.diff**: targets `a/ruby-packages.nix` (not `a/package.nix`), hunk at lines 3701-3709. `nix base32` sha256 format (not SRI). Verified: `git apply --check --directory=pkgs/top-level` passes at nixpkgs rev `2ad4dc8`.
+* **Cert-1** [27233504692](https://github.com/Ad-Astra-Computing/trace/actions/runs/27233504692): FAILED — patch.diff used `a/package.nix`; fix: target `a/ruby-packages.nix`.
+* **Cert-2** [27234088510](https://github.com/Ad-Astra-Computing/trace/actions/runs/27234088510): FAILED — Builder nix-eval flake-ref fallback returns nothing for `rubyPackages.*` (not a top-level nixpkgs flake output); fix: add `--impure --expr` fallback in `agents/builder/runner.py` (commit 75013d9).
+* **Cert-3** [27234519613](https://github.com/Ad-Astra-Computing/trace/actions/runs/27234519613): dispatched 2026-06-09, awaiting result.
+* **trace pr**: Phase 4 hardening deferred — `tools/trace_cli/pr.py` has same `_resolve_attr_package_dir` gap; fork PR blocked until propagated.
+* **bundle_id**: `1c964b18edd45915`.
+
 ## Cross-cutting observations
 
 * **Three distinct human-review-required sub-shapes** are exercised: `major-version-jump-requires-review` (uriparser), `blast-radius-exceeds-threshold` (systemd, openssl_3), `cross-family-pair-unavailable` (mruby). Steward's allow-path on `human-review-required` is gated only on rules 4 + 5; the diversity across `kind_reason` values exercises the *upstream* of that gate (Cartographer / UpstreamRefResolver eligibility) more thoroughly than a same-shape repetition would.
