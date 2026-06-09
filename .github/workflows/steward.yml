@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       bundle:
-        description: "Bundle to gate + sign."
+        description: "Bundle to gate + sign (ignored when bundle_dir is set)."
         required: true
         default: "hello"
         type: choice
@@ -40,6 +40,16 @@ on:
           - uriparser
           - libtiff
           - mruby
+      bundle_dir:
+        description: "Optional: a bundle directory name under traces/example/ (e.g. CVE-2025-8176--libtiff). Overrides the `bundle` choice. Real-CVE bundle assumed."
+        required: false
+        default: ""
+        type: string
+      reuse_committed_build:
+        description: "Skip the fork clone + Builder re-run and gate against the bundle's committed build.json. Use for bundles already cert-green (e.g. ASAN bundles whose Builder run is hours long)."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -105,9 +115,39 @@ jobs:
 
       - name: Stage bundle
         id: paths
+        env:
+          # Pass user-controlled dispatch inputs via env, never interpolate
+          # directly into the shell (CLAUDE.md workflow-injection guidance).
+          BUNDLE_CHOICE: ${{ inputs.bundle }}
+          BUNDLE_DIR_INPUT: ${{ inputs.bundle_dir }}
         run: |
           set -euo pipefail
-          BUNDLE="${{ inputs.bundle }}"
+          # bundle_dir override: gate+sign any bundle under traces/example/
+          # without needing a hardcoded case entry. Sanitize to the canonical
+          # CVE-bundle directory shape so the path can't escape traces/example/.
+          if [ -n "${BUNDLE_DIR_INPUT}" ]; then
+            if ! printf '%s' "${BUNDLE_DIR_INPUT}" | grep -qE '^CVE-[0-9]{4}-[0-9]+--[A-Za-z0-9_.-]+$'; then
+              echo "::error::bundle_dir ${BUNDLE_DIR_INPUT} must match CVE-YYYY-NNNN--<attr> (no path separators)"; exit 64
+            fi
+            BUNDLE="${BUNDLE_DIR_INPUT}"
+            OUT="${RUNNER_TEMP}/steward-smoke/${BUNDLE}"
+            mkdir -p "$OUT"
+            SRC="traces/example/${BUNDLE_DIR_INPUT}"
+            if [ ! -f "${SRC}/bundle.json" ]; then
+              echo "::error::no bundle.json under ${SRC}"; exit 64
+            fi
+            REAL_CVE="true"
+            cp -R "${SRC}/." "$OUT/"
+            echo "out=$OUT" >> "$GITHUB_OUTPUT"
+            echo "label=$BUNDLE" >> "$GITHUB_OUTPUT"
+            echo "real_cve=$REAL_CVE" >> "$GITHUB_OUTPUT"
+            echo "src=$SRC" >> "$GITHUB_OUTPUT"
+            REV=$(python3 -c "import json; print(json.load(open('$OUT/bundle.json'))['nixpkgs_rev'])")
+            echo "nixpkgs_rev=$REV" >> "$GITHUB_OUTPUT"
+            echo "bundle_dir override: staged ${SRC} (nixpkgs_rev=$REV)"
+            exit 0
+          fi
+          BUNDLE="${BUNDLE_CHOICE}"
           OUT="${RUNNER_TEMP}/steward-smoke/${BUNDLE}"
           mkdir -p "$OUT"
           # Synthetic bundles (hello) live under tests/fixtures/real-ci/
@@ -156,6 +196,7 @@ jobs:
           esac
           cp -R "${SRC}/." "$OUT/"
           echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          echo "label=$BUNDLE" >> "$GITHUB_OUTPUT"
           echo "real_cve=$REAL_CVE" >> "$GITHUB_OUTPUT"
           echo "src=$SRC" >> "$GITHUB_OUTPUT"
           if [ "$REAL_CVE" = "true" ]; then
@@ -165,7 +206,7 @@ jobs:
           fi
 
       - name: Clone fork at bundle's nixpkgs_rev (real-CVE only)
-        if: ${{ steps.paths.outputs.real_cve == 'true' }}
+        if: ${{ steps.paths.outputs.real_cve == 'true' && !inputs.reuse_committed_build }}
         id: nixpkgs
         run: |
           set -euo pipefail
@@ -178,7 +219,19 @@ jobs:
           git checkout "$REV"
           echo "checkout=$NIXPKGS" >> "$GITHUB_OUTPUT"
 
+      - name: Reuse committed build.json (skip Builder re-run)
+        if: ${{ inputs.reuse_committed_build }}
+        run: |
+          set -euo pipefail
+          OUT="${{ steps.paths.outputs.out }}"
+          if [ ! -f "$OUT/build.json" ]; then
+            echo "::error::reuse_committed_build=true but no build.json in the staged bundle"; exit 64
+          fi
+          echo "Reusing committed build.json (Builder re-run skipped):"
+          python3 -c "import json; b=json.load(open('$OUT/build.json')); print('  patched_build:', b.get('patched_build',{}).get('outcome'), '| host:', b.get('host',{}).get('system'))"
+
       - name: Run Builder against the staged bundle (live nix-build)
+        if: ${{ !inputs.reuse_committed_build }}
         run: |
           set -euo pipefail
           OUT="${{ steps.paths.outputs.out }}"
@@ -465,7 +518,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: ${{ always() }}
         with:
-          name: steward-smoke-${{ inputs.bundle }}
+          name: steward-smoke-${{ steps.paths.outputs.label }}
           path: |
             ${{ steps.paths.outputs.out }}/bundle.json
             ${{ steps.paths.outputs.out }}/bundle.canonical.json
