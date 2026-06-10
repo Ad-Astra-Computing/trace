@@ -85,6 +85,16 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="root directory of CVE-* bundles (default traces/example)",
     )
     rv.add_argument(
+        "--negatives-root",
+        type=Path,
+        default=None,
+        help=(
+            "root directory of mutation-based negative bundles. Default: the "
+            "'negatives' dir sibling to --traces-root (so a custom corpus uses "
+            "its own negatives, not the repo's)."
+        ),
+    )
+    rv.add_argument(
         "--reviewer-prompt",
         type=Path,
         default=Path("prompts/reviewer.v2.md"),
@@ -340,6 +350,7 @@ def _example_for_bundle(
         return None, status
 
     split = _split_for(attr)
+    mutation = _load_json(bundle_dir / "mutation.json")
     provenance = {
         "bundle_id": bundle_id,
         "cve_id": cve_id,
@@ -353,7 +364,11 @@ def _example_for_bundle(
         "reviewer_model_id": models.get("reviewer_model_id"),
         "reviewer_prompt_sha": models.get("reviewer_prompt_sha"),
         "patcher_model_id": models.get("patcher_model_id"),
+        "negative_source": (mutation or {}).get("negative_source"),
+        "mutation_type": (mutation or {}).get("mutation_type"),
+        "base_bundle_id": (mutation or {}).get("base_bundle_id"),
     }
+    status["mutation_type"] = (mutation or {}).get("mutation_type")
 
     example = {
         "schema_version": SCHEMA_VERSION,
@@ -388,31 +403,64 @@ def run(args: argparse.Namespace) -> int:
 
     system_prompt = prompt_path.read_text()
 
-    # Enumerate real-CVE bundles deterministically; skip synthetic CVE-0000-*.
+    # Enumerate real-CVE positives (traces/example, skip synthetic CVE-0000-*) +
+    # mutation-based negatives (traces/negatives). Deterministic order.
+    negatives_root: Path = args.negatives_root
     bundle_dirs = sorted(
         d for d in traces_root.glob("CVE-*")
         if d.is_dir() and not d.name.startswith("CVE-0000")
     )
+    negative_dirs: set[Path] = set()
+    if negatives_root is None:
+        negatives_root = traces_root.parent / "negatives"
+    if negatives_root.is_dir():
+        nd = sorted(d for d in negatives_root.glob("CVE-*") if d.is_dir())
+        negative_dirs = set(nd)
+        bundle_dirs += nd
 
     examples: list[dict[str, Any]] = []
     statuses: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str | None]] = set()
 
     for bd in bundle_dirs:
         ex, status = _example_for_bundle(bd, system_prompt)
+        # Negatives-root hygiene: a bundle under traces/negatives MUST carry
+        # mutation provenance AND have produced a negative reviewer verdict.
+        # Otherwise it would train a deliberately-defective patch as a positive
+        # (e.g. a mutation the Reviewer mistakenly accepted, or a stray bundle).
+        if ex is not None and bd in negative_dirs:
+            if ex["provenance"].get("negative_source") != "mutation" or ex["label"] != "negative":
+                status["eligibility_for_training"] = False
+                status["exclusion_reason"] = (
+                    f"negatives-root bundle is not a kept mutation reject "
+                    f"(negative_source={ex['provenance'].get('negative_source')}, label={ex['label']})"
+                )
+                statuses.append(status)
+                continue
+        # Defensive: a positives-root bundle must NOT carry mutation provenance.
+        if ex is not None and bd not in negative_dirs and ex["provenance"].get("negative_source"):
+            status["eligibility_for_training"] = False
+            status["exclusion_reason"] = "mutation provenance in positives root"
+            statuses.append(status)
+            continue
         if ex is not None:
-            dedup_key = (status["cve_id"], status["attr_path"])
+            # Include mutation_type so a mutated negative is NOT deduped against
+            # its base positive (same cve+attr, legitimately distinct example).
+            dedup_key = (status["cve_id"], status["attr_path"], status.get("mutation_type"))
             if dedup_key in seen:
                 status["eligibility_for_training"] = False
-                status["exclusion_reason"] = "duplicate (cve_id, attr_path)"
+                status["exclusion_reason"] = "duplicate (cve_id, attr_path, mutation_type)"
                 statuses.append(status)
                 continue
             seen.add(dedup_key)
             examples.append(ex)
         statuses.append(status)
 
-    # Deterministic order: by split then bundle_id.
-    examples.sort(key=lambda e: (e["split"], e["provenance"]["bundle_id"] or ""))
+    # Deterministic order: by split, label, then bundle_id + mutation_type.
+    examples.sort(key=lambda e: (
+        e["split"], e["label"], e["provenance"]["bundle_id"] or "",
+        e["provenance"].get("mutation_type") or "",
+    ))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = out_dir / "reviewer.jsonl"
