@@ -129,6 +129,96 @@ def test_hash_from_other_bundle_requires_decoy(tmp_path):
     assert not out.exists()  # refused before copying
 
 
+def _rich_base(root: Path, name: str = "CVE-2025-0009--rz") -> Path:
+    """Base with upstream-ref.json + a rationale that cites the version & hash,
+    so the version/rationale mutations have something to corrupt."""
+    bd = _base_bundle(root, name)
+    (bd / "upstream-ref.json").write_text(json.dumps({"target_version": "3.9.4"}))
+    (bd / "patch-rationale.md").write_text(
+        "## Why\nBump to 3.9.4; hash "
+        'sha512-NEW0000000000000000000000000000000000000000000000000000000000000000000000000000000000== '
+        "grounded from prefetch.\n"
+    )
+    return bd
+
+
+def test_wrong_target_version(tmp_path):
+    base = _rich_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "v1"
+    mut.run(_args(base, "wrong-target-version", out))
+    diff = (out / "patch.diff").read_text()
+    assert '+  version = "3.9.4";' not in diff  # real target replaced
+    assert '+  version = "3.9.11";' in diff      # +7 on the last component
+    # the now-inconsistent hash is neutralized to a decoy (single coherent defect)
+    assert mut._DECOY_SRI in diff
+    assert "NEW000000" not in diff
+    marker = json.loads((out / "mutation.json").read_text())
+    assert marker["mutation_type"] == "wrong-target-version"
+    # rationale kept consistent with the mutated diff (single defect, not also a
+    # rationale-contradicts-diff defect): it cites the wrong version, not 3.9.4
+    rat = (out / "patch-rationale.md").read_text()
+    assert "3.9.4" not in rat and "3.9.11" in rat
+
+
+def test_extra_unrelated_hunk(tmp_path):
+    base = _rich_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "v2"
+    mut.run(_args(base, "extra-unrelated-hunk", out))
+    diff = (out / "patch.diff").read_text()
+    assert "pkgs/unrelated/cleanup.nix" in diff
+    assert '+  version = "3.9.4";' in diff  # the real change is still present
+
+
+def test_rationale_cites_wrong_version(tmp_path):
+    base = _rich_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "v3"
+    mut.run(_args(base, "rationale-cites-wrong-version", out))
+    rat = (out / "patch-rationale.md").read_text()
+    assert "3.9.11" in rat and "Bump to 3.9.4" not in rat
+    # the actual patch.diff version is untouched (the contradiction is the defect)
+    assert '+  version = "3.9.4";' in (out / "patch.diff").read_text()
+
+
+def test_rationale_cites_wrong_hash(tmp_path):
+    base = _rich_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "v4"
+    mut.run(_args(base, "rationale-cites-wrong-hash", out))
+    rat = (out / "patch-rationale.md").read_text()
+    assert mut._DECOY_SRI in rat
+    assert "NEW000000" not in rat
+
+
+def test_rationale_mutation_refuses_when_not_cited(tmp_path):
+    # base rationale does not mention the version -> mutation should fail + roll back
+    base = _base_bundle(tmp_path / "ex")
+    (base / "upstream-ref.json").write_text(json.dumps({"target_version": "9.9.9"}))
+    out = tmp_path / "neg" / "v5"
+    rc = mut.run(_args(base, "rationale-cites-wrong-version", out))
+    assert rc == 2
+    assert not out.exists()  # rolled back
+
+
+def test_wrong_target_version_neutralizes_vendor_hash(tmp_path):
+    """For a Go-style diff with both hash and vendorHash, wrong-target-version
+    must neutralize BOTH so it stays a single 'wrong release' defect."""
+    base = _rich_base(tmp_path / "ex")
+    (base / "patch.diff").write_text(
+        "--- a/package.nix\n+++ b/package.nix\n@@ -1,6 +1,6 @@\n"
+        '-  version = "3.9.4";\n+  version = "3.9.4";\n'
+        '-  hash = "sha256-REALSRC000000000000000000000000000000000000=";\n'
+        '+  hash = "sha256-REALSRC000000000000000000000000000000000000=";\n'
+        '-  vendorHash = "sha256-REALVENDOR000000000000000000000000000000=";\n'
+        '+  vendorHash = "sha256-REALVENDOR000000000000000000000000000000=";\n'
+    )
+    out = tmp_path / "neg" / "v6"
+    mut.run(_args(base, "wrong-target-version", out))
+    plus = [l for l in (out / "patch.diff").read_text().splitlines() if l.startswith("+")]
+    # the ADDED hash + vendorHash lines are both neutralized to the decoy
+    assert not any("REALSRC000" in l for l in plus)
+    assert not any("REALVENDOR000" in l for l in plus)
+    assert sum(mut._DECOY_SRI in l for l in plus) >= 2
+
+
 def test_refuses_existing_out_dir(tmp_path):
     base = _base_bundle(tmp_path / "ex")
     out = tmp_path / "neg" / "m6"

@@ -17,11 +17,19 @@ deterministically and offline; the live Reviewer run is a normal `trace replay
 (`trace export reviewer`) reads `traces/negatives/` and carries the mutation
 provenance.
 
-Mutation types (defect injected into patch.diff, all realistic Patcher errors):
+Mutation types (one realistic Patcher defect per copy):
+  hash-grounding:
   * wrong-src-hash        — the new hash is corrupted (doesn't match upstream-ref)
   * version-without-hash  — version bumped but hash left at the pre-patch value
   * hash-from-other-bundle— the new hash is a real hash lifted from another bundle
+  version/target:
+  * wrong-target-version  — version bumped to one that is NOT the resolver target
+  scope/minimality:
   * patch-touches-unrelated-file — the diff edits a file other than the affected pkg
+  * extra-unrelated-hunk  — keeps the real change but appends an unrelated edit
+  evidence/rationale:
+  * rationale-cites-wrong-version — patch-rationale.md claims a version != the diff
+  * rationale-cites-wrong-hash    — patch-rationale.md cites a hash != the diff
 """
 
 from __future__ import annotations
@@ -34,16 +42,41 @@ from pathlib import Path
 from typing import Any
 
 MUTATION_TYPES = (
+    # hash-grounding defects
     "wrong-src-hash",
     "version-without-hash",
     "hash-from-other-bundle",
+    # version/target defects
+    "wrong-target-version",
+    # scope/minimality defects
     "patch-touches-unrelated-file",
+    "extra-unrelated-hunk",
+    # evidence/rationale defects
+    "rationale-cites-wrong-version",
+    "rationale-cites-wrong-hash",
 )
 
 # A syntactically-valid but deliberately-wrong SRI hash (base64 of 32 zero bytes).
 _DECOY_SRI = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
-_HASH_LINE_RE = re.compile(r'^([+\-]?\s*(?:hash|sha256|sha512)\s*=\s*")([^"]+)(".*)$')
+_HASH_LINE_RE = re.compile(
+    r'^([+\-]?\s*(?:hash|sha256|sha512|vendorHash|vendorSha256|cargoHash|cargoSha256'
+    r'|npmDepsHash|npmDepsSha256|pnpmDepsHash|yarnDepsHash|outputHash)\s*=\s*")([^"]+)(".*)$'
+)
+_VERSION_LINE_RE = re.compile(r'^([+]\s*version\s*=\s*")([^"]+)(".*)$')
+
+
+def _wrong_version(v: str) -> str:
+    """Return a clearly-wrong version derived from v: bump the last numeric
+    component by +7 (e.g. 3.9.4 -> 3.9.11, 4.2.1 -> 4.2.8) so it is grounded-
+    looking but does NOT match the resolver's target_version."""
+    parts = v.split(".")
+    for i in range(len(parts) - 1, -1, -1):
+        m = re.match(r"^(\d+)(\D*)$", parts[i])
+        if m:
+            parts[i] = f"{int(m.group(1)) + 7}{m.group(2)}"
+            return ".".join(parts)
+    return v + "7"
 
 
 def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -113,6 +146,42 @@ def _apply_mutation(out_dir: Path, mutation: str, decoy_hash: str | None) -> dic
         lines[i] = f"{m.group(1)}{old_val}{m.group(3)}"
         patch_path.write_text("\n".join(lines) + ("\n" if diff.endswith("\n") else ""))
 
+    elif mutation == "wrong-target-version":
+        # Single coherent defect: the patch targets a release that is NOT the
+        # resolver's target_version. A version error intrinsically implies a
+        # hash mismatch (the hash is version-specific), so set BOTH the version
+        # and the hash to non-target values rather than leaving a stale-but-real
+        # hash grounded to the original target (which would read as a separate
+        # hash-grounding defect). Root cause: wrong release target.
+        vidx = [i for i, ln in enumerate(lines) if _VERSION_LINE_RE.match(ln)]
+        if not vidx:
+            raise ValueError("no '+version = \"...\"' line in patch.diff to mutate")
+        i = vidx[0]
+        m = _VERSION_LINE_RE.match(lines[i])
+        bad = _wrong_version(m.group(2))
+        details["original_target_version"] = m.group(2)
+        details["injected_version"] = bad
+        lines[i] = f"{m.group(1)}{bad}{m.group(3)}"
+        # Neutralize EVERY now-inconsistent patched hash (some diffs carry both
+        # `hash` and `vendorHash`) to a decoy, so the only signal is "wrong
+        # release", not a stale real hash grounded to the original version.
+        neutralized: list[str] = []
+        for hi in _patched_hash_lines("\n".join(lines)):
+            hm = _HASH_LINE_RE.match(lines[hi])
+            neutralized.append(hm.group(2))
+            lines[hi] = f"{hm.group(1)}{_DECOY_SRI}{hm.group(3)}"
+        details["neutralized_hashes"] = neutralized
+        patch_path.write_text("\n".join(lines) + ("\n" if diff.endswith("\n") else ""))
+        # Keep patch-rationale.md CONSISTENT with the mutated diff (cite the
+        # wrong version + neutralized hashes) so this stays a single 'wrong
+        # release' defect, not also a rationale-contradicts-diff defect.
+        rat_path = out_dir / "patch-rationale.md"
+        if rat_path.is_file():
+            rat = rat_path.read_text().replace(m.group(2), bad)
+            for oh in neutralized:
+                rat = rat.replace(oh, _DECOY_SRI)
+            rat_path.write_text(rat)
+
     elif mutation == "patch-touches-unrelated-file":
         # Re-point the diff headers at an unrelated file.
         new = diff.replace("a/package.nix", "a/pkgs/unrelated/evil.nix").replace(
@@ -122,6 +191,56 @@ def _apply_mutation(out_dir: Path, mutation: str, decoy_hash: str | None) -> dic
             new = diff.replace("package.nix", "pkgs/unrelated/evil.nix")
         details["retargeted_to"] = "pkgs/unrelated/evil.nix"
         patch_path.write_text(new)
+
+    elif mutation == "extra-unrelated-hunk":
+        # Keep the real change but APPEND an unrelated second file-diff, so the
+        # patch is no longer minimal (a scope violation the Reviewer must catch).
+        # The Reviewer READS patch.diff (it does not `git apply` it — that is the
+        # Builder's job), so the appended path only needs to signal an unrelated
+        # edit; it need not exist in the nixpkgs checkout.
+        extra = (
+            "diff --git a/pkgs/unrelated/cleanup.nix b/pkgs/unrelated/cleanup.nix\n"
+            "--- a/pkgs/unrelated/cleanup.nix\n"
+            "+++ b/pkgs/unrelated/cleanup.nix\n"
+            "@@ -1,3 +1,3 @@\n"
+            " {\n"
+            '-  description = "old";\n'
+            '+  description = "refactored while we were here";\n'
+            " }\n"
+        )
+        sep = "" if diff.endswith("\n") else "\n"
+        patch_path.write_text(diff + sep + extra)
+        details["appended_unrelated_hunk"] = "pkgs/unrelated/cleanup.nix"
+
+    elif mutation == "rationale-cites-wrong-version":
+        ur = json.loads((out_dir / "upstream-ref.json").read_text())
+        tgt = ur.get("target_version")
+        rat_path = out_dir / "patch-rationale.md"
+        rat = rat_path.read_text()
+        if not tgt or tgt not in rat:
+            raise ValueError(
+                "rationale-cites-wrong-version: target_version not found in patch-rationale.md"
+            )
+        bad = _wrong_version(tgt)
+        rat_path.write_text(rat.replace(tgt, bad))
+        details["rationale_version_claimed"] = bad
+        details["actual_patch_version"] = tgt
+
+    elif mutation == "rationale-cites-wrong-hash":
+        idxs = _patched_hash_lines(diff)
+        if not idxs:
+            raise ValueError("rationale-cites-wrong-hash: no patched hash in patch.diff")
+        real = _HASH_LINE_RE.match(lines[idxs[0]]).group(2)
+        rat_path = out_dir / "patch-rationale.md"
+        rat = rat_path.read_text()
+        if real not in rat:
+            raise ValueError(
+                "rationale-cites-wrong-hash: patched hash not cited in patch-rationale.md"
+            )
+        repl = decoy_hash or _DECOY_SRI
+        rat_path.write_text(rat.replace(real, repl))
+        details["rationale_hash_claimed"] = repl
+        details["actual_patch_hash"] = real
 
     else:  # pragma: no cover - guarded by argparse choices
         raise ValueError(f"unknown mutation {mutation!r}")
