@@ -237,6 +237,9 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import export as _export_module
     _export_module.add_parser(subs)
 
+    from tools.trace_cli import mutate as _mutate_module
+    _mutate_module.add_parser(subs)
+
     e = subs.add_parser("eval", help="cohort-level evaluation tooling")
     e_subs = e.add_subparsers(dest="eval_cmd", required=True)
     e_pr = e_subs.add_parser(
@@ -304,6 +307,9 @@ def main(argv: list[str]) -> int:
     if args.cmd == "export":
         from tools.trace_cli import export as _export_module
         return _export_module.run(args)
+    if args.cmd == "mutate":
+        from tools.trace_cli import mutate as _mutate_module
+        return _mutate_module.run(args)
     if args.cmd == "replay":
         return _cmd_replay(args)
     if args.cmd == "review":

@@ -60,9 +60,10 @@ def _full_review(verdict: str, findings: str = "(none)") -> str:
     )
 
 
-def _args(out: Path, root: Path, prompt: Path) -> argparse.Namespace:
+def _args(out: Path, root: Path, prompt: Path, negatives_root: Path | None = None) -> argparse.Namespace:
     return argparse.Namespace(
         export_scope="reviewer", out=out, traces_root=root,
+        negatives_root=negatives_root or (root.parent / "no-negatives"),
         reviewer_prompt=prompt, format="json",
     )
 
@@ -320,6 +321,7 @@ def test_manifest_redacts_home_prompt_path(tmp_path):
     prompt.write_text("Reviewer prompt")
     args = argparse.Namespace(
         export_scope="reviewer", out=tmp_path / "out", traces_root=root,
+        negatives_root=tmp_path / "no-negatives",
         reviewer_prompt=Path("/home/someuser/code/trace/prompts/reviewer.v2.md"),
         format="json",
     )
@@ -331,6 +333,50 @@ def test_manifest_redacts_home_prompt_path(tmp_path):
     # simulate the home-path case directly on the redactor (run() uses the real path)
     assert ex._redact("/home/someuser/x") == "/home/<user>/x"
     assert "/home/<user>" == ex._redact("/home/someuser")
+
+
+def test_negatives_root_with_mutation_provenance(tmp_path):
+    """A mutated negative bundle (reject review + mutation.json) is exported as a
+    negative with mutation provenance, and is NOT deduped against its base."""
+    root = tmp_path / "traces"
+    neg = tmp_path / "negatives"
+    # base positive
+    _make_bundle(root, "CVE-2025-0200--zk", cve="CVE-2025-0200", attr="zk", bundle_id="zkbase")
+    # mutated negative: same cve+attr, reject review, mutation.json marker
+    nb = _make_bundle(neg, "CVE-2025-0200--zk--wrong-src-hash", cve="CVE-2025-0200",
+                      attr="zk", verdict="reject", bundle_id="zkmut")
+    _write(nb / "mutation.json", {
+        "negative_source": "mutation", "mutation_type": "wrong-src-hash",
+        "base_bundle_id": "zkbase", "base_cve_id": "CVE-2025-0200",
+    })
+    out = tmp_path / "out"
+    ex.run(_args(out, root, _prompt(tmp_path), negatives_root=neg))
+    recs = [json.loads(l) for l in (out / "reviewer.jsonl").read_text().splitlines()]
+    assert len(recs) == 2  # base positive + mutated negative, not deduped
+    by_label = {r["label"]: r for r in recs}
+    assert by_label["negative"]["provenance"]["mutation_type"] == "wrong-src-hash"
+    assert by_label["negative"]["provenance"]["negative_source"] == "mutation"
+    # base + mutation share the family → same split (no leakage)
+    assert by_label["positive"]["split"] == by_label["negative"]["split"]
+
+
+def test_negatives_root_accept_is_excluded(tmp_path):
+    """A mutation candidate in negatives-root that the Reviewer ACCEPTED must be
+    excluded (never train a defective patch as a positive)."""
+    root = tmp_path / "traces"
+    neg = tmp_path / "negatives"
+    _make_bundle(root, "CVE-2025-0300--base", cve="CVE-2025-0300", attr="basepkg", bundle_id="b")
+    nb = _make_bundle(neg, "CVE-2025-0300--base--wrong-src-hash", cve="CVE-2025-0300",
+                      attr="basepkg", verdict="accept", bundle_id="m")  # Reviewer accepted
+    _write(nb / "mutation.json", {"negative_source": "mutation", "mutation_type": "wrong-src-hash",
+                                  "base_bundle_id": "b"})
+    out = tmp_path / "out"
+    ex.run(_args(out, root, _prompt(tmp_path), negatives_root=neg))
+    recs = [json.loads(l) for l in (out / "reviewer.jsonl").read_text().splitlines()]
+    # only the base positive; the accepted mutation is excluded
+    assert all(r["provenance"]["cve_id"] != "CVE-2025-0300" or r["provenance"].get("negative_source") is None for r in recs)
+    m = json.loads((out / "manifest.json").read_text())
+    assert any("not a kept mutation reject" in (e["exclusion_reason"] or "") for e in m["excluded"])
 
 
 def test_normalize_attr_families():
