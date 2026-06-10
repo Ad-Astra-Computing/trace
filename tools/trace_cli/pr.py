@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -425,12 +426,21 @@ def _load_policy(args: argparse.Namespace) -> tuple[dict[str, Any] | None, str |
         return None, f"nixpkgs-fork.json is not valid JSON: {exc}"
 
 
+_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$")
+
+
 def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
     """Return the path of the package directory for `attr` relative to
-    `nixpkgs`, using the pkgs/by-name/<aa>/<attr>/ convention.
+    `nixpkgs`.
 
-    Covers 99% of modern nixpkgs packages. Does not attempt the nix-eval
-    fallback (Phase 4 hardening).
+    Tries in order:
+      1. pkgs/by-name/<aa>/<attr>/package.nix  (modern convention)
+      2. pkgs/by-name/<a>/<attr>/package.nix   (single-char dir)
+      3. nix eval --raw --impure --expr ...     (nested sets: rubyPackages.*, etc.)
+
+    The nix-eval fallback resolves meta.position for package sets that are
+    not top-level nixpkgs flake outputs (e.g. rubyPackages.sinatra lives in
+    pkgs/top-level/ruby-packages.nix, not in pkgs/by-name).
     """
     aa = attr[:2].lower()
     candidates = [
@@ -440,7 +450,64 @@ def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
     for rel in candidates:
         if (nixpkgs / rel / "package.nix").is_file():
             return str(rel).replace("\\", "/")
-    return None
+
+    # attr is the UNTRUSTED field (from the bundle / CVE feed). The regex
+    # guards against nix-expression injection via a malformed attr_path.
+    if not _ATTR_SAFE_RE.match(attr):
+        return None
+
+    nixpkgs_abs = str(nixpkgs.resolve())
+    # nixpkgs_abs is TRUSTED operator/CI input (the checkout path), never
+    # bundle-controlled — a bare path literal is acceptable below. Reject
+    # newline/NUL defensively (keeps logs clean; NUL can't appear in a path).
+    if "\n" in nixpkgs_abs or "\x00" in nixpkgs_abs:
+        return None
+
+    def _position_from_proc(proc: "subprocess.CompletedProcess[str]") -> str | None:
+        if proc.returncode != 0:
+            return None
+        position = (proc.stdout or "").strip()
+        file_path_str = position.rsplit(":", 1)[0]
+        if not file_path_str:
+            return None
+        file_path = Path(file_path_str)
+        try:
+            rel = file_path.parent.relative_to(nixpkgs.resolve())
+        except ValueError:
+            return None
+        return str(rel).replace("\\", "/")
+
+    bare_expr = f"(import {nixpkgs_abs} {{}}).{attr}.meta.position"
+    nixpkgs_json = json.dumps(nixpkgs_abs)
+    quoted_expr = (
+        f"(import (builtins.path {{ path = {nixpkgs_json}; name = \"nixpkgs\"; }}) "
+        f"{{}}).{attr}.meta.position"
+    )
+
+    # nix-instantiate: classic interface (no nix-command feature flag needed).
+    # Uses bare path literal — faster than builtins.path and works in both
+    # local and CI environments.
+    try:
+        proc = subprocess.run(
+            ["nix-instantiate", "--eval", "--raw", "--expr", bare_expr],
+            check=False, capture_output=True, text=True, timeout=60,
+        )
+        result = _position_from_proc(proc)
+        if result is not None:
+            return result
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # nix eval --impure --expr: requires nix-command feature flag. Uses
+    # builtins.path for correct quoting.
+    try:
+        proc = subprocess.run(
+            ["nix", "eval", "--raw", "--impure", "--expr", quoted_expr],
+            check=False, capture_output=True, text=True, timeout=60,
+        )
+        return _position_from_proc(proc)
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def _shallow_clone(fork_url: str, rev: str, dest: Path) -> int:

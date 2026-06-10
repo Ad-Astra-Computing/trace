@@ -371,6 +371,12 @@ def test_resolve_attr_package_dir_returns_none_when_missing(tmp_path: Path) -> N
     assert result is None
 
 
+def test_resolve_attr_package_dir_rejects_unsafe_attr(tmp_path: Path) -> None:
+    """Attrs that fail _ATTR_SAFE_RE return None without invoking nix eval."""
+    for bad in ["ruby}; builtins.readFile /etc/passwd; ({", "a b", "1start", ".leading", "a..b", ""]:
+        assert pr_mod._resolve_attr_package_dir(tmp_path, bad) is None, f"expected None for {bad!r}"
+
+
 def test_build_pr_body_includes_cve_and_rekor(tmp_path: Path) -> None:
     bundle = {
         "cve_id": "CVE-2025-8176",
