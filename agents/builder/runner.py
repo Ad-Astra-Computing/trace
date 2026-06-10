@@ -464,12 +464,19 @@ def _resolve_attr_package_dir(
             return str(rel).replace("\\", "/")
 
     # Guard: only pass attr through nix eval if it looks like a safe identifier
-    # chain (alphanumeric + underscore, dot-separated). Prevents nix-expression
-    # injection from a malformed resolver-input.json attr_path.
+    # chain (alphanumeric + underscore, dot-separated). attr is the UNTRUSTED
+    # field (sourced from resolver-input.json / the CVE feed); the regex
+    # prevents nix-expression injection via a malformed attr_path.
     if not _ATTR_SAFE_RE.match(attr):
         return None
 
     checkout_abs = str(nixpkgs_checkout.resolve())
+    # checkout_abs is TRUSTED operator/CI input (the nixpkgs checkout path),
+    # never bundle-controlled — so a bare path literal is acceptable below.
+    # Still reject newline/NUL defensively (keeps logs clean; NUL can't appear
+    # in a real path anyway).
+    if "\n" in checkout_abs or "\x00" in checkout_abs:
+        return None
 
     def _position_from_proc(proc: subprocess.CompletedProcess[str]) -> str | None:
         if proc.returncode != 0:
@@ -485,7 +492,36 @@ def _resolve_attr_package_dir(
             return None
         return str(rel).replace("\\", "/")
 
-    # Attempt 3: flake ref — works when <attr> is a top-level nixpkgs output.
+    # Attempts 3–5: resolve meta.position for legacy paths outside pkgs/by-name
+    # (nested package sets like rubyPackages.*, python3Packages.*).
+    #
+    # nix-instantiate uses a bare path literal (no builtins.path) because
+    # builtins.path copies the nixpkgs tree into the store, which is slow and
+    # requires store write access. The bare literal is added to the store
+    # lazily at import time, which works in both local and CI environments.
+    # nix eval --impure --expr uses builtins.path for correct quoting because
+    # the newer nix CLI is stricter about bare path interpolation in expressions.
+    bare_expr = f"(import {checkout_abs} {{}}).{attr}.meta.position"
+    checkout_json = json.dumps(checkout_abs)
+    quoted_expr = (
+        f"(import (builtins.path {{ path = {checkout_json}; name = \"nixpkgs\"; }}) "
+        f"{{}}).{attr}.meta.position"
+    )
+
+    # Attempt 3: nix-instantiate (classic interface; no nix-command feature flag).
+    try:
+        proc = subprocess.run(
+            ["nix-instantiate", "--eval", "--raw", "--expr", bare_expr],
+            check=False, capture_output=True, text=True, timeout=60,
+        )
+        result = _position_from_proc(proc)
+        if result is not None:
+            return result
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # Attempt 4: nix eval flake ref — works when <attr> is a top-level nixpkgs
+    # flake output (e.g. some top-level attrs before pkgs/by-name migration).
     try:
         proc = subprocess.run(
             ["nix", "eval", "--raw", f"{checkout_abs}#{attr}.meta.position"],
@@ -497,13 +533,10 @@ def _resolve_attr_package_dir(
     except (OSError, subprocess.SubprocessError):
         pass
 
-    # Attempt 4: legacy expression eval — handles nested package sets
-    # (rubyPackages.*, python3Packages.*, etc.) that are not top-level flake
-    # outputs. Uses --impure so nix can read the nixpkgs directory from disk.
+    # Attempt 5: nix eval --impure --expr (requires nix-command feature flag).
     try:
-        expr = f"(import {checkout_abs} {{}}).{attr}.meta.position"
         proc = subprocess.run(
-            ["nix", "eval", "--raw", "--impure", "--expr", expr],
+            ["nix", "eval", "--raw", "--impure", "--expr", quoted_expr],
             check=False, capture_output=True, text=True, timeout=60,
         )
         return _position_from_proc(proc)
