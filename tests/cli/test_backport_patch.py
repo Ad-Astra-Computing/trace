@@ -205,6 +205,37 @@ def test_integration_bzip2_skip_verify():
     assert patch.rstrip().splitlines()[-1].strip() != ""  # ends on content
 
 
+@pytest.mark.skipif(
+    os.environ.get("TRACE_REAL_BACKPORT") != "1",
+    reason="real-network/nix test; set TRACE_REAL_BACKPORT=1 to enable",
+)
+def test_integration_graphite2_generalization(tmp_path):
+    """Generalization check: the tool was built/tuned against bzip2, libxmp,
+    proxychains. graphite2 (CVE-2026-50593) is a FRESH 4th package the tool was
+    never tuned for — a fetchurl tarball, a GitHub upstream (silnrsi/graphite),
+    a header-macro fix in src/inc/opcodes.h, -p1 + a/ b/. From a minimal 3-file
+    bundle the tool must fetch, re-target onto the 1.3.14 tag, and emit a plain
+    unified diff carrying the upstream bounds-check. WITH verify it must also
+    apply to the 1.3.14 tarball (tag≈tarball)."""
+    nixpkgs = Path(__file__).resolve().parents[2].parent / "nixpkgs"
+    rev = subprocess.run(["git", "-C", str(nixpkgs), "rev-parse", "HEAD"],
+                         capture_output=True, text=True).stdout.strip()
+    (tmp_path / "finding.json").write_text(
+        '{"affected":[{"attr_path":"graphite2","version":"1.3.14","pname":"graphite2"}]}')
+    (tmp_path / "bundle.json").write_text('{"nixpkgs_rev":"%s"}' % rev)
+    (tmp_path / "upstream-ref.json").write_text(
+        '{"cve_id":"CVE-2026-50593","current_version":"1.3.14","target_version":"1.3.14",'
+        '"tag":"1.3.14","upstream_fix_commits":[{"repo_url":"https://github.com/silnrsi/graphite",'
+        '"commit_sha":"ad78c6b7319909e1540c1b134e115ced03417866"}],'
+        '"eligibility":{"verdict":"eligible-requires-human-review","verdict_reason":"backport",'
+        '"human_review_trigger":"source-backport-experimental","patch_strategy":"source-backport"}}')
+    patch = bp.produce_backport_patch(bundle_dir=tmp_path, nixpkgs=nixpkgs)  # WITH verify gate
+    assert "slot_offset_out_bounds" in patch          # the upstream bounds-check
+    assert "diff --git" not in patch                  # plain unified
+    assert "--- a/src/inc/opcodes.h" in patch         # -p1 + a/ b/ (default patchFlags)
+    assert patch.rstrip().splitlines()[-1].strip() != ""
+
+
 # ── security: feed-sourced arg validation ────────────────────────────────────
 
 @pytest.mark.parametrize("url,ok", [
