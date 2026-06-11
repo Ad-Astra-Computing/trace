@@ -284,6 +284,171 @@ def _auto_scope_source_paths(runner: Runner, repo: Path, commit_sha: str) -> lis
     return out
 
 
+# Reproducer-oracle extraction: a crash-class fix commit frequently co-lands the
+# REGRESSION TEST — the crashing input fixture (binary/data/font) and a harness
+# that exercises the bug. backport-patch EXCLUDES these from the source patch;
+# this is the inverse selection — they are the reproducer's oracle. A file is an
+# oracle candidate if it lives under a test/data/fixture dir AND is not a
+# changelog/doc or a build-system file (CMakeLists/Makefile/meson — wiring, not
+# oracle).
+_FIXTURE_DIR_RE = re.compile(
+    r"(^|/)(tests?|testsuite|test-dev|data|fixtures?|fonts?|samples?|"
+    r"standards|corpus|seeds?|regress(ion)?|poc|crash(es)?)(/|$)",
+    re.IGNORECASE,
+)
+_NOT_FIXTURE_RE = re.compile(
+    r"(^|/)(changelog|changes|news|authors|readme|copying|license|notice|todo)"
+    r"(\.[a-z]+)?$"
+    r"|(^|/)(CMakeLists\.txt|Makefile(\.am|\.in)?|meson\.build|configure(\.ac)?|"
+    r"[^/]+\.cmake|\.gitignore|\.gitattributes)$",
+    re.IGNORECASE,
+)
+
+
+def _is_oracle_fixture(path: str) -> bool:
+    return bool(_FIXTURE_DIR_RE.search(path)) and not _NOT_FIXTURE_RE.search(path)
+
+
+def _safe_fixture_name(path: str) -> bool:
+    """Reject names that are unsafe as on-disk paths OR as downstream ASAN-harness
+    inputs: no control chars/NUL, no empty/'.'/'..' components, no leading-dash
+    component (argument injection if interpolated into a command later)."""
+    if not path or "\x00" in path or any(ord(ch) < 32 for ch in path):
+        return False
+    parts = Path(path).parts
+    for p in parts:
+        if p in ("", ".", "..") or p.startswith("-") or p.startswith("/"):
+            return False
+    return True
+
+
+def _blob_mode(runner: Runner, repo: Path, commit_sha: str, path: str) -> str | None:
+    """The git object mode for `path` at `commit_sha`, or None. Used to extract
+    ONLY regular blobs (100644/100755) and reject symlinks (120000) and gitlinks
+    (160000) — `core.symlinks=false` governs checkout, not our manual blob write."""
+    ls = _git(runner, repo, "ls-tree", commit_sha, "--", path)
+    line = (ls.stdout or "").strip()
+    if not line:
+        return None
+    # "<mode> <type> <sha>\t<path>"
+    return line.split(" ", 1)[0] if " " in line else None
+
+
+# A focused crash-class regression test adds a handful of oracle files; more than
+# this signals "not a focused regression test" (or a parentless-diff bug).
+_MAX_FIXTURES = 25
+# A crash oracle is small (KB–MB). A huge blob is a memory/disk-DoS attempt (the
+# whole blob is captured by `git show`) — skip it rather than materialise it.
+_MAX_FIXTURE_BYTES = 25 * 1024 * 1024
+
+
+def extract_fix_fixtures(
+    *,
+    repo_url: str,
+    commit_sha: str,
+    out_dir: Path,
+    workdir: Path,
+    runner: Runner = _default_runner,
+) -> list[str]:
+    """Fetch `commit_sha` and extract its co-landed regression-test fixtures (the
+    reproducer oracle: crash inputs + harness) into `out_dir`, preserving the
+    repo-relative layout. Returns the list of extracted repo-relative paths.
+    Binary-safe. Reuses the same hardened transport as the patch path."""
+    _validate_repo_url(repo_url)
+    _assert_git_version(runner)
+    repo = workdir / "fixsrc"
+    repo.mkdir(parents=True, exist_ok=True)
+    _git(runner, repo, "init", "-q")
+    _git(runner, repo, "config", "core.autocrlf", "false")
+    _git(runner, repo, "config", "core.symlinks", "false")  # neutralize symlink-in-tree
+    add = _git(runner, repo, "remote", "add", "origin", repo_url)
+    if add.returncode != 0 and "already exists" not in (add.stderr or ""):
+        raise BackportError(f"git remote add failed: {add.stderr.strip()}")
+    # --depth 2 (commit + its PARENT): `git show` must diff against the parent.
+    # A --depth 1 fetch leaves the commit parentless, so git show treats the
+    # ENTIRE tree as added and lists the whole test corpus.
+    fetched = _git(runner, repo, "fetch", "--depth", "2", "origin", commit_sha)
+    if fetched.returncode != 0:
+        _git(runner, repo, "fetch", "origin")
+    have = _git(runner, repo, "rev-parse", "--verify", "-q", f"{commit_sha}^{{commit}}")
+    if have.returncode != 0:
+        raise BackportError(f"fix commit {commit_sha} not found in {repo_url} after fetch")
+
+    ns = _git(runner, repo, "show", "--numstat", "--format=", "--no-color", commit_sha)
+    if ns.returncode != 0:
+        raise BackportError(f"git show --numstat failed: {ns.stderr.strip()[:200]}")
+    fixtures = []
+    for line in ns.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        path = parts[2]
+        if _is_oracle_fixture(path):
+            fixtures.append(path)
+    # Safety cap: a clean crash-class regression test adds a handful of oracle
+    # files. A huge set means the commit isn't a focused regression test (or the
+    # diff is still parentless) — refuse rather than copy a whole test corpus.
+    if len(fixtures) > _MAX_FIXTURES:
+        raise BackportReject(
+            f"fix commit {commit_sha} touches {len(fixtures)} oracle-dir files "
+            f"(> {_MAX_FIXTURES}); not a focused regression test. Pin the oracle "
+            "by hand."
+        )
+    out_root = out_dir.resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    kept: list[str] = []
+    for path in fixtures:
+        # Filename hygiene (on-disk path AND downstream ASAN-harness input).
+        if not _safe_fixture_name(path):
+            print(f"  (skipped {path!r}: unsafe fixture name)", flush=True)
+            continue
+        # Object-mode filter: extract ONLY regular blobs. A 120000 (symlink) blob's
+        # content is a target path — materialising it is an escape primitive;
+        # 160000 is a submodule gitlink. core.symlinks=false governs checkout, not
+        # this manual blob write, so filter on mode explicitly.
+        mode = _blob_mode(runner, repo, commit_sha, path)
+        if mode not in ("100644", "100755"):
+            print(f"  (skipped {path}: non-regular git mode {mode})", flush=True)
+            continue
+        dest = (out_dir / path)
+        # Containment AFTER creating parents as real dirs (no symlink got written —
+        # they're mode-filtered — so no TOCTOU redirect). Use is_relative_to, not a
+        # string prefix.
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.parent.resolve().is_relative_to(out_root):
+            raise BackportReject(f"fixture path escapes output dir: {path!r}")
+        # Size guard before materialising: a crash oracle is small.
+        size = _git(runner, repo, "cat-file", "-s", f"{commit_sha}:{path}")
+        try:
+            nbytes = int((size.stdout or "0").strip())
+        except ValueError:
+            nbytes = 0
+        if nbytes > _MAX_FIXTURE_BYTES:
+            print(f"  (skipped {path}: {nbytes} bytes > {_MAX_FIXTURE_BYTES} cap)", flush=True)
+            continue
+        _extract_blob(repo, commit_sha, path, dest)
+        kept.append(path)
+    return kept
+
+
+def _extract_blob(repo: Path, commit_sha: str, path: str, dest: Path) -> None:
+    """Binary-safe extraction of a blob at a commit to `dest` (the text Runner
+    would corrupt binary fixtures, so this uses a bytes subprocess directly)."""
+    env = dict(os.environ)
+    env.update(_HARDENED_ENV)
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "show", f"{commit_sha}:{path}"],
+        capture_output=True, check=False, timeout=180, env=env,
+    )
+    if proc.returncode != 0:
+        raise BackportError(
+            f"git show {commit_sha}:{path} failed: "
+            f"{proc.stderr.decode('utf-8', 'replace').strip()[:200]}"
+        )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(proc.stdout)
+
+
 def _tag_candidates(version_tag: str, repo_url: str) -> list[str]:
     """Common git-tag spellings for a version. The bundle's `tag`/version field
     may be the nixpkgs version ('1.0.8') while the git tag is project-prefixed
@@ -626,6 +791,49 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p.add_argument("--skip-verify", action="store_true",
                    help="skip the patch --dry-run gate (NOT recommended; loses the 'applies' guarantee)")
     return p
+
+
+def add_fixtures_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
+    p = subs.add_parser(
+        "backport-fixtures",
+        help="extract a fix commit's co-landed regression-test fixtures (reproducer oracle)",
+    )
+    p.add_argument("--bundle-dir", required=True, type=Path,
+                   help="bundle dir with upstream-ref.json (the fix commit)")
+    p.add_argument("--out", type=Path, default=None,
+                   help="output dir for fixtures (default: <bundle-dir>/reproducer-fixtures)")
+    return p
+
+
+def run_fixtures(args: argparse.Namespace) -> int:
+    bundle_dir: Path = args.bundle_dir
+    urf = bundle_dir / "upstream-ref.json"
+    if not urf.is_file():
+        print(f"error: {urf} not found", flush=True)
+        return EXIT_USAGE
+    ur = json.loads(urf.read_text())
+    commits = ur.get("upstream_fix_commits") or []
+    if not commits:
+        print("error: upstream-ref.json has no upstream_fix_commits", flush=True)
+        return EXIT_USAGE
+    out_dir = args.out or (bundle_dir / "reproducer-fixtures")
+    with tempfile.TemporaryDirectory(prefix="trace-fixtures-") as td:
+        try:
+            fixtures = extract_fix_fixtures(
+                repo_url=commits[0]["repo_url"], commit_sha=commits[0]["commit_sha"],
+                out_dir=out_dir, workdir=Path(td),
+            )
+        except BackportError as exc:
+            print(f"error: {exc}", flush=True)
+            return EXIT_USAGE
+    if not fixtures:
+        print("no co-landed regression-test fixtures in the fix commit "
+              "(reproducer oracle must be constructed by hand)", flush=True)
+        return EXIT_REJECT
+    print(f"extracted {len(fixtures)} oracle fixture(s) to {out_dir}:", flush=True)
+    for f in fixtures:
+        print(f"  {f}", flush=True)
+    return EXIT_OK
 
 
 def run(args: argparse.Namespace) -> int:

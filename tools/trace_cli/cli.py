@@ -242,6 +242,7 @@ def main(argv: list[str]) -> int:
 
     from tools.trace_cli import backport_patch as _backport_module
     _backport_module.add_parser(subs)
+    _backport_module.add_fixtures_parser(subs)
 
     e = subs.add_parser("eval", help="cohort-level evaluation tooling")
     e_subs = e.add_subparsers(dest="eval_cmd", required=True)
@@ -316,6 +317,9 @@ def main(argv: list[str]) -> int:
     if args.cmd == "backport-patch":
         from tools.trace_cli import backport_patch as _backport_module
         return _backport_module.run(args)
+    if args.cmd == "backport-fixtures":
+        from tools.trace_cli import backport_patch as _backport_module
+        return _backport_module.run_fixtures(args)
     if args.cmd == "replay":
         return _cmd_replay(args)
     if args.cmd == "review":
