@@ -530,6 +530,23 @@ def finalize_bundle(
             }
             placeholder_names.append(fname)
 
+    # Optional replay-critical artifacts: manifested ONLY when actually on disk
+    # (no placeholder for bundles that don't carry them, so a version-bump
+    # bundle never claims a signed artifact that doesn't exist). upstream-fix.patch
+    # is the source-backport ground-truth diff (the Patcher transcribes it and the
+    # Reviewer verifies against it — replay-critical when present).
+    for fname, producer in (("upstream-fix.patch", "upstream-ref-resolver"),):
+        path = bundle_dir / fname
+        if path.is_file():
+            data = path.read_bytes()
+            files_block[fname] = {
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "bytes": len(data),
+                "producer_role": producer,
+                "replay_critical": True,
+            }
+            real_hash_names.append(fname)
+
     # bundle.json's own entry is necessarily a placeholder — the file we
     # are about to write doesn't exist on disk yet, and self-hashing is
     # not meaningful.
@@ -562,6 +579,8 @@ def finalize_bundle(
             kind_reason = "major-version-jump-requires-review"
         elif trigger == "large-sbom-delta":
             kind_reason = "large-sbom-delta"
+        elif trigger == "source-backport-experimental":
+            kind_reason = "source-backport-experimental"
         elif verdict.startswith("ineligible-"):
             kind_reason = verdict
         else:
@@ -587,6 +606,13 @@ def finalize_bundle(
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
                 for fname, _, replay_critical in _CANONICAL_FILES
                 if replay_critical and fname != "bundle.sig" and fname in files_block
+            ] + [
+                # Optional replay-critical artifacts present on disk (e.g.
+                # upstream-fix.patch on source-backport bundles) must also be
+                # signed, or Steward rule 4 rejects the bundle.
+                {"path": fname, "sha256": files_block[fname]["sha256"]}
+                for fname in ("upstream-fix.patch",)
+                if fname in files_block and files_block[fname].get("replay_critical")
             ],
         },
     }
@@ -667,7 +693,14 @@ def _seed_resolver_invocation(bundle_dir: Path, files_block: dict) -> dict:
                 ],
                 "outputs": [
                     {"path": "upstream-ref.json", "sha256": upstream_sha},
-                ],
+                ] + (
+                    # source-backport: the resolver also supplies the upstream
+                    # fix diff (ground truth) — record it as a resolver output so
+                    # replay/provenance can attribute the signed artifact.
+                    [{"path": "upstream-fix.patch",
+                      "sha256": files_block["upstream-fix.patch"]["sha256"]}]
+                    if "upstream-fix.patch" in files_block else []
+                ),
                 "rng_seed": None,
                 "validators_passed": ["eligibility-verdict-present"],
                 "network_policy_applied": "feeds-only",

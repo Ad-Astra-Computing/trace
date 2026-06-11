@@ -389,7 +389,15 @@ def _apply_patch(
             ),
         }
 
-    apply_args = ["git", "apply", f"--directory={package_dir_rel}"]
+    # --recount: infer hunk line-counts from the patch body rather than trusting
+    # the `@@ -a,b +c,d @@` headers. Model-authored patches (especially the
+    # source-backport strategy, where the Patcher emits a new-file hunk
+    # containing an embedded upstream diff) can carry an off-by-one count while
+    # the actual +/- content and surrounding context are correct. --recount does
+    # NOT relax content/context matching — git still requires the context lines
+    # to match the target exactly — so it tolerates the model's arithmetic
+    # without weakening the apply's correctness guarantee.
+    apply_args = ["git", "apply", "--recount", f"--directory={package_dir_rel}"]
     check = subprocess.run(
         [*apply_args, "--check", str(patch_diff_path)],
         cwd=str(nixpkgs_checkout),
