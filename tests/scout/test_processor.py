@@ -476,6 +476,34 @@ def test_no_bounds_at_all_uses_placeholder_with_explicit_flag(tmp_path: Path) ->
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
     assert refs[0]["requires_review_reason"] == "placeholder-target-version"
     assert refs[0]["version"] == "10.23.0"  # placeholder == current
+    # Source-backport PROPOSAL (additive, 2026-06-11): a fix commit exists but no
+    # fixed release version was derivable -> Scout proposes a backport. The
+    # `requires_review_reason` is KEPT (not replaced), so the "no fixed release"
+    # fact survives the strategy tag.
+    assert refs[0]["tier_hint"] == "source-backport"
+
+
+def test_placeholder_with_bounds_is_not_tagged_source_backport(tmp_path: Path) -> None:
+    """The source-backport proposal is conservative: only the no-bounds-at-all
+    placeholder case is tagged. A real derivable fix version keeps the normal
+    security-patch-release tier_hint (it's a version bump, not a backport)."""
+    entry = _seed_inbox(
+        tmp_path,
+        cve_id="CVE-2099-0011",
+        pname_hints=["cyberchef"],
+        references=[
+            {"url": "https://github.com/x/y/commit/" + "a" * 40, "kind": "upstream-commit"},
+        ],
+        version_bounds=[{
+            "product": "cyberchef", "fixed": "11.0.0", "fixed_kind": "lessThan",
+            "version_type": "semver", "source": "cve_list_v5",
+        }],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    assert refs[0]["version"] == "11.0.0"            # real derived fix version
+    assert refs[0]["tier_hint"] != "source-backport"  # version bump, not backport
+    assert refs[0].get("requires_review_reason") != "placeholder-target-version"
 
 
 def test_version_bounds_filtered_to_matched_pname(tmp_path: Path) -> None:
