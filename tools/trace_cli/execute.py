@@ -376,6 +376,10 @@ def _match_and_hash_outputs(
 
 
 PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v2.md"
+# Used only when upstream-ref.json.eligibility.patch_strategy == "source-backport":
+# the v3 prompt authorizes the Patcher to author an in-tree backport patch
+# against the current version instead of bumping to the fixed release.
+PATCHER_PROMPT_PATH_BACKPORT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v3.md"
 
 
 def _persist_role_failure(
@@ -553,6 +557,39 @@ def _execute_patcher(
         "package_source_path": str(package_path.name),
     }
 
+    # Source-backport strategy (resolver-authorized; the Patcher cannot choose
+    # it). When upstream-ref.json.eligibility.patch_strategy == "source-backport"
+    # the Patcher AUTHORS the upstream fix as an in-tree patch against the
+    # CURRENT version instead of bumping to the fixed release. It is fed the
+    # supplied `upstream-fix.patch` (the upstream commit diff with provenance;
+    # no network) as ground truth for the fix content, and runs under the v3
+    # prompt that authorizes the backport-patch shape.
+    patch_strategy = (upstream_ref.get("eligibility") or {}).get("patch_strategy")
+    patcher_prompt_path = PATCHER_PROMPT_PATH_DEFAULT
+    if patch_strategy == "source-backport":
+        fix_patch_path = bundle_dir / "upstream-fix.patch"
+        if not fix_patch_path.is_file():
+            raise ExecutionError(
+                "patcher source-backport requires upstream-fix.patch in bundle_dir "
+                "(the resolver-supplied upstream commit diff)"
+            )
+        # Replay integrity: in --verify mode the recorded invocation MUST declare
+        # upstream-fix.patch as an input (the patch the Patcher transcribes), or
+        # replay could silently use a different, un-hashed ground truth.
+        if verify and invocation.get("inputs") and not any(
+            ref.get("path") == "upstream-fix.patch" for ref in invocation["inputs"]
+        ):
+            raise ExecutionError(
+                "patcher source-backport replay verification: upstream-fix.patch is "
+                "not declared in the recorded invocation inputs; refusing to read it "
+                "unverified (re-run without --verify to regenerate the invocation)"
+            )
+        inputs["upstream_fix_patch"] = fix_patch_path.read_text()
+        inputs["patch_strategy"] = "source-backport"
+        patcher_prompt_path = PATCHER_PROMPT_PATH_BACKPORT
+        if not any(ref.get("path") == "upstream-fix.patch" for ref in input_verification):
+            input_verification.append({"path": "upstream-fix.patch", "verified": False})
+
     # Parse-before-write: if run_patcher raises PatcherOutputMalformed, we
     # exit without touching any bundle artifacts (no patch.diff, no
     # replay invocation). To preserve debugging context — the model already
@@ -565,7 +602,7 @@ def _execute_patcher(
         result = run_patcher(
             inputs=inputs,
             adapter=adapter,
-            prompt_path=PATCHER_PROMPT_PATH_DEFAULT,
+            prompt_path=patcher_prompt_path,
         )
     except PatcherOutputMalformed as exc:
         _persist_role_failure(
@@ -574,7 +611,7 @@ def _execute_patcher(
             exc=exc,
             model_id=model_id,
             started_at=started_at,
-            prompt_path_relative=f"prompts/{PATCHER_PROMPT_PATH_DEFAULT.name}",
+            prompt_path_relative=f"prompts/{patcher_prompt_path.name}",
         )
         raise ExecutionError(f"patcher output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
@@ -638,6 +675,7 @@ def _execute_patcher(
         outputs=outputs,
         started_at=started_at,
         ended_at=ended_at,
+        prompt_path_relative=f"prompts/{patcher_prompt_path.name}",
     )
 
     # Write the cost sidecar BEFORE the replay-append. The model spend
@@ -850,10 +888,16 @@ def _build_patcher_invocation(
     outputs: list[dict[str, Any]],
     started_at: str,
     ended_at: str,
+    prompt_path_relative: str = "prompts/patcher.v2.md",
 ) -> dict[str, Any]:
     """Build a single replay-shape invocation record for a Patcher run."""
     inputs = []
-    for fname in ("finding.json", "upstream-ref.json", "impact.json", "maintainers.json", "package.nix"):
+    # upstream-fix.patch is replay-critical input ONLY on the source-backport
+    # path (resolver-supplied upstream commit diff the Patcher transcribes).
+    input_files = ["finding.json", "upstream-ref.json", "impact.json", "maintainers.json", "package.nix"]
+    if (bundle_dir / "upstream-fix.patch").is_file():
+        input_files.append("upstream-fix.patch")
+    for fname in input_files:
         p = bundle_dir / fname
         if p.is_file():
             inputs.append({"path": fname, "sha256": _file_sha256(p)})
@@ -864,7 +908,7 @@ def _build_patcher_invocation(
         "started_at": started_at,
         "ended_at": ended_at,
         "model": _build_patcher_model_block(patcher_run),
-        "prompt": {"path": "prompts/patcher.v2.md", "sha256": patcher_run["prompt_sha256"]},
+        "prompt": {"path": prompt_path_relative, "sha256": patcher_run["prompt_sha256"]},
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
         "rng_seed": None,
@@ -1053,6 +1097,31 @@ def _execute_reviewer(
             "cross_family_rule_honored_expected": rule_honored_expected,
         },
     }
+
+    # Source-backport: give the Reviewer the resolver-supplied upstream fix diff
+    # (ground truth) so it can verify the authored backport faithfully
+    # transcribes it — rather than checking against a hallucinated notion of the
+    # fix. Without this the Reviewer cannot ground a source-backport verdict.
+    if (upstream_ref.get("eligibility") or {}).get("patch_strategy") == "source-backport":
+        fix_patch_path = bundle_dir / "upstream-fix.patch"
+        if not fix_patch_path.is_file():
+            raise ExecutionError(
+                "reviewer source-backport requires upstream-fix.patch in bundle_dir "
+                "(the verdict depends on verifying the authored patch against this "
+                "ground-truth diff; refusing to review ungrounded)"
+            )
+        # Replay integrity: under --verify the recorded invocation must declare
+        # upstream-fix.patch, or replay could use a different un-hashed ground truth.
+        if verify and invocation.get("inputs") and not any(
+            ref.get("path") == "upstream-fix.patch" for ref in invocation["inputs"]
+        ):
+            raise ExecutionError(
+                "reviewer source-backport replay verification: upstream-fix.patch is "
+                "not declared in the recorded invocation inputs; refusing to read it "
+                "unverified (re-run without --verify to regenerate the invocation)"
+            )
+        inputs["patch_strategy"] = "source-backport"
+        inputs["upstream_fix_patch"] = fix_patch_path.read_text()
 
     started_at = _utc_now_iso()
     try:
@@ -1256,9 +1325,14 @@ def _build_reviewer_invocation(
 ) -> dict[str, Any]:
     """Build a single replay-shape invocation record for a Reviewer run."""
     inputs: list[dict[str, Any]] = []
-    for fname in ("finding.json", "upstream-ref.json", "impact.json",
-                  "maintainers.json", "package.nix",
-                  "patch.diff", "patch-rationale.md"):
+    review_input_files = ["finding.json", "upstream-ref.json", "impact.json",
+                          "maintainers.json", "package.nix",
+                          "patch.diff", "patch-rationale.md"]
+    # On the source-backport path the verdict depends on upstream-fix.patch
+    # (the ground truth the Reviewer verifies against), so it is replay-critical.
+    if (bundle_dir / "upstream-fix.patch").is_file():
+        review_input_files.append("upstream-fix.patch")
+    for fname in review_input_files:
         p = bundle_dir / fname
         if p.is_file():
             inputs.append({"path": fname, "sha256": _file_sha256(p)})

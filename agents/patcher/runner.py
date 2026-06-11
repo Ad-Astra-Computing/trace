@@ -105,8 +105,26 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
         inputs["package_source"],
         "```",
         "",
-        "Produce the contracted output now.",
     ]
+
+    # Source-backport strategy: surface the resolver-supplied upstream fix diff
+    # as ground truth for the fix content. Only present when the resolver
+    # authorized patch_strategy="source-backport" in upstream-ref.json.
+    if inputs.get("patch_strategy") == "source-backport" and inputs.get("upstream_fix_patch"):
+        parts += [
+            "## patch_strategy: source-backport (resolver-authorized)",
+            "Do NOT bump the version. Author the upstream fix below as an in-tree",
+            "patch file under the package directory and wire it into the package's",
+            "`patches = [ ... ]` list, per the v3 source-backport contract.",
+            "",
+            "## upstream-fix.patch (the upstream fix commit diff — ground truth for the fix content)",
+            "```diff",
+            inputs["upstream_fix_patch"].rstrip(),
+            "```",
+            "",
+        ]
+
+    parts.append("Produce the contracted output now.")
     return "\n".join(parts)
 
 

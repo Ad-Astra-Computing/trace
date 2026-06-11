@@ -125,6 +125,22 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
         "# patch-rationale.md (Patcher's emitted rationale)",
         inputs["patch_rationale_md"],
     ])
+
+    # Source-backport: supply the resolver's upstream fix diff as ground truth.
+    # The Patcher authored an in-tree backport (a new .patch file + a package.nix
+    # patches=[] wiring) instead of a version bump; the Reviewer must verify the
+    # AUTHORED patch content faithfully transcribes THIS upstream fix (do not
+    # check against any remembered/assumed version of the fix), and that the
+    # package.nix edit only adds the patch (no version/hash/build changes).
+    if inputs.get("patch_strategy") == "source-backport" and inputs.get("upstream_fix_patch"):
+        parts.extend([
+            "",
+            "# upstream-fix.patch (resolver-supplied GROUND TRUTH — the upstream fix commit diff)",
+            "# Verify the authored patch.diff transcribes THIS diff faithfully. Do not",
+            "# compare against any fix you recall from training; this file is authoritative.",
+            inputs["upstream_fix_patch"],
+        ])
+
     return "\n".join(parts)
 
 

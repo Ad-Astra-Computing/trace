@@ -62,6 +62,14 @@ CANONICAL_BUNDLE_ARTIFACTS: tuple[str, ...] = (
     "patch-rationale.md",
 )
 
+# Optional artifacts that are canonical ONLY when actually present in the bundle
+# (so a bundle that doesn't have one gets no credit for citing it). Maps the
+# filename to a no-op presence check at scoring time. Source-backport bundles
+# carry upstream-fix.patch (the ground-truth diff the Reviewer verifies against).
+_OPTIONAL_BUNDLE_ARTIFACTS: tuple[str, ...] = (
+    "upstream-fix.patch",
+)
+
 
 def reviewer_scorer_names() -> tuple[str, ...]:
     """The locked Reviewer scorer names, in canonical order."""
@@ -263,11 +271,17 @@ class ReviewEvidenceCitedScorer:
                 notes="cited_evidence is empty",
             )
 
+        # An optional artifact counts as canonical only if it actually exists in
+        # this bundle (e.g. upstream-fix.patch on source-backport bundles) — a
+        # version-bump bundle gets no credit for citing a non-existent artifact.
+        recognised_set = set(CANONICAL_BUNDLE_ARTIFACTS) | {
+            name for name in _OPTIONAL_BUNDLE_ARTIFACTS if (bundle_dir / name).is_file()
+        }
         recognised = []
         unrecognised = []
         for entry in cited:
             artifact = entry.split(":", 1)[0]
-            if artifact in CANONICAL_BUNDLE_ARTIFACTS:
+            if artifact in recognised_set:
                 recognised.append(entry)
             else:
                 unrecognised.append(entry)

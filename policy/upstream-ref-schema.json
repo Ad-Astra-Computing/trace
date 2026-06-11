@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trace.adastra.computer/schemas/upstream-ref-schema.json",
   "title": "trace upstream-ref",
-  "description": "UpstreamRefResolver output at <bundle-dir>/upstream-ref.json. Deterministically (or with LLM-assisted release-notes parsing validated against hard rules) identifies the qualifying upstream fix per §2a of SPEC.md, or records an ineligibility verdict. Patcher treats this document as given truth; Patcher never re-litigates eligibility.",
+  "description": "UpstreamRefResolver output at <bundle-dir>/upstream-ref.json. Deterministically (or with LLM-assisted release-notes parsing validated against hard rules) identifies the qualifying upstream fix per \u00a72a of SPEC.md, or records an ineligibility verdict. Patcher treats this document as given truth; Patcher never re-litigates eligibility.",
   "type": "object",
   "required": [
     "schema_version",
@@ -16,45 +16,87 @@
     "schema_version": {
       "description": "1.0.0: original (no prefetch_* fields). 1.1.0: adds prefetch_hashes[] / prefetch_failures[] / prefetch_skips[] / prefetch_kind / derivation_command, plus go-mod-vendor source enum value. Bundles that emit any prefetch_* field MUST declare 1.1.0; legacy 1.0.0 bundles are still accepted.",
       "type": "string",
-      "enum": ["1.0.0", "1.1.0"]
+      "enum": [
+        "1.0.0",
+        "1.1.0"
+      ]
     },
-    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
-    "current_version": { "type": "string", "minLength": 1 },
+    "cve_id": {
+      "type": "string",
+      "pattern": "^CVE-\\d{4}-\\d{4,19}$"
+    },
+    "current_version": {
+      "type": "string",
+      "minLength": 1
+    },
     "target_version": {
       "description": "The upstream version containing the fix. Required when eligibility.verdict == eligible.",
       "type": "string"
     },
     "fix_tier": {
-      "description": "Classification per §2a. Required when eligibility.verdict == eligible.",
+      "description": "Classification per \u00a72a. Required when eligibility.verdict == eligible.",
       "type": "string",
-      "enum": ["security-patch-release", "point-release-small-delta", "major-version-jump"]
+      "enum": [
+        "security-patch-release",
+        "point-release-small-delta",
+        "major-version-jump"
+      ]
     },
-    "release_url": { "type": "string", "format": "uri" },
-    "tag": { "type": "string" },
+    "release_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "tag": {
+      "type": "string"
+    },
     "advisory_urls": {
       "type": "array",
-      "items": { "type": "string", "format": "uri" }
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
     },
-    "changelog_url": { "type": "string", "format": "uri" },
+    "changelog_url": {
+      "type": "string",
+      "format": "uri"
+    },
     "upstream_fix_commits": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["repo_url", "commit_sha"],
+        "required": [
+          "repo_url",
+          "commit_sha"
+        ],
         "additionalProperties": false,
         "properties": {
-          "repo_url": { "type": "string", "format": "uri" },
-          "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
-          "message": { "type": "string" }
+          "repo_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "commit_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{7,40}$"
+          },
+          "message": {
+            "type": "string"
+          }
         }
       }
     },
     "prefetch_hashes": {
-      "description": "Deterministically-acquired ground-truth hashes for the resolved upstream target. UpstreamRefResolver owns hash acquisition (e.g. nix-prefetch-url, gh release archive, locked vendor lockfile prefetch) and writes the values here BEFORE the Patcher is invoked. Patcher may emit a hash value in patch.diff ONLY if that exact value appears under prefetch_hashes[].value; any other hash value triggers refusal rule 8. List-shaped because the set of hash-bearing attributes varies by ecosystem (src.hash, vendorHash, cargoHash, npmDepsHash, pnpmDepsHash, yarnDepsHash, cargoSha256, …).",
+      "description": "Deterministically-acquired ground-truth hashes for the resolved upstream target. UpstreamRefResolver owns hash acquisition (e.g. nix-prefetch-url, gh release archive, locked vendor lockfile prefetch) and writes the values here BEFORE the Patcher is invoked. Patcher may emit a hash value in patch.diff ONLY if that exact value appears under prefetch_hashes[].value; any other hash value triggers refusal rule 8. List-shaped because the set of hash-bearing attributes varies by ecosystem (src.hash, vendorHash, cargoHash, npmDepsHash, pnpmDepsHash, yarnDepsHash, cargoSha256, \u2026).",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "algorithm", "value", "source", "prefetch_kind", "replay_critical"],
+        "required": [
+          "name",
+          "algorithm",
+          "value",
+          "source",
+          "prefetch_kind",
+          "replay_critical"
+        ],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -64,7 +106,11 @@
           },
           "algorithm": {
             "type": "string",
-            "enum": ["sha256", "sha512", "blake2b-512"]
+            "enum": [
+              "sha256",
+              "sha512",
+              "blake2b-512"
+            ]
           },
           "value": {
             "description": "The hash value the Patcher is permitted to emit verbatim. Format follows the algorithm: SRI form for sha256/sha512 (e.g. 'sha256-...=') is the v0 default.",
@@ -74,12 +120,25 @@
           "source": {
             "description": "How the hash was acquired, for replay attribution.",
             "type": "string",
-            "enum": ["nix-prefetch-url", "nix-prefetch-git", "github-release-archive", "gitlab-release-archive", "vendor-lockfile-prefetch", "go-mod-vendor", "fetchzip-src-extract", "manual-pinned"]
+            "enum": [
+              "nix-prefetch-url",
+              "nix-prefetch-git",
+              "github-release-archive",
+              "gitlab-release-archive",
+              "vendor-lockfile-prefetch",
+              "go-mod-vendor",
+              "fetchzip-src-extract",
+              "manual-pinned"
+            ]
           },
           "prefetch_kind": {
-            "description": "Mechanism class. `url` fetches a single artifact at a URL and hashes it (correct for `fetchurl`-style fetchers; WRONG for `fetchFromGitHub` / `fetchzip` / `fetchgit` because those use fetchzip semantics under the hood). `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash (output applies to `vendorHash`). `fetchzip` runs a Nix-overlay build that overrides `src.hash` to `lib.fakeHash`, expects the FOD-mismatch error, and parses the real hash out of stderr (correct for fetchFromGitHub / fetchzip / fetchgit / equivalent fetchers; output applies to `src.hash`). Future kinds (cargo-vendor, npm-deps, …) will land separately. Required from schema_version 1.1.0 onward; emitters MUST write the field verbatim. Consumers reading legacy 1.0.0 bundles (which don't have this field) should treat absence as `url`.",
+            "description": "Mechanism class. `url` fetches a single artifact at a URL and hashes it (correct for `fetchurl`-style fetchers; WRONG for `fetchFromGitHub` / `fetchzip` / `fetchgit` because those use fetchzip semantics under the hood). `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash (output applies to `vendorHash`). `fetchzip` runs a Nix-overlay build that overrides `src.hash` to `lib.fakeHash`, expects the FOD-mismatch error, and parses the real hash out of stderr (correct for fetchFromGitHub / fetchzip / fetchgit / equivalent fetchers; output applies to `src.hash`). Future kinds (cargo-vendor, npm-deps, \u2026) will land separately. Required from schema_version 1.1.0 onward; emitters MUST write the field verbatim. Consumers reading legacy 1.0.0 bundles (which don't have this field) should treat absence as `url`.",
             "type": "string",
-            "enum": ["url", "go-mod-vendor", "fetchzip"]
+            "enum": [
+              "url",
+              "go-mod-vendor",
+              "fetchzip"
+            ]
           },
           "derivation_command": {
             "description": "Exact command (or derivation target) used when prefetch_kind != url. Required when prefetch_kind == go-mod-vendor; lets future replay reproduce the acquisition.",
@@ -104,7 +163,10 @@
             "type": "string",
             "format": "date-time"
           },
-          "replay_critical": { "type": "boolean", "const": true }
+          "replay_critical": {
+            "type": "boolean",
+            "const": true
+          }
         }
       }
     },
@@ -113,7 +175,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "reason", "required_for_patch"],
+        "required": [
+          "name",
+          "reason",
+          "required_for_patch"
+        ],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -154,7 +220,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "reason", "required_for_patch"],
+        "required": [
+          "name",
+          "reason",
+          "required_for_patch"
+        ],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -218,14 +288,21 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "transitive_package_changes": { "type": "integer", "minimum": 0 },
+        "transitive_package_changes": {
+          "type": "integer",
+          "minimum": 0
+        },
         "new_direct_deps": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "removed_direct_deps": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "crosses_large_delta_threshold": {
           "description": "True if the configured threshold (v0 default: >10 transitive changes OR any new direct dep) is exceeded. If true and the bundle proceeds, kind MUST be human-review-required.",
@@ -239,7 +316,9 @@
     },
     "eligibility": {
       "type": "object",
-      "required": ["verdict"],
+      "required": [
+        "verdict"
+      ],
       "additionalProperties": false,
       "properties": {
         "verdict": {
@@ -261,25 +340,79 @@
         "human_review_trigger": {
           "description": "Required when verdict == eligible-requires-human-review. Which rule forced human review.",
           "type": "string",
-          "enum": ["major-version-jump", "large-sbom-delta", "ambiguous-changelog", "ambiguous-fixed-version", "no-target-version-derived", "placeholder-target-version", "pre-release-target"]
+          "enum": [
+            "major-version-jump",
+            "large-sbom-delta",
+            "ambiguous-changelog",
+            "ambiguous-fixed-version",
+            "no-target-version-derived",
+            "placeholder-target-version",
+            "pre-release-target",
+            "source-backport-experimental"
+          ]
+        },
+        "patch_strategy": {
+          "description": "Resolver-authorized patch strategy. 'version-bump' (default) = bring the package to the fixed release. 'source-backport' = the Patcher AUTHORS the upstream fix as an in-tree patch against the CURRENT version (the resolver also supplies upstream-fix.patch). The Patcher never self-selects this.",
+          "type": "string",
+          "enum": [
+            "version-bump",
+            "source-backport"
+          ]
         }
       },
       "allOf": [
         {
-          "if": { "properties": { "verdict": { "const": "eligible" } } },
-          "then": { "not": { "required": ["verdict_reason", "human_review_trigger"] } }
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "eligible"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "verdict_reason",
+                "human_review_trigger"
+              ]
+            }
+          }
         },
         {
-          "if": { "properties": { "verdict": { "const": "eligible-requires-human-review" } } },
-          "then": { "required": ["verdict_reason", "human_review_trigger"] }
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "eligible-requires-human-review"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "verdict_reason",
+              "human_review_trigger"
+            ]
+          }
         },
         {
-          "if": { "properties": { "verdict": { "pattern": "^ineligible-" } } },
-          "then": { "required": ["verdict_reason"] }
+          "if": {
+            "properties": {
+              "verdict": {
+                "pattern": "^ineligible-"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "verdict_reason"
+            ]
+          }
         }
       ]
     },
-    "replay_critical": { "type": "boolean", "const": true }
+    "replay_critical": {
+      "type": "boolean",
+      "const": true
+    }
   },
   "allOf": [
     {
@@ -287,27 +420,43 @@
         "properties": {
           "eligibility": {
             "properties": {
-              "verdict": { "enum": ["eligible", "eligible-requires-human-review"] }
+              "verdict": {
+                "enum": [
+                  "eligible",
+                  "eligible-requires-human-review"
+                ]
+              }
             }
           }
         }
       },
       "then": {
-        "required": ["target_version", "fix_tier", "release_url", "delta"]
+        "required": [
+          "target_version",
+          "fix_tier",
+          "release_url",
+          "delta"
+        ]
       }
     },
     {
       "if": {
-        "required": ["fix_tier"],
+        "required": [
+          "fix_tier"
+        ],
         "properties": {
-          "fix_tier": { "const": "major-version-jump" }
+          "fix_tier": {
+            "const": "major-version-jump"
+          }
         }
       },
       "then": {
         "properties": {
           "eligibility": {
             "properties": {
-              "verdict": { "const": "eligible-requires-human-review" }
+              "verdict": {
+                "const": "eligible-requires-human-review"
+              }
             }
           }
         }
@@ -317,14 +466,28 @@
       "description": "Bundles that emit any prefetch_* field MUST declare schema_version 1.1.0. Legacy 1.0.0 bundles cannot use prefetch_* additive fields (the resolver had not yet acquired hashes when the original schema landed).",
       "if": {
         "anyOf": [
-          { "required": ["prefetch_hashes"] },
-          { "required": ["prefetch_failures"] },
-          { "required": ["prefetch_skips"] }
+          {
+            "required": [
+              "prefetch_hashes"
+            ]
+          },
+          {
+            "required": [
+              "prefetch_failures"
+            ]
+          },
+          {
+            "required": [
+              "prefetch_skips"
+            ]
+          }
         ]
       },
       "then": {
         "properties": {
-          "schema_version": { "const": "1.1.0" }
+          "schema_version": {
+            "const": "1.1.0"
+          }
         }
       }
     }
