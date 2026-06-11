@@ -1,0 +1,13 @@
+{
+  "cve_id": "CVE-0000-1012",
+  "current_version": "1.0.8",
+  "candidate_refs": [
+    {
+      "version": "1.0.8",
+      "tag": "1.0.8",
+      "release_url": "https://example.invalid/libexample/commit/deadbeef",
+      "delta": { "transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [], "crosses_large_delta_threshold": false, "threshold_policy": "v0-default" },
+      "eligibility": { "patch_strategy": "source-backport" }
+    }
+  ]
+}
