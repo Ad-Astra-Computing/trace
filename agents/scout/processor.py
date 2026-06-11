@@ -253,6 +253,19 @@ def _extract_candidate_refs(
             ref["requires_review_reason"] = "ambiguous-fixed-version"
         elif placeholder:
             ref["requires_review_reason"] = "placeholder-target-version"
+            # Source-backport PROPOSAL (additive, peer-reviewed 2026-06-11): a
+            # fix commit exists but NO fixed release version was derivable — the
+            # natural backport shape (fix the current version in place). Scout
+            # proposes high-recall; the authoritative minimality decision is the
+            # downstream `trace backport-patch` gate (rejects on conflict / multi-
+            # file / non-apply), and the human reviews sufficiency. The
+            # `requires_review_reason` above is KEPT, not replaced: "no fixed
+            # release derivable" stays true regardless of the gate, so a clean-
+            # applying-but-insufficient fix can't reach the human disguised as
+            # done. (Conservative first cut: placeholder only — the clearest
+            # no-fixed-release signal. The ambiguous-fixed-version case is a
+            # follow-on, gated on the human-reject-rate of accepted backports.)
+            ref["tier_hint"] = "source-backport"
         out.append(ref)
     return out
 

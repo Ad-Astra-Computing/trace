@@ -84,6 +84,19 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
                     "authored without the upstream fix commit to transcribe."
                 ),
             )
+        # Carry through the harvest's "no fixed release derivable" fact, if any.
+        # The source-backport strategy is layered ON TOP of that fact, never a
+        # replacement (peer review 2026-06-11): a clean-applying backport may
+        # still be a NECESSARY-BUT-NOT-SUFFICIENT fix, so the human must confirm
+        # sufficiency — the reason the candidate had no derivable fixed release
+        # must survive the strategy tag.
+        review_reason = chosen.get("requires_review_reason")
+        reason_note = (
+            f" The harvest could not derive a fixed release version "
+            f"(requires_review_reason={review_reason!r}); the human must confirm "
+            f"the backport is the COMPLETE fix, not merely one necessary commit."
+            if review_reason else ""
+        )
         return _eligible_requires_human_review(
             cve_id=cve_id,
             current_version=current_version,
@@ -99,6 +112,7 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
                 "the current version; version is unchanged (target == current by "
                 "design). Routed to human review (experimental); upstream-fix.patch "
                 "must be supplied. The Patcher never self-selects this strategy."
+                + reason_note
             ),
         )
 

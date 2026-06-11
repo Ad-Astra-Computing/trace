@@ -111,3 +111,29 @@ def test_source_backport_signal_precedence():
     assert _is_source_backport_signal({"tier_hint": "source-backport"}) is True
     assert _is_source_backport_signal({"tier_hint": "point-release-small-delta"}) is False
     assert _is_source_backport_signal({}) is False
+
+
+def test_source_backport_carries_through_review_reason():
+    """When a Scout-tagged backport candidate also carries the 'no fixed release
+    derivable' fact (requires_review_reason), the source-backport verdict must
+    SURFACE it (peer 2026-06-11): a clean-applying backport may still be
+    necessary-but-not-sufficient, so the human must confirm sufficiency."""
+    from agents.upstream_ref_resolver import resolve
+    out = resolve({
+        "cve_id": "CVE-0000-2099", "current_version": "1.0.8",
+        "candidate_refs": [{
+            "version": "1.0.8", "release_url": "https://ex.invalid/c/deadbeef",
+            "upstream_fix_commits": [{"repo_url": "https://ex.invalid/r", "commit_sha": "deadbeef"}],
+            "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
+                      "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
+            "tier_hint": "source-backport",
+            "requires_review_reason": "placeholder-target-version",
+        }],
+    })
+    el = out["eligibility"]
+    assert el["verdict"] == "eligible-requires-human-review"
+    assert el["patch_strategy"] == "source-backport"
+    assert el["human_review_trigger"] == "source-backport-experimental"
+    # the no-fixed-release fact survives, not erased
+    assert "placeholder-target-version" in el["verdict_reason"]
+    assert "COMPLETE fix" in el["verdict_reason"]
