@@ -1,0 +1,280 @@
+"""Tests for `trace backport-patch` (tools/trace_cli/backport_patch.py).
+
+Pure-logic + mocked-runner unit tests run offline. The end-to-end integration
+test is gated behind TRACE_REAL_BACKPORT=1 (needs network + nix).
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from tools.trace_cli import backport_patch as bp
+
+
+# ── reformat: plain unified diff + path format ───────────────────────────────
+
+_GIT_DIFF = """diff --git a/src/x.c b/src/x.c
+index a8131e0..4b1c219 100644
+--- a/src/x.c
++++ b/src/x.c
+@@ -10,7 +10,7 @@ int main(void)
+   a;
+   b;
+   c;
+-  if (old)
++  if (new)
+   d;
+   e;
+
+"""
+
+
+def test_to_plain_unified_strips_git_headers_p0():
+    out = bp.to_plain_unified(_GIT_DIFF, strip_level=0)
+    assert "diff --git" not in out
+    assert "index a8131e0" not in out
+    assert out.startswith("--- src/x.c\n+++ src/x.c\n")  # bare paths for -p0
+
+
+def test_to_plain_unified_p1_keeps_ab_prefix():
+    out = bp.to_plain_unified(_GIT_DIFF, strip_level=1)
+    assert "--- a/src/x.c" in out and "+++ b/src/x.c" in out
+    assert "diff --git" not in out
+
+
+def test_ensure_ends_on_content_trims_trailing_blank_and_restamps():
+    plain = bp.to_plain_unified(_GIT_DIFF, strip_level=1)
+    out = bp.ensure_ends_on_content(plain)
+    body = out.rstrip("\n").splitlines()
+    assert body[-1].strip() != ""               # ends on a content line
+    # original U3 had 3+change+3 ctx incl. a trailing blank; after trim the
+    # hunk header count must match the body (no desync).
+    hunk = next(l for l in body if l.startswith("@@"))
+    import re
+    m = re.match(r"@@ -\d+,(\d+) \+\d+,(\d+) @@", hunk)
+    old_c = sum(1 for l in body if l[:1] in (" ", "-") and not l.startswith("---"))
+    new_c = sum(1 for l in body if l[:1] in (" ", "+") and not l.startswith("+++"))
+    assert int(m.group(1)) == old_c and int(m.group(2)) == new_c
+
+
+def test_ends_on_content_never_trims_change_lines():
+    # a hunk whose last body line is a +/- change must be preserved verbatim
+    diff = "--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n"
+    out = bp.ensure_ends_on_content(diff)
+    assert "+new" in out and "-old" in out
+
+
+# ── strip level from patchFlags ──────────────────────────────────────────────
+
+@pytest.mark.parametrize("flags,expected", [
+    (["-p0"], 0), (["-p1"], 1), ([], 1), (["-p2"], 2),
+    (["--strip=0"], 0), (["-l", "-p0"], 0),
+])
+def test_strip_level_from_flags(flags, expected):
+    assert bp.strip_level_from_flags(flags) == expected
+
+
+# ── commit-message preamble stripping ────────────────────────────────────────
+
+def test_extract_diff_strips_commit_message():
+    show = "commit abc\nAuthor: x\n\n    msg body\n\ndiff --git a/x b/x\n--- a/x\n+++ b/x\n"
+    assert bp._extract_diff(show).startswith("diff --git a/x b/x")
+    assert "commit abc" not in bp._extract_diff(show)
+
+
+# ── tag candidates ───────────────────────────────────────────────────────────
+
+def test_tag_candidates_covers_project_prefix_and_v():
+    cands = bp._tag_candidates("1.0.8", "https://sourceware.org/git/bzip2.git")
+    assert "bzip2-1.0.8" in cands and "v1.0.8" in cands and "1.0.8" in cands
+
+
+def test_tag_candidates_dedup_for_v_prefixed():
+    cands = bp._tag_candidates("v4.17", "https://github.com/rofl0r/proxychains-ng")
+    assert cands.count("v4.17") == 1
+    assert "proxychains-ng-4.17" in cands
+
+
+# ── non-source exclusion ─────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("path,excluded", [
+    ("src/loaders/prowizard/pha.c", False),
+    ("src/libproxychains.c", False),
+    ("bzip2recover.c", False),
+    ("docs/Changelog", True),
+    ("test-dev/data/f/fixture", True),
+    ("tests/test_foo.c", True),
+    ("ChangeLog", True),
+    ("README.md", True),
+    ("data/sample.bin", True),
+    (".github/workflows/ci.yml", True),
+])
+def test_non_source_exclusion(path, excluded):
+    assert bool(bp._NON_SOURCE_RE.search(path)) == excluded
+
+
+# ── auto-scope with a mocked runner (numstat) ────────────────────────────────
+
+def _completed(stdout="", returncode=0, stderr=""):
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def test_auto_scope_excludes_binary_test_and_doc():
+    numstat = "\n".join([
+        "5\t0\tsrc/loaders/prowizard/pha.c",   # source: keep
+        "10\t2\tdocs/Changelog",                # doc: drop
+        "-\t-\ttest-dev/data/f/fixture",        # binary + test: drop
+        "3\t1\ttests/test_pha.c",               # test: drop
+    ])
+
+    def runner(cmd, cwd=None):
+        return _completed(stdout=numstat)
+
+    paths = bp._auto_scope_source_paths(runner, Path("/tmp/repo"), "deadbeef")
+    assert paths == ["src/loaders/prowizard/pha.c"]
+
+
+# ── retarget_fix: conflict → reject; clean → diff (mocked git) ────────────────
+
+def _mock_git_runner(*, apply_rc=0, diff_out="--- x\n+++ x\n", show_out="diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n"):
+    """Simulate the git command sequence retarget_fix issues."""
+    def runner(cmd, cwd=None):
+        c = cmd[1] if len(cmd) > 1 and cmd[0] == "git" else ""
+        if c == "--version":
+            return _completed(stdout="git version 2.43.0\n")
+        if c in ("init", "config", "remote", "fetch", "checkout"):
+            return _completed()
+        if c == "rev-parse":
+            return _completed(stdout="abc123\n")
+        if c == "show":
+            if "--numstat" in cmd:
+                return _completed(stdout="5\t0\tx\n")
+            return _completed(stdout=show_out)
+        if c == "apply":
+            return _completed(returncode=apply_rc, stderr="conflict" if apply_rc else "")
+        if c == "diff":
+            return _completed(stdout=diff_out)
+        return _completed()
+    return runner
+
+
+def test_retarget_fix_conflict_rejects(tmp_path):
+    with pytest.raises(bp.BackportReject):
+        bp.retarget_fix(
+            repo_url="https://example.invalid/x", commit_sha="abc", version_tag="1.0",
+            paths=["x"], workdir=tmp_path, runner=_mock_git_runner(apply_rc=1),
+        )
+
+
+def test_retarget_fix_clean_returns_diff(tmp_path):
+    out = bp.retarget_fix(
+        repo_url="https://example.invalid/x", commit_sha="abc", version_tag="1.0",
+        paths=["x"], workdir=tmp_path, runner=_mock_git_runner(),
+    )
+    assert out.startswith("--- x")
+
+
+def test_retarget_fix_empty_diff_rejects(tmp_path):
+    # fix already present at this version -> empty diff -> reject
+    with pytest.raises(bp.BackportReject):
+        bp.retarget_fix(
+            repo_url="https://example.invalid/x", commit_sha="abc", version_tag="1.0",
+            paths=["x"], workdir=tmp_path, runner=_mock_git_runner(diff_out="\n"),
+        )
+
+
+# ── integration (network + nix) ──────────────────────────────────────────────
+
+@pytest.mark.skipif(
+    os.environ.get("TRACE_REAL_BACKPORT") != "1",
+    reason="real-network/nix test; set TRACE_REAL_BACKPORT=1 to enable",
+)
+def test_integration_bzip2_skip_verify():
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle = repo_root / "traces/example/CVE-2026-42250--bzip2-backport"
+    patch = bp.produce_backport_patch(
+        bundle_dir=bundle, nixpkgs=repo_root.parent / "nixpkgs", skip_verify=True,
+    )
+    assert "BZ_MAX_HANDLED_BLOCKS - 1" in patch
+    assert "diff --git" not in patch            # plain unified
+    assert patch.startswith("--- bzip2recover.c")  # bare paths for -p0
+    assert patch.rstrip().splitlines()[-1].strip() != ""  # ends on content
+
+
+# ── security: feed-sourced arg validation ────────────────────────────────────
+
+@pytest.mark.parametrize("url,ok", [
+    ("https://github.com/a/b.git", True),
+    ("http://example.com/x", True),
+    ("git://sourceware.org/git/bzip2.git", True),
+    ("ssh://git@host/repo", True),
+    ("git@github.com:a/b.git", True),
+    ("ext::sh -c 'id'", False),        # transport-helper RCE
+    ("fd::17", False),
+    ("file:///etc/passwd", False),
+    ("-oProxyCommand=evil", False),
+    ("transport::x", False),
+    ("", False),
+])
+def test_validate_repo_url(url, ok):
+    if ok:
+        assert bp._validate_repo_url(url) == url
+    else:
+        with pytest.raises(bp.BackportError):
+            bp._validate_repo_url(url)
+
+
+@pytest.mark.parametrize("tag,ok", [
+    ("1.0.8", True), ("v4.17", True), ("libxmp-4.6.2", True), ("REL_1_2", True),
+    ("--upload-pack=evil", False), ("-x", False), ("a b", False), ("$(id)", False),
+])
+def test_validate_tag(tag, ok):
+    if ok:
+        assert bp._validate_tag(tag) == tag
+    else:
+        with pytest.raises(bp.BackportError):
+            bp._validate_tag(tag)
+
+
+def test_safe_rev_regex_is_40_hex():
+    assert bp._SAFE_REV_RE.match("0" * 40)
+    assert not bp._SAFE_REV_RE.match("+refs/heads/*:refs/heads/*")
+    assert not bp._SAFE_REV_RE.match("HEAD")
+    assert not bp._SAFE_REV_RE.match("a" * 39)
+
+
+def test_retarget_fix_refuses_ext_transport(tmp_path):
+    with pytest.raises(bp.BackportError):
+        bp.retarget_fix(
+            repo_url="ext::sh -c id", commit_sha="abc", version_tag="1.0",
+            paths=["x"], workdir=tmp_path, runner=_mock_git_runner(),
+        )
+
+
+def test_hardened_env_restricts_git_protocol():
+    assert bp._HARDENED_ENV["GIT_ALLOW_PROTOCOL"] == "https:git:ssh"
+    assert bp._HARDENED_ENV["GIT_CONFIG_GLOBAL"] == "/dev/null"
+
+
+def test_repo_url_regex_rejects_trailing_newline_smuggle():
+    # \Z (not $) must reject a smuggled second line
+    assert not bp._SAFE_REPO_URL_RE.match("https://x\nevil")
+    assert not bp._SAFE_REV_RE.match("a" * 40 + "\nevil")
+    assert not bp._SAFE_TAG_RE.match("1.0\n--evil")
+
+
+def test_validate_tag_rejects_dotdot_traversal():
+    with pytest.raises(bp.BackportError):
+        bp._validate_tag("v1/../../etc")
+
+
+def test_assert_git_version_floor():
+    bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="git version 2.43.0"))
+    with pytest.raises(bp.BackportError):
+        bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="git version 2.30.0"))
+    with pytest.raises(bp.BackportError):
+        bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="garbage"))
