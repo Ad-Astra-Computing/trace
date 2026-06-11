@@ -309,3 +309,144 @@ def test_assert_git_version_floor():
         bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="git version 2.30.0"))
     with pytest.raises(bp.BackportError):
         bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="garbage"))
+
+
+# ── reproducer-oracle fixture extraction ─────────────────────────────────────
+
+@pytest.mark.parametrize("path,is_oracle", [
+    ("tests/fonts/underflow.ttf", True),
+    ("test-dev/data/f/prowizard_pha_invalid_ocpt", True),
+    ("tests/standards/underflow.json", True),
+    ("tests/fuzz-tests/crash/Bad cmap.fuzz", True),
+    ("regression/poc/crash.bin", True),
+    ("test_fuzzer_x.c", False),            # not under a fixture dir
+    ("src/loaders/pha.c", False),          # source, not oracle
+    ("tests/CMakeLists.txt", False),       # build wiring, not oracle
+    ("docs/Changelog", False),             # doc
+    ("tests/Makefile.am", False),          # build
+    ("tests/fonts/LICENSE", False),        # license, not oracle
+])
+def test_is_oracle_fixture(path, is_oracle):
+    assert bp._is_oracle_fixture(path) == is_oracle
+
+
+def test_extract_fixtures_caps_runaway(tmp_path):
+    """A parentless/huge diff must be refused, not copied wholesale."""
+    many = "\n".join(f"5\t0\ttests/fonts/f{i}.ttf" for i in range(bp._MAX_FIXTURES + 5))
+
+    def runner(cmd, cwd=None):
+        c = cmd[1] if len(cmd) > 1 and cmd[0] == "git" else ""
+        if c == "--version":
+            return _completed(stdout="git version 2.43.0")
+        if c == "show" and "--numstat" in cmd:
+            return _completed(stdout=many)
+        if c == "rev-parse":
+            return _completed(stdout="abc\n")
+        return _completed()
+
+    with pytest.raises(bp.BackportReject):
+        bp.extract_fix_fixtures(
+            repo_url="https://example.invalid/x", commit_sha="abc",
+            out_dir=tmp_path / "out", workdir=tmp_path, runner=runner,
+        )
+
+
+@pytest.mark.skipif(
+    os.environ.get("TRACE_REAL_BACKPORT") != "1",
+    reason="real-network test; set TRACE_REAL_BACKPORT=1 to enable",
+)
+def test_integration_extract_oracle_fixtures(tmp_path):
+    """The crash oracle co-lands in the fix commit. libxmp's commit carries the
+    exact binary fixture used in its cert; graphite2's carries the malicious
+    underflow.ttf. The tool must extract precisely those (a focused handful)."""
+    lx = bp.extract_fix_fixtures(
+        repo_url="https://github.com/libxmp/libxmp", commit_sha="004a102c5a",
+        out_dir=tmp_path / "lx", workdir=tmp_path / "lxwork",
+    )
+    assert any("prowizard_pha_invalid_ocpt" in f for f in lx)
+    assert len(lx) <= bp._MAX_FIXTURES
+    # the extracted binary fixture is non-empty bytes
+    assert (tmp_path / "lx" / "test-dev/data/f/prowizard_pha_invalid_ocpt").stat().st_size > 0
+
+    g2 = bp.extract_fix_fixtures(
+        repo_url="https://github.com/silnrsi/graphite",
+        commit_sha="ad78c6b7319909e1540c1b134e115ced03417866",
+        out_dir=tmp_path / "g2", workdir=tmp_path / "g2work",
+    )
+    assert any(f.endswith("underflow.ttf") for f in g2)
+    assert (tmp_path / "g2" / "tests/fonts/underflow.ttf").stat().st_size > 1000
+
+
+@pytest.mark.parametrize("evil", [
+    "tests/../../../etc/cron.d/x",   # traversal
+    "tests/-rf",                      # leading-dash component (arg injection)
+    "tests/a\x00b",                   # NUL
+    "tests/a\nb.ttf",                 # control char
+])
+def test_safe_fixture_name_rejects_dangerous(evil):
+    assert bp._safe_fixture_name(evil) is False
+
+
+def test_safe_fixture_name_accepts_normal():
+    assert bp._safe_fixture_name("tests/fonts/underflow.ttf") is True
+    assert bp._safe_fixture_name("test-dev/data/f/prowizard_pha_invalid_ocpt") is True
+
+
+def _fixtures_runner(*, numstat, mode="100644 blob abc\tp", catsize="100"):
+    def runner(cmd, cwd=None):
+        c = cmd[1] if len(cmd) > 1 and cmd[0] == "git" else ""
+        if c == "--version":
+            return _completed(stdout="git version 2.43.0")
+        if c == "rev-parse":
+            return _completed(stdout="abc\n")
+        if c == "show" and "--numstat" in cmd:
+            return _completed(stdout=numstat)
+        if c == "ls-tree":
+            return _completed(stdout=mode)
+        if c == "cat-file":
+            return _completed(stdout=catsize)
+        return _completed()
+    return runner
+
+
+def test_extract_skips_symlink_mode(tmp_path, capsys):
+    """A 120000 (symlink) blob must NOT be materialised — its content is a target
+    path (escape primitive). Mode-filtered out (core.symlinks=false governs only
+    checkout, not our manual blob write)."""
+    r = _fixtures_runner(numstat="5\t0\ttests/fonts/evil",
+                         mode="120000 blob deadbeef\ttests/fonts/evil")
+    kept = bp.extract_fix_fixtures(
+        repo_url="https://example.invalid/x", commit_sha="abc",
+        out_dir=tmp_path / "out", workdir=tmp_path / "wk", runner=r,
+    )
+    assert kept == []
+    assert "non-regular git mode 120000" in capsys.readouterr().out
+
+
+def test_extract_skips_traversal_and_unsafe_names(tmp_path):
+    """`..`/unsafe fixture paths are skipped (never written outside out_dir)."""
+    r = _fixtures_runner(numstat="5\t0\ttests/../../escape")
+    kept = bp.extract_fix_fixtures(
+        repo_url="https://example.invalid/x", commit_sha="abc",
+        out_dir=tmp_path / "out", workdir=tmp_path / "wk", runner=r,
+    )
+    assert kept == []
+    assert not (tmp_path / "escape").exists()
+
+
+def test_extract_regular_blob_is_written(tmp_path):
+    r = _fixtures_runner(numstat="5\t0\ttests/fonts/ok.ttf",
+                         mode="100644 blob abc\ttests/fonts/ok.ttf")
+    # patch _extract_blob to avoid a real binary git call in the unit path
+    import tools.trace_cli.backport_patch as _bp
+    orig = _bp._extract_blob
+    _bp._extract_blob = lambda repo, sha, path, dest: (dest.parent.mkdir(parents=True, exist_ok=True), dest.write_bytes(b"x"))
+    try:
+        kept = bp.extract_fix_fixtures(
+            repo_url="https://example.invalid/x", commit_sha="abc",
+            out_dir=tmp_path / "out", workdir=tmp_path / "wk", runner=r,
+        )
+    finally:
+        _bp._extract_blob = orig
+    assert kept == ["tests/fonts/ok.ttf"]
+    assert (tmp_path / "out/tests/fonts/ok.ttf").read_bytes() == b"x"
