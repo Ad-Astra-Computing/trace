@@ -91,4 +91,23 @@ def test_resolver_covers_every_verdict_enum_relevant_to_v0(upstream_ref_validato
         "no-target-version-derived",
         "placeholder-target-version",
         "pre-release-target",
+        # added 2026-06-11: resolver now emits the source-backport contract
+        # (fixture 11-source-backport) from an explicit harvest signal.
+        "source-backport-experimental",
     }, f"missing human_review_trigger coverage: {triggers_seen}"
+
+
+def test_source_backport_signal_precedence():
+    """patch_strategy is authoritative; tier_hint is the lighter hint (peer 2026-06-11)."""
+    from agents.upstream_ref_resolver.resolver import _is_source_backport_signal
+    # explicit patch_strategy wins, even against a contradicting tier_hint
+    assert _is_source_backport_signal(
+        {"eligibility": {"patch_strategy": "source-backport"}, "tier_hint": "point-release-small-delta"}
+    ) is True
+    assert _is_source_backport_signal(
+        {"eligibility": {"patch_strategy": "version-bump"}, "tier_hint": "source-backport"}
+    ) is False
+    # tier_hint consulted only when patch_strategy absent
+    assert _is_source_backport_signal({"tier_hint": "source-backport"}) is True
+    assert _is_source_backport_signal({"tier_hint": "point-release-small-delta"}) is False
+    assert _is_source_backport_signal({}) is False

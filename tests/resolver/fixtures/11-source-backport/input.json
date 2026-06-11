@@ -1,0 +1,18 @@
+{
+  "cve_id": "CVE-0000-1011",
+  "current_version": "1.0.8",
+  "candidate_refs": [
+    {
+      "version": "1.0.8",
+      "tag": "1.0.8",
+      "release_url": "https://example.invalid/libexample/commit/deadbeef",
+      "changelog_url": "https://example.invalid/libexample/commit/deadbeef",
+      "advisory_urls": ["https://example.invalid/advisory/LIBEXAMPLE-2026-0011"],
+      "upstream_fix_commits": [
+        { "repo_url": "https://example.invalid/libexample", "commit_sha": "deadbeef", "message": "fix off-by-one (CVE-0000-1011)" }
+      ],
+      "delta": { "transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [], "crosses_large_delta_threshold": false, "threshold_policy": "v0-default" },
+      "tier_hint": "source-backport"
+    }
+  ]
+}

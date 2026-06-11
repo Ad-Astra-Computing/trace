@@ -45,6 +45,63 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
             verdict_reason="resolver received no candidate upstream refs",
         )
 
+    # ─── source-backport (resolver-authorized contract for human-completed
+    # backports) ─────────────────────────────────────────────────────────────
+    # The harvest/Scout layer decides WHICH CVEs are backport cases (no fixed
+    # release exists, or a small self-contained crash-class fix) and tags the
+    # candidate; the resolver only formats + authorizes the contract. A backport
+    # has target_version == current_version BY DESIGN (no version bump), so it
+    # must be handled BEFORE the upgrade-candidate filter below strips it. The
+    # resolver does NOT fetch/adapt upstream-fix.patch — that stays supplied
+    # (harvest or hand) and the human-review verdict holds the gate; nothing
+    # auto-advances a backport to assembly. The Patcher never self-selects the
+    # strategy (see patcher.v3.md).
+    # Monotonicity guard (peer security review 2026-06-11): only fire for a
+    # GENUINE backport — version == current_version. A backport keeps the current
+    # version by definition; a tagged candidate whose version != current is
+    # malformed or a misrouting attempt, so we ignore the tag and fall through to
+    # normal routing (which handles upgrades / downgrades / ineligible correctly).
+    # This keeps the branch strictly inside the already-human-review territory
+    # (target==current otherwise routes to no-target-version-derived) and prevents
+    # the tag from PROMOTING a would-be hard-`ineligible` (e.g. downgrade-only)
+    # CVE into a human-approvable state.
+    backport_candidates = [
+        c for c in candidates
+        if _is_source_backport_signal(c) and c.get("version") == current_version
+    ]
+    if backport_candidates:
+        chosen = backport_candidates[0]
+        # A backport signal with no fix reference cannot be authored — never
+        # emit an assemblable skeleton the human can't complete.
+        if not chosen.get("upstream_fix_commits"):
+            return _ineligible(
+                cve_id=cve_id,
+                current_version=current_version,
+                verdict="ineligible-no-fix-available",
+                verdict_reason=(
+                    "candidate is tagged source-backport but carries no "
+                    "upstream_fix_commits reference; a backport cannot be "
+                    "authored without the upstream fix commit to transcribe."
+                ),
+            )
+        return _eligible_requires_human_review(
+            cve_id=cve_id,
+            current_version=current_version,
+            chosen=chosen,
+            fix_tier=_classify_tier(current_version, chosen, input_doc),
+            trigger="source-backport-experimental",
+            patch_strategy="source-backport",
+            verdict_reason=(
+                "source-backport (resolver-authorized): the harvest layer tagged "
+                "this CVE as a backport case (e.g. no fixed release exists, or a "
+                "small self-contained crash-class fix). The Patcher AUTHORS the "
+                "upstream fix (upstream_fix_commits) as an in-tree patch against "
+                "the current version; version is unchanged (target == current by "
+                "design). Routed to human review (experimental); upstream-fix.patch "
+                "must be supplied. The Patcher never self-selects this strategy."
+            ),
+        )
+
     upgrade_candidates = [
         c for c in candidates
         if _is_upgrade_or_unparseable(current_version, c["version"])
@@ -301,6 +358,7 @@ def _eligible_requires_human_review(
     fix_tier: str,
     trigger: str,
     verdict_reason: str,
+    patch_strategy: str | None = None,
 ) -> dict[str, Any]:
     out = _base_eligible(cve_id, current_version, chosen, fix_tier)
     out["eligibility"] = {
@@ -308,7 +366,26 @@ def _eligible_requires_human_review(
         "verdict_reason": verdict_reason,
         "human_review_trigger": trigger,
     }
+    # Source-backport authorization: the resolver records that the Patcher must
+    # AUTHOR the upstream fix as an in-tree patch (not bump the version). The
+    # Patcher never self-selects this — it reads it as given truth here.
+    if patch_strategy is not None:
+        out["eligibility"]["patch_strategy"] = patch_strategy
     return out
+
+
+def _is_source_backport_signal(candidate: dict[str, Any]) -> bool:
+    """True iff the harvest layer tagged this candidate as a source-backport.
+
+    Precedence (per peer review 2026-06-11): `eligibility.patch_strategy` is
+    authoritative; `tier_hint` is the lighter hint consulted ONLY when
+    patch_strategy is absent. So an explicit `patch_strategy: "version-bump"`
+    overrides a stale `tier_hint: "source-backport"`.
+    """
+    ps = (candidate.get("eligibility") or {}).get("patch_strategy")
+    if ps is not None:
+        return ps == "source-backport"
+    return candidate.get("tier_hint") == "source-backport"
 
 
 def _ineligible(
