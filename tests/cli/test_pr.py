@@ -105,6 +105,8 @@ def _args(
     base: str | None = None,
     cert_run_url: str | None = None,
     push_url: str | None = None,
+    review: bool = False,
+    execute: bool = False,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         cmd="pr",
@@ -116,6 +118,8 @@ def _args(
         push_url=push_url,
         dry_run=dry_run,
         policy=policy_path,
+        review=review,
+        execute=execute,
     )
 
 
@@ -430,3 +434,66 @@ def test_load_attr_fails_when_missing(tmp_path: Path) -> None:
     assert attr == ""
     assert err is not None
     assert "resolver-input.json" in err
+
+
+# ─── review-PR mode ───────────────────────────────────────────────────────────
+
+def _backport_bundle(tmp_path: Path, *, rekor_log_index=9999999, with_build=True) -> Path:
+    d = _bundle_dir(tmp_path, kind="human-review-required", rekor_log_index=rekor_log_index)
+    b = json.loads((d / "bundle.json").read_text())
+    b["kind_reason"] = "source-backport-experimental"
+    if with_build:
+        b.setdefault("files", {})["build.json"] = {"sha256": "0" * 64, "bytes": 1,
+                                                   "producer_role": "builder", "replay_critical": False}
+    (d / "bundle.json").write_text(json.dumps(b))
+    (d / "upstream-ref.json").write_text(json.dumps({
+        "cve_id": "CVE-2025-8176", "current_version": "4.7.0", "target_version": "4.7.0",
+        "upstream_fix_commits": [{"repo_url": "https://github.com/x/y", "commit_sha": "deadbeef"}],
+        "eligibility": {"patch_strategy": "source-backport"},
+    }))
+    return d
+
+
+def test_review_refuses_non_source_backport(tmp_path, capsys):
+    # an auto-merge bundle with --review is refused (review is for backports only)
+    bd = _bundle_dir(tmp_path, kind="auto-merge")
+    rc = pr_mod.run(_args(bd, _policy_dir(tmp_path), review=True, dry_run=True))
+    assert rc == pr_mod.EXIT_INVALID
+    assert "source-backport-experimental" in capsys.readouterr().err
+
+
+def test_review_keeps_signature_gate(tmp_path, capsys):
+    # the no-downgrade principle: an UNSIGNED source-backport is refused in review mode
+    bd = _backport_bundle(tmp_path, rekor_log_index=None)
+    rc = pr_mod.run(_args(bd, _policy_dir(tmp_path), review=True, dry_run=True))
+    assert rc == pr_mod.EXIT_INVALID
+    assert "not cosign-signed" in capsys.readouterr().err
+
+
+def test_review_requires_cert_evidence(tmp_path, capsys):
+    # a signed source-backport with no build.json (not cert-green) is refused
+    bd = _backport_bundle(tmp_path, with_build=False)
+    rc = pr_mod.run(_args(bd, _policy_dir(tmp_path), review=True, dry_run=True))
+    assert rc == pr_mod.EXIT_INVALID
+    assert "build.json" in capsys.readouterr().err
+
+
+def test_auto_merge_mode_still_refuses_human_review(tmp_path, capsys):
+    # without --review, a human-review bundle is refused as before
+    bd = _backport_bundle(tmp_path)
+    rc = pr_mod.run(_args(bd, _policy_dir(tmp_path), dry_run=True))
+    assert rc == pr_mod.EXIT_INVALID
+    assert "auto-merge" in capsys.readouterr().err
+
+
+def test_review_body_has_blocking_sufficiency_checklist(tmp_path):
+    bd = _backport_bundle(tmp_path)
+    bundle = json.loads((bd / "bundle.json").read_text())
+    body = pr_mod._build_pr_body(bundle, bd, None, review=True)
+    assert "EXPERIMENTAL source-backport" in body
+    assert "COMPLETE" in body                       # necessary-but-not-sufficient warning
+    assert "- [ ]" in body                          # blocking checklist
+    assert "github.com/x/y/commit/deadbeef" in body  # upstream fix commit linked
+    assert "draft" in body.lower()
+    # the auto-merge body has none of this
+    assert "EXPERIMENTAL source-backport" not in pr_mod._build_pr_body(bundle, bd, None, review=False)
