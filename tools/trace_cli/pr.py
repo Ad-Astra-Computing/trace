@@ -399,6 +399,12 @@ def run(args: argparse.Namespace) -> int:
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
+    # Format the modified .nix file(s) — nixpkgs runs nixfmt (treefmt) in CI, so an
+    # unformatted edit gets bounced. The base files are nixfmt-clean, so this only
+    # touches our edit's region (a clean, minimal diff). Best-effort: warns + proceeds
+    # if nixfmt is unavailable (the PR would then fail treefmt CI, surfacing it).
+    _nixfmt_modified(nixpkgs_dir, package_dir_rel, patch_diff_path.read_text())
+
     # Stage ALL changes in the package dir — INCLUDING new untracked files.
     # Source-backports add a new <CVE>.patch file (git apply leaves it untracked);
     # `git commit -a` would silently drop it, shipping a package.nix that
@@ -640,6 +646,41 @@ def _git_apply(nixpkgs: Path, package_dir: str, patch: Path) -> int:
     if r.returncode != 0:
         print(f"  git apply stderr:\n  {r.stderr[:800]}", file=sys.stderr)
     return r.returncode
+
+
+def _find_nixfmt() -> list[str] | None:
+    """Locate nixfmt (the nixpkgs treefmt formatter). Prefer it on PATH; fall
+    back to `nix run nixpkgs#nixfmt-rfc-style` when nix is available."""
+    import shutil
+    p = shutil.which("nixfmt")
+    if p:
+        return [p]
+    if shutil.which("nix"):
+        return ["nix", "run", "nixpkgs#nixfmt-rfc-style", "--"]
+    return None
+
+
+def _nixfmt_modified(nixpkgs: Path, package_dir: str, patch_text: str) -> int:
+    """Run nixfmt on the .nix file(s) the patch modifies. Best-effort: a missing
+    nixfmt warns + proceeds rather than blocking the PR."""
+    nixfmt = _find_nixfmt()
+    if nixfmt is None:
+        print("  warning: nixfmt not found; skipping formatting — the PR may fail "
+              "nixpkgs treefmt CI. Install nixfmt-rfc-style.", file=sys.stderr)
+        return 0
+    nix_files = {
+        ln[6:].strip() for ln in patch_text.splitlines()
+        if ln.startswith("+++ b/") and ln[6:].strip().endswith(".nix")
+    }
+    for nf in sorted(nix_files):
+        target = nixpkgs / package_dir / nf
+        if not target.is_file():
+            continue
+        r = subprocess.run([*nixfmt, str(target)], capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"  warning: nixfmt {nf} failed ({r.stderr[:200]}); proceeding unformatted",
+                  file=sys.stderr)
+    return 0
 
 
 def _git_add(nixpkgs: Path, package_dir: str) -> int:
