@@ -83,8 +83,9 @@ not the same signal as discrimination accuracy.
    reproducer/cert** (just Patcher → Reviewer-accept, 2 live calls), where an
    auto-merge bundle needs the full Builder+Steward+reproducer cert. So bank the
    human-review positives first. Candidate batch **B1** (cheapest reviewer-positives,
-   clean patch-release bumps): `postgresql_14` (CVE-2026-2003, 14.20→14.21, notes say
-   upstream-ref itself eligible), `samba` (CVE-2025-9640, 4.22.x point release,
+   clean patch-release bumps): `postgresql_14` (CVE-2026-2003, 14.20→14.21 — **preflight GREEN
+   2026-06-12**: postgresql.org/security confirms fixed in 14.21, affected before
+   14.21, oidvector memory disclosure), `samba` (CVE-2025-9640, 4.22.x point release,
    passthru_tests=yes), `grafana` (CVE-2026-21722, v12.3.3 patch release). Preflight
    each (CLAUDE.md bundle-bootstrap step 1: the named release must actually contain
    the fix commit) before staging. Auto-merge candidates (chromium, discourse, jruby,
