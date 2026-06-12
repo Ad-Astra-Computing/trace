@@ -123,6 +123,28 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         default=None,
         help="override path to nixpkgs-fork.json (default: policy/nixpkgs-fork.json)",
     )
+    p.add_argument(
+        "--review",
+        action="store_true",
+        help=(
+            "REVIEW-PR mode for cert-green source-backport bundles "
+            "(kind=human-review-required, kind_reason=source-backport-experimental). "
+            "Opens a DRAFT PR for a maintainer to review + merge — never auto-merges. "
+            "Keeps the full provenance gate (cosign+rekor signature required, same as "
+            "auto-merge: the PR cites the bundle as evidence, so it must be "
+            "independently verifiable). Defaults to dry-run; pass --execute to open. "
+            "Fork-target only."
+        ),
+    )
+    p.add_argument(
+        "--execute",
+        action="store_true",
+        help=(
+            "in --review mode, actually push the branch + open the draft PR "
+            "(outward-facing). Without it, --review prints the PR it WOULD open and "
+            "exits. Ignored outside --review mode."
+        ),
+    )
     return p
 
 
@@ -139,16 +161,43 @@ def run(args: argparse.Namespace) -> int:
     bundle_id = bundle["bundle_id"]
     nixpkgs_rev = bundle["nixpkgs_rev"]
     kind = bundle["kind"]
+    kind_reason = bundle.get("kind_reason")
     sm = bundle.get("signed_manifest", {})
+    review_mode = bool(getattr(args, "review", False))
 
-    if kind != "auto-merge":
+    if review_mode:
+        # Review-PR mode: cert-green SOURCE-BACKPORT bundles only. The PR is the
+        # human-review surface — a maintainer reviews + merges; trace never
+        # auto-merges these. The ONLY thing relaxed vs auto-merge is who has merge
+        # authority; the provenance gate (signature + cert evidence) is kept in
+        # full (peer review 2026-06-12: the PR cites the bundle as evidence, so an
+        # unsigned bundle would be a forgeable, independently-unverifiable claim).
+        if kind != "human-review-required" or kind_reason != "source-backport-experimental":
+            print(
+                f"error: --review operates only on human-review-required "
+                f"source-backport-experimental bundles; got kind={kind!r}, "
+                f"kind_reason={kind_reason!r}.",
+                file=sys.stderr,
+            )
+            return EXIT_INVALID
+        if "build.json" not in bundle.get("files", {}):
+            print(
+                "error: --review requires a cert-green bundle (build.json absent); "
+                "the draft PR vouches for the reproducer red→green.",
+                file=sys.stderr,
+            )
+            return EXIT_INVALID
+    elif kind != "auto-merge":
         print(
             f"error: bundle kind is {kind!r}; `trace pr` only operates on "
-            f"auto-merge bundles. Vet the bundle with a human reviewer first.",
+            f"auto-merge bundles. For source-backports use `--review` (opens a "
+            f"draft PR for a maintainer); other kinds need a human reviewer first.",
             file=sys.stderr,
         )
         return EXIT_INVALID
 
+    # Provenance gate — KEPT for both modes (no-downgrade): the public PR anchors
+    # on the Rekor transparency entry for independent verification.
     if sm.get("signer") == "ci-pending" or sm.get("rekor_log_index") is None:
         print(
             "error: bundle is not cosign-signed (signer=ci-pending or "
@@ -313,7 +362,12 @@ def run(args: argparse.Namespace) -> int:
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
-    if args.dry_run:
+    # Review mode is dry-run BY DEFAULT (outward-facing draft PR for an
+    # experimental backport): require an explicit --execute to actually open it.
+    effective_dry_run = args.dry_run or (review_mode and not getattr(args, "execute", False))
+    if effective_dry_run:
+        why = "--dry-run" if args.dry_run else "--review default (pass --execute to open)"
+        print(f"[dry-run] mode:          {'review (draft PR)' if review_mode else 'auto-merge'}")
         print(f"[dry-run] bundle:        {cve_id} ({bundle_id})")
         print(f"[dry-run] fork:          {fork_owner}/{fork_repo}")
         print(f"[dry-run] base branch:   {base_branch}")
@@ -322,7 +376,11 @@ def run(args: argparse.Namespace) -> int:
         print(f"[dry-run] nixpkgs_rev:   {nixpkgs_rev}")
         print(f"[dry-run] package_dir:   {package_dir_rel}")
         print(f"[dry-run] patch check:   ok (git apply --check passed)")
-        print(f"[dry-run] stopping here (--dry-run)")
+        if review_mode:
+            print(f"[dry-run] draft:         yes (maintainer reviews + merges)")
+            print(f"[dry-run] --- PR body ---")
+            print(_build_pr_body(bundle, bundle_dir, args.cert_run_url, review=True))
+        print(f"[dry-run] stopping here ({why})")
         _cleanup(owned_tmp)
         return EXIT_OK
 
@@ -354,7 +412,7 @@ def run(args: argparse.Namespace) -> int:
         return EXIT_GIT_FAIL
 
     # ── 10. create PR ──────────────────────────────────────────────────────
-    pr_body = _build_pr_body(bundle, bundle_dir, args.cert_run_url)
+    pr_body = _build_pr_body(bundle, bundle_dir, args.cert_run_url, review=review_mode)
     pr_url, rc = _gh_pr_create(
         nixpkgs_dir=nixpkgs_dir,
         fork_owner=fork_owner,
@@ -363,6 +421,7 @@ def run(args: argparse.Namespace) -> int:
         branch=branch,
         title=pr_title,
         body=pr_body,
+        draft=review_mode,
     )
     _cleanup(owned_tmp)
     if rc != 0:
@@ -646,17 +705,21 @@ def _gh_pr_create(
     branch: str,
     title: str,
     body: str,
+    draft: bool = False,
 ) -> tuple[str, int]:
     """Create a PR in the fork via gh CLI. Returns (pr_url, exit_code)."""
+    cmd = [
+        "gh", "pr", "create",
+        "--repo", f"{fork_owner}/{fork_repo}",
+        "--base", base_branch,
+        "--head", branch,
+        "--title", title,
+        "--body", body,
+    ]
+    if draft:
+        cmd.append("--draft")  # maintainer must explicitly mark Ready-for-review
     r = subprocess.run(
-        [
-            "gh", "pr", "create",
-            "--repo", f"{fork_owner}/{fork_repo}",
-            "--base", base_branch,
-            "--head", branch,
-            "--title", title,
-            "--body", body,
-        ],
+        cmd,
         cwd=str(nixpkgs_dir),
         check=False, capture_output=True, text=True,
     )
@@ -670,8 +733,11 @@ def _build_pr_body(
     bundle: dict[str, Any],
     bundle_dir: Path,
     cert_run_url: str | None,
+    review: bool = False,
 ) -> str:
-    """Build the PR body from pr-snippet evidence block + cert summary."""
+    """Build the PR body from pr-snippet evidence block + cert summary. In
+    review mode, prepend a BLOCKING necessary-but-not-sufficient checklist the
+    maintainer must tick before marking the draft Ready-for-review."""
     from tools.trace_cli import pr_snippet as _pr_snippet
 
     sm = bundle.get("signed_manifest", {})
@@ -689,7 +755,44 @@ def _build_pr_body(
     identity_issuer = sm.get("identity_issuer", "")
     verify_cmd = f"trace bundle verify ./artifact  # bundle_id={bundle_id}"
 
-    lines = [
+    lines: list[str] = []
+    if review:
+        # The one failure mode the apply-gate can't catch by construction: a
+        # clean-applying backport that is NECESSARY BUT NOT SUFFICIENT (one of
+        # several required commits). The maintainer must confirm sufficiency.
+        fix_commits = []
+        try:
+            ur = json.loads((bundle_dir / "upstream-ref.json").read_text())
+            fix_commits = ur.get("upstream_fix_commits") or []
+        except Exception:
+            pass
+        fix_links = "\n".join(
+            f"  - {c.get('repo_url','')}/commit/{c.get('commit_sha','')}"
+            for c in fix_commits
+        ) or "  - (see upstream-ref.json)"
+        lines += [
+            "## ⚠️ EXPERIMENTAL source-backport — NOT a version bump",
+            "",
+            "This PR **authors the upstream fix as an in-tree patch** against the "
+            "current nixpkgs version (no version bump). An agent generated it; a "
+            "cross-family reviewer verified it transcribes the upstream commit, and "
+            "a cert proved the bundled reproducer goes red→green. **A human "
+            "maintainer must still confirm sufficiency before merging:**",
+            "",
+            "- [ ] This applies the **COMPLETE** upstream fix, not one of several "
+            "required commits.",
+            "- [ ] The backported hunk matches the upstream fix commit(s):",
+            fix_links,
+            f"- [ ] Reviewed the cert evidence (reproducer red→green) for {cve_id}.",
+            "",
+            "_Opened as a **draft** deliberately — mark Ready-for-review only after "
+            "the boxes above are checked._",
+            "",
+            "---",
+            "",
+        ]
+
+    lines += [
         f"**Evidence:** {cve_id} ({kind}) trace bundle `{bundle_id}`",
         "",
     ]
