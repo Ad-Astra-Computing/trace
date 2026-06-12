@@ -117,6 +117,66 @@ The two real-CVE sandbox-positive bundles (`libtiff CVE-2024-13978`, `mruby CVE-
 | Deterministic sandbox-positive candidate | `axes.patch_shape == "overlay"` AND a hand-authored `resolver-input.json` that supplies a synthetic upstream-ref pointing at the fix commit. The libtiff/mruby template. |
 | Cross-path candidate (rare, v0.1) | `axes.patch_shape == "overlay"` AND upstream has a release tag containing the fix. None of the current 51 candidates qualify; new harvests should record this. |
 
+#### Source-backport authoring-candidate filter (post-2026-06-12)
+
+For the Authoring track ([[trace-finetuning-plan]], `docs/AUTHORING_TRAINING.md`): a
+candidate where the agent must AUTHOR an in-tree source fix because there is no
+release nixpkgs can bump to. This is the **complement of the version-bump filter on
+one axis**, the *type of the fix event* (peer-specified 2026-06-12). The current
+`eval/candidates.jsonl` is version-bump-heavy and yields none — these must be harvested.
+
+**The one discriminator:** in OSV, a `fixed` event that is a **commit SHA only, with
+no version-`fixed` anywhere** = source-backport. A version-`fixed` (SEMVER/ECOSYSTEM)
+event = the cheap version-bump track (which is the Reviewer-positive raw material, not
+this). Build as a two-stage funnel:
+
+**Stage 1 — cheap structured pre-filter (OSV bulk, per-advisory predicate):**
+
+```
+keep(adv) :=
+  git_fixed = affected[].ranges[] | select(.type=="GIT").events[]
+              | select(.fixed | test("^[0-9a-f]{7,40}$"))
+  ver_fixed = affected[].ranges[] | select(.type=="SEMVER" or .type=="ECOSYSTEM").events[]
+              | select(has("fixed"))
+  commits   = references[] | select(.type=="FIX")
+              | select(.url ~ /\/commit\/[0-9a-f]+$|cgit.*id=|gitweb.*h=/)
+
+  count(git_fixed) >= 1     # fix EXISTS as an upstream commit
+  AND count(ver_fixed) == 0 # but as NO released version  ← "no bumpable release" proxy
+  AND count(commits)  == 1  # single source commit (drop PRs / multi-commit / tarball)
+  AND has_cve_id(adv)
+  # soft C/C++ prior (boost, NOT gate): CWE ∈ {119,120,125,787,416,476,415,190,401,762}
+```
+
+NVD 2.0 equivalents: `references[].tags` contains `"Patch"` with a single
+`/commit/<sha>` URL; `configurations[].cpeMatch[]` affected range with **no**
+`versionEndExcluding`/`versionEndIncluding` (the NVD "no bumpable release" proxy);
+CWE from `weaknesses[]` as the same soft prior.
+
+**Stage 2 — per-candidate confirmation (requires cloning the fix repo — the real gates):**
+
+1. **Language gate (the actual C/C++ test):** fetch the fix commit; require changed
+   files predominantly `.c/.cc/.cpp/.cxx/.h/.hpp`. CWE priors leak Rust/Go/Java; the
+   file-extension check is the gate, not the CWE.
+2. **"No nixpkgs-bumpable fixed release" (definitive):** `git tag --contains <sha>` is
+   empty (fix on main, unreleased) OR only pre-release tags contain it OR nixpkgs'
+   pinned version predates the would-be-fixed version. Stage 1's no-SEMVER-`fixed` is
+   only a proxy; this is the real test.
+3. **"Single upstream source commit":** one parent (not a merge), modest hunk count,
+   self-contained (no "part 1 of N" / fixup chain). If the FIX ref was a PR, resolve
+   PR→commits and **drop if >1** — multi-commit backports are a different difficulty
+   class than this track targets.
+
+**Failure modes to LOG (don't silently over/under-claim coverage):** tarball-only
+projects (no public git → no GIT range → false-negatives, log the drop count);
+embargoed / no-FIX-ref CVEs (correctly excluded — can't author without the patch);
+multi-commit-as-PR (resolve + drop per gate 3); fix later backported into a point
+release (a SEMVER `fixed` exists → version-bump track by definition, exclude).
+
+This filter is independent of the sandbox-positive PoC suitability filter below: a
+source-backport authoring candidate still needs a reproducer to cert, so it must ALSO
+pass the six PoC criteria to become a cert-green bundle.
+
 ### Sandbox-positive PoC suitability filter (post-2026-05-17, F6)
 
 The wget2 cert arc surfaced that `patch_shape` alone is insufficient to predict whether a CVE's PoC will fire in the Nix build sandbox. A CVE's *PoC class* must independently qualify. Codified after F6.
