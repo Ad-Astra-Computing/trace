@@ -1,0 +1,81 @@
+{
+  "model": "claude-opus-4-7",
+  "n": 4,
+  "counts": {
+    "exact": 2,
+    "differs": 2
+  },
+  "results": [
+    {
+      "cve": "CVE-2025-34451",
+      "file": "src/libproxychains.c",
+      "verdict": "exact",
+      "upstream_removed": [
+        "if(proxytype==RS_PT_SOCKS5&&(ul>255||pl>255))"
+      ],
+      "upstream_added": [
+        "if(ul>255||pl>255)"
+      ],
+      "authored_removed": [
+        "if(proxytype==RS_PT_SOCKS5&&(ul>255||pl>255))"
+      ],
+      "authored_added": [
+        "if(ul>255||pl>255)"
+      ]
+    },
+    {
+      "cve": "CVE-2025-47256",
+      "file": "src/loaders/prowizard/pha.c",
+      "verdict": "differs",
+      "upstream_removed": [
+        "*Modifiedin2021byAliceRowan",
+        "k=paddr[0];"
+      ],
+      "upstream_added": [
+        "*Modifiedin2021,2025byAliceRowan",
+        "k=0;"
+      ],
+      "authored_removed": [
+        "k=paddr[0];"
+      ],
+      "authored_added": [
+        "k=paddr[0]&3;"
+      ]
+    },
+    {
+      "cve": "CVE-2026-42250",
+      "file": "bzip2recover.c",
+      "verdict": "exact",
+      "upstream_removed": [
+        "if(currBlock>=BZ_MAX_HANDLED_BLOCKS)"
+      ],
+      "upstream_added": [
+        "if(currBlock>=BZ_MAX_HANDLED_BLOCKS-1)"
+      ],
+      "authored_removed": [
+        "if(currBlock>=BZ_MAX_HANDLED_BLOCKS)"
+      ],
+      "authored_added": [
+        "if(currBlock>=BZ_MAX_HANDLED_BLOCKS-1)"
+      ]
+    },
+    {
+      "cve": "CVE-2026-50593",
+      "file": "src/inc/opcodes.h",
+      "verdict": "differs",
+      "upstream_removed": [
+        "#defineslotat(x)(map[(x)])"
+      ],
+      "upstream_added": [
+        "#defineslotat(x)((map+(x)>=&smap[-1]&&map+(x)<smap.end())?\\",
+        "map[(x)]:(status=Machine::slot_offset_out_bounds,nullptr))"
+      ],
+      "authored_removed": [],
+      "authored_added": [
+        "#defineslotat(x)(((x)<-int(map.context())||(x)>=int(map.size())-int(map.context()))?(DIE):0,map[(x)])",
+        "#undefslotat"
+      ]
+    }
+  ],
+  "note": "diff-vs-upstream only; reproducer red\u2192green is the mandatory gate (see bundle cert)"
+}

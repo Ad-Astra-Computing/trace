@@ -521,3 +521,32 @@ def test_git_add_includes_new_files_then_commit(tmp_path):
                            cwd=repo, capture_output=True, text=True).stdout.split()
     assert "pkgs/by-name/xx/foo/CVE-2026-0001.patch" in files   # the new file IS in the commit
     assert "pkgs/by-name/xx/foo/package.nix" in files
+
+
+def test_nixfmt_modified_targets_nix_not_patch(tmp_path, monkeypatch):
+    """nixfmt runs on the modified .nix file, never the authored <CVE>.patch."""
+    import subprocess as sp
+    pkgdir = tmp_path / "pkgs" / "by-name" / "xx" / "foo"
+    pkgdir.mkdir(parents=True)
+    (pkgdir / "package.nix").write_text("{ }: { }\n")
+    (pkgdir / "CVE-2026-0001.patch").write_text("--- a/x\n+++ b/x\n")
+    patch = ("diff --git a/CVE-2026-0001.patch b/CVE-2026-0001.patch\n--- /dev/null\n"
+             "+++ b/CVE-2026-0001.patch\n@@ -0,0 +1 @@\n+x\n"
+             "diff --git a/package.nix b/package.nix\n--- a/package.nix\n+++ b/package.nix\n@@\n+ patches=[];\n")
+    monkeypatch.setattr(pr_mod, "_find_nixfmt", lambda: ["true"])  # no-op formatter
+    calls = []
+    real_run = sp.run
+    def spy(cmd, *a, **k):
+        calls.append(cmd)
+        return real_run(["true"], *a, **k)
+    monkeypatch.setattr(pr_mod.subprocess, "run", spy)
+    pr_mod._nixfmt_modified(tmp_path, "pkgs/by-name/xx/foo", patch)
+    formatted = [c[-1] for c in calls]
+    assert any(p.endswith("package.nix") for p in formatted)
+    assert not any(p.endswith(".patch") for p in formatted)  # never the patch
+
+
+def test_nixfmt_missing_warns_not_fails(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pr_mod, "_find_nixfmt", lambda: None)
+    assert pr_mod._nixfmt_modified(tmp_path, "p", "+++ b/x.nix\n") == 0
+    assert "nixfmt not found" in capsys.readouterr().err
