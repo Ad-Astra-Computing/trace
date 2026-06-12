@@ -399,6 +399,17 @@ def run(args: argparse.Namespace) -> int:
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
+    # Stage ALL changes in the package dir — INCLUDING new untracked files.
+    # Source-backports add a new <CVE>.patch file (git apply leaves it untracked);
+    # `git commit -a` would silently drop it, shipping a package.nix that
+    # references a file not in the PR. Scope to the package dir so nothing else
+    # in the tree is swept in.
+    rc = _git_add(nixpkgs_dir, package_dir_rel)
+    if rc != 0:
+        print(f"error: git add failed", file=sys.stderr)
+        _cleanup(owned_tmp)
+        return EXIT_GIT_FAIL
+
     rc = _git_commit(nixpkgs_dir, commit_msg)
     if rc != 0:
         print(f"error: git commit failed", file=sys.stderr)
@@ -626,13 +637,27 @@ def _git_apply(nixpkgs: Path, package_dir: str, patch: Path) -> int:
     return r.returncode
 
 
+def _git_add(nixpkgs: Path, package_dir: str) -> int:
+    """Stage all changes (incl. new files) under the package dir. `-A -- <dir>`
+    keeps the staging scoped so an unrelated dirty tree can't leak into the PR."""
+    r = subprocess.run(
+        ["git", "add", "-A", "--", package_dir],
+        cwd=str(nixpkgs), check=False, capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print(f"  git add stderr:\n  {r.stderr[:800]}", file=sys.stderr)
+    return r.returncode
+
+
 def _git_commit(nixpkgs: Path, message: str) -> int:
+    # `commit -m` (NOT `-a`): the staging is done explicitly by _git_add so new
+    # files (the authored <CVE>.patch) are included.
     r = subprocess.run(
         [
             "git",
             "-c", "user.email=trace@adastracomputing.com",
             "-c", "user.name=trace",
-            "commit", "-a", "-m", message,
+            "commit", "-m", message,
         ],
         cwd=str(nixpkgs), check=False, capture_output=True, text=True,
     )

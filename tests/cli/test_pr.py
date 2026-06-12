@@ -497,3 +497,27 @@ def test_review_body_has_blocking_sufficiency_checklist(tmp_path):
     assert "draft" in body.lower()
     # the auto-merge body has none of this
     assert "EXPERIMENTAL source-backport" not in pr_mod._build_pr_body(bundle, bd, None, review=False)
+
+
+def test_git_add_includes_new_files_then_commit(tmp_path):
+    """Regression: source-backports add a NEW <CVE>.patch file. The commit must
+    include it (the old `git commit -a` dropped untracked new files, shipping a
+    package.nix referencing a file absent from the PR)."""
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pkgdir = repo / "pkgs" / "by-name" / "xx" / "foo"
+    pkgdir.mkdir(parents=True)
+    (pkgdir / "package.nix").write_text("{ }: { patches = []; }\n")
+    for c in (["git", "init", "-q"], ["git", "add", "-A"],
+              ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]):
+        subprocess.run(c, cwd=repo, check=True, capture_output=True)
+    # simulate `git apply`: a NEW patch file + a modified tracked file
+    (pkgdir / "CVE-2026-0001.patch").write_text("--- a/x\n+++ b/x\n")
+    (pkgdir / "package.nix").write_text("{ }: { patches = [ ./CVE-2026-0001.patch ]; }\n")
+    assert pr_mod._git_add(repo, "pkgs/by-name/xx/foo") == 0
+    assert pr_mod._git_commit(repo, "foo: fix") == 0
+    files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"],
+                           cwd=repo, capture_output=True, text=True).stdout.split()
+    assert "pkgs/by-name/xx/foo/CVE-2026-0001.patch" in files   # the new file IS in the commit
+    assert "pkgs/by-name/xx/foo/package.nix" in files
