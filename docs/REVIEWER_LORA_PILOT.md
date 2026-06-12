@@ -15,8 +15,12 @@ The green-light is **50 positives + 25 negatives**, NOT 50 total. (The codex-pee
 
 | class | have | need | gap |
 |---|---|---|---|
-| positives | 26 | 50 | **+24** |
+| positives | 28 | 50 | **+22** |
 | negatives | 25 | 25 | done |
+
+*(B1 bundle 1, postgresql_14 CVE-2026-2003, was attempted 2026-06-12 and DEFERRED — not
+banked — pending a Patcher hash-grounding fix for split/`generic.nix` packages. See
+DECISIONS 2026-06-12 "B1 attempt: postgresql_14 — DEFERRED".)*
 
 **Reviewer-positives are any VALID bundle** — auto-merge cert-green OR
 human-review-valid (the Reviewer's job is accept/reject across all shapes;
@@ -83,13 +87,26 @@ not the same signal as discrimination accuracy.
    reproducer/cert** (just Patcher → Reviewer-accept, 2 live calls), where an
    auto-merge bundle needs the full Builder+Steward+reproducer cert. So bank the
    human-review positives first. Candidate batch **B1** (cheapest reviewer-positives,
-   clean patch-release bumps): `postgresql_14` (CVE-2026-2003, 14.20→14.21 — **preflight GREEN
-   2026-06-12**: postgresql.org/security confirms fixed in 14.21, affected before
-   14.21, oidvector memory disclosure), `samba` (CVE-2025-9640, 4.22.x point release,
-   passthru_tests=yes), `grafana` (CVE-2026-21722, v12.3.3 patch release). Preflight
-   each (CLAUDE.md bundle-bootstrap step 1: the named release must actually contain
-   the fix commit) before staging. Auto-merge candidates (chromium, discourse, jruby,
-   openssh_gssapi) are batch B2 — costlier (cert), do after B1.
+   clean patch-release bumps): `postgresql_14` ⏸️ **DEFERRED 2026-06-12** (CVE-2026-2003,
+   14.20→14.21 — split `14.nix`/`generic.nix` package; Patcher hash-grounding only
+   ~1/3 reliable, see Finding below), `samba` (CVE-2025-9640, 4.22.x point release),
+   `grafana` (CVE-2026-21722, v12.3.3 patch release). **Screen package shape first**:
+   prefer single-file `pkgs/by-name` `package.nix` where `hash` lives in a `src`
+   fetcher (like expat); skip split/`generic.nix` packages until the Patcher fix lands.
+   Preflight each (the named release must actually contain the fix). Auto-merge
+   candidates (chromium, discourse, jruby, openssh_gssapi) are batch B2 — costlier (cert).
+
+   **Findings from the postgres attempt (DECISIONS 2026-06-12):**
+   - **Patcher hash-grounding fails on split/`generic.nix` packages** (`hash` is a bare
+     argument, not `src = fetchFromGitHub { hash = … }`). Grounded correctly ~1/3 runs.
+     **Prompt-level fix** — the higher-leverage one; unblocks a whole class of
+     version-bump candidates. Until it lands, B1 must avoid split packages.
+   - **Auto `--fetchzip` mis-substitutes non-dotted tags** (`REL_14_20` vs `14.20`) →
+     wrong hash; manual-pin + FOD-verify, or a resolver-side normalization fix.
+   - **Bootstrap gotchas:** `bundle finalize` defaults `kind=auto-merge` (pass `--kind
+     human-review-required`); do NOT pass `--evidence-path reviewer-attested` (drops the
+     schema-required `reproducer.nix` placeholder); sequence is patcher → reviewer →
+     finalize then STOP (re-running patcher after a reviewer-accept overwrites the good patch).
 4. **Harness smoke-test (parallel, runnable now)** — train a throwaway LoRA on the
    current 51 usable to prove the HF plumbing + data-format contract end-to-end. A
    harness bug found here is free; found at N=50 it's expensive. Not a real result —
