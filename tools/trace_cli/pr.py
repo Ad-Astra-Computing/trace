@@ -607,8 +607,13 @@ def _shallow_clone(fork_url: str, rev: str, dest: Path) -> int:
 
 
 def _git_apply_check(nixpkgs: Path, package_dir: str, patch: Path) -> int:
+    # --recount: same as the Builder (agents/builder/runner.py). Model-authored
+    # patches — especially source-backports, whose new-file hunk embeds an
+    # upstream diff — can carry an off-by-one `@@` line count while the +/-
+    # content + context are correct. The Builder certs the patch with --recount,
+    # so trace pr MUST apply it the same way or a cert-green bundle fails here.
     r = subprocess.run(
-        ["git", "apply", f"--directory={package_dir}", "--check", str(patch)],
+        ["git", "apply", "--recount", f"--directory={package_dir}", "--check", str(patch)],
         cwd=str(nixpkgs), check=False, capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -629,7 +634,7 @@ def _create_branch(nixpkgs: Path, branch: str) -> int:
 
 def _git_apply(nixpkgs: Path, package_dir: str, patch: Path) -> int:
     r = subprocess.run(
-        ["git", "apply", f"--directory={package_dir}", str(patch)],
+        ["git", "apply", "--recount", f"--directory={package_dir}", str(patch)],
         cwd=str(nixpkgs), check=False, capture_output=True, text=True,
     )
     if r.returncode != 0:
