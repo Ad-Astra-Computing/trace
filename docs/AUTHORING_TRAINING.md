@@ -48,8 +48,22 @@ plausible-but-subtly-wrong fixes). Gold = behavioral-pass AND upstream-equivalen
    the model has seen the answer key. **Partition by CVE: each CVE → exactly one
    task; held-out CVEs excluded from both.**
 2. **CVE summary describing the remediation.** The finding must describe the
-   vulnerability (trigger, what's wrong), NEVER the fix. Strip remediation language
-   (`author_blind_eval.py` does this with `_REMEDIATION_RE`).
+   vulnerability (trigger, what's wrong), NEVER the fix. The exporter scrubs against
+   the ACTUAL fix, not just generic remediation phrasing: `_fix_symbols()` extracts
+   the symbols the fix changes (distinctive identifiers on any +/- line, union of
+   both sides; plus numeric literals that MOVED between the removed/added lines —
+   symmetric difference, so an unchanged buffer-size constant the vuln legitimately
+   names is kept). `_scrub_summary()` drops any sentence naming a fix symbol or
+   remediation phrase; `_run_authoring()` then HARD-EXCLUDES the bundle if any fix
+   symbol survives or the summary scrubs to empty. Verified: proxychains's
+   `RS_PT_SOCKS5`, graphite2's `slotat`, bzip2's `BZ_MAX_HANDLED_BLOCKS` no longer
+   appear in any input. **Residual classes the heuristic can't name** (peer review
+   2026-06-12, non-blocking — summaries describe the bug, not the patch): a fix that
+   moves only a single-digit literal (`>= MAX` → `>= MAX - 1`; the `1` is too generic
+   to scrub on, but the touched identifier usually carries the tell); a genuinely
+   distinctive ≤5-char all-lowercase identifier; paraphrased remediation that names
+   no symbol. `manifest.json.low_signal_bundles` flags any fix that produced 0 scrub
+   symbols so "nothing to scrub" is visibly distinct from "scrubbed clean."
 3. **Upstream's regression test, co-located in the bundle.** The fix commit usually
    adds a test encoding the post-fix boundary (where `>= MAX-1`'s constant leaks).
    Exclude any file the fix commit added under a test/fixture dir. NOTE: this is
@@ -74,9 +88,11 @@ plausible-but-subtly-wrong fixes). Gold = behavioral-pass AND upstream-equivalen
 ## Build order
 
 1. ✅ `eval/author_blind_eval.py` — the blind-authoring eval / held-out grader.
-2. `trace export patcher --authoring` — emit `(CVE + pre-fix source + package.nix)
-   → fix` pairs from the cert-green bundles, with the leakage partition + scrubbing
-   above. (The existing `trace export reviewer` is the template.)
+2. ✅ `trace export authoring` — emits `(CVE-vuln-only + pre-fix source) → upstream
+   source fix` pairs from the cert-green source-backport bundles, with the
+   fix-symbol scrub + hard leakage gate above. N=4 today (all `train` until the
+   corpus is big enough to hold a package/CWE-family fold out). Per-bundle pair is
+   cached to `<bundle>/authoring-example.json` (sha-pinned → offline, reproducible).
 3. Reproducer-gated candidate expansion — author blind, gate on red→green, judge the
    differs, promote gold. Grows the corpus beyond hand-curated bundles.
 4. Reviewer-first LoRA pilot at N≥50 usable (per the finetuning plan), then Patcher.

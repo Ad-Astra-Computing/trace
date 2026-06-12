@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -101,6 +102,16 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="reviewer system prompt to embed (default prompts/reviewer.v2.md)",
     )
     rv.add_argument("--format", choices=["human", "json"], default="human")
+
+    au = p_subs.add_parser(
+        "authoring",
+        help="export AUTHORING examples: (CVE + pre-fix source) -> the source fix",
+    )
+    au.add_argument("--out", type=Path, default=Path("exports/authoring"),
+                    help="output directory (default exports/authoring)")
+    au.add_argument("--traces-root", type=Path, default=Path("traces/example"),
+                    help="root of CVE-* bundles (default traces/example)")
+    au.add_argument("--format", choices=["human", "json"], default="human")
     return p
 
 
@@ -389,7 +400,251 @@ def _example_for_bundle(
     return example, status
 
 
+# ── authoring export: (CVE + pre-fix source) -> the source fix ───────────────
+#
+# Teaches a model to AUTHOR the fix from the vulnerability, NOT transcribe a
+# supplied one. The cert-green bundle is the ANSWER KEY: label = the validated
+# upstream source fix. Leakage scrubbed per docs/AUTHORING_TRAINING.md.
+
+_AUTHORING_SYSTEM = (
+    "You are a security engineer fixing a CVE in C/C++. You are given the "
+    "vulnerability (symptom only) and the current vulnerable source. Author the "
+    "MINIMAL fix as a unified diff against the shown file. Change as few lines as "
+    "possible; do not rewrite. Output only the diff."
+)
+_REMEDIATION_RE = re.compile(
+    r"\b(fixed (in|by|upstream)|the fix|patched? (in|by)|adds? a (bounds|null|length) check|"
+    r"resolved by|remediat\w+|commit [0-9a-f]{7,}|backport|shipped in)\b", re.IGNORECASE)
+# Anchored hex-only: injection-safe (no option chars) at any abbreviated length.
+_SAFE_REV_RE = re.compile(r"[0-9a-f]{7,40}\Z")
+
+
+def _fix_symbols(fix_diff: str) -> set[str]:
+    """Symbols a CVE summary must NOT name, or it leaks where/how the fix lands:
+
+      * distinctive IDENTIFIERS on any changed (+/-) line (e.g. RS_PT_SOCKS5,
+        BZ_MAX_HANDLED_BLOCKS, slotat). Distinctive = has '_', is ALL_CAPS,
+        mixedCase, or len>=6 (skips generic short words like 'if'/'int'). Union of
+        both sides: a removed gate is as much a tell as an added guard.
+      * numeric literals that CHANGED between the removed and added lines (a moved
+        bound, e.g. `> 10` -> `> 8`). Symmetric difference, not union: a constant
+        present on both sides (an unchanged buffer size the vuln legitimately
+        names, e.g. proxychains's 255) is a vulnerability fact, not a fix tell."""
+    syms: set[str] = set()
+    minus_nums: set[str] = set()
+    plus_nums: set[str] = set()
+    for ln in fix_diff.splitlines():
+        side = ln[:1]
+        if side not in ("+", "-") or ln.startswith(("+++", "---")):
+            continue
+        body = ln[1:]
+        for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", body):
+            if "_" in tok or tok.isupper() or tok != tok.lower() or len(tok) >= 6:
+                syms.add(tok)
+        # multi-digit only: a bare `1`/`0` (off-by-one delta) is too generic to
+        # scrub on and the touched identifier usually already carries the tell.
+        nums = {n for n in re.findall(r"\b\d+\b", body) if len(n) >= 2}
+        (plus_nums if side == "+" else minus_nums).update(nums)
+    syms |= (minus_nums ^ plus_nums)  # only the constants the fix actually moved
+    return syms
+
+
+def _mentions(text: str, sym: str) -> bool:
+    """Does `text` name fix-symbol `sym`? Word-boundary for numerics (so `50` does
+    not match inside `1.0.8`/`5000`); substring for identifiers (distinctive enough
+    that a substring hit is a real mention, never a false positive)."""
+    if sym.isdigit():
+        return re.search(rf"(?<!\d){re.escape(sym)}(?!\d)", text) is not None
+    return sym in text
+
+
+def _scrub_summary(summary: str, fix_diff: str) -> str:
+    """Drop any sentence that (a) names the remediation, or (b) mentions a symbol
+    the fix changes — leaving the vulnerability (trigger / what's wrong) only."""
+    syms = _fix_symbols(fix_diff)
+    out = []
+    for s in re.split(r"(?<=[.])\s+", summary):
+        if _REMEDIATION_RE.search(s):
+            continue
+        if any(_mentions(s, sym) for sym in syms):
+            continue
+        out.append(s)
+    return " ".join(out).strip()
+
+
+def _strip_remediation(summary: str) -> str:  # kept for back-compat / tests
+    return " ".join(s for s in re.split(r"(?<=[.])\s+", summary)
+                    if not _REMEDIATION_RE.search(s)).strip()
+
+
+def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
+    """Build (or load cached) the authoring training pair for a source-backport
+    bundle: pre-fix source window (input) + the upstream commit's source diff
+    (label). Cached to <bundle>/authoring-example.json for deterministic, offline
+    re-export (the git blobs are sha-pinned, so the content is reproducible)."""
+    cache = bundle_dir / "authoring-example.json"
+    if cache.is_file():
+        return json.loads(cache.read_text())
+
+    import subprocess, tempfile
+    from tools.trace_cli import backport_patch as bp
+
+    ur = _load_json(bundle_dir / "upstream-ref.json") or {}
+    finding = _load_json(bundle_dir / "finding.json") or {}
+    commits = ur.get("upstream_fix_commits") or []
+    if not commits or ur.get("eligibility", {}).get("patch_strategy") != "source-backport":
+        return None
+    repo_url, sha = commits[0]["repo_url"], commits[0]["commit_sha"]
+    try:
+        bp._validate_repo_url(repo_url)
+    except bp.BackportError:
+        return None
+    # sha is feed-sourced (upstream-ref.json); it reaches `git fetch origin <sha>`
+    # as a bare arg, where a value like `--upload-pack=...` would be option
+    # injection. The injection-safety comes from the anchored hex-only charset
+    # (no `-`/`=`/space can appear), not the length — so allow git's abbreviated
+    # revs (some bundles store 10-12 char shas) while still refusing anything that
+    # isn't pure hex. (backport_patch's _SAFE_REV_RE is 40-only because its revs
+    # come from a full-sha resolver path; authoring reads hand-authored bundles.)
+    if not _SAFE_REV_RE.match(sha):
+        return None
+
+    with tempfile.TemporaryDirectory(prefix="trace-author-export-") as td:
+        repo = Path(td) / "src"
+        repo.mkdir()
+        env = {**os.environ, **bp._HARDENED_ENV}
+
+        def git(*a):
+            return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, env=env)
+        git("init", "-q")
+        git("remote", "add", "origin", repo_url)
+        if git("fetch", "--depth", "2", "origin", sha).returncode != 0:
+            git("fetch", "origin")
+        parent = git("rev-parse", "-q", "--verify", f"{sha}^").stdout.strip()
+        if not parent:
+            return None
+        # label = the upstream commit's SOURCE diff (exclude tests/docs/changelog).
+        ns = git("show", "--numstat", "--format=", "--no-color", sha)
+        src_paths = [ln.split("\t")[2] for ln in ns.stdout.splitlines()
+                     if len(ln.split("\t")) == 3 and ln.split("\t")[0] != "-"
+                     and not bp._NON_SOURCE_RE.search(ln.split("\t")[2])]
+        if not src_paths:
+            return None
+        fix_diff = git("show", "--no-color", "--format=", sha, "--", *src_paths).stdout
+        fix_diff = bp._extract_diff(fix_diff) if "diff --git" in fix_diff else fix_diff
+        # input = the FIRST affected file at the PARENT, windowed around its hunks.
+        fpath = src_paths[0]
+        starts = [int(m) for m in re.findall(r"^@@ -(\d+)", fix_diff, re.MULTILINE)] or [1]
+        blob = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{fpath}"],
+                              capture_output=True, text=True, env=env)
+        if blob.returncode != 0:
+            return None
+        lines = blob.stdout.splitlines()
+        lo, hi = max(0, min(starts) - 20), min(len(lines), max(starts) + 20)
+        pre_fix = "\n".join(lines[lo:hi])
+
+    pair = {
+        "cve_id": finding.get("cve_id"),
+        "attr_path": (finding.get("affected") or [{}])[0].get("attr_path"),
+        "vuln_raw": finding.get("summary", ""),  # scrubbed against fix_diff at export time
+        "file": fpath,
+        "pre_fix_source": pre_fix,
+        "fix_diff": fix_diff.strip(),
+        "fix_commit": {"repo_url": repo_url, "commit_sha": sha},
+    }
+    cache.write_text(json.dumps(pair, indent=2) + "\n")
+    return pair
+
+
+def _run_authoring(args: argparse.Namespace) -> int:
+    traces_root: Path = args.traces_root
+    out_dir: Path = args.out
+    if not traces_root.is_dir():
+        print(f"error: traces root not found: {traces_root}")
+        return 2
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    examples, excluded, diagnostics = [], [], []
+    for bd in sorted(traces_root.glob("CVE-*")):
+        if not (bd / "upstream-ref.json").is_file():
+            continue
+        pair = _authoring_pair(bd)
+        if pair is None:
+            continue
+        if not (pair["vuln_raw"] and pair["pre_fix_source"] and pair["fix_diff"]):
+            excluded.append({"bundle": bd.name, "reason": "incomplete pair"})
+            continue
+        # Scrub the CVE summary against the ACTUAL fix: drop remediation language AND
+        # any sentence naming a symbol the fix changes (else the summary leaks where
+        # the fix lands — e.g. proxychains's RS_PT_SOCKS5, graphite2's slotat).
+        vuln = _scrub_summary(pair["vuln_raw"], pair["fix_diff"])
+        # Leakage guard: nothing the fix touches may survive into the input.
+        fix_syms = _fix_symbols(pair["fix_diff"])
+        if not vuln:
+            excluded.append({"bundle": bd.name, "reason": "summary empty after fix-symbol scrub"})
+            continue
+        if _REMEDIATION_RE.search(vuln) or any(_mentions(vuln, s) for s in fix_syms):
+            excluded.append({"bundle": bd.name, "reason": "fix language survived scrub"})
+            continue
+        # A fix with 0 extractable symbols (e.g. whitespace-/comment-only, or a
+        # leak class the heuristic can't name) passes the gate silently — flag it
+        # so "nothing to scrub" is visibly distinct from "scrubbed clean".
+        diagnostics.append({"bundle": bd.name, "cve_id": pair["cve_id"],
+                            "fix_symbols": len(fix_syms), "low_signal": not fix_syms})
+        bundle = _load_json(bd / "bundle.json") or {}
+        attr = pair["attr_path"] or bd.name
+        user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
+                f"# Vulnerable source ({pair['file']})\n```c\n{pair['pre_fix_source']}\n```")
+        examples.append({
+            "messages": [
+                {"role": "system", "content": _redact(_AUTHORING_SYSTEM)},
+                {"role": "user", "content": _redact(user)},
+                {"role": "assistant", "content": _redact(pair["fix_diff"])},
+            ],
+            "task": "author-from-vuln",
+            "split": _split_for(attr),
+            "provenance": {
+                "bundle_id": bundle.get("bundle_id"),
+                "cve_id": pair["cve_id"], "attr_path": attr,
+                "split_family": _normalize_attr(attr),
+                "fix_commit": pair["fix_commit"]["commit_sha"],
+                "steward_signed": bool((bundle.get("signed_manifest") or {}).get("rekor_log_index")),
+                "kind": bundle.get("kind"),
+            },
+        })
+
+    examples.sort(key=lambda e: (e["split"], e["provenance"]["cve_id"] or ""))
+    jsonl = out_dir / "authoring.jsonl"
+    with jsonl.open("w") as fh:
+        for ex in examples:
+            fh.write(json.dumps(ex, sort_keys=True) + "\n")
+    splits: dict[str, int] = {}
+    for e in examples:
+        splits[e["split"]] = splits.get(e["split"], 0) + 1
+    manifest = {
+        "scope": "authoring", "schema_version": "1.0.0",
+        "eligible_examples": len(examples), "splits": splits,
+        "families": sorted({e["provenance"]["split_family"] for e in examples}),
+        "excluded": excluded,
+        "diagnostics": diagnostics,
+        "low_signal_bundles": [d["bundle"] for d in diagnostics if d["low_signal"]],
+        "note": "label = validated upstream source fix; input = CVE (vuln-only) + pre-fix source. "
+                "Leakage-partitioned: these CVEs are the author-from-vuln task; exclude them from "
+                "any transcription/backport-package export to avoid answer-key leakage. "
+                "low_signal_bundles produced 0 scrub symbols — review their inputs by hand.",
+    }
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    if args.format == "json":
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+    else:
+        print(f"authoring export -> {jsonl}")
+        print(f"  examples: {len(examples)}  splits: {splits}  excluded: {len(excluded)}")
+    return 0
+
+
 def run(args: argparse.Namespace) -> int:
+    if getattr(args, "export_scope", "reviewer") == "authoring":
+        return _run_authoring(args)
     traces_root: Path = args.traces_root
     out_dir: Path = args.out
     prompt_path: Path = args.reviewer_prompt
