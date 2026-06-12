@@ -68,9 +68,27 @@ not the same signal as discrimination accuracy.
 
 1. ✅ Exporter (`trace export reviewer`) built + validated (N=20 milestone, 2026-06-10).
 2. ✅ Negatives: 25 minted, round-trip clean (`trace mutate reviewer-negative`).
-3. **Positives 26 → 50** — bootstrap ~24 reviewer-positive bundles from the
-   auto-merge version-bump candidates. Batches of 10, $5/batch ceiling, stop after 3
-   consecutive retirements. *(next executable work)*
+3. **Positives 26 → 50** — bootstrap ~24 reviewer-positive bundles. Batches of 10,
+   $5/batch ceiling, stop after 3 consecutive retirements. *(next executable work)*
+
+   **Recon 2026-06-12 — the corpus can't fully close this; a harvest pass is also
+   needed.** `eval/candidates.jsonl` has only **6 unbundled auto-merge** +
+   **~8 unbundled human-review** valid-bundle candidates = ~14 max → even draining it
+   lands near **N=40, ~10 short of 50**. So track (c) needs a candidate-harvest pass
+   too (version-bump shapes — distinct from the (a) source-backport harvest), runnable
+   alongside the bootstrap batch.
+
+   **Cheapest-first ordering — human-review-valid before auto-merge.** A
+   human-review-valid bundle is a valid reviewer-positive that needs **no
+   reproducer/cert** (just Patcher → Reviewer-accept, 2 live calls), where an
+   auto-merge bundle needs the full Builder+Steward+reproducer cert. So bank the
+   human-review positives first. Candidate batch **B1** (cheapest reviewer-positives,
+   clean patch-release bumps): `postgresql_14` (CVE-2026-2003, 14.20→14.21, notes say
+   upstream-ref itself eligible), `samba` (CVE-2025-9640, 4.22.x point release,
+   passthru_tests=yes), `grafana` (CVE-2026-21722, v12.3.3 patch release). Preflight
+   each (CLAUDE.md bundle-bootstrap step 1: the named release must actually contain
+   the fix commit) before staging. Auto-merge candidates (chromium, discourse, jruby,
+   openssh_gssapi) are batch B2 — costlier (cert), do after B1.
 4. **Harness smoke-test (parallel, runnable now)** — train a throwaway LoRA on the
    current 51 usable to prove the HF plumbing + data-format contract end-to-end. A
    harness bug found here is free; found at N=50 it's expensive. Not a real result —
