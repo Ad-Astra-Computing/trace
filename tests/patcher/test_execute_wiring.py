@@ -175,19 +175,21 @@ def _factory(response_text: str):
 
 
 def test_patcher_prompt_path_default_is_v2():
-    """Locked: the runner loads `prompts/patcher.v2.md` by default.
+    """Locked: the runner loads `prompts/patcher.v2.1.md` by default.
 
-    Patcher prompt versioning is a contract change. v1 → v2 codifies F19:
-    opus-4-7 emitted prose preamble on the libxmp package-rewrite input
-    (CVE-2025-47256, 2026-05-25). v2 enforces 'first byte = `=`' explicitly
-    and ships a worked example for a package-rewrite-shape diff. Loading
-    v1 silently downgrades the contract. See DECISIONS 2026-05-25 (F19).
+    Patcher prompt versioning is a contract change. v1 → v2 codifies F19
+    (prose-preamble ban). v2 → v2.1 (2026-06-12) codifies the split-builder
+    hash-grounding gap: on postgresql_14 (CVE-2026-2003) the `hash` is a bare
+    argument to `import ./generic.nix`, not a value in a `src = fetchFromGitHub
+    { … }` block, and the Patcher left it unchanged ~2/3 of runs. v2.1 adds the
+    source-hash-location instruction to rule 8. Loading an older version
+    silently downgrades the contract. See DECISIONS 2026-06-12.
     """
     from tools.trace_cli.execute import PATCHER_PROMPT_PATH_DEFAULT
 
-    assert PATCHER_PROMPT_PATH_DEFAULT.name == "patcher.v2.md", (
-        f"runner default patcher prompt should be v2 (got {PATCHER_PROMPT_PATH_DEFAULT.name}). "
-        "If you are bumping the prompt to v3+, update this test in the same commit."
+    assert PATCHER_PROMPT_PATH_DEFAULT.name == "patcher.v2.1.md", (
+        f"runner default patcher prompt should be v2.1 (got {PATCHER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt, update this test in the same commit."
     )
     assert PATCHER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {PATCHER_PROMPT_PATH_DEFAULT}"
