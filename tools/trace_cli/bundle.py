@@ -425,6 +425,62 @@ class FinalizeResult:
         }
 
 
+class BundleSchemaError(ValueError):
+    """A bundle document fails policy-schema validation at finalize time."""
+
+
+# Resolver-side documents finalize validates against their policy schema before
+# writing bundle.json. (bundle.json / replay.json are produced BY finalize and
+# validated by the schema fixture test; build.json arrives post-cert.)
+_FINALIZE_VALIDATED_DOCS = {
+    "finding.json": "finding-schema.json",
+    "impact.json": "impact-schema.json",
+    "maintainers.json": "maintainers-schema.json",
+    "upstream-ref.json": "upstream-ref-schema.json",
+}
+
+
+def _validate_bundle_docs(bundle_dir: Path) -> list[str]:
+    """Validate each present resolver-side document against its policy schema.
+
+    Returns a list of ``"<file>:<loc>: <message>"`` strings (empty == all valid).
+    finalize refuses to write bundle.json when this is non-empty, so a
+    schema-invalid bundle — a `prefetch_kind` outside the enum, disallowed extra
+    prefetch fields (`nixpkgs_commit`/`note`), or a malformed impact/maintainers
+    doc — is caught at CREATION rather than slipping onto a branch and failing CI
+    later. (Added 2026-06-14 after ~10 concurrent sessions mass-committed bundles
+    with exactly these defects; DECISIONS:47 had already documented the
+    prefetch_kind='url'-not-'fetchurl' trap with no guardrail behind it.)"""
+    from jsonschema import Draft202012Validator
+    from referencing import Registry, Resource
+
+    policy_dir = Path(__file__).resolve().parents[2] / "policy"
+    schemas: dict[str, dict] = {}
+    for p in policy_dir.glob("*-schema.json"):
+        try:
+            schemas[p.name] = json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+    registry = Registry().with_resources(
+        [(s["$id"], Resource.from_contents(s)) for s in schemas.values() if "$id" in s]
+    )
+    errors: list[str] = []
+    for fname, sname in _FINALIZE_VALIDATED_DOCS.items():
+        fp = bundle_dir / fname
+        if not fp.is_file() or sname not in schemas:
+            continue
+        try:
+            doc = json.loads(fp.read_text())
+        except json.JSONDecodeError as exc:
+            errors.append(f"{fname}: not valid JSON ({exc})")
+            continue
+        validator = Draft202012Validator(schemas[sname], registry=registry)
+        for e in validator.iter_errors(doc):
+            loc = "/".join(str(p) for p in e.absolute_path) or "(root)"
+            errors.append(f"{fname}:{loc}: {e.message}")
+    return errors
+
+
 def finalize_bundle(
     *,
     bundle_dir: Path,
@@ -455,6 +511,19 @@ def finalize_bundle(
 
     if not bundle_dir.is_dir():
         raise FileNotFoundError(f"bundle_dir does not exist: {bundle_dir}")
+
+    # Guardrail: refuse to finalize a bundle whose resolver-side documents fail
+    # policy-schema validation. Catches the recurring prefetch-pin defect
+    # (prefetch_kind not in {url, go-mod-vendor, fetchzip}; nixpkgs_commit/note
+    # extra fields) and malformed impact/maintainers at creation, not at CI.
+    doc_errors = _validate_bundle_docs(bundle_dir)
+    if doc_errors:
+        raise BundleSchemaError(
+            "bundle documents fail policy-schema validation; fix before finalize "
+            "(prefetch_kind must be one of url/go-mod-vendor/fetchzip; no extra "
+            "fields like nixpkgs_commit/note in prefetch_hashes[]):\n  "
+            + "\n  ".join(doc_errors)
+        )
 
     upstream_ref_path = bundle_dir / "upstream-ref.json"
     if not upstream_ref_path.is_file():
