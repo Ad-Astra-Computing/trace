@@ -122,3 +122,21 @@ The Authoring corpus expansion (`docs/AUTHORING_TRAINING.md` step 3) is **search
 (finding source-backport CVEs), while this pilot is **compute/eval-bound** — they do
 not contend, so run them in parallel. The source-backport candidate harvest filter is
 in `docs/CORPUS.md` § Curation filters → *Source-backport authoring-candidate filter*.
+
+## Readiness gate (the integration/control plane)
+
+`python3 eval/corpus_readiness.py` is the re-runnable quality gate that turns the
+fleet's bundle output into a usable dataset (codex peer 2026-06-14: while a fleet
+produces volume, one session owns the integration gate). It shells out to
+`trace export {reviewer,authoring} --format json` and reports in one place:
+positive/negative counts vs the 50+25 threshold (with the gap), train/dev/test split
++ `leakage_check_ok` (the training-validity invariant), an actionable exclusion
+breakdown (TRIAGE: attestation-mismatch / no-review — may yield +positives if a
+genuine reviewer bundle; STRUCTURAL: dedupe / parser-fail), the authoring count, and a
+**baseline-freeze / pilot-ready verdict**. Exit 0 when pilot-ready, 1 otherwise (so it
+can gate CI or signal the fleet to stop). `--pos/--neg` override the thresholds; `--json`
+for machine output.
+
+Snapshot 2026-06-14: 28/50 positives (gap 22), 25/25 negatives, leakage-free, 11
+excluded (8 triage / 3 structural), 4 authoring examples → verdict NOT YET. Run this
+before any baseline freeze; freeze only when it prints READY.
