@@ -450,9 +450,22 @@ def _validate_bundle_docs(bundle_dir: Path) -> list[str]:
     doc — is caught at CREATION rather than slipping onto a branch and failing CI
     later. (Added 2026-06-14 after ~10 concurrent sessions mass-committed bundles
     with exactly these defects; DECISIONS:47 had already documented the
-    prefetch_kind='url'-not-'fetchurl' trap with no guardrail behind it.)"""
-    from jsonschema import Draft202012Validator
-    from referencing import Registry, Resource
+    prefetch_kind='url'-not-'fetchurl' trap with no guardrail behind it.)
+
+    Degrades gracefully: jsonschema/referencing are dev-shell deps, not base
+    trace_cli deps. When finalize runs in a bare environment without them, SKIP
+    validation (warn) instead of crashing — the CI schema fixture test remains the
+    authoritative backstop. The guardrail is defense-in-depth that moves the catch
+    left wherever the deps are present (nix dev shell, CI)."""
+    try:
+        from jsonschema import Draft202012Validator
+        from referencing import Registry, Resource
+    except ImportError:
+        import sys
+        print("warning: jsonschema/referencing unavailable; skipping finalize "
+              "doc-schema validation (CI schema fixture test still gates this bundle)",
+              file=sys.stderr)
+        return []
 
     policy_dir = Path(__file__).resolve().parents[2] / "policy"
     schemas: dict[str, dict] = {}
