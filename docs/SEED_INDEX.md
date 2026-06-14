@@ -53,6 +53,8 @@ The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exerc
 
 | [`CVE-2025-49844--redis`](../traces/example/CVE-2025-49844--redis/) | human-review-required | model-attested (Patcher claude-opus-4-7 patcher.v2.1 + Reviewer claude-sonnet-4-5-20250929); reviewer-positive | **Solo backfill #2 (fresh, real nixpkgs_rev).** CVE-2025-49844 'RediShell' CWE-416 UAF via Lua GC -> RCE in redis <=8.2.1 (CVSS 9.9 CRITICAL, 4 co-fixed). Multi-release 8.0.3->8.2.2 -> human-review-required via **ambiguous-changelog** trigger (two-release span + SSPL-relicensing contention; reverse_closure<500). Patcher v2.1 clean version+src.hash bump; hash FOD-verified `sha256-0TMUSNCrDEtOkojcmFFhmLQ0ghyLAn+OS4xl4Sbr76c=`. Reviewer accept, cross-family attestation. Reviewer-positive; no cert/Steward-sign/fork-PR. |
 
+| [`CVE-2026-23528--distributed`](../traces/example/CVE-2026-23528--distributed/) | human-review-required | model-attested (Patcher claude-opus-4-7 patcher.v2.1 + Reviewer claude-sonnet-4-5-20250929); reviewer-positive | **Solo backfill #3 (fresh, real nixpkgs_rev).** CVE-2026-23528 CWE-79 dashboard XSS via Jupyter in dask distributed <2026.1.1 (CVSS 6.1 MEDIUM). Calver multi-release 2025.12.0->2026.1.1 -> human-review via **ambiguous-changelog**. Patcher v2.1 clean version+src.hash; hash FOD-verified `sha256-xriIsrdFNSHAO9SmdowXK9uPW06ziz9uGie3PkYncqo=`. Reviewer accept. Reviewer-positive; no cert. |
+
 ## Per-bundle detail
 
 ### `CVE-2024-13978--libtiff` · auto-merge · deterministic-no-model
