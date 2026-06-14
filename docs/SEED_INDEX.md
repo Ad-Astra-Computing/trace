@@ -55,6 +55,8 @@ The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exerc
 
 | [`CVE-2026-23528--distributed`](../traces/example/CVE-2026-23528--distributed/) | human-review-required | model-attested (Patcher claude-opus-4-7 patcher.v2.1 + Reviewer claude-sonnet-4-5-20250929); reviewer-positive | **Solo backfill #3 (fresh, real nixpkgs_rev).** CVE-2026-23528 CWE-79 dashboard XSS via Jupyter in dask distributed <2026.1.1 (CVSS 6.1 MEDIUM). Calver multi-release 2025.12.0->2026.1.1 -> human-review via **ambiguous-changelog**. Patcher v2.1 clean version+src.hash; hash FOD-verified `sha256-xriIsrdFNSHAO9SmdowXK9uPW06ziz9uGie3PkYncqo=`. Reviewer accept. Reviewer-positive; no cert. |
 
+| [`CVE-2025-53859--nginxMainline`](../traces/example/CVE-2025-53859--nginxMainline/) | human-review-required | model-attested (Patcher claude-opus-4-7 patcher.v2.1 + Reviewer claude-sonnet-4-5-20250929); reviewer-positive | **Solo backfill #4 (fresh, real nixpkgs_rev).** CVE-2025-53859 CWE-125 OOB read in nginx ngx_mail_smtp_module <1.29.1 (CVSS 3.7 LOW). Multi-release 1.27.5->1.29.1, split mainline.nix/generic.nix (bare hash arg grounded by **v2.1**), fetchurl tarball -> human-review via ambiguous-changelog. hash FOD-verified `sha256-xYn35+2AHdvZBK+/PeJq4k6wzOJ8dxei6U33+xLWrSc=`. Reviewer accept. Reviewer-positive; no cert. |
+
 ## Per-bundle detail
 
 ### `CVE-2024-13978--libtiff` · auto-merge · deterministic-no-model
