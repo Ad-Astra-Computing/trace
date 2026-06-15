@@ -26,6 +26,9 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
 from collections import Counter
 
 POS_THRESHOLD = 50
@@ -63,9 +66,39 @@ def _exclusion_reason(e: dict) -> str:
     return (e.get("reason") or e.get("exclusion_reason") or "?")
 
 
+def _schema_invalid_bundles() -> list[dict]:
+    """Real-CVE bundles on disk that the review-accept count would include but that
+    FAIL policy-schema validation, or are auto-merge without a cert (build.json) — the
+    pollution a review-accept count alone misses (codex 2026-06-15: a nominal 50/25 can
+    hide schema-invalid bundles). READY must require this list to be empty. Returns
+    [{bundle, error}, ...]; synthetic CVE-0000-* fixtures are intentionally excluded."""
+    try:
+        sys.path.insert(0, str(REPO))
+        from tests.schema.validate import validate_fixture
+    except ImportError:
+        return []  # jsonschema/referencing unavailable; the CI fixture test is the backstop
+    dirty = []
+    for bd in sorted((REPO / "traces" / "example").glob("CVE-*")):
+        if bd.name.startswith("CVE-0000-"):
+            continue
+        if not (bd / "expect.json").is_file():
+            dirty.append({"bundle": bd.name, "error": "missing expect.json"})
+            continue
+        try:
+            res = validate_fixture(bd)   # docs + hashes + bundle-schema conditional required-files
+        except Exception as exc:  # noqa: BLE001 — report, don't crash the gate
+            dirty.append({"bundle": bd.name, "error": f"validate error: {str(exc)[:80]}"})
+            continue
+        if res.any_errors:
+            errs = [f"{k}: {v[0]}" for k, v in res.per_doc_errors.items() if v] + list(res.hash_errors)
+            dirty.append({"bundle": bd.name, "error": errs[0] if errs else "schema-invalid"})
+    return dirty
+
+
 def build_report(pos_threshold: int, neg_threshold: int) -> dict:
     rev = _export("reviewer") or {}
     auth = _export("authoring") or {}
+    dirty = _schema_invalid_bundles()
 
     labels = rev.get("labels", {})
     pos = labels.get("positive", 0)
@@ -86,7 +119,8 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
 
     pos_ready = pos >= pos_threshold
     neg_ready = neg >= neg_threshold
-    pilot_ready = pos_ready and neg_ready and leakage_ok
+    schema_clean = not dirty
+    pilot_ready = pos_ready and neg_ready and leakage_ok and schema_clean
 
     return {
         "reviewer": {
@@ -109,11 +143,13 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
             "examples": auth.get("eligible_examples"),
             "splits": auth.get("splits", {}),
         },
+        "schema_invalid": dirty,
         "thresholds": {"positive": pos_threshold, "negative": neg_threshold},
         "pilot_ready": pilot_ready,
         "blocking": [m for m, ok in (
             (f"need +{max(0, pos_threshold - pos)} positives", pos_ready),
             (f"need +{max(0, neg_threshold - neg)} negatives", neg_ready),
+            (f"{len(dirty)} schema-invalid/uncerted bundles in corpus", schema_clean),
             ("family leakage across splits", leakage_ok),
         ) if not ok],
     }
@@ -136,6 +172,12 @@ def _emit(r: dict) -> None:
               f"{len(ex['recoverable'])}")
         for e in ex["recoverable"]:
             print(f"    - {e['bundle']}: {e['reason']}")
+    dirty = r.get("schema_invalid", [])
+    if dirty:
+        print(f"  SCHEMA-INVALID / uncerted bundles (counted by review-accept but would fail "
+              f"CI / pollute the dataset): {len(dirty)}")
+        for d in dirty:
+            print(f"    - {d['bundle']}: {d['error']}")
     print(f"  authoring examples: {r['authoring']['examples']}  splits: {r['authoring']['splits']}")
     verdict = "READY to freeze baseline + run pilot" if r["pilot_ready"] else "NOT YET"
     print(f"== verdict: {verdict} ==")

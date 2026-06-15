@@ -19,10 +19,13 @@ cr = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(cr)
 
 
-def _manifests(monkeypatch, reviewer: dict, authoring: dict | None = None) -> None:
+def _manifests(monkeypatch, reviewer: dict, authoring: dict | None = None,
+               dirty: list | None = None) -> None:
     def fake_export(scope: str):
         return reviewer if scope == "reviewer" else (authoring or {"eligible_examples": 0, "splits": {}})
     monkeypatch.setattr(cr, "_export", fake_export)
+    # the schema-validity cross-check hits real disk; mock it (default: clean)
+    monkeypatch.setattr(cr, "_schema_invalid_bundles", lambda: (dirty or []))
 
 
 def test_not_ready_below_positive_threshold(monkeypatch):
@@ -45,6 +48,19 @@ def test_ready_when_thresholds_met_and_no_leakage(monkeypatch):
     r = cr.build_report(50, 25)
     assert r["pilot_ready"] is True
     assert r["blocking"] == []
+
+
+def test_schema_invalid_bundles_block_readiness_even_at_threshold(monkeypatch):
+    """A nominal 50/25 with schema-invalid/uncerted bundles is NOT ready — the gate
+    must not report READY while review-accept counts hide dirty bundles (codex 2026-06-15)."""
+    _manifests(monkeypatch, {
+        "labels": {"positive": 50, "negative": 25},
+        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
+    }, dirty=[{"bundle": "CVE-X--foo", "error": "missing expect.json"}])
+    r = cr.build_report(50, 25)
+    assert r["pilot_ready"] is False
+    assert r["schema_invalid"] and r["schema_invalid"][0]["bundle"] == "CVE-X--foo"
+    assert any("schema-invalid" in b for b in r["blocking"])
 
 
 def test_leakage_blocks_readiness_even_at_threshold(monkeypatch):
