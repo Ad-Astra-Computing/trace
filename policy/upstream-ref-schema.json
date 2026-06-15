@@ -127,16 +127,18 @@
               "gitlab-release-archive",
               "vendor-lockfile-prefetch",
               "go-mod-vendor",
+              "cargo-vendor",
               "fetchzip-src-extract",
               "manual-pinned"
             ]
           },
           "prefetch_kind": {
-            "description": "Mechanism class. `url` fetches a single artifact at a URL and hashes it (correct for `fetchurl`-style fetchers; WRONG for `fetchFromGitHub` / `fetchzip` / `fetchgit` because those use fetchzip semantics under the hood). `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash (output applies to `vendorHash`). `fetchzip` runs a Nix-overlay build that overrides `src.hash` to `lib.fakeHash`, expects the FOD-mismatch error, and parses the real hash out of stderr (correct for fetchFromGitHub / fetchzip / fetchgit / equivalent fetchers; output applies to `src.hash`). Future kinds (cargo-vendor, npm-deps, \u2026) will land separately. Required from schema_version 1.1.0 onward; emitters MUST write the field verbatim. Consumers reading legacy 1.0.0 bundles (which don't have this field) should treat absence as `url`.",
+            "description": "Mechanism class. `url` fetches a single artifact at a URL and hashes it (correct for `fetchurl`-style fetchers; WRONG for `fetchFromGitHub` / `fetchzip` / `fetchgit` because those use fetchzip semantics under the hood). `go-mod-vendor` runs a Nix-overlay build that triggers Go's module-vendoring step and captures the resulting fixed-output hash (output applies to `vendorHash`). `fetchzip` runs a Nix-overlay build that overrides `src.hash` to `lib.fakeHash`, expects the FOD-mismatch error, and parses the real hash out of stderr (correct for fetchFromGitHub / fetchzip / fetchgit / equivalent fetchers; output applies to `src.hash`). `cargo-vendor` runs the same FOD-verify (fakeHash -> got:) against a `buildRustPackage` cargo vendor hash (output applies to a single `cargoHash` / legacy `cargoSha256` slot); v1 supports exactly one straightforward cargo hash slot and refuses `cargoLock.outputHashes`, multiple cargo hashes, or Rust+frontend (npmDeps/yarn) combos. Future kinds (npm-deps, \u2026) will land separately. Required from schema_version 1.1.0 onward; emitters MUST write the field verbatim. Consumers reading legacy 1.0.0 bundles (which don't have this field) should treat absence as `url`.",
             "type": "string",
             "enum": [
               "url",
               "go-mod-vendor",
+              "cargo-vendor",
               "fetchzip"
             ]
           },
