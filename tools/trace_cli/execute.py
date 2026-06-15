@@ -1407,7 +1407,7 @@ def _append_reviewer_replay_entry(
 
 
 REPRODUCER_PROMPT_PATH_DEFAULT = (
-    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v12.md"
+    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v13.md"
 )
 
 # Bundle-local PoC artifact surfacing (DECISIONS 2026-05-19 (Reproducer v5)):
@@ -1825,7 +1825,7 @@ def _build_reproducer_invocation(
         "ended_at": ended_at,
         "model": _build_reproducer_model_block(reproducer_run),
         "prompt": {
-            "path": "prompts/reproducer.v12.md",
+            "path": "prompts/reproducer.v13.md",
             "sha256": reproducer_run["prompt_sha256"],
         },
         "inputs": inputs,
