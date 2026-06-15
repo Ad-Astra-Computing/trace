@@ -143,6 +143,7 @@ class AnthropicAdapter:
     # are covered.
     _MODELS_THAT_DEPRECATED_SAMPLING: tuple[str, ...] = (
         "claude-opus-4-7",
+        "claude-opus-4-8",
     )
 
     # Anthropic models that accept ONLY ONE of `temperature` or `top_p`,
