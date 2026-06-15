@@ -23,83 +23,167 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
-    "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
-    "bundle_id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
-    "nixpkgs_rev": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-    "builder_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "cve_id": {
+      "type": "string",
+      "pattern": "^CVE-\\d{4}-\\d{4,19}$"
+    },
+    "bundle_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "nixpkgs_rev": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "builder_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
     "host": {
       "type": "object",
-      "required": ["system", "nix_version", "tool_version"],
+      "required": [
+        "system",
+        "nix_version",
+        "tool_version"
+      ],
       "additionalProperties": false,
       "properties": {
-        "system": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "nix_version": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "tool_version": { "type": "string", "minLength": 1, "maxLength": 64 }
+        "system": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nix_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tool_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
       }
     },
-    "started_at": { "type": "string", "format": "date-time" },
-    "ended_at": { "type": "string", "format": "date-time" },
-
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "patch_apply": {
       "type": "object",
-      "required": ["applied"],
+      "required": [
+        "applied"
+      ],
       "additionalProperties": false,
       "properties": {
-        "applied": { "type": "boolean" },
+        "applied": {
+          "type": "boolean"
+        },
         "git_apply_exit_code": {
           "oneOf": [
-            { "type": "integer" },
-            { "type": "null" }
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "files_changed": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "post_apply_sha": {
           "oneOf": [
-            { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-            { "type": "null" }
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
-        "reason": { "type": "string", "maxLength": 2048 },
+        "reason": {
+          "type": "string",
+          "maxLength": 2048
+        },
         "package_file_remap": {
           "type": "string",
           "maxLength": 512,
           "description": "Present when the Builder remapped the canonical bundle package.nix onto the real nixpkgs file for a non-by-name multi-variant package, e.g. 'package.nix -> pkgs/tools/networking/openssh/default.nix (content-match)'. Informational provenance; records the apply target + selection method."
+        },
+        "apply_mode": {
+          "type": "string",
+          "enum": [
+            "by-name-package-nix",
+            "direct-package-dir",
+            "canonical-package-remap"
+          ],
+          "description": "Which apply mode the Builder used. 'by-name-package-nix': a/package.nix applied under --directory (by-name package). 'direct-package-dir': a non-by-name source-backport whose full nixpkgs paths are contained in the package dir, applied at the repo root with no remap. 'canonical-package-remap': a single-file package.nix change remapped onto the real basename (e.g. default.nix). Informational provenance (codex 2026-06-15)."
         }
       }
     },
-
-    "patched_build": { "$ref": "#/$defs/buildPhase" },
-    "unpatched":     { "$ref": "#/$defs/buildPhase" },
-    "patched":       { "$ref": "#/$defs/buildPhase" },
-
+    "patched_build": {
+      "$ref": "#/$defs/buildPhase"
+    },
+    "unpatched": {
+      "$ref": "#/$defs/buildPhase"
+    },
+    "patched": {
+      "$ref": "#/$defs/buildPhase"
+    },
     "passthru_tests_ground_truth": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "drv_path", "kind"],
+        "required": [
+          "name",
+          "drv_path",
+          "kind"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
           "drv_path": {
             "oneOf": [
-              { "type": "string" },
-              { "type": "null" }
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "kind": {
             "type": "string",
-            "enum": ["passthru.tests", "nixosTests"]
+            "enum": [
+              "passthru.tests",
+              "nixosTests"
+            ]
           }
         }
       }
     },
-
-    "sbom_delta_attempted": { "type": "boolean", "const": false },
-
+    "sbom_delta_attempted": {
+      "type": "boolean",
+      "const": false
+    },
     "dispatch_outcome": {
       "type": "string",
       "enum": [
@@ -111,62 +195,110 @@
         "instrumentation-malformed"
       ]
     },
-
     "instrumentation": {
       "description": "Active build instrumentation mode for the reproducer phases. Null when no reproducer-instrumentation.json was supplied or asan was false; 'asan' when AddressSanitizer was applied to the unpatched + patched reproducer builds. UBSAN/MSAN/TSAN are out of scope for v0.",
       "oneOf": [
-        { "type": "string", "enum": ["asan"] },
-        { "type": "null" }
+        {
+          "type": "string",
+          "enum": [
+            "asan"
+          ]
+        },
+        {
+          "type": "null"
+        }
       ]
     }
   },
-
   "$defs": {
     "buildPhase": {
       "type": "object",
-      "required": ["applied"],
+      "required": [
+        "applied"
+      ],
       "additionalProperties": false,
       "properties": {
-        "applied": { "type": "boolean" },
+        "applied": {
+          "type": "boolean"
+        },
         "outcome": {
           "oneOf": [
-            { "type": "string", "enum": ["succeeded", "failed", "timed-out", "skipped"] },
-            { "type": "null" }
+            {
+              "type": "string",
+              "enum": [
+                "succeeded",
+                "failed",
+                "timed-out",
+                "skipped"
+              ]
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "exit_code": {
           "oneOf": [
-            { "type": "integer" },
-            { "type": "null" }
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "drv_path": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "null" }
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "out_path": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "null" }
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "elapsed_seconds": {
           "oneOf": [
-            { "type": "number", "minimum": 0 },
-            { "type": "null" }
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
           ]
         },
-        "stdout_stderr": { "type": "string" },
+        "stdout_stderr": {
+          "type": "string"
+        },
         "stdout_stderr_log_sha256": {
           "oneOf": [
-            { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-            { "type": "null" }
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
-        "stdout_stderr_tail": { "type": "string" },
-        "reason": { "type": "string", "maxLength": 2048 }
+        "stdout_stderr_tail": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2048
+        }
       }
     }
   }
