@@ -396,6 +396,120 @@ def test_resolve_attr_package_dir_returns_none_for_missing_attr(tmp_path: Path) 
     assert _resolve_attr_package_dir(checkout, "") is None
 
 
+# ─── filename remap: package.nix → default.nix (codex 2026-06-15) ────────────
+
+_PKG_DIFF = (
+    "diff --git a/package.nix b/package.nix\n"
+    "--- a/package.nix\n"
+    "+++ b/package.nix\n"
+    "@@ -1 +1 @@\n"
+    '-version = "10.0p2"; # see package.nix notes\n'
+    '+version = "10.1p1"; # see package.nix notes\n'
+)
+
+
+def test_remap_diff_basename_rewrites_only_headers() -> None:
+    """The remap helper rewrites exactly the three git path headers and leaves
+    hunk bodies untouched — even context lines that mention 'package.nix'."""
+    from agents.builder.runner import _remap_diff_basename
+    out = _remap_diff_basename(_PKG_DIFF, "package.nix", "default.nix")
+    assert "diff --git a/default.nix b/default.nix\n" in out
+    assert "--- a/default.nix\n" in out
+    assert "+++ b/default.nix\n" in out
+    # hunk body (the version line, which also contains the word package.nix) is intact
+    assert '-version = "10.0p2"; # see package.nix notes\n' in out
+    assert '+version = "10.1p1"; # see package.nix notes\n' in out
+    assert "a/package.nix" not in out and "b/package.nix" not in out
+
+
+def test_apply_patch_remaps_to_default_nix_for_multivariant(tmp_path: Path, monkeypatch) -> None:
+    """Non-by-name multi-variant package (real file default.nix). The Builder maps
+    the canonical bundle package.nix onto default.nix, applies cleanly, mutates the
+    real file, and records the remap. The committed patch.diff is never mutated."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout = tmp_path / "checkout"
+    pkg_dir = checkout / "pkgs" / "tools" / "networking" / "openssh"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "default.nix").write_text('version = "10.0p2"; # see package.nix notes\n')
+    _init_git_checkout(checkout)
+    patch = tmp_path / "patch.diff"
+    patch.write_text(_PKG_DIFF)
+    monkeypatch.setattr(
+        R, "_resolve_attr_package_file",
+        lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
+    )
+    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    assert res["applied"] is True, res
+    assert res["files_changed"] == ["pkgs/tools/networking/openssh/default.nix"]
+    assert res["package_file_remap"] == "package.nix -> pkgs/tools/networking/openssh/default.nix"
+    assert (pkg_dir / "default.nix").read_text() == 'version = "10.1p1"; # see package.nix notes\n'
+    # committed patch.diff untouched
+    assert patch.read_text() == _PKG_DIFF
+
+
+def test_apply_patch_refuses_remap_for_multifile_patch(tmp_path: Path, monkeypatch) -> None:
+    """When the resolved file is non-by-name (default.nix) but the patch touches more
+    than the canonical package.nix, the Builder refuses to remap (codex constraint)."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout = tmp_path / "checkout"
+    pkg_dir = checkout / "pkgs" / "tools" / "networking" / "openssh"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "default.nix").write_text('version = "10.0p2";\n')
+    _init_git_checkout(checkout)
+    multi = tmp_path / "patch.diff"
+    multi.write_text(
+        _PKG_DIFF
+        + "diff --git a/common.nix b/common.nix\n"
+        "--- a/common.nix\n+++ b/common.nix\n@@ -1 +1 @@\n-a\n+b\n"
+    )
+    monkeypatch.setattr(
+        R, "_resolve_attr_package_file",
+        lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
+    )
+    res = R._apply_patch(patch_diff_path=multi, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    assert res["applied"] is False
+    assert "refusing to remap" in res["reason"]
+
+
+def test_apply_patch_refuses_remap_for_sibling_deletion(tmp_path: Path, monkeypatch) -> None:
+    """Security regression: a patch that edits package.nix AND deletes a sibling file
+    (via `+++ /dev/null`) must be refused. The `+++ b/`-only extractor is blind to
+    deletions; the gate enforces the single-file invariant via `git apply --numstat`,
+    so the sibling is never mutated. (security-review 2026-06-15)"""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout = tmp_path / "checkout"
+    pkg_dir = checkout / "pkgs" / "tools" / "networking" / "openssh"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "default.nix").write_text('version = "10.0p2"; # see package.nix notes\n')
+    (pkg_dir / "victim.nix").write_text("# load-bearing sibling\n")
+    _init_git_checkout(checkout)
+    sneaky = tmp_path / "patch.diff"
+    sneaky.write_text(
+        _PKG_DIFF
+        + "diff --git a/victim.nix b/victim.nix\n"
+        "deleted file mode 100644\n"
+        "--- a/victim.nix\n"
+        "+++ /dev/null\n"
+        "@@ -1 +0,0 @@\n"
+        "-# load-bearing sibling\n"
+    )
+    monkeypatch.setattr(
+        R, "_resolve_attr_package_file",
+        lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
+    )
+    res = R._apply_patch(patch_diff_path=sneaky, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    assert res["applied"] is False, res
+    assert "refusing to remap" in res["reason"]
+    # the sibling file must be untouched
+    assert (pkg_dir / "victim.nix").is_file()
+
+
 def test_resolve_attr_package_dir_rejects_unsafe_attr(tmp_path: Path) -> None:
     """Attrs that fail _ATTR_SAFE_RE must return None without calling nix eval."""
     from agents.builder.runner import _resolve_attr_package_dir
