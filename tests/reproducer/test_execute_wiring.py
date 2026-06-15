@@ -568,7 +568,7 @@ def test_reproducer_in_model_backed_roles_set():
 
 
 def test_reproducer_prompt_path_default_is_v9():
-    """Locked: the runner loads `prompts/reproducer.v9.md` by default.
+    """Locked: the runner loads `prompts/reproducer.v11.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit.
     The v8→v9 bump codifies F18: the Nix build sandbox inherits
@@ -581,13 +581,26 @@ def test_reproducer_prompt_path_default_is_v9():
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v9.md", (
-        f"runner default reproducer prompt should be v9 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v11.md", (
+        f"runner default reproducer prompt should be v11 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
         "If you are bumping the prompt to v10+, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {REPRODUCER_PROMPT_PATH_DEFAULT}"
     )
+
+
+def test_reproducer_v11_has_fetchpatch_and_config_sensitive_clauses():
+    """Regression lock (cert-campaign friction 2026-06-15): v11 must keep the
+    emphatic clauses that (a) forbid fetchpatch even for extraPatches-src
+    reconstruction and (b) require config-sensitive/service-topology CVEs to refuse
+    (not proxy). openssh_gssapi (fetchpatch) + samba (CWE-908 proxy) regressions."""
+    from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
+
+    text = REPRODUCER_PROMPT_PATH_DEFAULT.read_text().lower()
+    assert "fetchpatch" in text and "extrapatches" in text
+    assert "config-sensitive" in text or "service-topology" in text
+    assert "proxy" in text and "refuse" in text
 
 
 def test_reproducer_unknown_model_id_rejected_without_factory(tmp_path):
