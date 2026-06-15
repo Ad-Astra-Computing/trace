@@ -568,7 +568,7 @@ def test_reproducer_in_model_backed_roles_set():
 
 
 def test_reproducer_prompt_path_default_is_v9():
-    """Locked: the runner loads `prompts/reproducer.v12.md` by default.
+    """Locked: the runner loads `prompts/reproducer.v13.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit. v12
     bans fallback-fires-signal predicates (a reproducer must not emit SIGNAL on
@@ -578,8 +578,8 @@ def test_reproducer_prompt_path_default_is_v9():
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v12.md", (
-        f"runner default reproducer prompt should be v12 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v13.md", (
+        f"runner default reproducer prompt should be v13 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
         "If you are bumping the prompt, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
@@ -601,6 +601,20 @@ def test_reproducer_v12_has_fetchpatch_config_sensitive_and_fallback_signal_clau
     # v12 fallback-fires-signal ban
     assert "fallback-fires-signal" in text
     assert "benign" in text and "non-discriminating" in text
+
+
+def test_reproducer_v13_has_editor_tui_sandbox_home_clause():
+    """Regression lock: v13 adds the editor/TUI sandbox-HOME rule (neovim CVE-2026-11487):
+    give the tool a writable HOME + disable persistent state, and never treat benign
+    editor/state diagnostics (E886 ShaDa, config-not-found) as non-execution."""
+    from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
+
+    text = REPRODUCER_PROMPT_PATH_DEFAULT.read_text()
+    low = text.lower()
+    assert 'HOME="$TMPDIR"' in text or "HOME=$TMPDIR" in text
+    assert "-i NONE" in text  # nvim state-disable flag
+    assert "shada" in low and ("e886" in low or "benign" in low)
+    assert "marker" in low  # check the exploit marker before generic diagnostics
 
 
 def test_reproducer_unknown_model_id_rejected_without_factory(tmp_path):
