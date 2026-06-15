@@ -107,6 +107,34 @@ def test_finalize_refuses_extra_prefetch_field(tmp_path):
     assert not (bd / "bundle.json").is_file()
 
 
+# ── placeholder nixpkgs_rev guardrail (codex 2026-06-15) ─────────────────────
+
+def test_finalize_warns_on_placeholder_rev_for_real_cve(tmp_path, capsys):
+    """A real-CVE bundle whose impact.json carries an EXPLICIT all-zero nixpkgs_rev
+    (schema-legal: the pattern accepts 40 zeros) can never be cert-green and the
+    readiness gate excludes it. finalize must warn loudly so the defect is caught at
+    bootstrap, not at CI. (This is how the salvage-backport bundles were placeholdered.)"""
+    import json
+    bd = _seed(tmp_path)
+    _edit(bd, "impact.json", lambda d: d.__setitem__("nixpkgs_rev", "0" * 40))
+    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
+                    created_at="2026-06-14T00:00:00Z")
+    err = capsys.readouterr().err
+    assert "nixpkgs_rev is a placeholder/invalid value" in err
+    assert "CVE-2024-8176" in err
+    # still writes (placeholder is schema-legal); the gate, not finalize, blocks it
+    b = json.loads((bd / "bundle.json").read_text())
+    assert b["nixpkgs_rev"] == "0" * 40
+
+
+def test_finalize_no_warning_when_rev_present(tmp_path, capsys):
+    """The clean path (impact.json carries a real rev) emits no placeholder warning."""
+    bd = _seed(tmp_path)
+    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
+                    created_at="2026-06-14T00:00:00Z")
+    assert "all-zero placeholder" not in capsys.readouterr().err
+
+
 # ── kind_reason mapping + replay-drift refresh (codex review 2026-06-15) ──────
 
 def test_ambiguous_changelog_maps_to_its_own_kind_reason(tmp_path):

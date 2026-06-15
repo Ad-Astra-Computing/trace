@@ -77,10 +77,26 @@ def _schema_invalid_bundles() -> list[dict]:
         from tests.schema.validate import validate_fixture
     except ImportError:
         return []  # jsonschema/referencing unavailable; the CI fixture test is the backstop
+    import re
     dirty = []
     for bd in sorted((REPO / "traces" / "example").glob("CVE-*")):
         if bd.name.startswith("CVE-0000-"):
             continue
+        # Placeholder/short nixpkgs_rev = unverifiable pre-patch provenance: the cert
+        # workflow does `git fetch origin <rev>` and an all-zero rev cannot resolve, so
+        # the bundle can never be cert-green and must not count toward the training
+        # corpus (codex 2026-06-15, after the salvage-backport placeholder-rev bundles).
+        # The bundle-schema pattern ^[0-9a-f]{40}$ ACCEPTS 40 zeros, so this is an
+        # explicit check the schema validator does not perform.
+        bjson = bd / "bundle.json"
+        if bjson.is_file():
+            try:
+                rev = json.loads(bjson.read_text()).get("nixpkgs_rev", "")
+            except (OSError, json.JSONDecodeError):
+                rev = ""
+            if not re.fullmatch(r"[0-9a-f]{40}", rev or "") or set(rev) == {"0"}:
+                dirty.append({"bundle": bd.name, "error": f"placeholder/invalid nixpkgs_rev: {rev[:12]!r}"})
+                continue
         if not (bd / "expect.json").is_file():
             dirty.append({"bundle": bd.name, "error": "missing expect.json"})
             continue

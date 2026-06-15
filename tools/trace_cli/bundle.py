@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -562,6 +563,27 @@ def finalize_bundle(
         if nixpkgs_rev is None:
             # Fall back to a 40-zero placeholder (legal under bundle schema).
             nixpkgs_rev = "0" * 40
+
+    # Placeholder/invalid nixpkgs_rev guardrail (codex 2026-06-15, after the
+    # salvage-backport placeholder-rev bundles). The bundle-schema pattern
+    # ^[0-9a-f]{40}$ ACCEPTS 40 zeros and impact.json.nixpkgs_rev is required, so the
+    # real defect is an EXPLICIT all-zero rev (or one passed via --nixpkgs-rev), not
+    # just the None-fallback. For a REAL-CVE bundle that is fatal to certification:
+    # the cert workflow does `git fetch origin <rev>` and an all-zero rev cannot
+    # resolve, so the bundle can never be cert-green and the readiness gate excludes
+    # it from the training corpus. Warn loudly so a bootstrap notices at finalize,
+    # not at CI. Synthetic CVE-0000-* fixtures use zero revs by design — exempt them.
+    if cve_id and not cve_id.startswith("CVE-0000"):
+        import re as _re
+        if not _re.fullmatch(r"[0-9a-f]{40}", nixpkgs_rev or "") or set(nixpkgs_rev) == {"0"}:
+            print(
+                f"warning: {cve_id}: nixpkgs_rev is a placeholder/invalid value "
+                f"({nixpkgs_rev[:12]!r}). This bundle CANNOT be certified (the cert "
+                f"`git fetch origin <rev>` cannot resolve it) and will be EXCLUDED from "
+                f"the training corpus. Set a real 40-hex impact.json.nixpkgs_rev or pass "
+                f"--nixpkgs-rev.",
+                file=sys.stderr,
+            )
 
     if created_at is None:
         created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
