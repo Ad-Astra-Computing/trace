@@ -195,7 +195,7 @@ def test_refusal_block_parses() -> None:
     assert "kernel oops" in res.refusal_reason
 
 
-@pytest.mark.parametrize("rule_n", [0, 9, 99])
+@pytest.mark.parametrize("rule_n", [0, 13, 99])
 def test_refusal_rule_out_of_range_rejected(rule_n: int) -> None:
     raw = (
         "=== BEGIN refusal ===\n"
@@ -207,7 +207,7 @@ def test_refusal_rule_out_of_range_rejected(rule_n: int) -> None:
         parse_reproducer_output(raw)
 
 
-@pytest.mark.parametrize("rule_n", [1, 2, 3, 4, 5, 6, 7, 8])
+@pytest.mark.parametrize("rule_n", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
 def test_refusal_rule_in_range_accepted(rule_n: int) -> None:
     raw = (
         "=== BEGIN refusal ===\n"

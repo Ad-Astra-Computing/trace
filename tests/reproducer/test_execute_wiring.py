@@ -568,39 +568,39 @@ def test_reproducer_in_model_backed_roles_set():
 
 
 def test_reproducer_prompt_path_default_is_v9():
-    """Locked: the runner loads `prompts/reproducer.v11.md` by default.
+    """Locked: the runner loads `prompts/reproducer.v12.md` by default.
 
-    Reproducer prompt versioning is a contract change, not a doc-only edit.
-    The v8→v9 bump codifies F18: the Nix build sandbox inherits
-    `ulimit -s unlimited` from the nix-daemon, so stack-class CVEs
-    (CWE-121/CWE-674/CWE-787-stack-side) require an explicit
-    `ulimit -s 8192` inside `runCommand` test scripts. Loading v8
-    silently downgrades the contract. See DECISIONS 2026-05-24 (F18)
-    and the expat cert evidence (runs 26323566165 / 26347401054 pre-fix,
-    26348784388 post-fix).
+    Reproducer prompt versioning is a contract change, not a doc-only edit. v12
+    bans fallback-fires-signal predicates (a reproducer must not emit SIGNAL on
+    benign/success behavior — that fabricates discrimination; silent memory CVEs
+    must refuse). See DECISIONS 2026-06-15 (mbedtls CVE-2024-49195 CWE-787); v11
+    carried the fetchpatch + config-sensitive refusal clauses (still present).
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v11.md", (
-        f"runner default reproducer prompt should be v11 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
-        "If you are bumping the prompt to v10+, update this test in the same commit."
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v12.md", (
+        f"runner default reproducer prompt should be v12 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+        "If you are bumping the prompt, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {REPRODUCER_PROMPT_PATH_DEFAULT}"
     )
 
 
-def test_reproducer_v11_has_fetchpatch_and_config_sensitive_clauses():
-    """Regression lock (cert-campaign friction 2026-06-15): v11 must keep the
-    emphatic clauses that (a) forbid fetchpatch even for extraPatches-src
-    reconstruction and (b) require config-sensitive/service-topology CVEs to refuse
-    (not proxy). openssh_gssapi (fetchpatch) + samba (CWE-908 proxy) regressions."""
+def test_reproducer_v12_has_fetchpatch_config_sensitive_and_fallback_signal_clauses():
+    """Regression lock: v12 must keep v11's clauses ((a) forbid fetchpatch even for
+    extraPatches-src reconstruction, (b) config-sensitive/service-topology CVEs refuse
+    not proxy) AND add (c) the fallback-fires-signal ban (mbedtls CWE-787): a
+    reproducer must not emit SIGNAL on benign/success behavior."""
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
     text = REPRODUCER_PROMPT_PATH_DEFAULT.read_text().lower()
     assert "fetchpatch" in text and "extrapatches" in text
     assert "config-sensitive" in text or "service-topology" in text
     assert "proxy" in text and "refuse" in text
+    # v12 fallback-fires-signal ban
+    assert "fallback-fires-signal" in text
+    assert "benign" in text and "non-discriminating" in text
 
 
 def test_reproducer_unknown_model_id_rejected_without_factory(tmp_path):

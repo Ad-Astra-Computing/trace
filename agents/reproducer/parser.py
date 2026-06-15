@@ -55,9 +55,13 @@ from typing import Any
 SCHEMA_VERSION = "1.0.0"
 
 
-# Refusal rule range (1-8 per reproducer.v1.md).
+# Refusal rule range. Max 12: the reproducer prompt defines refusal rules through
+# rule 11 (F17, silent OOB-read needs ASAN — reproducer.v7) and rule 12 (CWE-class
+# crash-reliability — reproducer.v8); v12's fallback-fires-signal ban routes to rule
+# 8/11/12. The bound was stale at 8 and rejected legitimate rule-11/12 refusals
+# (mbedtls CVE-2024-49195, 2026-06-15). Keep in sync with the prompt's highest rule.
 _REPRODUCER_REFUSAL_RULE_MIN = 1
-_REPRODUCER_REFUSAL_RULE_MAX = 8
+_REPRODUCER_REFUSAL_RULE_MAX = 12
 
 
 # Per `docs/REPRODUCER_V1.md` §3.2.
