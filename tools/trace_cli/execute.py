@@ -964,7 +964,7 @@ def _append_patcher_replay_entry(
 # ─── reviewer execution ────────────────────────────────────────────────────
 
 
-REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v2.md"
+REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v3.md"
 
 
 def _execute_reviewer(
@@ -1342,7 +1342,7 @@ def _build_reviewer_invocation(
         "started_at": started_at,
         "ended_at": ended_at,
         "model": _build_reviewer_model_block(reviewer_run),
-        "prompt": {"path": "prompts/reviewer.v2.md", "sha256": reviewer_run["prompt_sha256"]},
+        "prompt": {"path": f"prompts/{REVIEWER_PROMPT_PATH_DEFAULT.name}", "sha256": reviewer_run["prompt_sha256"]},
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
         "rng_seed": None,

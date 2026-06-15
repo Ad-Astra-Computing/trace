@@ -264,13 +264,14 @@ def test_reviewer_requires_patch_diff_on_disk(tmp_path: Path) -> None:
 # ─── v2 prompt wiring (DECISIONS 2026-05-19) ───────────────────────────────
 
 
-def test_reviewer_prompt_path_default_is_v2() -> None:
-    """The Reviewer runner must default to prompt v2. F11-era hallucination
-    fix: v2 grounds Cross-family attestation in an executor-supplied
-    Model attestation context block; if execute.py still pointed at v1,
-    the prompt-bump would be a no-op."""
+def test_reviewer_prompt_path_default_is_v3() -> None:
+    """The Reviewer runner must default to prompt v3. v3 (2026-06-15) adds the
+    source-backport carve-out: rule-8 hash grounding is N/A for an authored
+    in-tree .patch, and source-backport equivalence is judged by functional
+    (not byte) match against upstream-fix.patch. If execute.py still pointed at
+    v2, every source-backport would spuriously reject on hash-grounding."""
     from tools.trace_cli.execute import REVIEWER_PROMPT_PATH_DEFAULT
-    assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v2.md"
+    assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v3.md"
     assert REVIEWER_PROMPT_PATH_DEFAULT.is_file()
 
 
