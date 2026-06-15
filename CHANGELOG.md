@@ -6,6 +6,24 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ---
 
+## trace-v0 — 15 June 2026
+
+### Reviewer-LoRA corpus frozen at 50/25; v0 pilot gate cleared
+
+`trace-v0` marks the first self-contained end-to-end trace v0 system: Scout scouts CVEs from NVD/OSV, Patcher authors bundle patches (claude-opus-4-7), Reviewer audits them (claude-sonnet-4-6, cross-family), and the resulting corpus passes the Reviewer-LoRA pilot readiness gate.
+
+**Corpus frozen: 50 positives + 25 negatives, schema 1.1.0.** Tagged `corpus-v1` at commit `ae1c384`. The 50 positives are 75 exported examples (50 positives + 25 negatives), family-leakage-free across train/dev/test splits (49 distinct package families, 53/8/14 split). `PYTHONPATH=tools python3 eval/corpus_readiness.py` exits 0.
+
+**Three new CVE bundles added to reach threshold.** CVE-2026-48840 (exim 4.99.3→4.99.4, fetchurl), CVE-2026-9256 (nginx stable 1.30.1→1.30.2, fetchurl), CVE-2026-6477 (libpq 18.2→18.4, fetchFromGitHub). All three: Patcher (opus-4-7) + Reviewer (sonnet-4-6) complete, verdict=accept, v2 cross-family attestation correct.
+
+**`trace report throughput` command.** `tools/trace_cli/report.py` — reports cost and throughput: cron run count, bundle wall time, per-role usage. Data layer at `data/reports/throughput-*.{json,md}`. At corpus-v1 freeze: 44 bundles, 439 scout runs, $4.63 total agent cost across 14 auto-merge bundles.
+
+**Patcher prompt v2.2 (`prompts/patcher.v2.2.md`).** Bumped default from v2.1; runner and tests updated. All 109 patcher tests pass.
+
+**Salvage branch backport.** 11 bundles from `salvage-sibling-bundles-20260612` merged to main: 7 new bundle dirs + 4 reviewer runs added to existing bundles. Three attestation-mismatch review.md files re-run (libtasn1, django, traefik) to upgrade from `reviewer_family: anthropic-claude` → `anthropic-sonnet`.
+
+---
+
 ## Unreleased
 
 ### Phase 3 arc open; libpng retired (F22); schema + cost improvements
