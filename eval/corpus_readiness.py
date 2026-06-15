@@ -160,10 +160,40 @@ def _uncerted_auto_merge_positives() -> list[dict]:
     return out
 
 
+def _source_backport_report() -> dict:
+    """Behavioral-validation status of the source-backport corpus — the valuable,
+    non-version-bump training data (the agent AUTHORS the code fix). A source
+    backport only counts as `validated` if the cert behaviorally proved the fix
+    addresses the CVE (unpatched-fires / backported-clean); `verified-only` ones
+    built + Reviewer-accepted but were not behaviorally proven (codex 2026-06-15).
+    Reported separately from the Reviewer-LoRA positives so a 46:4
+    version-bump:source-backport split is visible, not hidden (Jason 2026-06-15:
+    'don't train on a 46:4 split — source-backports first')."""
+    try:
+        sys.path.insert(0, str(REPO))
+        from eval.backport_validation import scan_source_backports
+    except ImportError:
+        return {"total": 0, "validated": 0, "verified_only": 0, "validation_failures": []}
+    results = scan_source_backports(REPO / "traces" / "example")
+    validated = [r for r in results if r.validated]
+    verified_only = [r for r in results if not r.validated]
+    return {
+        "total": len(results),
+        "validated": len(validated),
+        "verified_only": len(verified_only),
+        "validated_bundles": [r.bundle for r in validated],
+        "validation_failures": [
+            {"bundle": r.bundle, "failed": r.failed_load_bearing()}
+            for r in verified_only
+        ],
+    }
+
+
 def build_report(pos_threshold: int, neg_threshold: int) -> dict:
     rev = _export("reviewer") or {}
     auth = _export("authoring") or {}
     dirty = _schema_invalid_bundles()
+    backports = _source_backport_report()
 
     labels = rev.get("labels", {})
     pos = labels.get("positive", 0)
@@ -217,6 +247,7 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
         },
         "schema_invalid": dirty,
         "uncerted_auto_merge": uncerted,
+        "source_backports": backports,
         "thresholds": {"positive": pos_threshold, "negative": neg_threshold},
         "pilot_ready": pilot_ready,
         "blocking": [m for m, ok in (
@@ -258,6 +289,12 @@ def _emit(r: dict) -> None:
               f"do NOT count toward the 50): {len(unc)}")
         for u in unc:
             print(f"    - {u['bundle']}: {u['subreason']}")
+    sb = r.get("source_backports", {})
+    if sb.get("total"):
+        print(f"  source-backports (the valuable non-version-bump data): "
+              f"{sb['validated']} validated / {sb['total']} total")
+        for f in sb.get("validation_failures", []):
+            print(f"    - VERIFIED-ONLY {f['bundle']}: failed {', '.join(f['failed'])}")
     print(f"  authoring examples: {r['authoring']['examples']}  splits: {r['authoring']['splits']}")
     verdict = "READY to freeze baseline + run pilot" if r["pilot_ready"] else "NOT YET"
     print(f"== verdict: {verdict} ==")
