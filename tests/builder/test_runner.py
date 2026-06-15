@@ -408,6 +408,99 @@ _PKG_DIFF = (
 )
 
 
+def test_paths_contained_in_guard() -> None:
+    """The path-traversal guard for direct-package-dir apply: contained paths pass;
+    absolute, '..', '.', empty, backslash, and outside-dir paths are rejected."""
+    from agents.builder.runner import _paths_contained_in
+    d = "pkgs/development/python-modules/requests"
+    assert _paths_contained_in([f"{d}/default.nix", f"{d}/CVE-2024-47081.patch"], d)
+    assert _paths_contained_in([d], d)  # the dir itself
+    assert not _paths_contained_in([f"{d}/../evil.nix"], d)
+    assert not _paths_contained_in(["/etc/passwd"], d)
+    assert not _paths_contained_in([f"{d}/sub/../../escape.nix"], d)
+    assert not _paths_contained_in(["pkgs/development/python-modules/requests-evil/x"], d)
+    assert not _paths_contained_in([""], d)
+    assert not _paths_contained_in([f"{d}/a\\b"], d)
+
+
+def test_apply_patch_direct_package_dir_multifile_source_backport(tmp_path: Path, monkeypatch) -> None:
+    """A non-by-name source-backport: full nixpkgs paths contained in the package
+    dir (a new CVE.patch + a default.nix edit) apply at the repo root with NO remap
+    and NO --directory. This is the legacy-package source-backport path that the
+    canonical-remap refactor regressed (codex 2026-06-15)."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout = tmp_path / "checkout"
+    pkg = checkout / "pkgs" / "development" / "python-modules" / "demo"
+    pkg.mkdir(parents=True)
+    (pkg / "default.nix").write_text('  patches = [\n    ./old.patch\n  ];\n')
+    (pkg / "old.patch").write_text("# pre-existing\n")
+    _init_git_checkout(checkout)
+    monkeypatch.setattr(R, "_resolve_attr_package_dir",
+                        lambda co, attr: "pkgs/development/python-modules/demo")
+    patch = tmp_path / "patch.diff"
+    rel = "pkgs/development/python-modules/demo"
+    patch.write_text(
+        f"diff --git a/{rel}/CVE-2099-1.patch b/{rel}/CVE-2099-1.patch\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        f"+++ b/{rel}/CVE-2099-1.patch\n"
+        "@@ -0,0 +1 @@\n"
+        "+the authored upstream fix\n"
+        f"diff --git a/{rel}/default.nix b/{rel}/default.nix\n"
+        f"--- a/{rel}/default.nix\n"
+        f"+++ b/{rel}/default.nix\n"
+        "@@ -1,3 +1,4 @@\n"
+        "   patches = [\n"
+        "     ./old.patch\n"
+        "+    ./CVE-2099-1.patch\n"
+        "   ];\n"
+    )
+    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="python3Packages.demo")
+    assert res["applied"] is True, res
+    assert res["apply_mode"] == "direct-package-dir"
+    assert "package_file_remap" not in res
+    assert set(res["files_changed"]) == {f"{rel}/CVE-2099-1.patch", f"{rel}/default.nix"}
+    assert (pkg / "CVE-2099-1.patch").read_text() == "the authored upstream fix\n"
+    assert "./CVE-2099-1.patch" in (pkg / "default.nix").read_text()
+    assert patch.read_text().startswith("diff --git")  # committed patch untouched
+
+
+def test_apply_patch_direct_mode_rejects_path_escape(tmp_path: Path, monkeypatch) -> None:
+    """Security: a non-by-name patch that touches a file OUTSIDE the resolved package
+    dir (path traversal) must NOT take the direct-package-dir mode — it falls through
+    to the canonical remap, which refuses the multi-file shape. The outside file is
+    never mutated."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout = tmp_path / "checkout"
+    pkg = checkout / "pkgs" / "development" / "python-modules" / "demo"
+    pkg.mkdir(parents=True)
+    (pkg / "default.nix").write_text('version = "1";\n')
+    victim_dir = checkout / "pkgs" / "stdenv"
+    victim_dir.mkdir(parents=True)
+    (victim_dir / "secret.nix").write_text("# do not touch\n")
+    _init_git_checkout(checkout)
+    monkeypatch.setattr(R, "_resolve_attr_package_dir",
+                        lambda co, attr: "pkgs/development/python-modules/demo")
+    rel = "pkgs/development/python-modules/demo"
+    patch = tmp_path / "patch.diff"
+    patch.write_text(
+        f"diff --git a/{rel}/default.nix b/{rel}/default.nix\n"
+        f"--- a/{rel}/default.nix\n+++ b/{rel}/default.nix\n"
+        '@@ -1 +1 @@\n-version = "1";\n+version = "2";\n'
+        "diff --git a/pkgs/stdenv/secret.nix b/pkgs/stdenv/secret.nix\n"
+        "--- a/pkgs/stdenv/secret.nix\n+++ b/pkgs/stdenv/secret.nix\n"
+        "@@ -1 +1 @@\n-# do not touch\n+# pwned\n"
+    )
+    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="python3Packages.demo")
+    assert res["applied"] is False, res
+    assert res.get("apply_mode") != "direct-package-dir"
+    assert (victim_dir / "secret.nix").read_text() == "# do not touch\n"  # untouched
+
+
 def test_remap_diff_basename_rewrites_only_headers() -> None:
     """The remap helper rewrites exactly the three git path headers and leaves
     hunk bodies untouched — even context lines that mention 'package.nix'."""
@@ -509,8 +602,11 @@ def test_apply_patch_refuses_remap_for_multifile_patch(tmp_path: Path, monkeypat
         lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
     )
     res = R._apply_patch(patch_diff_path=multi, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    # common.nix is a top-level bundle-relative path NOT contained in the resolved
+    # package dir, so direct-package-dir apply is ineligible and (being multi-file)
+    # the canonical remap refuses too.
     assert res["applied"] is False
-    assert "refusing to remap" in res["reason"]
+    assert "refusing to apply onto a non-by-name package" in res["reason"]
 
 
 def test_apply_patch_refuses_remap_for_sibling_deletion(tmp_path: Path, monkeypatch) -> None:
@@ -542,8 +638,12 @@ def test_apply_patch_refuses_remap_for_sibling_deletion(tmp_path: Path, monkeypa
         lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
     )
     res = R._apply_patch(patch_diff_path=sneaky, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    # The sibling deletion makes the diff "unsafe" (deleted file mode), so
+    # direct-package-dir apply is refused; the multi-file shape also fails the
+    # canonical remap. The victim file is never mutated.
     assert res["applied"] is False, res
-    assert "refusing to remap" in res["reason"]
+    assert "refusing to apply onto a non-by-name package" in res["reason"]
+    assert (pkg_dir / "victim.nix").read_text() == "# load-bearing sibling\n"
     # the sibling file must be untouched
     assert (pkg_dir / "victim.nix").is_file()
 

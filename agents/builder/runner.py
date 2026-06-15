@@ -418,9 +418,19 @@ def _apply_patch(
     remap_note: str | None = None
     cleanup_tmp: Path | None = None
     target_basename = "package.nix"
+    # apply_mode: "by-name-package-nix" (a/package.nix + --directory),
+    # "direct-package-dir" (full nixpkgs paths, repo root, no remap), or
+    # "canonical-package-remap" (single-file package.nix -> real basename).
+    apply_mode = "by-name-package-nix"
+    direct_package_dir = False
+    direct_changed: list[str] = []
     if not (abs_dir / "package.nix").is_file():
+        # --recount so the path-extraction tolerates the SAME off-by-one hunk
+        # counts the real apply tolerates (model-authored source-backport patches
+        # routinely carry them); without it a valid patch would be rejected as
+        # non-canonical before the --recount apply could succeed (codex 2026-06-15).
         numstat = subprocess.run(
-            ["git", "apply", "--numstat", str(patch_diff_path)],
+            ["git", "apply", "--recount", "--numstat", str(patch_diff_path)],
             cwd=str(nixpkgs_checkout),
             check=False, capture_output=True, text=True,
         )
@@ -429,33 +439,62 @@ def _apply_patch(
             for ln in numstat.stdout.splitlines()
             if ln.strip() and "\t" in ln
         ]
-        if numstat.returncode != 0 or numstat_paths != ["package.nix"]:
-            return _failed(
-                f"attr {attr!r} resolves to dir {package_dir_rel!r} which has no "
-                f"package.nix, and patch.diff is not a single canonical package.nix "
-                f"change (git apply --numstat paths={numstat_paths!r}, "
-                f"rc={numstat.returncode}); refusing to remap a multi-file/rename/"
-                f"delete patch onto a non-by-name package"
+        # Direct repo-root apply for a non-by-name source-backport authored with
+        # real nixpkgs paths fully contained in the package dir (codex 2026-06-15).
+        # Such a patch touches >1 file (e.g. .../default.nix + .../CVE-XXXX.patch)
+        # and is NOT a canonical one-file package.nix change, so the remap branch is
+        # the wrong mode; but it already names real paths, so it applies at the repo
+        # root with no remap and no --directory. Guardrails (codex): no
+        # deletes/renames/symlinks; every path relative, normalized, no '..', and
+        # contained in package_dir_rel; git apply --check must pass at the repo root.
+        _unsafe_diff = any(
+            marker in diff_text for marker in (
+                "\ndeleted file mode ", "\nrename from ", "\nrename to ",
+                "\nold mode ", "\nnew mode ", "120000",
             )
-        sel_basename, method, reason = _select_remap_target(
-            abs_dir=abs_dir,
-            package_dir_rel=package_dir_rel,
-            nixpkgs_checkout=nixpkgs_checkout,
-            bundled_package_nix=patch_diff_path.parent / "package.nix",
-            diff_text=diff_text,
         )
-        if sel_basename is None:
-            return _failed(reason)
-        target_basename = sel_basename
-        remapped = _remap_diff_basename(diff_text, "package.nix", target_basename)
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".diff", prefix="trace-remap-", delete=False
-        )
-        tmp.write(remapped)
-        tmp.close()
-        patch_to_apply = Path(tmp.name)
-        cleanup_tmp = patch_to_apply
-        remap_note = f"package.nix -> {package_dir_rel}/{target_basename} ({method})"
+        if (numstat.returncode == 0 and numstat_paths
+                and not _unsafe_diff
+                and _paths_contained_in(numstat_paths, package_dir_rel)):
+            check_root = subprocess.run(
+                ["git", "apply", "--recount", "--check", str(patch_diff_path)],
+                cwd=str(nixpkgs_checkout),
+                check=False, capture_output=True, text=True,
+            )
+            if check_root.returncode == 0:
+                direct_package_dir = True
+                direct_changed = numstat_paths
+                apply_mode = "direct-package-dir"
+        if not direct_package_dir:
+            if numstat.returncode != 0 or numstat_paths != ["package.nix"]:
+                return _failed(
+                    f"attr {attr!r} resolves to dir {package_dir_rel!r} which has no "
+                    f"package.nix; patch.diff is neither a single canonical "
+                    f"package.nix change NOR a source-backport contained in the "
+                    f"package dir (git apply --numstat paths={numstat_paths!r}, "
+                    f"rc={numstat.returncode}, unsafe_diff={_unsafe_diff}); refusing "
+                    f"to apply onto a non-by-name package"
+                )
+            sel_basename, method, reason = _select_remap_target(
+                abs_dir=abs_dir,
+                package_dir_rel=package_dir_rel,
+                nixpkgs_checkout=nixpkgs_checkout,
+                bundled_package_nix=patch_diff_path.parent / "package.nix",
+                diff_text=diff_text,
+            )
+            if sel_basename is None:
+                return _failed(reason)
+            target_basename = sel_basename
+            remapped = _remap_diff_basename(diff_text, "package.nix", target_basename)
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".diff", prefix="trace-remap-", delete=False
+            )
+            tmp.write(remapped)
+            tmp.close()
+            patch_to_apply = Path(tmp.name)
+            cleanup_tmp = patch_to_apply
+            remap_note = f"package.nix -> {package_dir_rel}/{target_basename} ({method})"
+            apply_mode = "canonical-package-remap"
 
     # --recount: infer hunk line-counts from the patch body rather than trusting
     # the `@@ -a,b +c,d @@` headers. Model-authored patches (especially the
@@ -465,7 +504,13 @@ def _apply_patch(
     # NOT relax content/context matching — git still requires the context lines
     # to match the target exactly — so it tolerates the model's arithmetic
     # without weakening the apply's correctness guarantee.
-    apply_args = ["git", "apply", "--recount", f"--directory={package_dir_rel}"]
+    # direct-package-dir patches carry real repo-root paths, so they apply WITHOUT
+    # --directory (which would double-prefix the path); the other modes use a
+    # bundle-relative path remapped under --directory.
+    if direct_package_dir:
+        apply_args = ["git", "apply", "--recount"]
+    else:
+        apply_args = ["git", "apply", "--recount", f"--directory={package_dir_rel}"]
     try:
         check = subprocess.run(
             [*apply_args, "--check", str(patch_to_apply)],
@@ -495,19 +540,44 @@ def _apply_patch(
     # Re-prefix files_changed with the resolved package directory so build.json's
     # record matches the actual nixpkgs-relative paths. When remapped, record the
     # REAL basename (default.nix), not the canonical package.nix.
-    effective_changed = [target_basename] if remap_note else files_changed
-    files_changed_prefixed = [
-        f"{package_dir_rel}/{p}" for p in effective_changed
-    ]
+    if direct_package_dir:
+        # numstat paths are already full nixpkgs-relative paths; no re-prefix.
+        files_changed_prefixed = direct_changed
+    else:
+        effective_changed = [target_basename] if remap_note else files_changed
+        files_changed_prefixed = [
+            f"{package_dir_rel}/{p}" for p in effective_changed
+        ]
     result: dict[str, Any] = {
         "applied": True,
         "git_apply_exit_code": 0,
         "files_changed": files_changed_prefixed,
         "post_apply_sha": rev,
+        "apply_mode": apply_mode,
     }
     if remap_note is not None:
         result["package_file_remap"] = remap_note
     return result
+
+
+def _paths_contained_in(paths: list[str], package_dir_rel: str) -> bool:
+    """True iff every git path is relative, normalized, free of '..', and lies
+    inside `package_dir_rel` (the path-traversal guard for direct-package-dir
+    apply, codex 2026-06-15). git emits forward-slash paths, so this is pure
+    posix string logic — a path is contained iff it equals the dir or starts
+    with `<dir>/`. Any absolute path, empty path, '..' segment, '.' segment, or
+    backslash makes the whole patch ineligible for direct apply (it falls back
+    to the canonical remap, which has its own guards, or is refused)."""
+    prefix = package_dir_rel.rstrip("/") + "/"
+    for p in paths:
+        if not p or p.startswith("/") or "\\" in p:
+            return False
+        segs = p.split("/")
+        if any(s in ("", ".", "..") for s in segs):
+            return False
+        if p != package_dir_rel and not p.startswith(prefix):
+            return False
+    return True
 
 
 _ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$")
