@@ -105,3 +105,49 @@ def test_finalize_refuses_extra_prefetch_field(tmp_path):
         finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
                         created_at="2026-06-14T00:00:00Z")
     assert not (bd / "bundle.json").is_file()
+
+
+# ── kind_reason mapping + replay-drift refresh (codex review 2026-06-15) ──────
+
+def test_ambiguous_changelog_maps_to_its_own_kind_reason(tmp_path):
+    """human_review_trigger=ambiguous-changelog must NOT fall back to the
+    major-version-jump kind_reason (which polluted routing/training metadata)."""
+    bd = _seed(tmp_path)
+    _edit(bd, "upstream-ref.json", lambda d: d.setdefault("eligibility", {}).update(
+        {"verdict": "eligible-requires-human-review",
+         "verdict_reason": "multi-release span; ambiguous changelog needs human sign-off",
+         "human_review_trigger": "ambiguous-changelog"}))
+    # blast-radius takes precedence over the trigger; force it off so the
+    # ambiguous-changelog mapping is the one under test.
+    def _blast_off(d):
+        d["exceeds_threshold"] = False
+        for pa in d.get("per_attr", []):
+            pa["exceeds_threshold"] = False
+    _edit(bd, "impact.json", _blast_off)
+    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
+                          created_at="2026-06-14T00:00:00Z")
+    import json
+    b = json.loads((bd / "bundle.json").read_text())
+    assert b["kind_reason"] == "ambiguous-changelog-requires-review"
+
+
+def test_refinalize_after_pin_keeps_resolver_transcript_consistent(tmp_path):
+    """After a manual prefetch pin + re-finalize, the upstream-ref-resolver
+    invocation's recorded output sha must match the on-disk upstream-ref.json
+    (no replay drift)."""
+    import json
+    bd = _seed(tmp_path)
+    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
+                    created_at="2026-06-14T00:00:00Z")
+    # operator pins a different prefetch value, then re-finalizes
+    _edit(bd, "upstream-ref.json",
+          lambda d: d["prefetch_hashes"][0].__setitem__(
+              "value", "sha256-AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555FFs="))
+    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
+                    created_at="2026-06-14T00:00:00Z")
+    b = json.loads((bd / "bundle.json").read_text())
+    r = json.loads((bd / "replay.json").read_text())
+    file_sha = b["files"]["upstream-ref.json"]["sha256"]
+    res_role = next(x for x in r["roles"] if x["role"] == "upstream-ref-resolver")
+    out = next(o for o in res_role["invocations"][0]["outputs"] if o["path"] == "upstream-ref.json")
+    assert out["sha256"] == file_sha
