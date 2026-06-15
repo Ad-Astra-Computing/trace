@@ -375,8 +375,8 @@ def _apply_patch(
     diff_text = patch_diff_path.read_text()
     files_changed = _extract_changed_files(diff_text)
 
-    package_file_rel = _resolve_attr_package_file(nixpkgs_checkout, attr)
-    if package_file_rel is None:
+    package_dir_rel = _resolve_attr_package_dir(nixpkgs_checkout, attr)
+    if package_dir_rel is None:
         return {
             "applied": False,
             "git_apply_exit_code": None,
@@ -389,8 +389,7 @@ def _apply_patch(
                 f"returned no result."
             ),
         }
-    package_dir_rel = package_file_rel.rsplit("/", 1)[0] if "/" in package_file_rel else "."
-    target_basename = package_file_rel.rsplit("/", 1)[-1]
+    abs_dir = nixpkgs_checkout / package_dir_rel
 
     def _failed(reason: str, exit_code: int | None = None) -> dict[str, Any]:
         return {
@@ -401,39 +400,25 @@ def _apply_patch(
             "reason": reason[:2048],
         }
 
-    # Filename remap (codex 2026-06-15): the bundle convention always names the
-    # pre-patch file `package.nix`, but a non-by-name multi-variant package's real
-    # nixpkgs file is e.g. `default.nix` (openssh: a `common` function defining
-    # openssh/_hpn/_gssapi). When the resolved file's basename is not package.nix,
-    # remap the canonical bundle path onto the real basename for `git apply` — in a
-    # TEMP patch, never mutating the committed patch.diff. Bounded hard:
-    #   * the resolved file must exist inside the checkout (resolve() containment),
-    #   * the patch must touch EXACTLY a/package.nix b/package.nix (else refuse),
+    # Target-file resolution + canonical-filename remap (codex 2026-06-15). The
+    # bundle always names the pre-patch file `package.nix`. For a by-name package the
+    # real nixpkgs file IS package.nix. For a non-by-name multi-variant package the
+    # real file differs (openssh: per-variant `openssh_gssapi = common rec {...}`
+    # blocks live in default.nix, while meta.position points at the shared common.nix)
+    # and must be found by CONTENT, not meta.position basename. When the target
+    # basename != package.nix we remap the diff path headers onto it in a TEMP patch
+    # (the committed patch.diff is never mutated). Bounded hard:
+    #   * remap only a single-file canonical package.nix patch (git apply --numstat,
+    #     which — unlike the `+++ b/`-only extractor — also sees deletions/renames),
+    #   * candidates are *.nix regular files in the resolved dir only (no recursion),
+    #   * primary signal = byte-match to the bundled package.nix; fallback = a unique
+    #     git-apply --check hit; zero/ambiguous => refuse,
     #   * only diff path headers are rewritten, never hunk bodies.
     patch_to_apply = patch_diff_path
     remap_note: str | None = None
     cleanup_tmp: Path | None = None
-    if target_basename != "package.nix":
-        abs_target = (nixpkgs_checkout / package_file_rel).resolve()
-        try:
-            abs_target.relative_to(nixpkgs_checkout.resolve())
-        except ValueError:
-            return _failed(
-                f"resolved package file {package_file_rel!r} escapes the nixpkgs "
-                f"checkout; refusing to apply"
-            )
-        if not abs_target.is_file():
-            return _failed(
-                f"resolved package file {package_file_rel!r} does not exist in the "
-                f"checkout; refusing to apply"
-            )
-        # Enforce the single-file invariant against git's OWN notion of changed
-        # paths, not the `+++ b/`-only `_extract_changed_files` (which is blind to
-        # deletions `+++ /dev/null` and `rename from/to` stanzas — a multi-stanza
-        # patch could otherwise edit package.nix AND delete/rename a sibling file in
-        # the package dir, slip the gate, and have the sibling mutation applied).
-        # `git apply --numstat` is a pure dry-run parse that enumerates every path
-        # git would touch, including renames/deletes/creates.
+    target_basename = "package.nix"
+    if not (abs_dir / "package.nix").is_file():
         numstat = subprocess.run(
             ["git", "apply", "--numstat", str(patch_diff_path)],
             cwd=str(nixpkgs_checkout),
@@ -446,12 +431,22 @@ def _apply_patch(
         ]
         if numstat.returncode != 0 or numstat_paths != ["package.nix"]:
             return _failed(
-                f"attr {attr!r} resolves to {package_file_rel!r} (basename "
-                f"{target_basename!r} != package.nix), but patch.diff is not a single "
-                f"canonical package.nix change (git apply --numstat paths="
-                f"{numstat_paths!r}, rc={numstat.returncode}); refusing to remap a "
-                f"multi-file/rename/delete patch onto a non-by-name package"
+                f"attr {attr!r} resolves to dir {package_dir_rel!r} which has no "
+                f"package.nix, and patch.diff is not a single canonical package.nix "
+                f"change (git apply --numstat paths={numstat_paths!r}, "
+                f"rc={numstat.returncode}); refusing to remap a multi-file/rename/"
+                f"delete patch onto a non-by-name package"
             )
+        sel_basename, method, reason = _select_remap_target(
+            abs_dir=abs_dir,
+            package_dir_rel=package_dir_rel,
+            nixpkgs_checkout=nixpkgs_checkout,
+            bundled_package_nix=patch_diff_path.parent / "package.nix",
+            diff_text=diff_text,
+        )
+        if sel_basename is None:
+            return _failed(reason)
+        target_basename = sel_basename
         remapped = _remap_diff_basename(diff_text, "package.nix", target_basename)
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".diff", prefix="trace-remap-", delete=False
@@ -460,7 +455,7 @@ def _apply_patch(
         tmp.close()
         patch_to_apply = Path(tmp.name)
         cleanup_tmp = patch_to_apply
-        remap_note = f"package.nix -> {package_file_rel}"
+        remap_note = f"package.nix -> {package_dir_rel}/{target_basename} ({method})"
 
     # --recount: infer hunk line-counts from the patch body rather than trusting
     # the `@@ -a,b +c,d @@` headers. Model-authored patches (especially the
@@ -664,6 +659,82 @@ def _remap_diff_basename(diff_text: str, old: str, new: str) -> str:
         else:
             out.append(line)
     return "".join(out)
+
+
+def _select_remap_target(
+    *,
+    abs_dir: Path,
+    package_dir_rel: str,
+    nixpkgs_checkout: Path,
+    bundled_package_nix: Path,
+    diff_text: str,
+) -> tuple[str | None, str | None, str]:
+    """Pick the real nixpkgs file basename a canonical `package.nix` patch targets,
+    for a non-by-name package whose dir has no `package.nix`. Returns
+    `(basename, method, "")` on success or `(None, None, reason)` on refusal.
+
+    Bounded (codex 2026-06-15): candidates are `*.nix` REGULAR files (no symlinks,
+    no recursion) in `abs_dir` that resolve inside the checkout. Primary signal is a
+    byte-for-byte match to the bundle's shipped `package.nix` (proves the pre-image
+    was copied from that exact file); fallback is a UNIQUE `git apply --check` hit
+    among candidates. Zero or multiple matches at either stage => refuse.
+    """
+    root = nixpkgs_checkout.resolve()
+    candidates = []
+    for p in sorted(abs_dir.glob("*.nix")):
+        if not p.is_file() or p.is_symlink():
+            continue
+        try:
+            p.resolve().relative_to(root)
+        except ValueError:
+            continue
+        candidates.append(p)
+    if not candidates:
+        return None, None, f"no in-checkout *.nix candidates in {package_dir_rel} to remap onto"
+
+    # Primary: exact byte-match to the bundled package.nix.
+    if bundled_package_nix.is_file():
+        want = bundled_package_nix.read_bytes()
+        matches = [p for p in candidates if p.read_bytes() == want]
+        if len(matches) == 1:
+            return matches[0].name, "content-match", ""
+        if len(matches) > 1:
+            return None, None, (
+                f"ambiguous content-match ({len(matches)} *.nix files byte-equal to the "
+                f"bundled package.nix) in {package_dir_rel}; refusing to remap"
+            )
+
+    # Fallback: a single git-apply --check hit among candidates.
+    applies: list[str] = []
+    for p in candidates:
+        remapped = _remap_diff_basename(diff_text, "package.nix", p.name)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".diff", prefix="trace-probe-", delete=False
+        )
+        try:
+            tmp.write(remapped)
+            tmp.close()
+            chk = subprocess.run(
+                ["git", "apply", "--recount", "--check",
+                 f"--directory={package_dir_rel}", tmp.name],
+                cwd=str(nixpkgs_checkout),
+                check=False, capture_output=True, text=True,
+            )
+            if chk.returncode == 0:
+                applies.append(p.name)
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+    if len(applies) == 1:
+        return applies[0], "apply-check", ""
+    if len(applies) > 1:
+        return None, None, (
+            f"ambiguous apply-check ({len(applies)} *.nix files accept the patch) in "
+            f"{package_dir_rel}; refusing to remap"
+        )
+    return None, None, (
+        f"no *.nix file in {package_dir_rel} matches the canonical package.nix patch "
+        f"(neither byte-match to the bundled package.nix nor a git-apply --check hit)"
+    )
 
 
 def _patch_apply_skipped(reason: str) -> dict[str, Any]:

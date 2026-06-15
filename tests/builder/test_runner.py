@@ -422,31 +422,69 @@ def test_remap_diff_basename_rewrites_only_headers() -> None:
     assert "a/package.nix" not in out and "b/package.nix" not in out
 
 
-def test_apply_patch_remaps_to_default_nix_for_multivariant(tmp_path: Path, monkeypatch) -> None:
-    """Non-by-name multi-variant package (real file default.nix). The Builder maps
-    the canonical bundle package.nix onto default.nix, applies cleanly, mutates the
-    real file, and records the remap. The committed patch.diff is never mutated."""
-    if not _git_on_path():
-        pytest.skip("git not on PATH")
-    from agents.builder import runner as R
+def _multivariant_checkout(tmp_path: Path):
+    """A checkout whose openssh dir has default.nix + common.nix (no package.nix),
+    mimicking the real multi-variant layout where meta.position points at common.nix
+    but the patched per-variant content lives in default.nix."""
     checkout = tmp_path / "checkout"
     pkg_dir = checkout / "pkgs" / "tools" / "networking" / "openssh"
     pkg_dir.mkdir(parents=True)
     (pkg_dir / "default.nix").write_text('version = "10.0p2"; # see package.nix notes\n')
+    # a sibling .nix the patch must NOT match (the `common` helper)
+    (pkg_dir / "common.nix").write_text("{ lib }: { }\n")
+    return checkout, pkg_dir
+
+
+def test_apply_patch_remaps_via_content_match(tmp_path: Path, monkeypatch) -> None:
+    """Non-by-name multi-variant package: the Builder picks the target file by BYTE
+    match to the bundled package.nix (primary signal), remaps package.nix->default.nix,
+    applies, mutates the real file, records method=content-match. patch.diff untouched."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout, pkg_dir = _multivariant_checkout(tmp_path)
     _init_git_checkout(checkout)
     patch = tmp_path / "patch.diff"
     patch.write_text(_PKG_DIFF)
+    # bundled package.nix == default.nix bytes => unique content-match
+    (tmp_path / "package.nix").write_text('version = "10.0p2"; # see package.nix notes\n')
     monkeypatch.setattr(
         R, "_resolve_attr_package_file",
-        lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
+        lambda co, attr: "pkgs/tools/networking/openssh/common.nix",  # meta.position lies
     )
     res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="openssh_gssapi")
     assert res["applied"] is True, res
     assert res["files_changed"] == ["pkgs/tools/networking/openssh/default.nix"]
-    assert res["package_file_remap"] == "package.nix -> pkgs/tools/networking/openssh/default.nix"
+    assert res["package_file_remap"] == (
+        "package.nix -> pkgs/tools/networking/openssh/default.nix (content-match)"
+    )
     assert (pkg_dir / "default.nix").read_text() == 'version = "10.1p1"; # see package.nix notes\n'
-    # committed patch.diff untouched
+    assert (pkg_dir / "common.nix").read_text() == "{ lib }: { }\n"  # sibling untouched
     assert patch.read_text() == _PKG_DIFF
+
+
+def test_apply_patch_remaps_via_apply_check_fallback(tmp_path: Path, monkeypatch) -> None:
+    """When no bundled package.nix byte-matches, the Builder falls back to a unique
+    git-apply --check hit among *.nix candidates (default.nix applies, common.nix does
+    not), and records method=apply-check."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout, pkg_dir = _multivariant_checkout(tmp_path)
+    _init_git_checkout(checkout)
+    patch = tmp_path / "patch.diff"
+    patch.write_text(_PKG_DIFF)
+    # no bundled package.nix => content-match stage is skipped
+    monkeypatch.setattr(
+        R, "_resolve_attr_package_file",
+        lambda co, attr: "pkgs/tools/networking/openssh/common.nix",
+    )
+    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    assert res["applied"] is True, res
+    assert res["package_file_remap"] == (
+        "package.nix -> pkgs/tools/networking/openssh/default.nix (apply-check)"
+    )
+    assert (pkg_dir / "default.nix").read_text() == 'version = "10.1p1"; # see package.nix notes\n'
 
 
 def test_apply_patch_refuses_remap_for_multifile_patch(tmp_path: Path, monkeypatch) -> None:
