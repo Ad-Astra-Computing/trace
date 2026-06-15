@@ -111,6 +111,55 @@ def _schema_invalid_bundles() -> list[dict]:
     return dirty
 
 
+def _uncerted_auto_merge_positives() -> list[dict]:
+    """Real-CVE AUTO-MERGE bundles whose Reviewer accepted but which are NOT
+    cert-green+signed. An auto-merge positive's accept is only trustworthy if the
+    patch actually built and the bundle is signed (codex 2026-06-15: "auto-merge
+    positives MUST be cert-green"); review-accept alone is a softer false-green.
+    human-review-required positives are exempt — their accept is conditional on human
+    review by design. Returns [{bundle, subreason}, ...]. Subreasons: missing-build-json,
+    patch-apply-failed, patched-build-failed, non-linux-host, missing-bundle-sig."""
+    import re
+    out = []
+    for bd in sorted((REPO / "traces" / "example").glob("CVE-*")):
+        if bd.name.startswith("CVE-0000-"):
+            continue
+        bjson = bd / "bundle.json"
+        review = bd / "review.md"
+        if not bjson.is_file() or not review.is_file():
+            continue
+        try:
+            kind = json.loads(bjson.read_text()).get("kind")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if kind != "auto-merge":
+            continue
+        # only count review-accept bundles (the positives)
+        head = review.read_text()[:400].lower()
+        if "## verdict" not in head or "accept" not in head.split("## verdict", 1)[1][:40]:
+            continue
+        sub = None
+        bf = bd / "build.json"
+        if not bf.is_file():
+            sub = "missing-build-json"
+        else:
+            try:
+                b = json.loads(bf.read_text())
+            except (OSError, json.JSONDecodeError):
+                b = {}
+            if b.get("patch_apply", {}).get("applied") is not True:
+                sub = "patch-apply-failed"
+            elif b.get("patched_build", {}).get("outcome") != "succeeded":
+                sub = "patched-build-failed"
+            elif b.get("host", {}).get("system") != "x86_64-linux":
+                sub = "non-linux-host"
+            elif not (bd / "bundle.sig").is_file():
+                sub = "missing-bundle-sig"
+        if sub:
+            out.append({"bundle": bd.name, "subreason": sub})
+    return out
+
+
 def build_report(pos_threshold: int, neg_threshold: int) -> dict:
     rev = _export("reviewer") or {}
     auth = _export("authoring") or {}
@@ -120,6 +169,11 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
     pos = labels.get("positive", 0)
     neg = labels.get("negative", 0)
     leakage_ok = bool(rev.get("leakage_check_ok"))
+
+    # cert-green gate: auto-merge positives must be cert-green+signed (codex 2026-06-15).
+    # The truly-clean positive count subtracts uncerted auto-merge bundles.
+    uncerted = _uncerted_auto_merge_positives()
+    pos_certed = max(0, pos - len(uncerted))
 
     excluded = rev.get("excluded", [])
     by_reason = Counter()
@@ -133,15 +187,17 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
             {"bundle": e.get("bundle") or e.get("dir") or e.get("cve_id"), "reason": short}
         )
 
-    pos_ready = pos >= pos_threshold
+    pos_ready = pos_certed >= pos_threshold
     neg_ready = neg >= neg_threshold
     schema_clean = not dirty
-    pilot_ready = pos_ready and neg_ready and leakage_ok and schema_clean
+    cert_clean = not uncerted
+    pilot_ready = pos_ready and neg_ready and leakage_ok and schema_clean and cert_clean
 
     return {
         "reviewer": {
             "positive": pos, "negative": neg,
-            "positive_gap": max(0, pos_threshold - pos),
+            "positive_cert_green": pos_certed,
+            "positive_gap": max(0, pos_threshold - pos_certed),
             "negative_gap": max(0, neg_threshold - neg),
             "splits": rev.get("splits", {}),
             "families": rev.get("families") if isinstance(rev.get("families"), int)
@@ -160,12 +216,14 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
             "splits": auth.get("splits", {}),
         },
         "schema_invalid": dirty,
+        "uncerted_auto_merge": uncerted,
         "thresholds": {"positive": pos_threshold, "negative": neg_threshold},
         "pilot_ready": pilot_ready,
         "blocking": [m for m, ok in (
-            (f"need +{max(0, pos_threshold - pos)} positives", pos_ready),
+            (f"need +{max(0, pos_threshold - pos_certed)} cert-green positives", pos_ready),
             (f"need +{max(0, neg_threshold - neg)} negatives", neg_ready),
             (f"{len(dirty)} schema-invalid/uncerted bundles in corpus", schema_clean),
+            (f"{len(uncerted)} uncerted-auto-merge positives (cert-green+signed required)", cert_clean),
             ("family leakage across splits", leakage_ok),
         ) if not ok],
     }
@@ -175,7 +233,7 @@ def _emit(r: dict) -> None:
     rv = r["reviewer"]
     print("== Reviewer-LoRA corpus readiness ==")
     print(f"  positives: {rv['positive']}/{r['thresholds']['positive']}"
-          f"  (gap {rv['positive_gap']})")
+          f"  (cert-green {rv.get('positive_cert_green', rv['positive'])}; gap {rv['positive_gap']})")
     print(f"  negatives: {rv['negative']}/{r['thresholds']['negative']}"
           f"  (gap {rv['negative_gap']})")
     print(f"  splits: {rv['splits']}  families: {rv['families']}")
@@ -194,6 +252,12 @@ def _emit(r: dict) -> None:
               f"CI / pollute the dataset): {len(dirty)}")
         for d in dirty:
             print(f"    - {d['bundle']}: {d['error']}")
+    unc = r.get("uncerted_auto_merge", [])
+    if unc:
+        print(f"  UNCERTED AUTO-MERGE positives (review-accept but not cert-green+signed; "
+              f"do NOT count toward the 50): {len(unc)}")
+        for u in unc:
+            print(f"    - {u['bundle']}: {u['subreason']}")
     print(f"  authoring examples: {r['authoring']['examples']}  splits: {r['authoring']['splits']}")
     verdict = "READY to freeze baseline + run pilot" if r["pilot_ready"] else "NOT YET"
     print(f"== verdict: {verdict} ==")
