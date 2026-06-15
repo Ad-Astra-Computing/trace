@@ -63,7 +63,12 @@
             { "type": "null" }
           ]
         },
-        "reason": { "type": "string", "maxLength": 2048 }
+        "reason": { "type": "string", "maxLength": 2048 },
+        "package_file_remap": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Present when the Builder remapped the canonical bundle package.nix onto the real nixpkgs file for a non-by-name multi-variant package, e.g. 'package.nix -> pkgs/tools/networking/openssh/default.nix (content-match)'. Informational provenance; records the apply target + selection method."
+        }
       }
     },
 
