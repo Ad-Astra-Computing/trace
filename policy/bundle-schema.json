@@ -60,6 +60,7 @@
         "shipped-binary-non-discrimination",
         "blast-radius-exceeds-threshold",
         "major-version-jump-requires-review",
+        "ambiguous-changelog-requires-review",
         "large-sbom-delta",
         "reviewer-verdict-escalate",
         "cross-family-pair-unavailable",

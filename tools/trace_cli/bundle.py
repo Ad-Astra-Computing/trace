@@ -659,6 +659,8 @@ def finalize_bundle(
             kind_reason = "blast-radius-exceeds-threshold"
         elif trigger == "major-version-jump":
             kind_reason = "major-version-jump-requires-review"
+        elif trigger == "ambiguous-changelog":
+            kind_reason = "ambiguous-changelog-requires-review"
         elif trigger == "large-sbom-delta":
             kind_reason = "large-sbom-delta"
         elif trigger == "source-backport-experimental":
@@ -715,6 +717,28 @@ def finalize_bundle(
 
     if not existing_roles:
         existing_roles = [_seed_resolver_invocation(bundle_dir, files_block)]
+    else:
+        # Keep the upstream-ref-resolver transcript consistent with the files the
+        # downstream roles actually consumed — but ONLY for the legitimate
+        # manual-curation case. assemble seeds this invocation with the
+        # just-assembled upstream-ref.json hash; if the operator then pins a
+        # prefetch hash (source=manual-pinned) and re-finalizes, the on-disk
+        # upstream-ref.json sha changes but the seeded invocation still records the
+        # stale one — a replay-transcript drift (codex review 2026-06-15). We
+        # refresh the resolver invocation's recorded shas to match disk, gated on
+        # the upstream-ref carrying a manual-pinned prefetch entry: that is the
+        # intentional operator-curation signal. Without it we do NOT bless the edit
+        # (an arbitrary/sloppy post-assemble upstream-ref change stays as drift so
+        # replay verification can still flag it). NOTE: this makes the transcript
+        # manifest-consistent, not a full provenance record; a future enhancement
+        # (codex) is a curated_from_sha256 / manual-curation marker for adversarial
+        # replay-audit. The manual-pin remains self-documented by source=="manual-pinned".
+        _manual_pinned = any(
+            (h or {}).get("source") == "manual-pinned"
+            for h in (upstream_ref.get("prefetch_hashes") or [])
+        )
+        if _manual_pinned:
+            _refresh_resolver_invocation_hashes(existing_roles, files_block)
 
     replay_doc = {
         "schema_version": "1.0.0",
@@ -744,6 +768,29 @@ def finalize_bundle(
         files_real_hash=real_hash_names,
         files_placeholder=placeholder_names,
     )
+
+
+# Only these upstream-ref-resolver input/output paths are refreshed by
+# _refresh_resolver_invocation_hashes — an explicit allowlist so the trust
+# boundary is narrow and obvious (codex review 2026-06-15): the resolver's
+# finding.json input and its upstream-ref.json / upstream-fix.patch outputs.
+_RESOLVER_REFRESHABLE = frozenset({"finding.json", "upstream-ref.json", "upstream-fix.patch"})
+
+
+def _refresh_resolver_invocation_hashes(roles: list, files_block: dict) -> None:
+    """Update the upstream-ref-resolver invocation's recorded sha256s for the
+    allowlisted resolver paths (`_RESOLVER_REFRESHABLE`) to match the final
+    files_block, so the replay transcript stays consistent with the on-disk files
+    after a manual prefetch pin + re-finalize. In-place; touches ONLY the
+    upstream-ref-resolver role and ONLY the allowlisted paths."""
+    for role in roles:
+        if role.get("role") != "upstream-ref-resolver":
+            continue
+        for inv in role.get("invocations", []):
+            for ref in inv.get("inputs", []) + inv.get("outputs", []):
+                name = ref.get("path")
+                if name in _RESOLVER_REFRESHABLE and name in files_block:
+                    ref["sha256"] = files_block[name]["sha256"]
 
 
 def _seed_resolver_invocation(bundle_dir: Path, files_block: dict) -> dict:
