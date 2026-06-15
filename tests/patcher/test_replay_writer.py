@@ -165,10 +165,10 @@ def test_patcher_run_writes_canonical_replay_artifact(tmp_path):
     assert model["sampling"]["max_tokens"] == 8192
 
     # prompt block matches the actual prompt sha256
-    prompt_path = REPO_ROOT / "prompts" / "patcher.v2.1.md"
+    prompt_path = REPO_ROOT / "prompts" / "patcher.v2.2.md"
     expected_prompt_sha = hashlib.sha256(prompt_path.read_bytes()).hexdigest()
     assert inv["prompt"]["sha256"] == expected_prompt_sha
-    assert inv["prompt"]["path"] == "prompts/patcher.v2.1.md"
+    assert inv["prompt"]["path"] == "prompts/patcher.v2.2.md"
 
     # inputs[] sha256s match actual file bytes on disk
     expected_inputs = {

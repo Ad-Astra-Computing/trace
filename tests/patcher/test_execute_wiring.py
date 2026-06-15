@@ -175,22 +175,37 @@ def _factory(response_text: str):
 
 
 def test_patcher_prompt_path_default_is_v2():
-    """Locked: the runner loads `prompts/patcher.v2.1.md` by default.
+    """Locked: the runner loads `prompts/patcher.v2.2.md` by default.
 
     Patcher prompt versioning is a contract change. v1 → v2 codifies F19
     (prose-preamble ban). v2 → v2.1 (2026-06-12) codifies the split-builder
     hash-grounding gap: on postgresql_14 (CVE-2026-2003) the `hash` is a bare
     argument to `import ./generic.nix`, not a value in a `src = fetchFromGitHub
     { … }` block, and the Patcher left it unchanged ~2/3 of runs. v2.1 adds the
-    source-hash-location instruction to rule 8. Loading an older version
-    silently downgrades the contract. See DECISIONS 2026-06-12.
+    source-hash-location instruction to rule 8. v2.1 → v2.2 (2026-06-15) codifies
+    the version-coupled fetchpatch-URL gap: on openssh_gssapi (CVE-2025-61984) the
+    Patcher grounded the new GSSAPI patch hash but left its version-bearing URL at
+    the old release (10.0p1-1 vs 10.1p1-1) → URL/hash mismatch. Loading an older
+    version silently downgrades the contract. See DECISIONS 2026-06-12 / 2026-06-15.
     """
     from tools.trace_cli.execute import PATCHER_PROMPT_PATH_DEFAULT
 
-    assert PATCHER_PROMPT_PATH_DEFAULT.name == "patcher.v2.1.md", (
-        f"runner default patcher prompt should be v2.1 (got {PATCHER_PROMPT_PATH_DEFAULT.name}). "
+    assert PATCHER_PROMPT_PATH_DEFAULT.name == "patcher.v2.2.md", (
+        f"runner default patcher prompt should be v2.2 (got {PATCHER_PROMPT_PATH_DEFAULT.name}). "
         "If you are bumping the prompt, update this test in the same commit."
     )
+
+
+def test_patcher_v22_has_version_coupled_url_clause():
+    """Regression lock (codex review 2026-06-15): the v2.2 prompt must keep the
+    version-coupled fetch-URL clause, or the openssh_gssapi URL/hash-mismatch gap
+    recurs. Validated live: with v2.2 the Patcher updated the GSSAPI patch URL
+    10.0p1-1 -> 10.1p1-1 in the same hunk as its grounded hash."""
+    from tools.trace_cli.execute import PATCHER_PROMPT_PATH_DEFAULT
+
+    text = PATCHER_PROMPT_PATH_DEFAULT.read_text().lower()
+    assert "version-coupled" in text or "version-bearing" in text
+    assert "fetchpatch" in text and "url" in text
     assert PATCHER_PROMPT_PATH_DEFAULT.is_file(), (
         f"default prompt path does not exist on disk: {PATCHER_PROMPT_PATH_DEFAULT}"
     )

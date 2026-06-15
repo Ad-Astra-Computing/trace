@@ -375,7 +375,7 @@ def _match_and_hash_outputs(
 # ─── patcher (model-backed) ─────────────────────────────────────────────────
 
 
-PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v2.1.md"
+PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v2.2.md"
 # Used only when upstream-ref.json.eligibility.patch_strategy == "source-backport":
 # the v3 prompt authorizes the Patcher to author an in-tree backport patch
 # against the current version instead of bumping to the fixed release.
@@ -482,7 +482,7 @@ def _execute_patcher(
         if kind == "advisory-only":
             raise PatcherDispatchRefused(
                 "refuses: bundle.kind=='advisory-only'. Patcher must not "
-                "be invoked on advisory-only bundles per prompts/patcher.v2.1.md "
+                "be invoked on advisory-only bundles per prompts/patcher.v2.2.md "
                 "refusal rules + SPEC §1.2 separation of concerns."
             )
 
@@ -888,7 +888,7 @@ def _build_patcher_invocation(
     outputs: list[dict[str, Any]],
     started_at: str,
     ended_at: str,
-    prompt_path_relative: str = "prompts/patcher.v2.1.md",
+    prompt_path_relative: str = "prompts/patcher.v2.2.md",
 ) -> dict[str, Any]:
     """Build a single replay-shape invocation record for a Patcher run."""
     inputs = []
