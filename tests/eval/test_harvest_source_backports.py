@@ -12,6 +12,7 @@ import pytest
 
 from eval.harvest_source_backports import (
     BackportCandidate,
+    classify_craftability,
     classify_keywords,
     harvest,
     package_from_patch_path,
@@ -93,6 +94,86 @@ def test_parse_cve_from_patch_filename_when_absent_in_subject():
     )
     assert c is not None
     assert "CVE-2025-40928" in c.cve_ids
+
+
+# ─── craftability classifier (2026-06-16) ─────────────────────────────────────
+
+def _commit_lines(*inner_patch_lines: str) -> list[str]:
+    """Wrap inner backport-`.patch` lines as the commit's added lines: adding the
+    `.patch` FILE to the tree prefixes every one of its lines with a commit `+`."""
+    return ["+" + pl for pl in inner_patch_lines]
+
+
+def test_craftability_unknown_without_patch_body():
+    # no content fetched (no --check-version / --craftable-only) -> unknown
+    assert classify_craftability([]) == "unknown"
+
+
+def test_craftability_embeds_test():
+    # jq / coreutils shape: the inner patch touches a test path -> the upstream
+    # regression input IS the PoC.
+    lines = _commit_lines(
+        "diff --git a/src/jv.c b/src/jv.c",
+        "+  s->data[length] = 0;",
+        "diff --git a/tests/jq.test b/tests/jq.test",
+        "+++ b/tests/jq.test",
+        "+try 0[implode] catch .",
+    )
+    assert classify_craftability(lines) == "embeds-test"
+
+
+def test_craftability_embeds_test_coreutils_testdir():
+    lines = _commit_lines("+++ b/tests/sort/sort-field-limit.sh", "+# new test")
+    assert classify_craftability(lines) == "embeds-test"
+
+
+def test_craftability_derivable_guard_giflib():
+    # giflib shape: the fix ADDS a bound check; the if and the escape are on
+    # separate lines, and the bound (>= ColorCount) is the derivable trigger.
+    lines = _commit_lines(
+        "+\t\t\t\tif (GifRow[j] >= ColorMap->ColorCount) {",
+        "+\t\t\t\t\tGIF_EXIT(GifErrorString(",
+        "+\t\t\t\t\t    D_GIF_ERR_IMAGE_DEFECT));",
+        "+\t\t\t\t}",
+    )
+    assert classify_craftability(lines) == "derivable-guard"
+
+
+def test_craftability_derivable_guard_zlib_context_if():
+    # zlib shape: the `if` is a CONTEXT line; the added lines carry the bound
+    # (!= Z_NULL, extra_max). Still derivable.
+    lines = _commit_lines(
+        "+                        state->head->extra != Z_NULL &&",
+        "+                        (len = state->head->extra_len - state->length) <",
+        "+                            state->head->extra_max) {",
+    )
+    assert classify_craftability(lines) == "derivable-guard"
+
+
+def test_craftability_poc_gated_lua():
+    # lua shape: a bare code addition, no bound, no test -> needs an external PoC.
+    lines = _commit_lines(
+        "+    luaK_exp2anyregup(fs, var);  /* but could be a constant */",
+    )
+    assert classify_craftability(lines) == "poc-gated"
+
+
+def test_craftability_poc_gated_mpack_perms():
+    # mpack shape: a file-permission change, not memory-safety; no bound/test.
+    lines = _commit_lines(
+        "+    fd=open(fname, O_RDWR|O_CREAT|O_EXCL, 0600);",
+    )
+    assert classify_craftability(lines) == "poc-gated"
+
+
+def test_craftability_field_present_in_to_dict():
+    c = parse_commit_record(
+        commit="abc", parent="par", subject="zlib: patch for CVE-2022-37434",
+        added_patch_files=["pkgs/development/libraries/zlib/CVE-2022-37434.patch"],
+        full_diff_added_lines=_commit_lines("+  if (len < state->head->extra_max) {"),
+    )
+    assert c is not None
+    assert c.to_dict()["craftability"] == "derivable-guard"
 
 
 # ─── opportunistic real-repo smoke ────────────────────────────────────────────
