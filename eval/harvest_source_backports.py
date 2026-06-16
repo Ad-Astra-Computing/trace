@@ -54,6 +54,7 @@ class BackportCandidate:
     version_changed: bool
     keywords: list[str] = field(default_factory=list)
     build_class: str = "unknown"
+    craftability: str = "unknown"
 
     def to_dict(self) -> dict:
         return {
@@ -66,6 +67,7 @@ class BackportCandidate:
             "version_changed": self.version_changed,
             "keywords": self.keywords,
             "build_class": self.build_class,
+            "craftability": self.craftability,
             "patch_strategy": "source-backport",
         }
 
@@ -136,6 +138,62 @@ def classify_build_class(
     return "compiled"
 
 
+# The inner backport `.patch` file is itself committed as added lines, so the
+# commit's `+` lines (full_diff_added_lines, populated under --check-version /
+# --craftable-only) contain the patch's own header/`+`/`-`/context lines. We mine
+# them for the "tell" that decides whether a candidate's discriminating
+# reproducer is CRAFTABLE from the fix alone (the lesson of 2026-06-16: giflib/
+# jq/coreutils/zlib were craftable; fig2dev/lua/mpack were PoC-gated and burned
+# bootstrap cycles).
+#
+# An inner patch line `+++ b/tests/foo` arrives here as a commit-added line
+# `++++ b/tests/foo` (commit `+` then the patch's own `+`); a header `--- a/x`
+# arrives as `+--- a/x`. We strip the single leading commit `+` to recover the
+# patch's own line, then inspect.
+_INNER_TEST_PATH_RE = re.compile(
+    r"^[-+]{3}\s+[ab]/.*("
+    r"tests?/|/test|[._-]test\b|testdata|testsuite|/t/|fixtures?/|samples?/|"
+    r"fuzz|corpus|regress)", re.IGNORECASE)
+# A bound/comparison/NULL token introduced by the fix. When a backport ADDS such
+# a check, its out-of-range trigger is usually DERIVABLE directly from the fix
+# (make the new condition false). `<`/`>` require a trailing space so member
+# access (`->`) and includes (`<config.h>`) don't match.
+_ADDED_BOUND_RE = re.compile(
+    r"(>=|<=|==|!=|[<>](?=\s|$)|\bNULL\b|\bnullptr\b|_max\b|_MAX\b|_len\b|"
+    r"\b(count|length|size|bound|limit|extra_max|extra_len|ColorCount|maxdepth)\b)")
+
+
+def classify_craftability(full_diff_added_lines: list[str]) -> str:
+    """Rank a candidate by whether its discriminating reproducer is craftable
+    from the fix alone. Operates on the commit's added lines (which embed the
+    backport `.patch` body); returns "unknown" when those aren't available
+    (no --check-version / --craftable-only content fetch).
+
+      - 'embeds-test'    : the inner patch touches a test/fixture/fuzz path, so
+        the upstream regression input IS the PoC (e.g. jq's tests/jq.test,
+        coreutils' tests/sort/*). The most reliable tell.
+      - 'derivable-guard': the inner patch ADDS a bound/NULL/length comparison, so
+        the trigger is "make the new check fail" (giflib `>= ColorCount`, zlib
+        `< extra_max`, coreutils field-offset bound). Heuristic: a bound that
+        merely re-validates a field whose vulnerable downstream use is opaque
+        (e.g. fig2dev `style_val > MAX`) is a known false-positive — the local
+        probe in the bootstrap is still the real viability gate.
+      - 'poc-gated'      : a bare code fix with neither — the trigger needs an
+        external PoC artifact (lua's `luaK_exp2anyregup`, mpack's perms change).
+        Deprioritize: bootstrapping these burns cycles (2026-06-16 lesson).
+    """
+    if not full_diff_added_lines:
+        return "unknown"
+    # recover the inner patch's own lines (strip the single leading commit '+')
+    inner = [ln[1:] for ln in full_diff_added_lines if ln.startswith("+")]
+    if any(_INNER_TEST_PATH_RE.match(pl) for pl in inner):
+        return "embeds-test"
+    # the patch's own ADDED code lines appear here as inner lines starting '+'
+    if any(_ADDED_BOUND_RE.search(pl[1:]) for pl in inner if pl.startswith("+")):
+        return "derivable-guard"
+    return "poc-gated"
+
+
 def parse_commit_record(
     *, commit: str, parent: str, subject: str,
     added_patch_files: list[str], full_diff_added_lines: list[str],
@@ -164,6 +222,7 @@ def parse_commit_record(
             patches, classify_keywords(subject, patches),
             inner_native=any(_NATIVE_SRC_RE.search(ln) for ln in full_diff_added_lines),
         ),
+        craftability=classify_craftability(full_diff_added_lines),
     )
 
 
@@ -192,7 +251,8 @@ def _is_shallow_ref(repo: Path, ref: str) -> bool:
 
 
 def harvest(repo: Path, *, limit: int, require_cve: bool = True,
-            ref: str = "HEAD", check_version: bool = False) -> list[BackportCandidate]:
+            ref: str = "HEAD", check_version: bool = False,
+            craftable: bool = False) -> list[BackportCandidate]:
     """Scan the last `limit` commits of `repo` for source-backport candidates.
 
     `check_version` (off by default) runs a `git show` per candidate to flag
@@ -220,9 +280,12 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
                  if ln.strip().endswith(".patch") and ln.strip().startswith("pkgs/")]
         if not added:
             continue
-        # version-change probe (opt-in): read the commit's added package.nix lines
+        # version-change probe + craftability classification (opt-in): read the
+        # commit's added package.nix / patch-body lines. Both reuse the same
+        # `git show` (the `.patch` bodies carry the embedded backport diff used by
+        # craftability; the package.nix lines carry the version-bump signal).
         added_lines: list[str] = []
-        if check_version:
+        if check_version or craftable:
             try:
                 show = _git(repo, "show", "--format=", "--unified=0", commit,
                             "--", "pkgs/**/package.nix", "pkgs/**/default.nix",
@@ -257,6 +320,11 @@ def main(argv: list[str]) -> int:
                          "libs on a cached interpreter — the fast cert lane)")
     ap.add_argument("--check-version", action="store_true",
                     help="probe each candidate for a version change (slower; flags bump+patch combos)")
+    ap.add_argument("--craftable-only", action="store_true",
+                    help="classify reproducer craftability (embeds-test / derivable-guard / "
+                         "poc-gated) and emit only embeds-test + derivable-guard candidates — the "
+                         "ones whose discriminating reproducer is craftable from the fix alone "
+                         "(reads patch bodies, slower)")
     ap.add_argument("--out", type=Path, help="write JSONL here (default stdout)")
     args = ap.parse_args(argv)
 
@@ -267,11 +335,13 @@ def main(argv: list[str]) -> int:
               f"`git -C {args.repo} fetch --unshallow`.", file=sys.stderr)
         return 2
     try:
-        cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref, check_version=args.check_version)
+        cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref,
+                        check_version=args.check_version, craftable=args.craftable_only)
     except RuntimeError as exc:
         if "unknown revision" in str(exc) or "bad revision" in str(exc):
             ref = "HEAD"
-            cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref, check_version=args.check_version)
+            cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref,
+                            check_version=args.check_version, craftable=args.craftable_only)
         else:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -280,6 +350,8 @@ def main(argv: list[str]) -> int:
         cands = [c for c in cands if "testable" in c.keywords]
     if args.light_only:
         cands = [c for c in cands if c.build_class == "light-interpreter"]
+    if args.craftable_only:
+        cands = [c for c in cands if c.craftability in ("embeds-test", "derivable-guard")]
 
     lines = [json.dumps(c.to_dict()) for c in cands]
     text = "\n".join(lines) + ("\n" if lines else "")
@@ -291,8 +363,14 @@ def main(argv: list[str]) -> int:
     n_asan = sum(1 for c in cands if "asan-class" in c.keywords)
     n_light = sum(1 for c in cands if c.build_class == "light-interpreter")
     n_compiled = sum(1 for c in cands if c.build_class == "compiled")
+    craft = ""
+    if args.check_version or args.craftable_only:
+        n_embed = sum(1 for c in cands if c.craftability == "embeds-test")
+        n_guard = sum(1 for c in cands if c.craftability == "derivable-guard")
+        n_poc = sum(1 for c in cands if c.craftability == "poc-gated")
+        craft = f"; craftability {n_embed} embeds-test, {n_guard} derivable-guard, {n_poc} poc-gated"
     print(f"# {len(cands)} candidates ({n_light} light-interpreter, "
-          f"{n_compiled} compiled, {n_asan} asan-class; {n_test} testable) "
+          f"{n_compiled} compiled, {n_asan} asan-class; {n_test} testable{craft}) "
           f"from {ref}[-{args.limit}]", file=sys.stderr)
     return 0
 
