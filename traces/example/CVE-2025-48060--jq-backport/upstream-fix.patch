@@ -1,0 +1,12 @@
+diff --git a/src/jv.c b/src/jv.c
+index 6e8cdd3..3303286 100644
+--- a/src/jv.c
++++ b/src/jv.c
+@@ -1121,6 +1121,7 @@ static jv jvp_string_empty_new(uint32_t length) {
+   jvp_string* s = jvp_string_alloc(length);
+   s->length_hashed = 0;
+   memset(s->data, 0, length);
++  s->data[length] = 0;
+   jv r = {JVP_FLAGS_STRING, 0, 0, 0, {&s->refcnt}};
+   return r;
+ }
