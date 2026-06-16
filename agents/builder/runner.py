@@ -451,6 +451,7 @@ def _apply_patch(
         _unsafe_diff = any(
             marker in diff_text for marker in (
                 "\ndeleted file mode ", "\nrename from ", "\nrename to ",
+                "\ncopy from ", "\ncopy to ",
                 "\nold mode ", "\nnew mode ", "120000",
             )
         )
