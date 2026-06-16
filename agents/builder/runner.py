@@ -672,7 +672,15 @@ def _added_lines_for_file(diff_text: str, target_path: str) -> list[str]:
     return added
 
 
-_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$")
+# Each dot-separated segment is a Nix identifier. Nix identifiers permit
+# hyphens (lexer rule `[a-zA-Z_][a-zA-Z0-9_'-]*`), and hyphenated attr names are
+# common in nixpkgs (python3Packages.python-multipart, python-dateutil, …), so
+# `-` MUST be allowed here. Without it the resolver rejected every hyphenated
+# attr before any eval ran, failing patch-apply (python-multipart CI 2026-06-16).
+# The class stays restricted to alphanumerics, underscore and hyphen so the attr
+# remains injection-safe when interpolated into the nix eval expressions below
+# (no quotes, backslashes, whitespace, `$`, or parens can appear).
+_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)*$")
 
 
 def _resolve_attr_package_file(

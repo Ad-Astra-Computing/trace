@@ -396,6 +396,37 @@ def test_resolve_attr_package_dir_returns_none_for_missing_attr(tmp_path: Path) 
     assert _resolve_attr_package_dir(checkout, "") is None
 
 
+def test_attr_safe_re_allows_hyphenated_segments() -> None:
+    """Hyphenated attr names (python3Packages.python-multipart) are valid Nix
+    identifiers and common in nixpkgs; the resolver's attr-safety gate must
+    accept them while still rejecting injection metacharacters. Regression for
+    the python-multipart CI patch-apply failure (2026-06-16)."""
+    from agents.builder.runner import _ATTR_SAFE_RE
+
+    # Accepted: hyphenated and underscored nested attr paths.
+    for ok in (
+        "python3Packages.python-multipart",
+        "python3Packages.python-dateutil",
+        "perlPackages.FileFindRule",
+        "hello",
+        "rubyPackages.sinatra",
+    ):
+        assert _ATTR_SAFE_RE.match(ok), ok
+
+    # Rejected: injection metacharacters and malformed shapes still gated out.
+    for bad in (
+        'python3Packages."evil"',
+        "pkgs.foo; bar",
+        "pkgs.${x}",
+        "pkgs.foo bar",
+        "pkgs.(import x)",
+        "-leadinghyphen",
+        "pkgs..empty",
+        "pkgs.foo`id`",
+    ):
+        assert not _ATTR_SAFE_RE.match(bad), bad
+
+
 # ─── filename remap: package.nix → default.nix (codex 2026-06-15) ────────────
 
 _PKG_DIFF = (
