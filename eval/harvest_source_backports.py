@@ -53,6 +53,7 @@ class BackportCandidate:
     subject: str
     version_changed: bool
     keywords: list[str] = field(default_factory=list)
+    build_class: str = "unknown"
 
     def to_dict(self) -> dict:
         return {
@@ -64,6 +65,7 @@ class BackportCandidate:
             "subject": self.subject,
             "version_changed": self.version_changed,
             "keywords": self.keywords,
+            "build_class": self.build_class,
             "patch_strategy": "source-backport",
         }
 
@@ -103,6 +105,37 @@ def classify_keywords(subject: str, patch_files: list[str]) -> list[str]:
     return tags
 
 
+_NATIVE_SRC_RE = re.compile(r"[ab]/.*\.(xs|c|cc|cpp|cxx|h|hpp|rs|go)\b")
+
+
+def classify_build_class(
+    patch_files: list[str], keywords: list[str], inner_native: bool = False,
+) -> str:
+    """Coarse build-class tag used to scope the bootstrap to the fast cert lane
+    (codex 2026-06-16):
+      - 'asan-required'    : memory-class bug (separate ASAN track), takes priority
+      - 'light-interpreter': pure-script library (perl/python/ruby module) patching
+        only interpreted source — builds fast on a CACHED interpreter, so the cert
+        is minutes regardless of how old the pinned pre-fix rev is (the fast lane)
+      - 'compiled'         : C/C++/Rust/Go or a NATIVE extension (.xs/.c/...) inside
+        a script-module dir — needs the toolchain; cert time depends on
+        cache-availability of the pinned rev's stdenv (an OLD rev can be 'cold' =
+        multi-hour from-source rebuild). Run a substitute-availability preflight
+        before any live spend on these.
+    `inner_native` is True when the authored patch edits native source (a .xs/.c/...
+    file) even though it lives under perl-modules/python-modules — those are NOT
+    light (e.g. JSON::XS, onnx). Cache-warmth ('compiled-cached' vs 'compiled-cold')
+    is a preflight refinement, not knowable from the patch path alone."""
+    if "asan-class" in keywords:
+        return "asan-required"
+    if inner_native:
+        return "compiled"
+    joined = " ".join(patch_files)
+    if "/perl-modules/" in joined or "/python-modules/" in joined or "/ruby-modules/" in joined:
+        return "light-interpreter"
+    return "compiled"
+
+
 def parse_commit_record(
     *, commit: str, parent: str, subject: str,
     added_patch_files: list[str], full_diff_added_lines: list[str],
@@ -127,13 +160,20 @@ def parse_commit_record(
         subject=subject,
         version_changed=version_changed,
         keywords=classify_keywords(subject, patches),
+        build_class=classify_build_class(
+            patches, classify_keywords(subject, patches),
+            inner_native=any(_NATIVE_SRC_RE.search(ln) for ln in full_diff_added_lines),
+        ),
     )
 
 
 def _git(repo: Path, *args: str, timeout: int = 120) -> str:
+    # errors="replace": some upstream *.patch payloads carry non-UTF8 bytes (binary
+    # test fixtures, latin-1 author names); decode tolerantly so a `git show` over
+    # patch bodies (build-class native detection) never crashes the scan.
     out = subprocess.run(
         ["git", "-C", str(repo), *args],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True, text=True, timeout=timeout, errors="replace",
     )
     if out.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {out.stderr[-300:]}")
@@ -185,7 +225,8 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
         if check_version:
             try:
                 show = _git(repo, "show", "--format=", "--unified=0", commit,
-                            "--", "pkgs/**/package.nix", "pkgs/**/default.nix")
+                            "--", "pkgs/**/package.nix", "pkgs/**/default.nix",
+                            "pkgs/top-level/perl-packages.nix", "pkgs/**/*.patch")
                 added_lines = [ln for ln in show.splitlines() if ln.startswith("+")]
             except RuntimeError:
                 pass
@@ -211,6 +252,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--all", action="store_true", help="include commits with no CVE id in subject/patch")
     ap.add_argument("--testable-only", action="store_true",
                     help="only emit candidates tagged 'testable' (no-ASAN v1 priority)")
+    ap.add_argument("--light-only", action="store_true",
+                    help="only emit build_class=light-interpreter candidates (pure-script "
+                         "libs on a cached interpreter — the fast cert lane)")
     ap.add_argument("--check-version", action="store_true",
                     help="probe each candidate for a version change (slower; flags bump+patch combos)")
     ap.add_argument("--out", type=Path, help="write JSONL here (default stdout)")
@@ -234,6 +278,8 @@ def main(argv: list[str]) -> int:
 
     if args.testable_only:
         cands = [c for c in cands if "testable" in c.keywords]
+    if args.light_only:
+        cands = [c for c in cands if c.build_class == "light-interpreter"]
 
     lines = [json.dumps(c.to_dict()) for c in cands]
     text = "\n".join(lines) + ("\n" if lines else "")
@@ -243,7 +289,10 @@ def main(argv: list[str]) -> int:
         sys.stdout.write(text)
     n_test = sum(1 for c in cands if "testable" in c.keywords)
     n_asan = sum(1 for c in cands if "asan-class" in c.keywords)
-    print(f"# {len(cands)} candidates ({n_test} testable, {n_asan} asan-class) "
+    n_light = sum(1 for c in cands if c.build_class == "light-interpreter")
+    n_compiled = sum(1 for c in cands if c.build_class == "compiled")
+    print(f"# {len(cands)} candidates ({n_light} light-interpreter, "
+          f"{n_compiled} compiled, {n_asan} asan-class; {n_test} testable) "
           f"from {ref}[-{args.limit}]", file=sys.stderr)
     return 0
 
