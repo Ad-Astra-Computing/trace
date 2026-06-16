@@ -130,9 +130,10 @@
           "enum": [
             "by-name-package-nix",
             "direct-package-dir",
-            "canonical-package-remap"
+            "canonical-package-remap",
+            "split-package-perl-modules"
           ],
-          "description": "Which apply mode the Builder used. 'by-name-package-nix': a/package.nix applied under --directory (by-name package). 'direct-package-dir': a non-by-name source-backport whose full nixpkgs paths are contained in the package dir, applied at the repo root with no remap. 'canonical-package-remap': a single-file package.nix change remapped onto the real basename (e.g. default.nix). Informational provenance (codex 2026-06-15)."
+          "description": "Which apply mode the Builder used. 'by-name-package-nix': a/package.nix applied under --directory (by-name package). 'direct-package-dir': a non-by-name source-backport whose full nixpkgs paths are contained in the package dir, applied at the repo root with no remap. 'canonical-package-remap': a single-file package.nix change remapped onto the real basename (e.g. default.nix). 'split-package-perl-modules': a perlPackages source-backport whose patch payload is in pkgs/development/perl-modules/*.patch and whose patches=[] wiring edits the monolithic pkgs/top-level/perl-packages.nix, applied at the repo root (codex 2026-06-16). Informational provenance."
         }
       }
     },

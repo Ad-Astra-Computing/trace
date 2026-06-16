@@ -423,6 +423,91 @@ def test_paths_contained_in_guard() -> None:
     assert not _paths_contained_in([f"{d}/a\\b"], d)
 
 
+def _perl_wiring_diff(*patch_basenames: str) -> str:
+    """A minimal perl-packages.nix diff section that wires in the given patch
+    basenames (an added `patches = [ ./perl-modules/<name> ]` line per patch)."""
+    added = "".join(
+        f"+    patches = [ ../development/perl-modules/{b} ];\n" for b in patch_basenames
+    )
+    return (
+        "diff --git a/pkgs/top-level/perl-packages.nix b/pkgs/top-level/perl-packages.nix\n"
+        "--- a/pkgs/top-level/perl-packages.nix\n"
+        "+++ b/pkgs/top-level/perl-packages.nix\n"
+        "@@ -1,2 +1,3 @@\n"
+        " FileFindRule = buildPerlPackage {\n"
+        f"{added}"
+        " };\n"
+    )
+
+
+def test_split_package_perl_eligible_valid() -> None:
+    """Codex case 1: perl-packages.nix wiring + a referenced perl-modules/*.patch
+    is the eligible split-package shape."""
+    from agents.builder.runner import _split_package_perl_eligible
+    paths = [
+        "pkgs/top-level/perl-packages.nix",
+        "pkgs/development/perl-modules/FileFindRule-CVE-2011-10007.patch",
+    ]
+    diff = _perl_wiring_diff("FileFindRule-CVE-2011-10007.patch")
+    assert _split_package_perl_eligible(paths, diff)
+
+
+def test_split_package_perl_rejects_other_toplevel_file() -> None:
+    """Codex case 2: touching any other top-level (or non-allowlisted) file is rejected."""
+    from agents.builder.runner import _split_package_perl_eligible
+    diff = _perl_wiring_diff("FileFindRule-CVE-2011-10007.patch")
+    paths = [
+        "pkgs/top-level/perl-packages.nix",
+        "pkgs/development/perl-modules/FileFindRule-CVE-2011-10007.patch",
+        "pkgs/top-level/all-packages.nix",  # not allowlisted
+    ]
+    assert not _split_package_perl_eligible(paths, diff)
+
+
+def test_split_package_perl_rejects_traversal() -> None:
+    """Codex case 3: a '..' traversal in any path makes the patch ineligible."""
+    from agents.builder.runner import _split_package_perl_eligible
+    diff = _perl_wiring_diff("FileFindRule-CVE-2011-10007.patch")
+    paths = [
+        "pkgs/top-level/perl-packages.nix",
+        "pkgs/development/perl-modules/../../../etc/evil.patch",
+    ]
+    assert not _split_package_perl_eligible(paths, diff)
+    # absolute + backslash payloads also rejected
+    assert not _split_package_perl_eligible(
+        ["pkgs/top-level/perl-packages.nix", "/etc/evil.patch"], diff)
+    assert not _split_package_perl_eligible(
+        ["pkgs/top-level/perl-packages.nix", "pkgs/development/perl-modules/a\\b.patch"], diff)
+
+
+def test_split_package_perl_rejects_non_patch_payload() -> None:
+    """Codex case 4: a payload that is not a *.patch (or is nested) is rejected."""
+    from agents.builder.runner import _split_package_perl_eligible
+    diff = _perl_wiring_diff("evil.nix")
+    # non-.patch extension
+    assert not _split_package_perl_eligible(
+        ["pkgs/top-level/perl-packages.nix", "pkgs/development/perl-modules/evil.nix"], diff)
+    # nested subdir under perl-modules/ is not allowed
+    assert not _split_package_perl_eligible(
+        ["pkgs/top-level/perl-packages.nix", "pkgs/development/perl-modules/sub/x.patch"],
+        _perl_wiring_diff("x.patch"))
+    # wiring file alone (no payload) is not a split-package
+    assert not _split_package_perl_eligible(["pkgs/top-level/perl-packages.nix"], diff)
+
+
+def test_split_package_perl_rejects_unreferenced_payload() -> None:
+    """Codex case 5: a perl-modules/*.patch not referenced by the wiring diff is rejected
+    (the model must actually wire in the patch it adds)."""
+    from agents.builder.runner import _split_package_perl_eligible
+    paths = [
+        "pkgs/top-level/perl-packages.nix",
+        "pkgs/development/perl-modules/FileFindRule-CVE-2011-10007.patch",
+    ]
+    # wiring diff references a DIFFERENT patch basename
+    diff = _perl_wiring_diff("SomethingElse-CVE-9999-0000.patch")
+    assert not _split_package_perl_eligible(paths, diff)
+
+
 def test_apply_patch_direct_package_dir_multifile_source_backport(tmp_path: Path, monkeypatch) -> None:
     """A non-by-name source-backport: full nixpkgs paths contained in the package
     dir (a new CVE.patch + a default.nix edit) apply at the repo root with NO remap

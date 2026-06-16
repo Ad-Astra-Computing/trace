@@ -423,6 +423,7 @@ def _apply_patch(
     # "canonical-package-remap" (single-file package.nix -> real basename).
     apply_mode = "by-name-package-nix"
     direct_package_dir = False
+    split_package = False
     direct_changed: list[str] = []
     if not (abs_dir / "package.nix").is_file():
         # --recount so the path-extraction tolerates the SAME off-by-one hunk
@@ -465,15 +466,43 @@ def _apply_patch(
                 direct_package_dir = True
                 direct_changed = numstat_paths
                 apply_mode = "direct-package-dir"
-        if not direct_package_dir:
+        # split-package-perl-modules: a perlPackages source-backport whose patch
+        # payload lives in pkgs/development/perl-modules/ while the patches=[]
+        # wiring edits the monolithic pkgs/top-level/perl-packages.nix (so the
+        # diff spans two dirs and cannot pass the single-dir containment guard).
+        # Allowed ONLY for the exact wiring+payload shape, applied at the repo
+        # root (codex design 2026-06-16). Same _unsafe_diff bar as direct mode.
+        # SECURITY INVARIANT (do not relax without re-review): containment is
+        # enforced by the string allowlist on the `git apply --numstat` paths,
+        # which equal the paths `git apply` actually writes ONLY because
+        # _unsafe_diff blocks renames/copies/deletes/symlinks/mode-changes. If a
+        # future change permits any of those here, numstat (source) and the
+        # written (destination) path could diverge and the guard would be
+        # bypassable — the `_unsafe_diff` precondition below is load-bearing.
+        if (not direct_package_dir
+                and numstat.returncode == 0 and numstat_paths
+                and not _unsafe_diff
+                and _split_package_perl_eligible(numstat_paths, diff_text)):
+            check_root = subprocess.run(
+                ["git", "apply", "--recount", "--check", str(patch_diff_path)],
+                cwd=str(nixpkgs_checkout),
+                check=False, capture_output=True, text=True,
+            )
+            if check_root.returncode == 0:
+                split_package = True
+                direct_changed = numstat_paths
+                apply_mode = "split-package-perl-modules"
+        if not direct_package_dir and not split_package:
             if numstat.returncode != 0 or numstat_paths != ["package.nix"]:
                 return _failed(
                     f"attr {attr!r} resolves to dir {package_dir_rel!r} which has no "
-                    f"package.nix; patch.diff is neither a single canonical "
-                    f"package.nix change NOR a source-backport contained in the "
-                    f"package dir (git apply --numstat paths={numstat_paths!r}, "
-                    f"rc={numstat.returncode}, unsafe_diff={_unsafe_diff}); refusing "
-                    f"to apply onto a non-by-name package"
+                    f"package.nix; patch.diff is none of: a single canonical "
+                    f"package.nix change, a source-backport contained in the "
+                    f"package dir, or a perlPackages split-package "
+                    f"(perl-packages.nix + perl-modules/*.patch) shape (git apply "
+                    f"--numstat paths={numstat_paths!r}, rc={numstat.returncode}, "
+                    f"unsafe_diff={_unsafe_diff}); refusing to apply onto a "
+                    f"non-by-name package"
                 )
             sel_basename, method, reason = _select_remap_target(
                 abs_dir=abs_dir,
@@ -507,7 +536,7 @@ def _apply_patch(
     # direct-package-dir patches carry real repo-root paths, so they apply WITHOUT
     # --directory (which would double-prefix the path); the other modes use a
     # bundle-relative path remapped under --directory.
-    if direct_package_dir:
+    if direct_package_dir or split_package:
         apply_args = ["git", "apply", "--recount"]
     else:
         apply_args = ["git", "apply", "--recount", f"--directory={package_dir_rel}"]
@@ -540,7 +569,7 @@ def _apply_patch(
     # Re-prefix files_changed with the resolved package directory so build.json's
     # record matches the actual nixpkgs-relative paths. When remapped, record the
     # REAL basename (default.nix), not the canonical package.nix.
-    if direct_package_dir:
+    if direct_package_dir or split_package:
         # numstat paths are already full nixpkgs-relative paths; no re-prefix.
         files_changed_prefixed = direct_changed
     else:
@@ -578,6 +607,68 @@ def _paths_contained_in(paths: list[str], package_dir_rel: str) -> bool:
         if p != package_dir_rel and not p.startswith(prefix):
             return False
     return True
+
+
+# Split-package mode for perlPackages.* (codex design, 2026-06-16). perl modules
+# are not in standalone dirs: the derivation is an entry in the monolithic
+# pkgs/top-level/perl-packages.nix, and a source-backport patch payload lives in
+# the sibling pkgs/development/perl-modules/<Name>.patch. Such a patch.diff
+# therefore spans TWO directories and cannot pass the single-dir
+# direct-package-dir containment guard. This mode allows EXACTLY that shape and
+# nothing else, so the model may edit the package registry + add the patch file it
+# wires in, but cannot touch any other tree path.
+_SPLIT_PERL_WIRING = "pkgs/top-level/perl-packages.nix"
+_SPLIT_PERL_PATCH_DIR = "pkgs/development/perl-modules/"
+
+
+def _split_package_perl_eligible(paths: list[str], diff_text: str) -> bool:
+    """True iff `paths` (git --numstat paths) is the narrow perlPackages
+    split-package shape: exactly the perl-packages.nix wiring file plus one or
+    more pkgs/development/perl-modules/*.patch payload files, every payload
+    directly in that dir, each payload basename REFERENCED by an added line of
+    the wiring file's diff section, and nothing else. Pure posix string logic on
+    git's forward-slash paths; any absolute path, '..'/'.'/empty segment, or
+    backslash makes the whole patch ineligible (codex guardrails 2026-06-16)."""
+    for p in paths:
+        if not p or p.startswith("/") or "\\" in p:
+            return False
+        if any(s in ("", ".", "..") for s in p.split("/")):
+            return False
+    if _SPLIT_PERL_WIRING not in paths:
+        return False
+    payloads = [p for p in paths if p != _SPLIT_PERL_WIRING]
+    if not payloads:
+        return False
+    for p in payloads:
+        if not (p.startswith(_SPLIT_PERL_PATCH_DIR) and p.endswith(".patch")):
+            return False
+        rest = p[len(_SPLIT_PERL_PATCH_DIR):]
+        if "/" in rest or not rest:
+            return False  # must be directly in perl-modules/, no nested subdir
+    # Each payload basename must be referenced by an ADDED line of the wiring
+    # file's diff section (the model must actually wire in the patch it adds).
+    wiring_added = _added_lines_for_file(diff_text, _SPLIT_PERL_WIRING)
+    for p in payloads:
+        base = p.rsplit("/", 1)[1]
+        if not any(base in ln for ln in wiring_added):
+            return False
+    return True
+
+
+def _added_lines_for_file(diff_text: str, target_path: str) -> list[str]:
+    """Return the '+'-prefixed (added) body lines belonging to the diff section
+    for `target_path` (matched on the `diff --git a/<path> b/<path>` header).
+    Used to verify the perl split-package wiring references each patch payload."""
+    added: list[str] = []
+    in_section = False
+    header = f"diff --git a/{target_path} b/{target_path}"
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            in_section = (line == header)
+            continue
+        if in_section and line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:])
+    return added
 
 
 _ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$")
