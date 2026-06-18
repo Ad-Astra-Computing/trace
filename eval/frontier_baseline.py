@@ -25,8 +25,10 @@ Live-run cost: ~11 calls × $0.03/call ≈ $0.33 total.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +37,20 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agents.reviewer import ReviewerOutputMalformed, parse_reviewer_output
+
+
+def _git_head_sha() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256(path.read_bytes()).hexdigest()
+    return h
 
 
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
@@ -222,8 +238,8 @@ def run_baseline(
         "schema_version": "1.0.0",
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "model_id": model_id,
-        "reviewer_prompt_sha": "2f35a12a6e69f6e16f36fdc7570124b6e77b59dc",
-        "corpus_freeze_sha": "e70b3ff",
+        "reviewer_prompt_sha": _file_sha256(ROOT / "prompts" / "reviewer.v3.md"),
+        "corpus_freeze_sha": _git_head_sha(),
         "export_path": str(export_path),
         "split": "test",
         "methodology": "embedded-jsonl-system-prompt",
