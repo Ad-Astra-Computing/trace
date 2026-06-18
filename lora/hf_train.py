@@ -75,9 +75,9 @@ def main():
                         help="Use 4-bit QLoRA (default)")
     parser.add_argument("--no-qlora", dest="qlora", action="store_false",
                         help="Disable QLoRA; use full BF16 LoRA (requires ≥40GB VRAM)")
-    parser.add_argument("--max-steps", type=int, default=500,
-                        help="Optimizer steps (default: 500; with grad_accum=4 this is "
-                             "~29 epochs over 69 train examples — intentional for small-data LoRA)")
+    parser.add_argument("--max-steps", type=int, default=150,
+                        help="Optimizer steps (default: 150; with grad_accum=4 this is "
+                             "~8.7 epochs over 69 train examples. 500 = ~29 epochs overfits a 14B.)")
     args = parser.parse_args()
 
     data_dir = Path(args.data)
@@ -144,6 +144,8 @@ def main():
         fp16=(not bf16_supported and torch.cuda.is_available()),
         # gradient_checkpointing: essential for 14B at max_seq_len=16384 on 24GB VRAM.
         gradient_checkpointing=True,
+        # use_reentrant=False is the stable QLoRA + checkpointing path.
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         # paged_adamw_8bit: bitsandbytes paged optimizer, avoids OOM spikes on 4090.
         optim="paged_adamw_8bit",
         logging_steps=10,
@@ -166,6 +168,9 @@ def main():
         eval_dataset=valid_ds,
         peft_config=peft_config,
         formatting_func=make_formatting_func(tokenizer),
+        # TRL tokenizes the formatted strings with processing_class; pass ours
+        # so pad_token / padding_side="right" aren't dropped.
+        processing_class=tokenizer,
     )
 
     mode = "QLoRA 4-bit nf4" if args.qlora else "full BF16 LoRA"
