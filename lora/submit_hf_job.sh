@@ -6,8 +6,13 @@
 #   - data already uploaded to dataset repo adastracomputing/reviewer-lora-data
 #   - `hf` CLI on PATH (nix: nixpkgs#python3Packages.huggingface-hub)
 #
-# Hardware: l40sx1 (1x L40S 48GB, $1.80/hr) — codex-approved tier for 14B QLoRA
-# at 16k seq len; 24GB A10G is an OOM risk. Expected wall-clock <1h ≈ $1-2.
+# Hardware: a100-large (1x A100 80GB, $2.50/hr). L40S 44GB OOM'd at step 3 on the
+# full-vocab cross-entropy spike (Qwen 152K vocab x ~15K-token outliers => ~8.5 GiB
+# logits in fp32). 80GB absorbs it. Expected wall-clock <1h ≈ $1.5-2.5.
+#
+# Billing vs destination: the job runs in the `odoom` namespace (personal HF Jobs
+# credits — the adastracomputing org has none), but the trained adapter is pushed
+# to the org repo via HUB_MODEL_ID. Namespace = who pays; HUB_MODEL_ID = where it lands.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -15,8 +20,8 @@ set -a && source .env && set +a
 : "${HF_TOKEN:?HF_TOKEN not set}"
 export HF_TOKEN
 
-FLAVOR="l40sx1"
-NAMESPACE="adastracomputing"
+FLAVOR="a100-large"
+NAMESPACE="odoom"
 DATASET="adastracomputing/reviewer-lora-data"
 HUB_MODEL_ID="adastracomputing/reviewer-lora-v1.0"
 CORPUS_FREEZE_SHA="e70b3ff"
@@ -38,6 +43,7 @@ hf jobs uv run \
   --detach \
   --secrets HF_TOKEN \
   -v "hf://datasets/${DATASET}:/data:ro" \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -e HF_HOME=/tmp/hf \
   -e DATA_DIR=/data \
   -e ADAPTER_DIR=/tmp/reviewer-lora-v1.0 \
