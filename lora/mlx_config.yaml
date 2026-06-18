@@ -25,8 +25,9 @@ lora_rank: 16            # LoRA rank; 8-16 standard for code tasks
 lora_scale: 1.0          # LoRA alpha / rank; effective alpha = rank * scale = 16
 
 # Training schedule
-# 69 train examples × ~8 epochs ≈ 552 iters at batch_size=1
-# Roughly 500 iters → ~7 epochs over the 69-example training set
+# 69 train examples × batch_size=1: 500 iters ≈ 7.2 epochs
+# HF path (hf_train.py) uses grad_accumulation=4 → 500 optimizer steps ≈ 29 epochs
+# (intentional for small-data LoRA; the two paths are not epoch-equivalent)
 batch_size: 1
 iters: 500
 learning_rate: 1.0e-4
