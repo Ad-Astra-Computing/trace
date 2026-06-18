@@ -134,8 +134,11 @@ def main():
         output_dir=str(adapter_path),
         max_steps=args.max_steps,
         per_device_train_batch_size=1,
-        # Gradient accumulation: effective batch=4 for CUDA training stability.
-        # With 69 train examples, 500 optimizer steps × 4 accum = ~29 epochs.
+        # Eval batch MUST be 1: the default 8 materializes [8, ~15K, 152K-vocab]
+        # fp32 logits (~40 GiB) and OOMs even an 80GB A100. eval_loss is all we use.
+        per_device_eval_batch_size=1,
+        prediction_loss_only=True,
+        eval_accumulation_steps=1,
         gradient_accumulation_steps=4,
         learning_rate=1e-4,
         lr_scheduler_type="cosine",

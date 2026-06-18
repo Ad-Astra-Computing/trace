@@ -140,6 +140,12 @@ def main():
         output_dir=str(adapter_dir),
         max_steps=MAX_STEPS,
         per_device_train_batch_size=1,
+        # Eval batch MUST be 1: the default 8 materializes [8, ~15K, 152K-vocab]
+        # fp32 logits (~40 GiB) and OOMs even an 80GB A100. We only consume
+        # eval_loss, so prediction_loss_only avoids retaining logits at all.
+        per_device_eval_batch_size=1,
+        prediction_loss_only=True,
+        eval_accumulation_steps=1,
         gradient_accumulation_steps=GRAD_ACCUM,
         learning_rate=1e-4,
         lr_scheduler_type="cosine",
