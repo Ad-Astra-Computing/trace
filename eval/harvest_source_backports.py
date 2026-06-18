@@ -55,6 +55,7 @@ class BackportCandidate:
     keywords: list[str] = field(default_factory=list)
     build_class: str = "unknown"
     craftability: str = "unknown"
+    upstream_fix_url: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -68,6 +69,7 @@ class BackportCandidate:
             "keywords": self.keywords,
             "build_class": self.build_class,
             "craftability": self.craftability,
+            "upstream_fix_url": self.upstream_fix_url,
             "patch_strategy": "source-backport",
         }
 
@@ -92,6 +94,95 @@ def package_from_patch_path(patch_path: str) -> str:
     if len(parts) >= 2:
         return parts[-2]
     return patch_path
+
+
+def packages_from_patches(patch_files: list[str]) -> list[str]:
+    """The distinct packages a commit's added patches touch. Strict mode requires
+    exactly one — a commit adding patches across several package dirs (a treewide
+    security sweep) is not a single source-backport lead and was the source of the
+    espeak-style noise (one package label, every CVE in the sweep)."""
+    return sorted({package_from_patch_path(p) for p in patch_files})
+
+
+def cves_tied_to_patches(
+    patch_files: list[str], full_diff_added_lines: list[str]
+) -> list[str]:
+    """CVE ids that are actually attributable to the patch, i.e. present in a patch
+    FILENAME or in the patch BODY. A CVE that appears only in the commit subject is
+    NOT tied — it is usually one entry in a multi-CVE changelog and does not mean
+    the added patch fixes it. This is the precision fix for the espeak failure:
+    a subject listing 30 CVEs no longer taints a commit that ships one patch."""
+    blob = " ".join(patch_files) + "\n" + "\n".join(full_diff_added_lines)
+    return sorted(set(_CVE_RE.findall(blob)), key=str.upper)
+
+
+def resolve_strict_cves(
+    patch_files: list[str], full_diff_added_lines: list[str], subject: str
+) -> list[str]:
+    """The CVE ids a strict candidate may claim. Patch-tied CVEs (filename/body) are
+    authoritative. With none tied, a subject that names exactly ONE CVE is still
+    trusted: a focused commit like `putty: fix CVE-2026-4115` is the maintainer's
+    own attribution, even when the patch file keeps a descriptive name. A subject
+    naming several CVEs with none tied to the patch is a changelog/batch (the espeak
+    failure) and yields no claimable CVE."""
+    tied = cves_tied_to_patches(patch_files, full_diff_added_lines)
+    if tied:
+        return tied
+    subject_cves = sorted(set(_CVE_RE.findall(subject)), key=str.upper)
+    if len(subject_cves) == 1:
+        return subject_cves
+    return []
+
+
+# Upstream-reference tells inside a backport `.patch` body. Patches carried in
+# nixpkgs almost always cite their origin: a project commit URL, a git
+# format-patch `From <40hex>` header, or an `Origin:`/`Upstream-commit:` line.
+_UPSTREAM_URL_RE = re.compile(
+    r"https?://[^\s'\"<>]+/(?:commit|commits|pull|cgit[^\s'\"<>]*/commit)/[^\s'\"<>)]+")
+_GIT_FROM_RE = re.compile(r"^From ([0-9a-f]{40})\b")
+_ORIGIN_SHA_RE = re.compile(
+    r"(?:Upstream-commit|Git-commit|Origin|Upstream-Status)\s*:.*?\b([0-9a-f]{40})\b",
+    re.IGNORECASE)
+
+
+def extract_upstream_fix_url(full_diff_added_lines: list[str]) -> str | None:
+    """Recover the upstream fix reference (a commit URL, or a bare 40-hex commit
+    sha) from the backport `.patch` body embedded in the commit's added lines.
+    Returns None when no reference is present — in strict mode that is a soft
+    signal, not a hard reject, since some legitimate patches carry only a
+    description."""
+    inner = [ln[1:] for ln in full_diff_added_lines if ln.startswith("+")]
+    for pl in inner:
+        m = _UPSTREAM_URL_RE.search(pl)
+        if m:
+            return m.group(0)
+    for pl in inner:
+        m = _GIT_FROM_RE.search(pl) or _ORIGIN_SHA_RE.search(pl)
+        if m:
+            return m.group(1)
+    return None
+
+
+def strict_reject_reason(
+    *, packages: list[str], patch_cves: list[str], version_changed: bool,
+    patch_files: list[str], max_patches: int = 4, max_cves: int = 3,
+) -> str | None:
+    """Return why a candidate fails the strict precision gate, or None if it passes.
+
+    The gate (codex 2026-06-18): a strict source-backport lead touches exactly one
+    package, ships a patch tied to its CVE, leaves the version unchanged, and is not
+    a mass import. Each rejected shape is a documented false-positive class."""
+    if len(packages) != 1:
+        return f"multi-package ({len(packages)} packages: {','.join(packages)})"
+    if not patch_cves:
+        return "no CVE tied to the patch (subject-only match)"
+    if version_changed:
+        return "version changed (bump+patch combo, not a clean backport)"
+    if len(patch_files) > max_patches:
+        return f"too many patches ({len(patch_files)} > {max_patches}; likely a sweep)"
+    if len(patch_cves) > max_cves:
+        return f"too many CVEs ({len(patch_cves)} > {max_cves}; likely a batch)"
+    return None
 
 
 def classify_keywords(subject: str, patch_files: list[str]) -> list[str]:
@@ -197,18 +288,38 @@ def classify_craftability(full_diff_added_lines: list[str]) -> str:
 def parse_commit_record(
     *, commit: str, parent: str, subject: str,
     added_patch_files: list[str], full_diff_added_lines: list[str],
-    patch_filenames_for_cve: bool = True,
+    patch_filenames_for_cve: bool = True, strict: bool = False,
 ) -> BackportCandidate | None:
     """Pure parser: build a candidate from already-extracted git facts. Returns
-    None if the commit added no `*.patch` under pkgs/ (not a source-backport)."""
+    None if the commit added no `*.patch` under pkgs/ (not a source-backport).
+
+    `strict` applies the precision gate (codex 2026-06-18): CVE ids are restricted
+    to those tied to the patch (filename/body, not the subject changelog), the
+    candidate must touch exactly one package, leave the version unchanged and not be
+    a mass sweep, and the upstream fix reference is extracted. Commits that fail the
+    gate return None. Non-strict behaviour is unchanged (the bulk-scan default)."""
     patches = [f for f in added_patch_files
                if f.endswith(".patch") and f.startswith("pkgs/")]
     if not patches:
         return None
-    cve_blob = subject + (" " + " ".join(patches) if patch_filenames_for_cve else "")
-    cves = sorted(set(_CVE_RE.findall(cve_blob)), key=str.upper)
     version_changed = any(_VERSION_CHANGE_RE.match(ln) for ln in full_diff_added_lines)
-    package = package_from_patch_path(patches[0])
+
+    if strict:
+        cves = resolve_strict_cves(patches, full_diff_added_lines, subject)
+        packages = packages_from_patches(patches)
+        if strict_reject_reason(
+            packages=packages, patch_cves=cves,
+            version_changed=version_changed, patch_files=patches,
+        ) is not None:
+            return None
+        package = packages[0]
+        upstream_fix_url = extract_upstream_fix_url(full_diff_added_lines)
+    else:
+        cve_blob = subject + (" " + " ".join(patches) if patch_filenames_for_cve else "")
+        cves = sorted(set(_CVE_RE.findall(cve_blob)), key=str.upper)
+        package = package_from_patch_path(patches[0])
+        upstream_fix_url = extract_upstream_fix_url(full_diff_added_lines)
+
     return BackportCandidate(
         cve_ids=cves,
         package=package,
@@ -223,6 +334,7 @@ def parse_commit_record(
             inner_native=any(_NATIVE_SRC_RE.search(ln) for ln in full_diff_added_lines),
         ),
         craftability=classify_craftability(full_diff_added_lines),
+        upstream_fix_url=upstream_fix_url,
     )
 
 
@@ -252,13 +364,20 @@ def _is_shallow_ref(repo: Path, ref: str) -> bool:
 
 def harvest(repo: Path, *, limit: int, require_cve: bool = True,
             ref: str = "HEAD", check_version: bool = False,
-            craftable: bool = False) -> list[BackportCandidate]:
+            craftable: bool = False, strict: bool = False) -> list[BackportCandidate]:
     """Scan the last `limit` commits of `repo` for source-backport candidates.
 
     `check_version` (off by default) runs a `git show` per candidate to flag
     bump+patch combos via `version_changed`; it adds one subprocess per candidate,
     so the fast bulk scan leaves `version_changed=False` (unprobed) and the
-    bootstrap step re-checks the handful it actually pursues."""
+    bootstrap step re-checks the handful it actually pursues.
+
+    `strict` applies the precision gate per candidate and forces the patch-body
+    read (so version-change and upstream-url extraction are reliable). It is the
+    mode to use before spending model calls — it drops multi-package sweeps,
+    subject-only CVE matches and bump+patch combos."""
+    if strict:
+        check_version = True
     # commits that ADD a *.patch under pkgs/, newest first
     log = _git(
         repo, "log", f"-{limit}", ref, "--diff-filter=A",
@@ -296,6 +415,7 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
         cand = parse_commit_record(
             commit=commit, parent=parent, subject=subject,
             added_patch_files=added, full_diff_added_lines=added_lines,
+            strict=strict,
         )
         if cand is None:
             continue
@@ -318,6 +438,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--light-only", action="store_true",
                     help="only emit build_class=light-interpreter candidates (pure-script "
                          "libs on a cached interpreter — the fast cert lane)")
+    ap.add_argument("--strict", action="store_true",
+                    help="apply the precision gate: exactly one package, CVE tied to "
+                         "the patch (not subject-only), version unchanged, not a mass "
+                         "sweep; extracts upstream_fix_url. Forces --check-version. Use "
+                         "before any model spend.")
     ap.add_argument("--check-version", action="store_true",
                     help="probe each candidate for a version change (slower; flags bump+patch combos)")
     ap.add_argument("--craftable-only", action="store_true",
@@ -336,12 +461,14 @@ def main(argv: list[str]) -> int:
         return 2
     try:
         cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref,
-                        check_version=args.check_version, craftable=args.craftable_only)
+                        check_version=args.check_version, craftable=args.craftable_only,
+                        strict=args.strict)
     except RuntimeError as exc:
         if "unknown revision" in str(exc) or "bad revision" in str(exc):
             ref = "HEAD"
             cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref,
-                            check_version=args.check_version, craftable=args.craftable_only)
+                            check_version=args.check_version, craftable=args.craftable_only,
+                            strict=args.strict)
         else:
             print(f"error: {exc}", file=sys.stderr)
             return 2
