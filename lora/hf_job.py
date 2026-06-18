@@ -23,13 +23,18 @@ Mirrors lora/hf_train.py's reviewed training core, adapted for remote execution:
   - emits a run manifest tying the run to corpus freeze + dataset + base-model SHAs
 
 Submission (see lora/submit_hf_job.sh):
-  hf jobs uv run --flavor l40sx1 --namespace adastracomputing \
+  hf jobs uv run --flavor a100-large --namespace odoom \
     --secrets HF_TOKEN \
-    -v hf://datasets/adastracomputing/reviewer-lora-data:/data \
+    -v hf://datasets/adastracomputing/reviewer-lora-data:/data:ro \
+    -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     -e HF_HOME=/tmp/hf -e ADAPTER_DIR=/tmp/reviewer-lora-v1.0 \
     -e HUB_MODEL_ID=adastracomputing/reviewer-lora-v1.0 \
     -e CORPUS_FREEZE_SHA=... -e DATASET_COMMIT=... -e TRACE_COMMIT=... \
     lora/hf_job.py
+
+A100 80GB (not L40S 44GB): the full-vocab cross-entropy on ~15K-token outliers
+materializes a ~8.5 GiB fp32 logits tensor that OOMs 44GB. Namespace odoom = billing
+(personal credits); HUB_MODEL_ID = adastracomputing org = adapter destination.
 """
 import json
 import os
