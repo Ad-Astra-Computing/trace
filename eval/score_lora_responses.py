@@ -103,6 +103,9 @@ def main() -> None:
     bpath = Path(args.baseline)
     if bpath.exists():
         b = json.loads(bpath.read_text())
+        # frontier-baseline-v1.0.json nests its metrics under "aggregate";
+        # fall back to top-level for forward-compat.
+        b = b.get("aggregate", b)
         print("\n  vs frontier baseline:", file=sys.stderr)
         print(f"    accuracy:      LoRA {agg['verdict_accuracy']:.1%}  |  frontier {b.get('verdict_accuracy',0):.1%}", file=sys.stderr)
         print(f"    false_accepts: LoRA {agg['false_accept_count']}  |  frontier {b.get('false_accept_count','?')}", file=sys.stderr)
