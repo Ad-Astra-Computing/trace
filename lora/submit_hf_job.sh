@@ -24,7 +24,7 @@ FLAVOR="a100-large"
 NAMESPACE="odoom"
 DATASET="adastracomputing/reviewer-lora-data"
 HUB_MODEL_ID="adastracomputing/reviewer-lora-v1.0"
-CORPUS_FREEZE_SHA="e70b3ff"
+CORPUS_FREEZE_SHA="bebb64b"
 TRACE_COMMIT="$(git rev-parse HEAD)"
 # Latest dataset repo commit (pin the exact data state):
 DATASET_COMMIT="${DATASET_COMMIT:-$(hf api "datasets/${DATASET}" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sha","unknown"))' 2>/dev/null || echo unknown)}"
