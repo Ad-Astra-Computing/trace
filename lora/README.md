@@ -59,13 +59,34 @@ python3 -m mlx_lm.fuse \
 
 ---
 
-## Path B: HuggingFace (cloud GPU)
+## Path B: HuggingFace / TRL (any CUDA GPU or Nix shell)
 
-Use TRL SFTTrainer with QLoRA. The data is already in OpenAI chat format.
+Uses TRL SFTTrainer + PEFT QLoRA. Data is already in OpenAI chat format.
 
-Compute: `RunPod RTX 4090 (24GB)` with QLoRA (4-bit), or `A100 40GB` with full LoRA BF16.
+**Compute options:**
+- `RunPod RTX 4090 (24GB)` — 4-bit QLoRA (default)
+- `A100 40GB+` — full BF16 LoRA (`--no-qlora`)
+- Inside repo microvm on Apple Silicon — Nix shell with CPU torch (dev/testing only)
 
-See `lora/hf_train.py` (to be written if perdurabo path fails).
+### Nix dev shell (perdurabo / any machine with Nix)
+
+```bash
+nix develop .#lora
+bash lora/prepare_mlx_data.sh
+python3 lora/hf_train.py
+```
+
+### Cloud GPU (pip)
+
+```bash
+pip install -r lora/requirements-hf.txt
+bash lora/prepare_mlx_data.sh
+python3 lora/hf_train.py
+# Full BF16 on A100:
+python3 lora/hf_train.py --no-qlora
+```
+
+Adapters are written to `lora/adapters/reviewer-v1.0/`.
 
 ---
 

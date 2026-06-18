@@ -54,6 +54,46 @@
           '';
         };
 
+        # LoRA training shell, opt-in via `nix develop .#lora`.
+        # Provides HuggingFace / TRL stack for Reviewer-LoRA v1.0 fine-tune.
+        # On a cloud CUDA box without Nix, use: pip install -r lora/requirements-hf.txt
+        devShells.lora =
+          let
+            loraEnv = pkgs.python3.withPackages (ps: [
+              ps.transformers
+              ps.peft
+              ps.trl
+              ps.datasets
+              ps.accelerate
+              ps.huggingface-hub
+              ps.bitsandbytes
+              # torch: nixpkgs ships the CPU build; CUDA variant requires
+              # override or pip on the target GPU machine.
+              ps.torch
+              # keep base trace deps so eval/package_lora.py runs in this shell
+              ps.pytest
+              ps.jsonschema
+              ps.referencing
+            ]);
+          in
+          pkgs.mkShell {
+            name = "trace-lora";
+            packages = [ loraEnv pkgs.jq pkgs.git pkgs.coreutils ];
+            shellHook = ''
+              export TRACE_ROOT="$PWD"
+              {
+                echo "trace lora dev shell"
+                echo "  python:       $(python3 --version)"
+                echo "  transformers: $(python3 -P -c 'import transformers; print(transformers.__version__)' 2>/dev/null || echo missing)"
+                echo "  trl:          $(python3 -P -c 'import trl; print(trl.__version__)' 2>/dev/null || echo missing)"
+                echo "  peft:         $(python3 -P -c 'import peft; print(peft.__version__)' 2>/dev/null || echo missing)"
+                echo ""
+                echo "  Prepare data: bash lora/prepare_mlx_data.sh"
+                echo "  Train:        python3 lora/hf_train.py"
+              } >&2
+            '';
+          };
+
         # Graph-crate shell, opt-in via `nix develop .#graph`. Adds the Rust
         # toolchain; default shell stays fast.
         devShells.graph = pkgs.mkShell {
