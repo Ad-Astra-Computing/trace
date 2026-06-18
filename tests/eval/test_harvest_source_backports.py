@@ -14,9 +14,14 @@ from eval.harvest_source_backports import (
     BackportCandidate,
     classify_craftability,
     classify_keywords,
+    cves_tied_to_patches,
+    extract_upstream_fix_url,
     harvest,
     package_from_patch_path,
+    packages_from_patches,
     parse_commit_record,
+    resolve_strict_cves,
+    strict_reject_reason,
 )
 
 
@@ -174,6 +179,166 @@ def test_craftability_field_present_in_to_dict():
     )
     assert c is not None
     assert c.to_dict()["craftability"] == "derivable-guard"
+
+
+# ─── strict mode (precision gate, codex 2026-06-18) ───────────────────────────
+
+
+def test_packages_from_patches_single():
+    assert packages_from_patches(
+        ["pkgs/by-name/li/linux-pam/CVE-2025-6020.patch"]) == ["linux-pam"]
+
+
+def test_packages_from_patches_multi():
+    pkgs = packages_from_patches([
+        "pkgs/by-name/es/espeak/CVE-2023-49990.patch",
+        "pkgs/development/libraries/libfoo/CVE-2024-1111.patch",
+    ])
+    assert pkgs == ["espeak", "libfoo"]
+
+
+def test_cves_tied_to_patches_filename():
+    # CVE in the patch filename is tied; a subject-only CVE is not.
+    tied = cves_tied_to_patches(
+        ["pkgs/by-name/fo/foo/CVE-2025-1234.patch"], [])
+    assert tied == ["CVE-2025-1234"]
+
+
+def test_cves_tied_to_patches_body():
+    tied = cves_tied_to_patches(
+        ["pkgs/by-name/fo/foo/fix.patch"],
+        ["+Subject: fix CVE-2025-2222 OOB read", "+  buf[n] = 0;"])
+    assert tied == ["CVE-2025-2222"]
+
+
+def test_cves_tied_to_patches_ignores_subject_only():
+    # neither the filename nor the body carries the CVE -> not tied
+    assert cves_tied_to_patches(["pkgs/by-name/fo/foo/fix.patch"], []) == []
+
+
+def test_resolve_strict_cves_patch_tied_wins():
+    assert resolve_strict_cves(
+        ["pkgs/by-name/fo/foo/CVE-2025-111.patch"], [],
+        "foo: fix CVE-2025-111 CVE-2025-222") == ["CVE-2025-111"]
+
+
+def test_resolve_strict_cves_single_subject_cve_trusted():
+    # putty shape: one CVE in the subject, descriptive patch name, no CVE in body.
+    # The focused commit is the maintainer's attribution -> trust it.
+    assert resolve_strict_cves(
+        ["pkgs/applications/networking/remote/putty/eddsa-verify.patch"], [],
+        "putty: fix CVE-2026-4115") == ["CVE-2026-4115"]
+
+
+def test_resolve_strict_cves_multi_subject_none_tied_rejected():
+    # espeak shape: subject lists several CVEs, none in the patch -> changelog noise.
+    assert resolve_strict_cves(
+        ["pkgs/by-name/es/espeak/fix.patch"], [],
+        "espeak: CVE-2023-1 CVE-2023-2 CVE-2023-3") == []
+
+
+def test_strict_parse_recovers_focused_single_cve_commit():
+    # The putty false-negative fix: descriptive patch name, single subject CVE.
+    c = parse_commit_record(
+        commit="abc", parent="par", subject="putty: fix CVE-2026-4115",
+        added_patch_files=[
+            "pkgs/applications/networking/remote/putty/eddsa-verify.patch"],
+        full_diff_added_lines=["+  some code change"],
+        strict=True,
+    )
+    assert c is not None
+    assert c.cve_ids == ["CVE-2026-4115"]
+    assert c.package == "putty"
+
+
+def test_extract_upstream_fix_url_commit():
+    lines = ["+Origin: https://github.com/foo/bar/commit/deadbeefcafe1234",
+             "+  code change"]
+    assert extract_upstream_fix_url(lines) == \
+        "https://github.com/foo/bar/commit/deadbeefcafe1234"
+
+
+def test_extract_upstream_fix_url_git_from_header():
+    # git format-patch header carries the upstream commit sha
+    lines = ["+From 0123456789abcdef0123456789abcdef01234567 Mon Sep 17 00:00:00 2001",
+             "+Subject: [PATCH] fix"]
+    assert extract_upstream_fix_url(lines) == \
+        "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_extract_upstream_fix_url_none():
+    assert extract_upstream_fix_url(["+  just code", "+  no ref"]) is None
+
+
+def test_strict_reject_multi_package():
+    reason = strict_reject_reason(
+        packages=["espeak", "libfoo"], patch_cves=["CVE-2024-1"],
+        version_changed=False, patch_files=["a.patch", "b.patch"])
+    assert reason and "multi-package" in reason
+
+
+def test_strict_reject_subject_only_cve():
+    reason = strict_reject_reason(
+        packages=["foo"], patch_cves=[], version_changed=False,
+        patch_files=["pkgs/by-name/fo/foo/fix.patch"])
+    assert reason and "tied" in reason
+
+
+def test_strict_reject_version_changed():
+    reason = strict_reject_reason(
+        packages=["foo"], patch_cves=["CVE-2025-1"], version_changed=True,
+        patch_files=["pkgs/by-name/fo/foo/CVE-2025-1.patch"])
+    assert reason and "version" in reason
+
+
+def test_strict_reject_clean_passes():
+    assert strict_reject_reason(
+        packages=["linux-pam"], patch_cves=["CVE-2025-6020"],
+        version_changed=False,
+        patch_files=["pkgs/by-name/li/linux-pam/CVE-2025-6020.patch"]) is None
+
+
+def test_strict_parse_drops_subject_only_cve_taint():
+    # The espeak failure mode: subject lists many CVEs, only one is in the patch.
+    # Strict mode keeps only the patch-tied CVE and does not inherit the subject list.
+    c = parse_commit_record(
+        commit="abc", parent="par",
+        subject="espeak: backport CVE-2023-49990 CVE-2023-49991 CVE-2023-49992 "
+                "CVE-2023-49993 CVE-2023-49994",
+        added_patch_files=["pkgs/by-name/es/espeak/CVE-2023-49990.patch"],
+        full_diff_added_lines=["+  buf[n] = 0;"],
+        strict=True,
+    )
+    assert c is not None
+    assert c.cve_ids == ["CVE-2023-49990"]  # not the 4 subject-only ones
+
+
+def test_strict_parse_rejects_multi_package_commit():
+    c = parse_commit_record(
+        commit="abc", parent="par", subject="treewide: security patches",
+        added_patch_files=[
+            "pkgs/by-name/es/espeak/CVE-2023-49990.patch",
+            "pkgs/development/libraries/libfoo/CVE-2024-1111.patch",
+        ],
+        full_diff_added_lines=[],
+        strict=True,
+    )
+    assert c is None
+
+
+def test_strict_parse_populates_upstream_fix_url():
+    c = parse_commit_record(
+        commit="abc", parent="par", subject="foo: patch CVE-2025-1234",
+        added_patch_files=["pkgs/by-name/fo/foo/CVE-2025-1234.patch"],
+        full_diff_added_lines=[
+            "+Origin: https://github.com/foo/bar/commit/deadbeefcafe1234",
+            "+  buf[n] = 0;"],
+        strict=True,
+    )
+    assert c is not None
+    assert c.to_dict()["upstream_fix_url"] == \
+        "https://github.com/foo/bar/commit/deadbeefcafe1234"
+    assert c.to_dict()["version_changed"] is False
 
 
 # ─── opportunistic real-repo smoke ────────────────────────────────────────────
