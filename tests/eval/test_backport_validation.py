@@ -70,11 +70,30 @@ def test_discriminating_source_backports_validate(sub):
     assert by["no-version-bump"].passed
 
 
-def test_timed_out_patched_run_is_verified_only():
-    """bzip2's patched run timed out — it is built + reviewer-accepted but NOT
-    behaviorally proven (patched-clean never observed). The gate must classify
-    it verified-only, not validated, and name the recoverable reason."""
-    v = validate_backport(_bundle("bzip2-backport"))
+def test_timed_out_patched_run_is_verified_only(tmp_path):
+    """A bundle whose patched reproducer run timed out is built + reviewer-accepted
+    but NOT behaviorally proven (patched-clean never observed). The gate must
+    classify it verified-only, not validated, and name the recoverable reason."""
+    bd = tmp_path / "CVE-2099-9999--timeout-backport"
+    bd.mkdir()
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "patch.diff").write_text(
+        "diff --git a/pkgs/tools/t/CVE-2099-9999.patch b/pkgs/tools/t/CVE-2099-9999.patch\n"
+        "new file mode 100644\n--- /dev/null\n+++ b/pkgs/tools/t/CVE-2099-9999.patch\n"
+        "@@ -0,0 +1,2 @@\n+--- a/src/foo.c\n++++ b/src/foo.c\n"
+    )
+    (bd / "upstream-fix.patch").write_text("--- a/src/foo.c\n+++ b/src/foo.c\n")
+    (bd / "review.md").write_text("## Verdict\naccept\n")
+    (bd / "reproducer.nix").write_text(
+        "# SIGNAL_UNPATCHED: vuln-triggered\n# SIGNAL_PATCHED: fix-confirmed\n")
+    (bd / "build.json").write_text(json.dumps({
+        "patch_apply": {"applied": True},
+        "unpatched": {"outcome": "succeeded",
+                      "stdout_stderr": "SIGNAL_UNPATCHED: vuln-triggered"},
+        "patched": {"outcome": "timed-out", "stdout_stderr": ""},
+    }))
+    v = validate_backport(bd)
     assert v.is_source_backport
     assert not v.validated
     assert v.disposition == "verified-only"
