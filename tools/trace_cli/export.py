@@ -102,6 +102,16 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="reviewer system prompt to embed (default prompts/reviewer.v2.md)",
     )
     rv.add_argument("--format", choices=["human", "json"], default="human")
+    rv.add_argument(
+        "--split-manifest",
+        type=Path,
+        default=None,
+        help=(
+            "versioned split-override manifest (e.g. data/splits/reviewer-v1.1.json). "
+            "family_key overrides in the manifest take precedence over the hash-based "
+            "assignment. Overrides are recorded in manifest.json. v1.1+ only."
+        ),
+    )
 
     au = p_subs.add_parser(
         "authoring",
@@ -269,6 +279,7 @@ def _build_user_turn(bundle_dir: Path) -> str | None:
 
 def _example_for_bundle(
     bundle_dir: Path, system_prompt: str,
+    split_overrides: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Return (example_or_None, status). status always carries bundle_id/cve/attr
     + eligibility_for_training + exclusion_reason (when ineligible)."""
@@ -360,13 +371,16 @@ def _example_for_bundle(
         status["exclusion_reason"] = "could not assemble reviewer input (missing artifact)"
         return None, status
 
-    split = _split_for(attr)
+    family = _normalize_attr(attr)
+    override_split = (split_overrides or {}).get(family)
+    split = override_split if override_split else _split_for(attr)
     mutation = _load_json(bundle_dir / "mutation.json")
     provenance = {
         "bundle_id": bundle_id,
         "cve_id": cve_id,
         "attr_path": attr,
-        "split_family": _normalize_attr(attr),
+        "split_family": family,
+        "split_override": override_split,
         "kind": kind,
         "auto_merge_evidence_path": bundle.get("auto_merge_evidence_path"),
         "has_cert_build": (bundle_dir / "build.json").is_file(),
@@ -658,6 +672,19 @@ def run(args: argparse.Namespace) -> int:
 
     system_prompt = prompt_path.read_text()
 
+    # Load optional versioned split-override manifest (e.g. data/splits/reviewer-v1.1.json).
+    split_overrides: dict[str, str] = {}
+    split_manifest_meta: dict | None = None
+    manifest_path = getattr(args, "split_manifest", None)
+    if manifest_path is not None:
+        if not manifest_path.is_file():
+            print(f"error: split manifest not found: {manifest_path}")
+            return 2
+        sm = json.loads(manifest_path.read_text())
+        split_overrides = {k: v["split"] for k, v in sm.get("overrides", {}).items()}
+        split_manifest_meta = {"name": sm.get("name"), "path": str(manifest_path),
+                               "overrides": list(split_overrides.keys())}
+
     # Enumerate real-CVE positives (traces/example, skip synthetic CVE-0000-*) +
     # mutation-based negatives (traces/negatives). Deterministic order.
     negatives_root: Path = args.negatives_root
@@ -678,7 +705,7 @@ def run(args: argparse.Namespace) -> int:
     seen: set[tuple[str, str, str | None]] = set()
 
     for bd in bundle_dirs:
-        ex, status = _example_for_bundle(bd, system_prompt)
+        ex, status = _example_for_bundle(bd, system_prompt, split_overrides)
         # Negatives-root hygiene: a bundle under traces/negatives MUST carry
         # mutation provenance AND have produced a negative reviewer verdict.
         # Otherwise it would train a deliberately-defective patch as a positive
@@ -730,6 +757,7 @@ def run(args: argparse.Namespace) -> int:
         "schema_version": SCHEMA_VERSION,
         "scope": "reviewer",
         "reviewer_prompt": _redact(str(prompt_path)),
+        "split_manifest": split_manifest_meta,
         "total_bundles_enumerated": len(bundle_dirs),
         "eligible_examples": len(examples),
         "excluded": [

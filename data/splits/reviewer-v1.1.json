@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "name": "reviewer-v1.1",
+  "description": "Split manifest for Reviewer-LoRA v1.1 training. Overrides hash-based split for specific family keys to correct calibration gaps identified in the v1.0 shadow pilot.",
+  "overrides": {
+    "sqlite": {
+      "split": "train",
+      "reason": "sqlite (CVE-2022-46908) was in dev under hash-based assignment (bucket=72). LoRA v1.0 false-rejected this example, hallucinating a wrong UNUSED_PARAMETER direction. Moving to train so the model sees the correct positive during v1.1 training. Paired with CVE-2022-46908--sqlite--extra-unrelated-hunk negative in traces/negatives/."
+    }
+  },
+  "note": "v1.1 is NOT directly comparable to v1.0 on held-out protocol (sqlite split changed). Report v1.1 accuracy on the v1.1 held-out set only; do not compare numerically to v1.0 dev/test accuracy."
+}
