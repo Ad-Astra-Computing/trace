@@ -1,0 +1,142 @@
+{
+  "gate_pass": true,
+  "summary": {
+    "test_total": 11,
+    "test_correct": 11,
+    "false_rejects": 0,
+    "false_accepts": 0,
+    "test_parse_fails": 0,
+    "retest_total": 2,
+    "retest_correct": 0,
+    "retest_parse_fails": 0
+  },
+  "details": {
+    "false_rejects": [],
+    "false_accepts": [],
+    "test_parse_fails": [],
+    "correct": [
+      {
+        "bundle_id": "7cc38be5045d8ab0",
+        "cve_id": "CVE-2025-26625",
+        "attr_path": "git-lfs",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "extra-unrelated-hunk",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "8710c88ee94ca1ef",
+        "cve_id": "CVE-2025-12888",
+        "attr_path": "wolfssl",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "wrong-target-version",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "beda9b90019b692a",
+        "cve_id": "CVE-2025-2337",
+        "attr_path": "matio",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "patch-touches-unrelated-file",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "d783738d314604ec",
+        "cve_id": "CVE-2024-8176",
+        "attr_path": "expat",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "patch-touches-unrelated-file",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "31c27b69bfd0bda2",
+        "cve_id": "CVE-2025-59375",
+        "attr_path": "expat",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "7cc38be5045d8ab0",
+        "cve_id": "CVE-2025-26625",
+        "attr_path": "git-lfs",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "8710c88ee94ca1ef",
+        "cve_id": "CVE-2025-12888",
+        "attr_path": "wolfssl",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "a98203b889f4c032",
+        "cve_id": "CVE-2025-53859",
+        "attr_path": "nginxMainline",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "b59e00d340a71555",
+        "cve_id": "CVE-2026-3308",
+        "attr_path": "mupdf",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "beda9b90019b692a",
+        "cve_id": "CVE-2025-2337",
+        "attr_path": "matio",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "d783738d314604ec",
+        "cve_id": "CVE-2024-8176",
+        "attr_path": "expat",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      }
+    ],
+    "retest": [
+      {
+        "bundle_id": "224c1379cb686c0d",
+        "cve_id": "CVE-2022-46908",
+        "attr_path": "sqlite",
+        "label": "positive",
+        "split": "train-retest",
+        "mutation_type": null,
+        "verdict": "reject",
+        "outcome": "false_reject"
+      },
+      {
+        "bundle_id": "c7b1c032dddb87fe",
+        "cve_id": "CVE-2023-4016",
+        "attr_path": "procps",
+        "label": "positive",
+        "split": "train-retest",
+        "mutation_type": null,
+        "verdict": "reject",
+        "outcome": "false_reject"
+      }
+    ],
+    "retest_parse_fails": []
+  }
+}
