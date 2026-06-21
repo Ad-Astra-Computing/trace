@@ -1,0 +1,28 @@
+{
+  "freeze_id": "reviewer-2026-06-21",
+  "frozen_at_commit": "b558e1e466dcd69262c1867a45219125b5a54eba",
+  "frozen_at_date": "2026-06-21",
+  "export_path": "exports/reviewer-2026-06-21/reviewer.jsonl",
+  "total_examples": 102,
+  "splits": {
+    "train": 79,
+    "dev": 12,
+    "test": 11
+  },
+  "labels": {
+    "positive": 77,
+    "negative": 25
+  },
+  "families": 71,
+  "family_leakage_free": true,
+  "excluded": 5,
+  "notes": "Corpus freeze for Reviewer-LoRA shadow pilot. 10 new positives vs v1.0 training freeze (e70b3ff, 67 pos + 25 neg = 92 ex). New positives include: opensc CVE-2026-10275, proftpd CVE-2026-44331, pygments CVE-2026-4539, busybox CVE-2025-60876-backport, busybox-wget-header-injection, litestream CVE-2024-41254, dnsmasq CVE-2026-6507, libssh2 CVE-2026-7598, bzip2 CVE-2026-42250, pyjwt CVE-2026-48526. Use this freeze to: (a) run LoRA shadow pilot (frontier vs LoRA on new bundles), (b) potentially train reviewer-lora-v1.1 if pilot shows accuracy delta.",
+  "compared_to_v1_0": {
+    "v1_0_commit": "e70b3ff",
+    "v1_0_examples": 92,
+    "v1_0_positives": 67,
+    "v1_0_negatives": 25,
+    "new_positives": 10,
+    "new_negatives": 0
+  }
+}
