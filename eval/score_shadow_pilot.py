@@ -37,7 +37,7 @@ def main() -> None:
     args = ap.parse_args()
 
     responses = {
-        r["cve_id"]: r
+        r["bundle_id"]: r
         for r in (json.loads(l) for l in Path(args.responses).read_text().splitlines() if l.strip())
     }
 
@@ -51,9 +51,10 @@ def main() -> None:
     unmatched = []
     for rec in shadow_records:
         cve_id = rec.get("provenance", {}).get("cve_id")
-        resp = responses.get(cve_id)
+        bundle_id = rec.get("provenance", {}).get("bundle_id")
+        resp = responses.get(bundle_id)
         if resp is None:
-            unmatched.append(cve_id)
+            unmatched.append(f"{cve_id}({bundle_id})")
             scored = score_example(rec, "")
             scored["parse_failure"] = True
             scored["parse_error"] = "no matching response"
@@ -82,7 +83,7 @@ def main() -> None:
         "schema_valid_rate": sum(1 for r in results if r.get("schema_valid")) / n if n else 0,
         "evidence_cited_rate": sum(1 for r in results if r.get("evidence_cited")) / n if n else 0,
         "gate_pass": len(false_rejects) == 0 and len(parse_fails) == 0,
-        "false_rejects": [{"cve_id": r["cve_id"]} for r in false_rejects],
+        "false_rejects": [{"cve_id": r["cve_id"], "attr_path": r["attr_path"]} for r in false_rejects],
         "refusals": [{"cve_id": r["cve_id"]} for r in refusals],
         "parse_failures": [{"cve_id": r["cve_id"], "error": r.get("parse_error")} for r in parse_fails],
         "results": results,
