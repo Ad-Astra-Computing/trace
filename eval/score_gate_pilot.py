@@ -60,8 +60,14 @@ def main():
     pilot_records = [
         json.loads(l) for l in args.pilot.read_text().splitlines() if l.strip()
     ]
+    # Key by (bundle_id, mutation_type or '') because a positive bundle and its
+    # mutation share the same bundle_id — using only bundle_id causes the scorer
+    # to match the wrong response when both appear in the same pilot set.
+    def _resp_key(r: dict) -> tuple:
+        return (r["bundle_id"], r.get("mutation_type") or "")
+
     responses = {
-        r["bundle_id"]: r
+        _resp_key(r): r
         for r in (
             json.loads(l) for l in args.responses.read_text().splitlines() if l.strip()
         )
@@ -83,7 +89,7 @@ def main():
         split = rec.get("split", "test")
         mutation = prov.get("mutation_type")
 
-        resp = responses.get(bundle_id)
+        resp = responses.get((bundle_id, mutation or ""))
         if resp is None:
             entry = {"bundle_id": bundle_id, "cve_id": cve_id, "reason": "missing"}
             (retest_parse_fails if split == "train-retest" else test_parse_fails).append(entry)

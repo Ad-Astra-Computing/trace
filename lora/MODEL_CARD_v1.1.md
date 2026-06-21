@@ -89,8 +89,11 @@ QLoRA over the 4-bit nf4 double-quantized base. Full configuration in `run_manif
 | optimizer | paged AdamW 8-bit |
 | seed | 42 |
 | hardware | 1× A100 80GB |
+| runtime | 71 minutes |
 
 10 of 82 examples were filtered by max_seq_length during tokenization (effective train_n ≈ 72 for those batches). The step count was computed against the nominal 82, yielding ~7.5 effective epochs; the actual filtered count gives ~8.8 effective epochs — both within the v1.0 training range.
+
+Training loss fell from 1.13 at epoch 1.39 to a final 0.6139 at epoch 8.78. Evaluation loss decreased from 1.1256 (epoch 1.39) to a best of 0.3916 (epoch 6.94), then was stable at 0.3924 at epoch 8.33. The best checkpoint by `eval_loss` was loaded at the end. Compare to v1.0: best eval_loss 0.3939 at epoch 8.35; v1.1 is marginally lower.
 
 ## Evaluation
 
@@ -98,16 +101,22 @@ QLoRA over the 4-bit nf4 double-quantized base. Full configuration in `run_manif
 
 The gate pilot is the promotion gate. It runs the adapter on the held-out test fold (11 examples: 7 positives + 4 negatives) plus the 2 targeted false-reject examples from the shadow pilot (sqlite + procps, both from train split, both positive label). Gate condition: 0 false rejects and 0 false accepts on the 11 test-split examples.
 
-Results are populated after the gate pilot job completes. See `data/reports/lora-gate-pilot-v1.1.json` in the trace repository.
+Gate pilot HF Job `6a38097c3093dba73ce2b76d` (l40sx1). Full results: `data/reports/lora-gate-pilot-v1.1.json` in the trace repository.
+
+**Gate PASS.** 11/11 correct on the test fold: all 7 positives accepted, all 4 negatives rejected. 0 parse failures.
 
 | metric | frontier (sonnet-4-5) | Reviewer-LoRA v1.0 | Reviewer-LoRA v1.1 |
 |---|---|---|---|
-| verdict accuracy (test fold) | 90.9% (10/11) | 100% (11/11) | *gate pilot pending* |
-| false accepts (4 negatives) | 0 | 0 | *pending* |
-| false rejects (7 positives) | 0 | 0 | *pending* |
-| parse failures | 1 | 0 | *pending* |
-| sqlite retest | n/a | false-reject | *pending* |
-| procps retest | n/a | false-reject | *pending* |
+| verdict accuracy (test fold) | 90.9% (10/11) | 100% (11/11) | 100% (11/11) |
+| false accepts (4 negatives) | 0 | 0 | 0 |
+| false rejects (7 positives) | 0 | 0 | 0 |
+| parse failures | 1 | 0 | 0 |
+| sqlite retest | n/a | false-reject | false-reject |
+| procps retest | n/a | false-reject | false-reject |
+
+The scorer required a bug fix before producing correct results: the pilot set includes both a positive bundle and a mutation of the same bundle (sharing the same `bundle_id`); the initial scorer indexed by `bundle_id` alone and silently matched the wrong response for the negative. After fixing the key to `(bundle_id, mutation_type or '')`, the results above reflect the actual per-record model outputs.
+
+**Retest note.** The two targeted false-reject examples from the v1.0 shadow pilot (sqlite CVE-2022-46908, procps CVE-2023-4016) are from the train split and are not part of the gate condition. Both are still false-rejected after v1.1 training, despite being in the training set as positives with paired targeted negatives. Root cause is unresolved; these packages appear to have a bundle-specific pattern (possibly related to old CVE dates or nix expression shape) that overrides the training signal. This is a documented open issue, not a gate blocker. See the shadow pilot report and the v1.2 arc below.
 
 ### Shadow pilot (v1.0 retrospective)
 
@@ -121,6 +130,7 @@ Results are in `data/reports/lora-shadow-pilot-v1.0.json` in the trace repositor
 - **Synthetic negatives.** The negatives are mechanically minted mutations of known-good bundles. Real-world bad patches can fail in ways the mutation set does not cover.
 - **Mutation families not held out.** All four mutation families in the test negatives also appear in training. The reject result measures detection of a known defect family on an unseen CVE, not an unseen defect family.
 - **Split protocol changed.** sqlite moved from dev to train in v1.1. Held-out accuracy is not directly comparable to v1.0 across the full eval fold.
+- **sqlite + procps false-reject unresolved.** Both train-split positives are still false-rejected after training. Adding them to training as positives with targeted negatives did not resolve the rejection pattern for these specific bundles.
 - **Version-bump skew.** The positive class is roughly 70% version-bump fixes. Rebalancing toward source-backport positives is ongoing.
 - **Single base model and prompt contract.** The adapter is tied to the exact prompt shape and the specific base revision it was trained on.
 
