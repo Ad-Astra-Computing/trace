@@ -395,6 +395,9 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
         except ValueError:
             continue
         parent = parents.split()[0] if parents.strip() else ""
+        if not parent:
+            # Root commits have no pre-fix parent: not actionable as backport candidates.
+            continue
         added = [ln.strip() for ln in rest.splitlines()
                  if ln.strip().endswith(".patch") and ln.strip().startswith("pkgs/")]
         if not added:

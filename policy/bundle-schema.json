@@ -395,39 +395,91 @@
         "required": [
           "kind_reason"
         ],
-        "properties": {
-          "files": {
-            "required": [
-              "bundle.json",
-              "finding.json",
-              "impact.json",
-              "maintainers.json",
-              "upstream-ref.json",
-              "patch.diff",
-              "patch-rationale.md",
-              "passthru-tests.json",
-              "reproducer.nix",
-              "reproducer-log.txt",
-              "build.json",
-              "sbom-delta.json",
-              "replay.json",
-              "provenance.jsonl",
-              "bundle.sig"
-            ],
-            "anyOf": [
-              {
-                "required": [
-                  "review.md"
-                ]
-              },
-              {
-                "required": [
-                  "review-refusal.json"
-                ]
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "auto_merge_evidence_path"
+              ],
+              "properties": {
+                "auto_merge_evidence_path": {
+                  "const": "reviewer-attested"
+                }
               }
-            ]
+            },
+            "then": {
+              "properties": {
+                "files": {
+                  "required": [
+                    "bundle.json",
+                    "finding.json",
+                    "impact.json",
+                    "maintainers.json",
+                    "upstream-ref.json",
+                    "patch.diff",
+                    "patch-rationale.md",
+                    "passthru-tests.json",
+                    "build.json",
+                    "sbom-delta.json",
+                    "replay.json",
+                    "provenance.jsonl",
+                    "bundle.sig",
+                    "review.md"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "reproducer.nix"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "reproducer-log.txt"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "files": {
+                  "required": [
+                    "bundle.json",
+                    "finding.json",
+                    "impact.json",
+                    "maintainers.json",
+                    "upstream-ref.json",
+                    "patch.diff",
+                    "patch-rationale.md",
+                    "passthru-tests.json",
+                    "reproducer.nix",
+                    "reproducer-log.txt",
+                    "build.json",
+                    "sbom-delta.json",
+                    "replay.json",
+                    "provenance.jsonl",
+                    "bundle.sig"
+                  ],
+                  "anyOf": [
+                    {
+                      "required": [
+                        "review.md"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "review-refusal.json"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
           }
-        }
+        ]
       }
     }
   ]

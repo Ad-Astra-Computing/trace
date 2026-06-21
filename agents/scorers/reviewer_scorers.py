@@ -280,7 +280,15 @@ class ReviewEvidenceCitedScorer:
         recognised = []
         unrecognised = []
         for entry in cited:
+            # Colon-separated: "patch.diff:CVE-123.patch", "patch-rationale.md:## Section"
             artifact = entry.split(":", 1)[0]
+            if artifact not in recognised_set:
+                # Dot-path field citation: "finding.json.summary",
+                # "upstream-ref.json.eligibility.patch_strategy=source-backport"
+                for name in recognised_set:
+                    if entry.startswith(name + "."):
+                        artifact = name
+                        break
             if artifact in recognised_set:
                 recognised.append(entry)
             else:
