@@ -3,6 +3,7 @@
 # dependencies = [
 #   "torch==2.5.1",
 #   "transformers==4.47.1",
+#   "accelerate==1.2.1",
 #   "peft==0.14.0",
 #   "bitsandbytes==0.45.0",
 #   "huggingface-hub>=0.26.0",
