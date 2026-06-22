@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "name": "reviewer-v1.2",
+  "description": "Split manifest for Reviewer-LoRA v1.2 training. Extends v1.1 with 6 source-backport-specific negatives and procps as a hard prefetch-failure-distractor positive.",
+  "overrides": {
+    "sqlite": {
+      "split": "train",
+      "reason": "sqlite (CVE-2022-46908) was in dev under hash-based assignment (bucket=72). LoRA v1.0 false-rejected this example, hallucinating a wrong UNUSED_PARAMETER direction. Moving to train so the model sees the correct positive during training. Carried forward from v1.1."
+    }
+  },
+  "note": "v1.2 adds 6 source-backport-specific negatives: 2x reversed-hunk (sqlite, procps), 2x missing-hunk (sqlite, zbar), 2x partial-hunk (procps, zbar). All hash to train. Procps positive (correct patch + prefetch_failures[required_for_patch=false]) is a hard positive case. reviewer.v4.md is the system prompt for v1.2 training."
+}
