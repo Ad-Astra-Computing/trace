@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "name": "reviewer-v1.4",
+  "description": "Split manifest for Reviewer-LoRA v1.4. Adds canary isolation: zlib and jq families excluded from training/dev entirely (split=canary), used only in gate pilot. Also adds two condition mutation training examples (bzip2, giflib). Addresses v1.3 gate failure where model memorized training CVE patch content and hallucinated correct PC section for mutated inputs.",
+  "overrides": {
+    "sqlite": {
+      "split": "train",
+      "reason": "sqlite (CVE-2022-46908) bucket=72 -> dev. Moved to train in v1.1 to fix v1.0 false-reject (hallucinated wrong UNUSED_PARAMETER direction). Carried forward from v1.1-v1.3. No longer a canary target (canary isolation moved to zlib+jq in v1.4)."
+    },
+    "zlib": {
+      "split": "canary",
+      "reason": "zlib (CVE-2022-37434) bucket=78 -> dev. Moved to canary in v1.4: excluded from training AND dev, used only in gate pilot. v1.3 gate failure root cause: model memorized patch content for sqlite+procps (in training), hallucinating correct PC section for mutations. canary CVEs must not appear in training to force genuine file-reading at inference."
+    },
+    "jq": {
+      "split": "canary",
+      "reason": "jq (CVE-2025-48060 + CVE-2026-33948 + CVE-2026-39979) bucket=68 -> train. Moved to canary in v1.4 for same reason as zlib: all jq positives excluded from training to prevent patch memorization. Gate canary uses jq off-by-one and missing-line mutations."
+    }
+  },
+  "note": "v1.4 structural fix: canary isolation (codex-confirmed). zlib+jq families excluded from training entirely (split=canary). New condition mutations added to training: bzip2 condition-mutation (>= MAX instead of >= MAX-1) and giflib condition-mutation (> instead of >=). System prompt: prompts/reviewer.v5.md. MAX_STEPS=175 (unchanged)."
+}
