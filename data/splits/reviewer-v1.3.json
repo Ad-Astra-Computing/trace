@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "name": "reviewer-v1.3",
+  "description": "Split manifest for Reviewer-LoRA v1.3 training. Extends v1.2 with required ## Patch comparison sections in all source-backport reviews (both positives and negatives), addressing the v1.2 gate failure where the model hallucinated patch content without reading actual +/- lines.",
+  "overrides": {
+    "sqlite": {
+      "split": "train",
+      "reason": "sqlite (CVE-2022-46908) was in dev under hash-based assignment (bucket=72). LoRA v1.0 false-rejected this example, hallucinating a wrong UNUSED_PARAMETER direction. Moving to train so the model sees the correct positive during training. Carried forward from v1.1 and v1.2."
+    }
+  },
+  "note": "v1.3 adds ## Patch comparison sections (reviewer.v5.md output shape) to: (a) all 8 source-backport negatives (reversed-hunk x2, missing-hunk x2, partial-hunk x2, extra-unrelated-hunk x2); (b) all 19 train-split source-backport positives. Also adds pyjwt as a new genuine reject negative (v5 reviewer correctly identified missing empty-key guard hunk that v4 missed). reviewer.v5.md is the system prompt for v1.3 training."
+}
