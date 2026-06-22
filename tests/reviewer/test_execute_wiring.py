@@ -264,14 +264,14 @@ def test_reviewer_requires_patch_diff_on_disk(tmp_path: Path) -> None:
 # ─── v2 prompt wiring (DECISIONS 2026-05-19) ───────────────────────────────
 
 
-def test_reviewer_prompt_path_default_is_v3() -> None:
-    """The Reviewer runner must default to prompt v3. v3 (2026-06-15) adds the
-    source-backport carve-out: rule-8 hash grounding is N/A for an authored
-    in-tree .patch, and source-backport equivalence is judged by functional
-    (not byte) match against upstream-fix.patch. If execute.py still pointed at
-    v2, every source-backport would spuriously reject on hash-grounding."""
+def test_reviewer_prompt_path_default_is_v4() -> None:
+    """The Reviewer runner must default to prompt v4. v4 (2026-06-21) adds two
+    source-backport rule tightenings: hunk content is authoritative over commit
+    prose (check 0), and rule-8 only fires when patch.diff actually changes a
+    hash field (check 2). These close the sqlite and procps false-reject patterns
+    from the v1.0 shadow pilot."""
     from tools.trace_cli.execute import REVIEWER_PROMPT_PATH_DEFAULT
-    assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v3.md"
+    assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v4.md"
     assert REVIEWER_PROMPT_PATH_DEFAULT.is_file()
 
 

@@ -243,6 +243,20 @@ def assemble_bundle(
             failures_list = list(url_outcome.failures_as_list())
             failures_list += [f.to_schema_dict() for f in fz_failures]
             failures_list += [_gmv_failure_to_prefetch_failures_entry(f) for f in gmv_failures]
+            # Source-backport: the patch never changes src.hash (version is
+            # unchanged by design). A src.hash prefetch failure is informational
+            # only; marking it required_for_patch=True would mislead Reviewer
+            # into a false rule-8 refusal. Correct the flag here at the producer
+            # layer so the training data is unambiguous.
+            is_source_backport = (
+                upstream_ref.get("eligibility", {}).get("patch_strategy") == "source-backport"
+            )
+            if is_source_backport:
+                for f in failures_list:
+                    if f.get("name") == "src.hash":
+                        f["required_for_patch"] = False
+                        if "detail" in f:
+                            f["detail"] = (f["detail"] + " source-backport: src.hash unchanged by patch.")[:2048]
             upstream_ref.setdefault("prefetch_failures", []).extend(failures_list)
             failure_descrs = [f"{f.name}={f.reason}" for f in url_outcome.failures]
             failure_descrs += [f"{f.name}={f.reason}" for f in fz_failures]
