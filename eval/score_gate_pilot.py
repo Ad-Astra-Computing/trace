@@ -73,11 +73,16 @@ def main():
         )
     }
 
-    false_rejects = []   # positive → reject (bad)
-    false_accepts = []   # negative → accept (bad)
+    # test split
+    test_false_rejects = []
+    test_false_accepts = []
     test_parse_fails = []
+    test_correct = []
+    # canary split (v1.2+): mandatory gate anchors
+    canary_results = []
+    canary_parse_fails = []
+    # train-retest (legacy v1.1)
     retest_parse_fails = []
-    correct = []
     retest_results = []
 
     for rec in pilot_records:
@@ -92,14 +97,24 @@ def main():
         resp = responses.get((bundle_id, mutation or ""))
         if resp is None:
             entry = {"bundle_id": bundle_id, "cve_id": cve_id, "reason": "missing"}
-            (retest_parse_fails if split == "train-retest" else test_parse_fails).append(entry)
+            if split == "train-retest":
+                retest_parse_fails.append(entry)
+            elif split == "canary":
+                canary_parse_fails.append(entry)
+            else:
+                test_parse_fails.append(entry)
             continue
 
         text = resp.get("generated", "")
         verdict = parse_verdict(text)
         if verdict is None:
             entry = {"bundle_id": bundle_id, "cve_id": cve_id, "reason": "parse_fail"}
-            (retest_parse_fails if split == "train-retest" else test_parse_fails).append(entry)
+            if split == "train-retest":
+                retest_parse_fails.append(entry)
+            elif split == "canary":
+                canary_parse_fails.append(entry)
+            else:
+                test_parse_fails.append(entry)
             continue
 
         entry = {
@@ -118,43 +133,71 @@ def main():
                 "false_reject" if label == "positive" else "false_accept"
             )
             retest_results.append(entry)
-            continue
-
-        if label == "positive" and verdict == "reject":
-            false_rejects.append(entry)
-        elif label == "negative" and verdict == "accept":
-            false_accepts.append(entry)
+        elif split == "canary":
+            expected = "accept" if label == "positive" else "reject"
+            entry["outcome"] = "correct" if verdict == expected else (
+                "false_reject" if label == "positive" else "false_accept"
+            )
+            canary_results.append(entry)
         else:
-            correct.append(entry)
+            if label == "positive" and verdict == "reject":
+                test_false_rejects.append(entry)
+            elif label == "negative" and verdict == "accept":
+                test_false_accepts.append(entry)
+            else:
+                test_correct.append(entry)
 
     total_test = len([r for r in pilot_records if r.get("split") == "test"])
+    total_canary = len([r for r in pilot_records if r.get("split") == "canary"])
     total_retest = len([r for r in pilot_records if r.get("split") == "train-retest"])
-    # Gate only applies to the held-out test split
-    gate_pass = (
-        len(false_rejects) == 0
-        and len(false_accepts) == 0
+    canary_correct = sum(1 for r in canary_results if r.get("outcome") == "correct")
+    canary_pass = (
+        canary_correct == total_canary
+        and len(canary_parse_fails) == 0
+    )
+    test_pass = (
+        len(test_false_rejects) == 0
+        and len(test_false_accepts) == 0
         and len(test_parse_fails) == 0
     )
+    gate_pass = canary_pass and test_pass
+
+    # Flatten for legacy callers that expect top-level false_rejects / false_accepts
+    false_rejects = test_false_rejects + [r for r in canary_results if r.get("outcome") == "false_reject"]
+    false_accepts = test_false_accepts + [r for r in canary_results if r.get("outcome") == "false_accept"]
 
     report = {
         "gate_pass": gate_pass,
         "summary": {
+            "canary_total": total_canary,
+            "canary_correct": canary_correct,
+            "canary_pass": canary_pass,
+            "canary_parse_fails": len(canary_parse_fails),
             "test_total": total_test,
-            "test_correct": len(correct),
-            "false_rejects": len(false_rejects),
-            "false_accepts": len(false_accepts),
+            "test_correct": len(test_correct),
+            "test_false_rejects": len(test_false_rejects),
+            "test_false_accepts": len(test_false_accepts),
             "test_parse_fails": len(test_parse_fails),
+            "test_pass": test_pass,
             "retest_total": total_retest,
             "retest_correct": sum(1 for r in retest_results if r.get("outcome") == "correct"),
             "retest_parse_fails": len(retest_parse_fails),
+            # legacy flat keys
+            "false_rejects": len(false_rejects),
+            "false_accepts": len(false_accepts),
         },
         "details": {
-            "false_rejects": false_rejects,
-            "false_accepts": false_accepts,
+            "canary": canary_results,
+            "canary_parse_fails": canary_parse_fails,
+            "test_false_rejects": test_false_rejects,
+            "test_false_accepts": test_false_accepts,
             "test_parse_fails": test_parse_fails,
-            "correct": correct,
+            "test_correct": test_correct,
             "retest": retest_results,
             "retest_parse_fails": retest_parse_fails,
+            # legacy flat keys
+            "false_rejects": false_rejects,
+            "false_accepts": false_accepts,
         },
     }
 
@@ -162,21 +205,28 @@ def main():
     args.out.write_text(json.dumps(report, indent=2) + "\n")
 
     print(f"Gate: {'PASS' if gate_pass else 'FAIL'}")
-    print(f"Test: {len(correct)}/{total_test} correct  (FR={len(false_rejects)} FA={len(false_accepts)} PF={len(test_parse_fails)})")
+    if total_canary:
+        print(f"Canary ({total_canary}): {canary_correct}/{total_canary} correct  ({'PASS' if canary_pass else 'FAIL'})")
+        for r in canary_results:
+            icon = "OK" if r.get("outcome") == "correct" else "!!"
+            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}")
+        if canary_parse_fails:
+            print(f"  PARSE FAILS: {len(canary_parse_fails)}")
+    print(f"Test ({total_test}): {len(test_correct)}/{total_test} correct  (FR={len(test_false_rejects)} FA={len(test_false_accepts)} PF={len(test_parse_fails)})  ({'PASS' if test_pass else 'FAIL'})")
     if retest_results:
         rc = sum(1 for r in retest_results if r.get("outcome") == "correct")
-        print(f"Retest (sqlite + procps): {rc}/{total_retest} fixed")
+        print(f"Retest: {rc}/{total_retest} fixed")
         for r in retest_results:
             print(f"  {r['cve_id']} → {r['verdict']}  ({r['outcome']})")
     if retest_parse_fails:
         print(f"Retest parse fails: {len(retest_parse_fails)}")
-    if false_rejects:
-        print("FALSE REJECTS:")
-        for r in false_rejects:
+    if test_false_rejects:
+        print("TEST FALSE REJECTS:")
+        for r in test_false_rejects:
             print(f"  {r['cve_id']} ({r['attr_path']})")
-    if false_accepts:
-        print("FALSE ACCEPTS:")
-        for r in false_accepts:
+    if test_false_accepts:
+        print("TEST FALSE ACCEPTS:")
+        for r in test_false_accepts:
             print(f"  {r['cve_id']} ({r['attr_path']}) mutation={r['mutation_type']}")
     print(f"\nReport → {args.out}")
     sys.exit(0 if gate_pass else 1)
