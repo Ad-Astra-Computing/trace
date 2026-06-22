@@ -61,23 +61,15 @@ def check_pc_grounding(generated: str, pilot_rec: dict) -> str | None:
 def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
     """File-aware PC grounding check (gate-failing, v1.6+).
 
-    For each hunk where comparison: match is written, verify that lines quoted
-    under the 'patch.diff:' sub-section actually appear in the patch.diff block
-    of the user message (not just anywhere in user content).  The global
-    check_pc_grounding() test lets cross-file hallucination pass when the quoted
-    line happens to appear in a description elsewhere in the user message.
+    v1.6: for each hunk where comparison: match, verifies lines quoted under
+    'patch.diff:' sub-section appear in the patch.diff block.
 
-    Example failure (v1.5 jq missing-line): mutation removed s->data[length]=0
-    from patch.diff; the line still appears in upstream-ref.json descriptions;
-    model quoted it for both sides and wrote comparison: match; global check
-    did not fire; this file-aware check catches it.
-
-    Only applied when comparison: match — mismatch/missing-hunk rejections are
-    expected to reference the correct version to contrast, so they are exempt.
+    v1.7: ALSO independently validates the two new extraction sections:
+      '## patch.diff extraction' — each quoted + line must be in patch.diff block
+      '## upstream-fix.patch extraction' — each quoted + line must be in upstream-fix.patch block
+    This catches cross-artifact hallucination: model copies upstream-fix.patch
+    lines to fill in the patch.diff extraction side.
     """
-    if "## Patch comparison" not in generated:
-        return None
-
     msgs = pilot_rec.get("messages", [])
     user_content = next((m["content"] for m in msgs if m["role"] == "user"), "")
     if not user_content:
@@ -105,49 +97,75 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
     if not patch_diff_block and not upstream_fix_block:
         return None
 
-    pc_start = generated.find("## Patch comparison")
-    pc_end_match = re.search(r"\n## ", generated[pc_start + 1:])
-    pc_text = generated[pc_start: pc_start + 1 + (pc_end_match.start() if pc_end_match else len(generated))]
-
-    hunk_blocks = re.split(r"hunk\s+\d+\s*[—\-–]", pc_text, flags=re.IGNORECASE)
-    errors = []
-
     def _quoted_plus(section_text: str) -> list[str]:
         return [l.strip() for l in re.findall(r"`\+\s+(.+?)`", section_text)]
 
-    for hunk_num, block in enumerate(hunk_blocks[1:], 1):
-        comparison_m = re.search(r"comparison\s*:\s*(\w[\w-]*)", block, re.IGNORECASE)
-        if not comparison_m:
-            continue
-        verdict = comparison_m.group(1).lower()
-        if verdict != "match":
-            # mismatch/missing-hunk rejections: model is expected to reference the
-            # correct lines to explain the difference — skip file check.
-            continue
+    def _gen_section(generated: str, header: str) -> str:
+        """Extract a '## Header' section from generated output."""
+        idx = generated.find(header)
+        if idx < 0:
+            return ""
+        end_m = re.search(r"\n## ", generated[idx + 1:])
+        return generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
 
-        authored_m = re.search(
-            r"patch\.diff\s*:(.*?)(?:- upstream-fix\.patch\s*:|comparison\s*:|$)",
-            block, re.DOTALL | re.IGNORECASE,
-        )
-        upstream_m = re.search(
-            r"upstream-fix\.patch\s*:(.*?)(?:- patch\.diff\s*:|comparison\s*:|$)",
-            block, re.DOTALL | re.IGNORECASE,
-        )
+    errors = []
 
-        if authored_m and patch_diff_block:
-            for q in _quoted_plus(authored_m.group(1)):
-                if q and q not in patch_diff_block:
-                    errors.append(
-                        f"hunk {hunk_num}: patch.diff side quotes {q[:50]!r} "
-                        f"not found in patch.diff block (comparison:match)"
-                    )
-        if upstream_m and upstream_fix_block:
-            for q in _quoted_plus(upstream_m.group(1)):
-                if q and q not in upstream_fix_block:
-                    errors.append(
-                        f"hunk {hunk_num}: upstream-fix.patch side quotes {q[:50]!r} "
-                        f"not found in upstream-fix.patch block (comparison:match)"
-                    )
+    # v1.7: validate ## patch.diff extraction section (all quoted + lines must be in patch.diff)
+    pd_extraction = _gen_section(generated, "## patch.diff extraction")
+    if pd_extraction and patch_diff_block:
+        for q in _quoted_plus(pd_extraction):
+            if q and q not in patch_diff_block:
+                errors.append(
+                    f"patch.diff extraction quotes {q[:50]!r} "
+                    f"not found in patch.diff block"
+                )
+
+    # v1.7: validate ## upstream-fix.patch extraction section
+    ufp_extraction = _gen_section(generated, "## upstream-fix.patch extraction")
+    if ufp_extraction and upstream_fix_block:
+        for q in _quoted_plus(ufp_extraction):
+            if q and q not in upstream_fix_block:
+                errors.append(
+                    f"upstream-fix.patch extraction quotes {q[:50]!r} "
+                    f"not found in upstream-fix.patch block"
+                )
+
+    # v1.6: also validate ## Patch comparison (for backwards compat with v1.6-format responses)
+    pc_text = _gen_section(generated, "## Patch comparison")
+    if "## Patch comparison" in generated and pc_text:
+        hunk_blocks = re.split(r"hunk\s+\d+\s*[—\-–]", pc_text, flags=re.IGNORECASE)
+
+        for hunk_num, block in enumerate(hunk_blocks[1:], 1):
+            comparison_m = re.search(r"comparison\s*:\s*(\w[\w-]*)", block, re.IGNORECASE)
+            if not comparison_m:
+                continue
+            verdict = comparison_m.group(1).lower()
+            if verdict != "match":
+                continue
+
+            authored_m = re.search(
+                r"patch\.diff\s*:(.*?)(?:- upstream-fix\.patch\s*:|comparison\s*:|$)",
+                block, re.DOTALL | re.IGNORECASE,
+            )
+            upstream_m = re.search(
+                r"upstream-fix\.patch\s*:(.*?)(?:- patch\.diff\s*:|comparison\s*:|$)",
+                block, re.DOTALL | re.IGNORECASE,
+            )
+
+            if authored_m and patch_diff_block:
+                for q in _quoted_plus(authored_m.group(1)):
+                    if q and q not in patch_diff_block:
+                        errors.append(
+                            f"hunk {hunk_num}: patch.diff side quotes {q[:50]!r} "
+                            f"not found in patch.diff block (comparison:match)"
+                        )
+            if upstream_m and upstream_fix_block:
+                for q in _quoted_plus(upstream_m.group(1)):
+                    if q and q not in upstream_fix_block:
+                        errors.append(
+                            f"hunk {hunk_num}: upstream-fix.patch side quotes {q[:50]!r} "
+                            f"not found in upstream-fix.patch block (comparison:match)"
+                        )
 
     return "; ".join(errors) if errors else None
 
