@@ -88,7 +88,14 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
         if not m:
             return ""
         start = m.start()
-        nxt = re.search(r"\n# ", content[start + 1:])
+        # Match only known section-header patterns (filename.ext), not inline
+        # comment lines (e.g. "# Verify the authored patch.diff…") that appear
+        # as preamble instructions inside the upstream-fix.patch section.
+        nxt = re.search(
+            r"\n# \S+\.(json|nix|diff|patch|md)\b",
+            content[start + 1:],
+            re.IGNORECASE,
+        )
         end = start + 1 + nxt.start() if nxt else len(content)
         return content[start:end]
 
