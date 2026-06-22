@@ -74,6 +74,7 @@ class ReviewerAggregateResult:
     evidence_cited_mean: float | None
     attestation_correct_rate: float | None
     reviewer_steward_disagreement_rate: float | None
+    patch_comparison_present_rate: float | None = None  # source-backport only
     provenance: list[ReviewerProvenanceEntry] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -87,6 +88,7 @@ class ReviewerAggregateResult:
             "evidence_cited_mean": self.evidence_cited_mean,
             "attestation_correct_rate": self.attestation_correct_rate,
             "reviewer_steward_disagreement_rate": self.reviewer_steward_disagreement_rate,
+            "patch_comparison_present_rate": self.patch_comparison_present_rate,
             "provenance": [p.to_dict() for p in self.provenance],
         }
 
@@ -105,6 +107,7 @@ def aggregate_reviewer_reports(
     evidence_samples: list[float] = []
     attestation_match_samples: list[float] = []
     disagreement_aligned_samples: list[float] = []  # 1.0 if score == 1.0, 0.0 otherwise
+    patch_comparison_samples: list[float] = []  # source-backport reviews only
 
     for path in report_paths:
         try:
@@ -148,6 +151,8 @@ def aggregate_reviewer_reports(
                 # disagreement_rate counts the fraction of reports
                 # whose verdict diverged from Steward (score < 1.0).
                 disagreement_aligned_samples.append(1.0 if float(score) == 1.0 else 0.0)
+            elif name == "review-patch-comparison-present":
+                patch_comparison_samples.append(float(score))
 
     n_verdict = sum(verdict_counts.values())
     totals = {
@@ -179,6 +184,10 @@ def aggregate_reviewer_reports(
         1.0 - (sum(disagreement_aligned_samples) / len(disagreement_aligned_samples))
         if disagreement_aligned_samples else None
     )
+    patch_comparison_present_rate = (
+        sum(patch_comparison_samples) / len(patch_comparison_samples)
+        if patch_comparison_samples else None
+    )
 
     return ReviewerAggregateResult(
         cohort=cohort,
@@ -190,6 +199,7 @@ def aggregate_reviewer_reports(
         evidence_cited_mean=evidence_cited_mean,
         attestation_correct_rate=attestation_correct_rate,
         reviewer_steward_disagreement_rate=disagreement_rate,
+        patch_comparison_present_rate=patch_comparison_present_rate,
         provenance=provenance,
     )
 
