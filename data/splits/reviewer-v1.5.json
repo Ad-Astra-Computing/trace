@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "name": "reviewer-v1.5",
+  "overrides": {
+    "sqlite": {
+      "split": "train",
+      "reason": "hash-based assignment is dev; override to train for source-backport diversity (carried forward from v1.1-v1.4)"
+    },
+    "zlib": {
+      "split": "canary",
+      "reason": "v1.4 canary isolation: zlib is fully held out from training; gate uses zlib mutations + positive. Keep in v1.5 — the zlib canary exposed the PC-consistency failure mode."
+    },
+    "jq": {
+      "split": "canary",
+      "reason": "v1.4 canary isolation: all jq positives excluded from training; gate uses jq mutations + positives. Carried forward to v1.5."
+    }
+  }
+}
