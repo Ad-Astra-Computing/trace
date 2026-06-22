@@ -127,11 +127,13 @@ class ReviewerParseResult:
     refusal_rule: int | None = None
     refusal_reason: str | None = None
     raw_review_md: str | None = None  # for atomic-write to disk
+    # v5: optional section for source-backport reviews; None means absent
+    patch_comparison_raw: str | None = None
 
     def to_schema_dict(self) -> dict[str, Any]:
         if self.kind != "review":
             raise ValueError("to_schema_dict() only valid for kind=review")
-        return {
+        d: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "verdict": self.verdict,
             "reasoning": self.reasoning,
@@ -139,6 +141,9 @@ class ReviewerParseResult:
             "cited_evidence": list(self.cited_evidence),
             "cross_family_attestation": self.cross_family.to_schema_dict() if self.cross_family else None,
         }
+        if self.patch_comparison_raw is not None:
+            d["patch_comparison"] = self.patch_comparison_raw
+        return d
 
 
 _WRAPPING_FENCE_RE = re.compile(
@@ -261,6 +266,11 @@ def _parse_review(text: str) -> ReviewerParseResult:
         sections.get("## Cross-family attestation") or ""
     )
 
+    # Optional section: present only for source-backport reviews (v5+).
+    patch_comparison_raw: str | None = sections.get("## Patch comparison")
+    if patch_comparison_raw is not None:
+        patch_comparison_raw = patch_comparison_raw.strip()
+
     return ReviewerParseResult(
         kind="review",
         verdict=verdict_text,
@@ -269,6 +279,7 @@ def _parse_review(text: str) -> ReviewerParseResult:
         cited_evidence=cited_evidence,
         cross_family=cross_family,
         raw_review_md=body.rstrip() + "\n",
+        patch_comparison_raw=patch_comparison_raw,
     )
 
 

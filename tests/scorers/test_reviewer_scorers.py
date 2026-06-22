@@ -12,6 +12,7 @@ from agents.scorers.reviewer_scorers import (
     ReviewCrossFamilyAttestationScorer,
     ReviewDisagreementScorer,
     ReviewEvidenceCitedScorer,
+    ReviewPatchComparisonPresentScorer,
     ReviewSchemaValidScorer,
     reviewer_scorer_names,
 )
@@ -102,6 +103,7 @@ def test_reviewer_scorer_names_are_locked() -> None:
         "review-schema-valid",
         "review-evidence-cited",
         "review-cross-family-attestation",
+        "review-patch-comparison-present",
         "review-disagreement",
     )
 
@@ -471,3 +473,104 @@ def test_attestation_skipped_when_reviewer_model_id_unresolvable(tmp_path: Path)
     assert r.applies is False
     assert r.score is None
     assert "no resolvable model family" in r.notes
+
+
+# ─── review-patch-comparison-present ──────────────────────────────────────
+
+
+def _source_backport_bundle(tmp_path: Path) -> Path:
+    """Bundle with patch_strategy=source-backport in upstream-ref.json."""
+    bd = tmp_path / "bundle"
+    bd.mkdir()
+    (bd / "bundle.json").write_text(json.dumps({"kind": "human-review-required"}))
+    (bd / "upstream-ref.json").write_text(json.dumps({
+        "eligibility": {
+            "verdict": "eligible-requires-human-review",
+            "patch_strategy": "source-backport",
+        }
+    }))
+    (bd / "impact.json").write_text(json.dumps({"exceeds_threshold": False}))
+    return bd
+
+
+def _accept_review_with_patch_comparison() -> str:
+    return (
+        "## Verdict\n"
+        "accept\n"
+        "\n"
+        "## Reasoning\n"
+        "Patch implements the same functional change as upstream-fix.patch.\n"
+        "\n"
+        "## Patch comparison\n"
+        "hunk 1 — shell.c:safeModeAuth:\n"
+        "- upstream-fix.patch:\n"
+        "  - `- UNUSED_PARAMETER(zA2);`\n"
+        "  - `+ UNUSED_PARAMETER(zA1);`\n"
+        "- patch.diff:\n"
+        "  - `- UNUSED_PARAMETER(zA2);`\n"
+        "  - `+ UNUSED_PARAMETER(zA1);`\n"
+        "- comparison: match\n"
+        "\n"
+        "conclusion: accept — all hunks match\n"
+        "\n"
+        "## Findings\n"
+        "(none)\n"
+        "\n"
+        "## Cited evidence\n"
+        "- upstream-fix.patch:hunk=1\n"
+        "- patch.diff:hunk=1\n"
+        "- upstream-ref.json:eligibility.patch_strategy=source-backport\n"
+        "\n"
+        "## Cross-family attestation\n"
+        "reviewer_family: anthropic-sonnet\n"
+        "patcher_family_observed: anthropic-opus\n"
+        "rule_honored: true\n"
+    )
+
+
+def test_patch_comparison_not_applicable_for_version_bump(tmp_path: Path) -> None:
+    """Non-source-backport bundles are not subject to this scorer."""
+    bd = _build_bundle(tmp_path)
+    (bd / "review.md").write_text(_accept_review_md())
+    r = ReviewPatchComparisonPresentScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is False
+    assert r.score is None
+    assert "source-backport" in r.notes
+
+
+def test_patch_comparison_present_scores_1(tmp_path: Path) -> None:
+    """Source-backport review with ## Patch comparison section → score=1.0."""
+    bd = _source_backport_bundle(tmp_path)
+    (bd / "review.md").write_text(_accept_review_with_patch_comparison())
+    r = ReviewPatchComparisonPresentScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is True
+    assert r.advisory is False
+    assert r.score == 1.0
+    assert "Patch comparison" in r.notes
+
+
+def test_patch_comparison_absent_scores_0(tmp_path: Path) -> None:
+    """Source-backport review without ## Patch comparison section → score=0.0."""
+    bd = _source_backport_bundle(tmp_path)
+    (bd / "review.md").write_text(_accept_review_md())
+    r = ReviewPatchComparisonPresentScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is True
+    assert r.advisory is False
+    assert r.score == 0.0
+    assert "missing" in r.notes
+
+
+def test_patch_comparison_skipped_on_refusal(tmp_path: Path) -> None:
+    bd = _source_backport_bundle(tmp_path)
+    (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
+    r = ReviewPatchComparisonPresentScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+    )
+    assert r.applies is False
+    assert r.score is None

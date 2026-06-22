@@ -77,6 +77,7 @@ def reviewer_scorer_names() -> tuple[str, ...]:
         "review-schema-valid",
         "review-evidence-cited",
         "review-cross-family-attestation",
+        "review-patch-comparison-present",
         "review-disagreement",
     )
 
@@ -447,7 +448,91 @@ class ReviewCrossFamilyAttestationScorer:
         )
 
 
-# ─── 4. review-disagreement (advisory) ─────────────────────────────────────
+# ─── 4. review-patch-comparison-present (source-backport gate) ────────────
+
+
+class ReviewPatchComparisonPresentScorer:
+    """For source-backport bundles, require a `## Patch comparison` section.
+
+    Source-backport reviews (v5+ prompt) must contain a `## Patch comparison`
+    section that quotes the actual +/- lines from patch.diff and
+    upstream-fix.patch side-by-side. This is the structural enforcement of
+    check 0: a review without it is schema-invalid.
+
+    Applies only when upstream-ref.json.eligibility.patch_strategy ==
+    "source-backport". Non-source-backport bundles always score applies=False.
+
+    Score:
+      1.0 — source-backport and ## Patch comparison section is present
+      0.0 — source-backport and ## Patch comparison section is absent
+      None+applies=False — not a source-backport, or review.md missing
+    """
+    name = "review-patch-comparison-present"
+    version = SCORER_VERSION
+    advisory = False
+
+    def score(self, *, bundle_dir: Path, invocation: dict[str, Any]) -> ScorerResult:
+        kind = _outputs_kind(invocation)
+        if kind == "refusal":
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes="reviewer refusal: patch-comparison check is not applicable",
+            )
+
+        # Only applies to source-backport bundles.
+        upstream_ref_path = bundle_dir / "upstream-ref.json"
+        if not upstream_ref_path.is_file():
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes="upstream-ref.json missing; cannot determine patch_strategy",
+            )
+        try:
+            upstream_ref = json.loads(upstream_ref_path.read_text())
+        except json.JSONDecodeError:
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes="upstream-ref.json invalid JSON",
+            )
+        patch_strategy = (upstream_ref.get("eligibility") or {}).get("patch_strategy")
+        if patch_strategy != "source-backport":
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes=f"patch_strategy={patch_strategy!r}; scorer only applies to source-backport",
+            )
+
+        parsed = _load_review_md(bundle_dir)
+        if parsed is None or parsed.kind != "review":
+            return ScorerResult(
+                self.name, self.version,
+                applies=True, advisory=False, score=0.0,
+                notes="review.md missing or fails strict parser",
+            )
+
+        if parsed.patch_comparison_raw is None:
+            return ScorerResult(
+                self.name, self.version,
+                applies=True, advisory=False, score=0.0,
+                notes=(
+                    "source-backport review is missing required '## Patch comparison' "
+                    "section (v5+ contract: check 0 must be an explicit evidence record)"
+                ),
+            )
+        return ScorerResult(
+            self.name, self.version,
+            applies=True, advisory=False, score=1.0,
+            notes=(
+                f"'## Patch comparison' section present "
+                f"({len(parsed.patch_comparison_raw)} chars)"
+            ),
+            details={"patch_comparison_length": len(parsed.patch_comparison_raw)},
+        )
+
+
+# ─── 5. review-disagreement (advisory) ─────────────────────────────────────
 
 
 class ReviewDisagreementScorer:
@@ -544,6 +629,7 @@ __all__ = [
     "ReviewCrossFamilyAttestationScorer",
     "ReviewDisagreementScorer",
     "ReviewEvidenceCitedScorer",
+    "ReviewPatchComparisonPresentScorer",
     "ReviewSchemaValidScorer",
     "reviewer_scorer_names",
 ]
