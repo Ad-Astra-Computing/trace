@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0.0",
+  "name": "canary-v1.2",
+  "description": "Hard gate canary for Reviewer-LoRA v1.2. All examples must pass (0 FR + 0 FA) before v1.2 is accepted. Anchors: sqlite and procps (v1.0 false-rejects, now positives), plus one of each new source-backport negative type.",
+  "examples": [
+    {
+      "label": "positive",
+      "bundle_dir": "traces/example/CVE-2022-46908--sqlite-backport",
+      "mutation_type": null,
+      "expected_verdict": "accept",
+      "why": "v1.0 false-reject: model hallucinated logic-reversal by reading commit prose; reviewer.v4 check 0 anchors on hunk content"
+    },
+    {
+      "label": "positive",
+      "bundle_dir": "traces/example/CVE-2023-4016--procps-ng-xxcalloc",
+      "mutation_type": null,
+      "expected_verdict": "accept",
+      "why": "v1.0 false-reject: model misread prefetch_failures[required_for_patch=true] as hash-ungrounded; now required_for_patch=false"
+    },
+    {
+      "label": "negative",
+      "bundle_dir": "traces/negatives/CVE-2022-46908--sqlite--reversed-hunk",
+      "mutation_type": "source-backport-reversed-hunk",
+      "expected_verdict": "reject",
+      "why": "reversed-hunk: authored patch inverts zA1/zA2 swap vs upstream-fix.patch; check 0 must catch this"
+    },
+    {
+      "label": "negative",
+      "bundle_dir": "traces/negatives/CVE-2022-46908--sqlite--missing-hunk",
+      "mutation_type": "source-backport-missing-hunk",
+      "expected_verdict": "reject",
+      "why": "missing-hunk: patch file referenced in default.nix but has no corrective + lines; check 0 must catch this"
+    },
+    {
+      "label": "negative",
+      "bundle_dir": "traces/negatives/CVE-2023-4016--procps--partial-hunk",
+      "mutation_type": "source-backport-partial-hunk",
+      "expected_verdict": "reject",
+      "why": "partial-hunk: parse_trailing_pids malloc replacements absent; check 0 must catch incomplete backport"
+    }
+  ],
+  "gate_policy": {
+    "false_rejects_allowed": 0,
+    "false_accepts_allowed": 0,
+    "description": "All 5 examples must have correct verdict. The 2 positive anchors must accept, the 3 negative anchors must reject."
+  }
+}
