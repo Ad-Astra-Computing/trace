@@ -726,6 +726,12 @@ def run(args: argparse.Namespace) -> int:
             statuses.append(status)
             continue
         if ex is not None:
+            # Canary split: excluded from training entirely (held-out for gate pilot only).
+            if ex["split"] == "canary":
+                status["eligibility_for_training"] = False
+                status["exclusion_reason"] = "canary split (held-out for gate pilot only)"
+                statuses.append(status)
+                continue
             # Include mutation_type so a mutated negative is NOT deduped against
             # its base positive (same cve+attr, legitimately distinct example).
             dedup_key = (status["cve_id"], status["attr_path"], status.get("mutation_type"))
@@ -773,7 +779,7 @@ def run(args: argparse.Namespace) -> int:
         ],
         "splits": {
             sp: _count(lambda e, sp=sp: e["split"] == sp)
-            for sp in ("train", "dev", "test")
+            for sp in ("train", "dev", "test", "canary")
         },
         "labels": {
             lb: _count(lambda e, lb=lb: e["label"] == lb)

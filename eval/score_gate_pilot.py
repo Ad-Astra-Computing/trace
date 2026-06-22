@@ -15,6 +15,49 @@ import sys
 from pathlib import Path
 
 
+def check_pc_grounding(generated: str, pilot_rec: dict) -> str | None:
+    """Return a grounding failure description if the PC section quotes lines
+    not found in the actual patch.diff or upstream-fix.patch from the pilot
+    record's user message.  Returns None when grounding looks OK or when the
+    generated review has no PC section.
+
+    This catches the v1.3 failure mode where the model hallucinated PC section
+    content from training memory rather than reading the actual input files.
+    """
+    if "## Patch comparison" not in generated:
+        return None
+
+    # Extract the user message (contains patch.diff and upstream-fix.patch content)
+    msgs = pilot_rec.get("messages", [])
+    user_content = next((m["content"] for m in msgs if m["role"] == "user"), "")
+    if not user_content:
+        return None
+
+    # Extract quoted lines from the PC section (lines starting with `- ` or `+ `)
+    pc_start = generated.find("## Patch comparison")
+    # Find the end of the PC section (next ## heading)
+    pc_end_match = re.search(r"\n## ", generated[pc_start + 1:])
+    pc_text = generated[pc_start: pc_start + 1 + (pc_end_match.start() if pc_end_match else len(generated))]
+
+    # Pull backtick-quoted lines: `- some code` or `+ some code`
+    quoted_lines = re.findall(r"`[+-]\s+(.+?)`", pc_text)
+    if not quoted_lines:
+        return None
+
+    # Check each quoted line against the user content
+    hallucinated = []
+    for q in quoted_lines:
+        q_stripped = q.strip()
+        if q_stripped and q_stripped not in user_content:
+            hallucinated.append(q_stripped[:60])
+
+    if not hallucinated:
+        return None
+
+    sample = hallucinated[:3]
+    return f"PC section quotes {len(hallucinated)} line(s) not in input: {sample}"
+
+
 def parse_verdict(text: str) -> str | None:
     """Extract accept/reject from generated review text.
 
@@ -85,6 +128,11 @@ def main():
     retest_parse_fails = []
     retest_results = []
 
+    pilot_by_key = {
+        (r["provenance"]["bundle_id"], r["provenance"].get("mutation_type") or ""): r
+        for r in pilot_records
+    }
+
     for rec in pilot_records:
         prov = rec.get("provenance", {})
         bundle_id = prov.get("bundle_id")
@@ -117,6 +165,9 @@ def main():
                 test_parse_fails.append(entry)
             continue
 
+        pilot_rec = pilot_by_key.get((bundle_id, mutation or ""), rec)
+        grounding_failure = check_pc_grounding(text, pilot_rec) if split == "canary" else None
+
         entry = {
             "bundle_id": bundle_id,
             "cve_id": cve_id,
@@ -126,6 +177,8 @@ def main():
             "mutation_type": mutation,
             "verdict": verdict,
         }
+        if grounding_failure:
+            entry["grounding_failure"] = grounding_failure
 
         if split == "train-retest":
             expected = "accept" if label == "positive" else "reject"
@@ -209,7 +262,8 @@ def main():
         print(f"Canary ({total_canary}): {canary_correct}/{total_canary} correct  ({'PASS' if canary_pass else 'FAIL'})")
         for r in canary_results:
             icon = "OK" if r.get("outcome") == "correct" else "!!"
-            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}")
+            gf = f"  [GROUNDING:{r['grounding_failure'][:60]}]" if r.get("grounding_failure") else ""
+            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{gf}")
         if canary_parse_fails:
             print(f"  PARSE FAILS: {len(canary_parse_fails)}")
     print(f"Test ({total_test}): {len(test_correct)}/{total_test} correct  (FR={len(test_false_rejects)} FA={len(test_false_accepts)} PF={len(test_parse_fails)})  ({'PASS' if test_pass else 'FAIL'})")
