@@ -58,6 +58,93 @@ def check_pc_grounding(generated: str, pilot_rec: dict) -> str | None:
     return f"PC section quotes {len(hallucinated)} line(s) not in input: {sample}"
 
 
+def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
+    """File-aware PC grounding check (gate-failing, v1.6+).
+
+    For each hunk where comparison: match is written, verify that lines quoted
+    under the 'patch.diff:' sub-section actually appear in the patch.diff block
+    of the user message (not just anywhere in user content).  The global
+    check_pc_grounding() test lets cross-file hallucination pass when the quoted
+    line happens to appear in a description elsewhere in the user message.
+
+    Example failure (v1.5 jq missing-line): mutation removed s->data[length]=0
+    from patch.diff; the line still appears in upstream-ref.json descriptions;
+    model quoted it for both sides and wrote comparison: match; global check
+    did not fire; this file-aware check catches it.
+
+    Only applied when comparison: match — mismatch/missing-hunk rejections are
+    expected to reference the correct version to contrast, so they are exempt.
+    """
+    if "## Patch comparison" not in generated:
+        return None
+
+    msgs = pilot_rec.get("messages", [])
+    user_content = next((m["content"] for m in msgs if m["role"] == "user"), "")
+    if not user_content:
+        return None
+
+    def _extract_block(content: str, header_re: str) -> str:
+        m = re.search(header_re, content, re.IGNORECASE)
+        if not m:
+            return ""
+        start = m.start()
+        nxt = re.search(r"\n# ", content[start + 1:])
+        end = start + 1 + nxt.start() if nxt else len(content)
+        return content[start:end]
+
+    patch_diff_block = _extract_block(user_content, r"# patch\.diff")
+    upstream_fix_block = _extract_block(user_content, r"# upstream-fix\.patch")
+
+    if not patch_diff_block and not upstream_fix_block:
+        return None
+
+    pc_start = generated.find("## Patch comparison")
+    pc_end_match = re.search(r"\n## ", generated[pc_start + 1:])
+    pc_text = generated[pc_start: pc_start + 1 + (pc_end_match.start() if pc_end_match else len(generated))]
+
+    hunk_blocks = re.split(r"hunk\s+\d+\s*[—\-–]", pc_text, flags=re.IGNORECASE)
+    errors = []
+
+    def _quoted_plus(section_text: str) -> list[str]:
+        return [l.strip() for l in re.findall(r"`\+\s+(.+?)`", section_text)]
+
+    for hunk_num, block in enumerate(hunk_blocks[1:], 1):
+        comparison_m = re.search(r"comparison\s*:\s*(\w[\w-]*)", block, re.IGNORECASE)
+        if not comparison_m:
+            continue
+        verdict = comparison_m.group(1).lower()
+        if verdict != "match":
+            # mismatch/missing-hunk rejections: model is expected to reference the
+            # correct lines to explain the difference — skip file check.
+            continue
+
+        authored_m = re.search(
+            r"patch\.diff\s*:(.*?)(?:- upstream-fix\.patch\s*:|comparison\s*:|$)",
+            block, re.DOTALL | re.IGNORECASE,
+        )
+        upstream_m = re.search(
+            r"upstream-fix\.patch\s*:(.*?)(?:- patch\.diff\s*:|comparison\s*:|$)",
+            block, re.DOTALL | re.IGNORECASE,
+        )
+
+        if authored_m and patch_diff_block:
+            for q in _quoted_plus(authored_m.group(1)):
+                if q and q not in patch_diff_block:
+                    errors.append(
+                        f"hunk {hunk_num}: patch.diff side quotes {q[:50]!r} "
+                        f"not found in patch.diff block (comparison:match)"
+                    )
+        if upstream_m and upstream_fix_block:
+            for q in _quoted_plus(upstream_m.group(1)):
+                if q and q not in upstream_fix_block:
+                    errors.append(
+                        f"hunk {hunk_num}: upstream-fix.patch side quotes {q[:50]!r} "
+                        f"not found in upstream-fix.patch block (comparison:match)"
+                    )
+
+    return "; ".join(errors) if errors else None
+
+
 def check_pc_consistency(generated: str) -> str | None:
     """Check that `comparison:` verdicts in the PC section are consistent
     with the quoted +lines.
@@ -253,6 +340,7 @@ def main():
         pilot_rec = pilot_by_key.get((bundle_id, mutation or ""), rec)
         grounding_failure = check_pc_grounding(text, pilot_rec) if split == "canary" else None
         pc_consistency_error = check_pc_consistency(text) if split == "canary" else None
+        pc_file_grounding_error = check_pc_file_grounding(text, pilot_rec) if split == "canary" else None
 
         entry = {
             "bundle_id": bundle_id,
@@ -267,6 +355,8 @@ def main():
             entry["grounding_failure"] = grounding_failure
         if pc_consistency_error:
             entry["pc_consistency_error"] = pc_consistency_error
+        if pc_file_grounding_error:
+            entry["pc_file_grounding_error"] = pc_file_grounding_error
 
         if split == "train-retest":
             expected = "accept" if label == "positive" else "reject"
@@ -293,10 +383,12 @@ def main():
     total_retest = len([r for r in pilot_records if r.get("split") == "train-retest"])
     canary_correct = sum(1 for r in canary_results if r.get("outcome") == "correct")
     canary_pc_consistency_errors = [r for r in canary_results if r.get("pc_consistency_error")]
+    canary_pc_file_grounding_errors = [r for r in canary_results if r.get("pc_file_grounding_error")]
     canary_pass = (
         canary_correct == total_canary
         and len(canary_parse_fails) == 0
         and len(canary_pc_consistency_errors) == 0
+        and len(canary_pc_file_grounding_errors) == 0
     )
     test_pass = (
         len(test_false_rejects) == 0
@@ -317,6 +409,7 @@ def main():
             "canary_pass": canary_pass,
             "canary_parse_fails": len(canary_parse_fails),
             "canary_pc_consistency_errors": len(canary_pc_consistency_errors),
+            "canary_pc_file_grounding_errors": len(canary_pc_file_grounding_errors),
             "test_total": total_test,
             "test_correct": len(test_correct),
             "test_false_rejects": len(test_false_rejects),
@@ -355,11 +448,14 @@ def main():
             icon = "OK" if r.get("outcome") == "correct" else "!!"
             gf = f"  [GROUNDING:{r['grounding_failure'][:60]}]" if r.get("grounding_failure") else ""
             pce = f"  [PC-CONSISTENCY:{r['pc_consistency_error'][:80]}]" if r.get("pc_consistency_error") else ""
-            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{gf}{pce}")
+            pfg = f"  [PC-FILE-GND:{r['pc_file_grounding_error'][:80]}]" if r.get("pc_file_grounding_error") else ""
+            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{gf}{pce}{pfg}")
         if canary_parse_fails:
             print(f"  PARSE FAILS: {len(canary_parse_fails)}")
         if canary_pc_consistency_errors:
             print(f"  PC CONSISTENCY ERRORS: {len(canary_pc_consistency_errors)}")
+        if canary_pc_file_grounding_errors:
+            print(f"  PC FILE GROUNDING ERRORS: {len(canary_pc_file_grounding_errors)}")
     print(f"Test ({total_test}): {len(test_correct)}/{total_test} correct  (FR={len(test_false_rejects)} FA={len(test_false_accepts)} PF={len(test_parse_fails)})  ({'PASS' if test_pass else 'FAIL'})")
     if retest_results:
         rc = sum(1 for r in retest_results if r.get("outcome") == "correct")

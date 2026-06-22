@@ -387,3 +387,61 @@ def test_normalize_attr_families():
     # version in a package-set prefix must collapse to one family (no leakage)
     assert ex._normalize_attr("python312Packages.django") == ex._normalize_attr("python313Packages.django")
     assert ex._normalize_attr("python3Packages.django_4") == ex._normalize_attr("python312Packages.django")
+
+
+def test_source_backport_includes_upstream_fix_patch(tmp_path: Path) -> None:
+    """Regression test: source-backport bundles must include upstream-fix.patch
+    in the reviewer user turn so the model has the ground-truth diff to compare
+    against (fixes v1.5 root cause: exporter omitted this, causing hallucination)."""
+    root = tmp_path / "bundles"
+    bd = root / "CVE-2099-99999--test-backport"
+    bd.mkdir(parents=True)
+    _write(bd / "bundle.json", {"bundle_id": "testbp1", "cve_id": "CVE-2099-99999", "kind": "human-review-required"})
+    _write(bd / "finding.json", {"cve_id": "CVE-2099-99999", "affected": [{"attr_path": "testpkg"}]})
+    _write(bd / "impact.json", {"cve_id": "CVE-2099-99999", "exceeds_threshold": False})
+    _write(bd / "maintainers.json", {"cve_id": "CVE-2099-99999"})
+    _write(bd / "upstream-ref.json", {
+        "cve_id": "CVE-2099-99999",
+        "target_version": "1.0.0",
+        "eligibility": {"patch_strategy": "source-backport", "verdict": "eligible-requires-human-review"},
+    })
+    _write(bd / "package.nix", "{ stdenv }: stdenv.mkDerivation { version = \"1.0.0\"; }\n")
+    _write(bd / "patch.diff", "--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n-x\n+y\n")
+    _write(bd / "patch-rationale.md", "## Rationale\nsource-backport\n")
+    upstream_fix_content = "diff --git a/src/foo.c b/src/foo.c\n--- a/src/foo.c\n+++ b/src/foo.c\n@@\n- old\n+ new\n"
+    _write(bd / "upstream-fix.patch", upstream_fix_content)
+    _write(bd / "review.md", "## Verdict\naccept\n## Reasoning\nok\n")
+
+    from tools.trace_cli.export import _build_user_turn
+    user_turn = _build_user_turn(bd)
+    assert user_turn is not None, "_build_user_turn returned None for source-backport bundle"
+    assert "# upstream-fix.patch" in user_turn, "upstream-fix.patch section missing from user turn"
+    assert upstream_fix_content.strip().splitlines()[0] in user_turn, \
+        "upstream-fix.patch content not in user turn"
+
+
+def test_version_bump_excludes_upstream_fix_patch(tmp_path: Path) -> None:
+    """Version-bump bundles (no patch_strategy=source-backport) must NOT include
+    the upstream-fix.patch section since they have no such file."""
+    root = tmp_path / "bundles"
+    bd = root / "CVE-2099-88888--test-bump"
+    bd.mkdir(parents=True)
+    _write(bd / "bundle.json", {"bundle_id": "testbump1", "cve_id": "CVE-2099-88888", "kind": "auto-merge"})
+    _write(bd / "finding.json", {"cve_id": "CVE-2099-88888", "affected": [{"attr_path": "testpkg"}]})
+    _write(bd / "impact.json", {"cve_id": "CVE-2099-88888", "exceeds_threshold": False})
+    _write(bd / "maintainers.json", {"cve_id": "CVE-2099-88888"})
+    _write(bd / "upstream-ref.json", {
+        "cve_id": "CVE-2099-88888",
+        "target_version": "1.2.3",
+        "eligibility": {"patch_strategy": "version-bump", "verdict": "eligible-auto-merge"},
+    })
+    _write(bd / "package.nix", "{ stdenv }: stdenv.mkDerivation { version = \"1.2.2\"; }\n")
+    _write(bd / "patch.diff", "--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n-x\n+y\n")
+    _write(bd / "patch-rationale.md", "## Rationale\nbump\n")
+    _write(bd / "review.md", "## Verdict\naccept\n## Reasoning\nok\n")
+
+    from tools.trace_cli.export import _build_user_turn
+    user_turn = _build_user_turn(bd)
+    assert user_turn is not None, "_build_user_turn returned None for version-bump bundle"
+    assert "# upstream-fix.patch" not in user_turn, \
+        "upstream-fix.patch section incorrectly present in version-bump user turn"

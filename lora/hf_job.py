@@ -96,10 +96,13 @@ def main():
     hub_model_id = os.environ.get("HUB_MODEL_ID", "adastracomputing/reviewer-lora-v1.0")
     adapter_dir.mkdir(parents=True, exist_ok=True)
 
-    # Dataset mount is read-only; mlx-lm symlink names aren't present remotely,
-    # so read the canonical split filenames directly.
-    train_path = data_dir / "reviewer.train.jsonl"
-    valid_path = data_dir / "reviewer.dev.jsonl"
+    # Dataset mount is read-only; TRAIN_FILE / DEV_FILE let callers pass
+    # versioned filenames (e.g. reviewer-v1.6.train.jsonl) without overwriting
+    # prior versions on the dataset repo.  Fall back to the legacy names.
+    train_file = os.environ.get("TRAIN_FILE", "reviewer.train.jsonl")
+    dev_file = os.environ.get("DEV_FILE", "reviewer.dev.jsonl")
+    train_path = data_dir / train_file
+    valid_path = data_dir / dev_file
     for p in (train_path, valid_path):
         if not p.exists():
             raise FileNotFoundError(f"{p} not found in mounted dataset {data_dir}")

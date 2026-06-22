@@ -268,6 +268,17 @@ def _build_user_turn(bundle_dir: Path) -> str | None:
         "patch_diff": patch.read_text(),
         "patch_rationale_md": rationale.read_text(),
     }
+    # Source-backport bundles need upstream-fix.patch as ground truth so the
+    # exported user message matches what the live Reviewer receives (execute.py
+    # adds patch_strategy + upstream_fix_patch when patch_strategy=source-backport).
+    # Without this the training data and gate pilot lack the artifact the PC section
+    # is supposed to compare against, causing the model to hallucinate both sides.
+    patch_strategy = (upstream.get("eligibility") or {}).get("patch_strategy")
+    if patch_strategy == "source-backport":
+        fix_patch = bundle_dir / "upstream-fix.patch"
+        if fix_patch.is_file():
+            inputs["patch_strategy"] = "source-backport"
+            inputs["upstream_fix_patch"] = fix_patch.read_text()
     mac = _model_attestation_context(models)
     if mac:
         inputs["model_attestation_context"] = mac
