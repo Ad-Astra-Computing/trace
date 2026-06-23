@@ -29,11 +29,39 @@ def _base_bundle(root: Path, name: str = "CVE-2025-0001--zk") -> Path:
     return bd
 
 
-def _args(base: Path, mutation: str, out: Path, decoy: str | None = None) -> argparse.Namespace:
+def _args(
+    base: Path, mutation: str, out: Path, decoy: str | None = None,
+    swap: tuple[str, str] | None = None,
+) -> argparse.Namespace:
     return argparse.Namespace(
         mutate_scope="reviewer-negative", base_dir=base, mutation=mutation,
-        out_dir=out, decoy_hash=decoy, format="json",
+        out_dir=out, decoy_hash=decoy, swap=swap, format="json",
     )
+
+
+def _embedded_backport_base(root: Path, name: str = "CVE-2025-0002--ord") -> Path:
+    """A bundle whose patch.diff ADDS an embedded *.patch with an order-dependent
+    multi-line fix (a declaration that must precede the statement reading it)."""
+    bd = root / name
+    bd.mkdir(parents=True)
+    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "ord123", "cve_id": "CVE-2025-0002"}))
+    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-0002"}))
+    (bd / "package.nix").write_text("{ }: { }\n")
+    (bd / "patch.diff").write_text(
+        "diff --git a/pkgs/x/CVE-2025-0002.patch b/pkgs/x/CVE-2025-0002.patch\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/pkgs/x/CVE-2025-0002.patch\n"
+        "@@ -0,0 +1,7 @@\n"
+        "+--- a/src/sort.c\n"
+        "++++ b/src/sort.c\n"
+        "+@@ -1644,2 +1644,3 @@ begfield\n"
+        "+   /* advance */\n"
+        "+-  ptr = MIN (lim, ptr + schar);\n"
+        "++  size_t remaining_bytes = lim - ptr;\n"
+        "++  if (schar < remaining_bytes)\n"
+    )
+    return bd
 
 
 def test_wrong_src_hash_corrupts_patched_hash(tmp_path):
@@ -233,6 +261,60 @@ def test_refuses_existing_out_dir(tmp_path):
     out.mkdir(parents=True)
     rc = mut.run(_args(base, "wrong-src-hash", out))
     assert rc == 2
+
+
+# --- token-preserving-misplacement (order/placement negative, v9) --------------
+
+_DECL = "  size_t remaining_bytes = lim - ptr;"
+_USE = "  if (schar < remaining_bytes)"
+
+
+def test_misplacement_swaps_added_lines_and_preserves_counts(tmp_path):
+    base = _embedded_backport_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "mp1"
+    rc = mut.run(_args(base, "token-preserving-misplacement", out, swap=(_DECL, _USE)))
+    assert rc == 0
+    lines = (out / "patch.diff").read_text().splitlines()
+    # The two added lines traded places: the use now precedes the declaration.
+    use_i = lines.index("++" + _USE)
+    decl_i = lines.index("++" + _DECL)
+    assert use_i < decl_i  # mis-ordered: read-before-declare
+    # Both tokens are still present verbatim (token-PRESERVING).
+    assert ("++" + _DECL) in lines and ("++" + _USE) in lines
+    # Hunk line counts are invariant (swap keeps every line's +/- type).
+    assert "@@ -0,0 +1,7 @@" in lines
+    assert "+@@ -1644,2 +1644,3 @@ begfield" in lines
+    marker = json.loads((out / "mutation.json").read_text())
+    assert marker["mutation_type"] == "token-preserving-misplacement"
+    assert marker["negative_source"] == "mutation"
+    assert marker["expected_reviewer_verdict"] == "reject"
+    assert marker["mutation_details"]["swapped_lines"] == [_DECL, _USE]
+    assert marker["mutation_details"]["depth"] == 2
+
+
+def test_misplacement_requires_swap(tmp_path):
+    base = _embedded_backport_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "mp2"
+    rc = mut.run(_args(base, "token-preserving-misplacement", out, swap=None))
+    assert rc == 2
+    assert not out.exists()  # no partial bundle left behind
+
+
+def test_misplacement_unknown_line_errors(tmp_path):
+    base = _embedded_backport_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "mp3"
+    rc = mut.run(_args(base, "token-preserving-misplacement", out,
+                       swap=(_DECL, "  this line is not in the diff")))
+    assert rc == 2
+    assert not out.exists()
+
+
+def test_misplacement_identical_lines_errors(tmp_path):
+    base = _embedded_backport_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "mp4"
+    rc = mut.run(_args(base, "token-preserving-misplacement", out, swap=(_DECL, _DECL)))
+    assert rc == 2
+    assert not out.exists()
 
 
 # --- reviewer-positive-reorg (structure-preserving positive variants) ----------

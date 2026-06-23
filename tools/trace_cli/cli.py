@@ -153,6 +153,18 @@ def main(argv: list[str]) -> int:
             "builder role."
         ),
     )
+    r.add_argument(
+        "--reviewer-prompt",
+        type=Path,
+        default=None,
+        help=(
+            "override the Reviewer system prompt file for --execute --role reviewer "
+            "(default: the pinned REVIEWER_PROMPT_PATH_DEFAULT). Records the chosen "
+            "prompt path + sha256 in the invocation, so a regeneration wave under a "
+            "new prompt version is explicit and auditable. Only consumed by the "
+            "reviewer role."
+        ),
+    )
 
     b = subs.add_parser("bundle", help="bundle-assembly tooling")
     b_subs = b.add_subparsers(dest="bundle_cmd", required=True)
@@ -689,6 +701,7 @@ def _do_execute(
                 model_id=resolved_model_id,
                 nixpkgs_checkout=args.nixpkgs_checkout,
                 builder_timeout_seconds=args.builder_timeout,
+                reviewer_prompt_path=getattr(args, "reviewer_prompt", None),
             )
         except HashMismatch as exc:
             print(f"hash-mismatch: {exc}", file=sys.stderr)

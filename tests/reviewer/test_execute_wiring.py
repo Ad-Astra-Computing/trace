@@ -275,6 +275,62 @@ def test_reviewer_prompt_path_default_is_v4() -> None:
     assert REVIEWER_PROMPT_PATH_DEFAULT.is_file()
 
 
+def test_reviewer_prompt_override_is_honoured_and_recorded(tmp_path: Path) -> None:
+    """`reviewer_prompt_path=` overrides the default and is recorded verbatim in
+    the invocation, so a regeneration wave under a new prompt version is explicit
+    and auditable (the v1.10 v9 wave)."""
+    bundle_dir = _build_reviewable_bundle(tmp_path)
+    override = REPO_ROOT / "prompts" / "reviewer.v9.md"
+    assert override.is_file()
+    execute(
+        role="reviewer",
+        bundle_dir=bundle_dir,
+        invocation={"invocation_id": None, "inputs": [], "outputs": []},
+        verify=False,
+        model_id="claude-sonnet-4-6",
+        adapter_factory=_factory(REVIEW_OK),
+        reviewer_prompt_path=override,
+    )
+    replay = json.loads((bundle_dir / "replay.json").read_text())
+    inv = [r for r in replay["roles"] if r["role"] == "reviewer"][0]["invocations"][-1]
+    assert inv["prompt"]["path"] == "prompts/reviewer.v9.md"
+
+
+def test_reviewer_prompt_override_outside_repo_records_abspath(tmp_path: Path) -> None:
+    """An override file OUTSIDE the repo is recorded by its absolute path, not a
+    bare `prompts/<basename>` — so the audit trail can't be confused with a
+    same-named checked-in prompt (codex review P2, 2026-06-23)."""
+    bundle_dir = _build_reviewable_bundle(tmp_path)
+    custom = tmp_path / "custom-reviewer-prompt.md"
+    shutil.copyfile(REPO_ROOT / "prompts" / "reviewer.v9.md", custom)
+    execute(
+        role="reviewer",
+        bundle_dir=bundle_dir,
+        invocation={"invocation_id": None, "inputs": [], "outputs": []},
+        verify=False,
+        model_id="claude-sonnet-4-6",
+        adapter_factory=_factory(REVIEW_OK),
+        reviewer_prompt_path=custom,
+    )
+    replay = json.loads((bundle_dir / "replay.json").read_text())
+    inv = [r for r in replay["roles"] if r["role"] == "reviewer"][0]["invocations"][-1]
+    assert inv["prompt"]["path"] == str(custom.resolve())
+
+
+def test_reviewer_prompt_override_missing_file_errors(tmp_path: Path) -> None:
+    bundle_dir = _build_reviewable_bundle(tmp_path)
+    with pytest.raises(ExecutionError, match="reviewer prompt not found"):
+        execute(
+            role="reviewer",
+            bundle_dir=bundle_dir,
+            invocation={"invocation_id": None, "inputs": [], "outputs": []},
+            verify=False,
+            model_id="claude-sonnet-4-6",
+            adapter_factory=_factory(REVIEW_OK),
+            reviewer_prompt_path=tmp_path / "nonexistent-prompt.md",
+        )
+
+
 def test_reviewer_user_content_surfaces_attestation_block(tmp_path: Path) -> None:
     """The Reviewer's user message must surface the Model attestation
     context block at the very top so the model copies the family
