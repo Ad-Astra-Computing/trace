@@ -56,6 +56,14 @@ MUTATION_TYPES = (
     "rationale-cites-wrong-hash",
 )
 
+# Structure-preserving reorganizations for reviewer POSITIVES. These change the
+# layout of patch.diff (hunk/section order) without altering the fix content, so
+# the bundle stays a valid accept. Teaches CTW-equivalence under reordering (the
+# v1.8 zlib false-reject failure mode).
+REORG_TYPES = (
+    "reorder-hunks",
+)
+
 # A syntactically-valid but deliberately-wrong SRI hash (base64 of 32 zero bytes).
 _DECOY_SRI = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
@@ -96,6 +104,21 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     rn.add_argument("--out-dir", type=Path, required=True, help="destination bundle dir (created)")
     rn.add_argument("--decoy-hash", default=None, help="hash to use for hash-from-other-bundle")
     rn.add_argument("--format", choices=["human", "json"], default="human")
+
+    rp = p_subs.add_parser(
+        "reviewer-positive-reorg",
+        help="reshape a known-good positive's patch.diff layout (still ACCEPT)",
+        description=(
+            "Copies a known-good positive bundle and reorganizes patch.diff's hunk "
+            "layout WITHOUT changing the fix content, so it stays a valid positive. "
+            "Teaches the Reviewer CTW-equivalence under reordering. Run `trace replay "
+            "--execute --role reviewer` against the output to get the real accept target."
+        ),
+    )
+    rp.add_argument("--base-dir", type=Path, required=True, help="known-good positive bundle dir")
+    rp.add_argument("--reorg", choices=REORG_TYPES, required=True)
+    rp.add_argument("--out-dir", type=Path, required=True, help="destination bundle dir (created)")
+    rp.add_argument("--format", choices=["human", "json"], default="human")
     return p
 
 
@@ -248,7 +271,173 @@ def _apply_mutation(out_dir: Path, mutation: str, decoy_hash: str | None) -> dic
     return details
 
 
+def _split_file_sections(lines: list[str]) -> tuple[list[str], list[list[str]]]:
+    """Split a unified diff into (preamble, [file-section, ...]). A section
+    starts at a `diff --git ` line, or at a `--- ` line when there are no
+    `diff --git` headers."""
+    starts = [i for i, l in enumerate(lines) if l.startswith("diff --git ")]
+    if not starts:
+        starts = [i for i, l in enumerate(lines) if l.startswith("--- ")]
+    if not starts:
+        return lines, []
+    preamble = lines[: starts[0]]
+    sections = []
+    for j, s in enumerate(starts):
+        e = starts[j + 1] if j + 1 < len(starts) else len(lines)
+        sections.append(lines[s:e])
+    return preamble, sections
+
+
+def _split_hunks(section: list[str]) -> tuple[list[str], list[list[str]]]:
+    """Split one file section into (header, [hunk, ...]). A hunk starts at an
+    `@@` line; the header is everything before the first `@@`."""
+    hstarts = [i for i, l in enumerate(section) if l.startswith("@@")]
+    if not hstarts:
+        return section, []
+    header = section[: hstarts[0]]
+    hunks = []
+    for j, s in enumerate(hstarts):
+        e = hstarts[j + 1] if j + 1 < len(hstarts) else len(section)
+        hunks.append(section[s:e])
+    return header, hunks
+
+
+def _apply_reorg(out_dir: Path, reorg: str) -> dict[str, Any]:
+    """Reorganize the staged bundle's patch.diff layout in-place; return marker
+    details. Content (the set of +/- lines) is preserved exactly."""
+    if reorg != "reorder-hunks":  # pragma: no cover - guarded by argparse choices
+        raise ValueError(f"unknown reorg {reorg!r}")
+
+    patch_path = out_dir / "patch.diff"
+    diff = patch_path.read_text()
+    lines = diff.splitlines()
+    preamble, sections = _split_file_sections(lines)
+    details: dict[str, Any] = {}
+
+    # Prefer reordering @@ hunks WITHIN the first file section that has >=2 of
+    # them; otherwise reverse the order of file sections. Both are content-
+    # preserving — the Reviewer reads patch.diff, it does not apply it.
+    multi = None
+    for idx, sec in enumerate(sections):
+        _, hunks = _split_hunks(sec)
+        if len(hunks) >= 2:
+            multi = (idx, hunks)
+            break
+
+    if multi is not None:
+        idx, hunks = multi
+        header, _ = _split_hunks(sections[idx])
+        sections[idx] = header + [ln for hunk in reversed(hunks) for ln in hunk]
+        details["granularity"] = "hunks-within-file"
+        details["section_index"] = idx
+        details["hunk_count"] = len(hunks)
+        new_lines = preamble + [ln for sec in sections for ln in sec]
+    elif len(sections) >= 2:
+        sections.reverse()
+        details["granularity"] = "file-sections"
+        details["section_count"] = len(sections)
+        new_lines = preamble + [ln for sec in sections for ln in sec]
+    else:
+        raise ValueError(
+            "patch.diff has a single hunk in a single file — nothing to reorder; "
+            "this base is not a reorg-positive candidate"
+        )
+
+    patch_path.write_text("\n".join(new_lines) + ("\n" if diff.endswith("\n") else ""))
+    return details
+
+
+def _stage_copy(base: Path, out: Path) -> None:
+    """Copy a known-good bundle to `out`, then scrub the prior reviewer verdict,
+    signing artifacts, reviewer replay role, and stale file manifest so the
+    result is re-reviewed from scratch. Shared by negative + reorg minting."""
+    shutil.copytree(base, out)
+    # Drop the prior reviewer verdict + any signing/cert artifacts: the variant
+    # bundle must be re-reviewed from scratch, and it is NOT a signed/cert bundle.
+    for stale in ("review.md", "review-scoring-report.json", "review-refusal.json",
+                  "reviewer-invocation.json", "bundle.sig", "build.json"):
+        sp = out / stale
+        if sp.exists():
+            sp.unlink()
+
+    # Scrub the copied replay.json's reviewer role: its recorded input hashes
+    # are for the pre-variant patch.diff, so a fresh `replay --execute --role
+    # reviewer` would otherwise fail input verification instead of re-reviewing.
+    replay_path = out / "replay.json"
+    if replay_path.is_file():
+        try:
+            replay = json.loads(replay_path.read_text())
+            roles = replay.get("roles")
+            if isinstance(roles, list):
+                replay["roles"] = [r for r in roles if r.get("role") != "reviewer"]
+                replay_path.write_text(json.dumps(replay, indent=2) + "\n")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # A variant bundle is NOT finalized: drop signing fields AND the file
+    # manifest (its hashes are for the pre-variant patch.diff and reference
+    # now-deleted artifacts). The marker + on-disk files are the source of truth.
+    bundle_path = out / "bundle.json"
+    if bundle_path.is_file():
+        try:
+            bj = json.loads(bundle_path.read_text())
+            for k in ("signed_manifest", "auto_merge_evidence_path", "files"):
+                bj.pop(k, None)
+            bundle_path.write_text(json.dumps(bj, indent=2) + "\n")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+
+def _run_reorg(args: argparse.Namespace) -> int:
+    base: Path = args.base_dir
+    out: Path = args.out_dir
+    if not (base / "patch.diff").is_file():
+        print(f"error: base bundle has no patch.diff: {base}")
+        return 2
+    if out.exists():
+        print(f"error: out-dir already exists: {out}")
+        return 2
+
+    _stage_copy(base, out)
+    try:
+        details = _apply_reorg(out, args.reorg)
+    except Exception as exc:
+        shutil.rmtree(out, ignore_errors=True)
+        print(f"error: reorg failed ({args.reorg}): {exc}")
+        return 2
+
+    base_bundle = json.loads((base / "bundle.json").read_text()) if (base / "bundle.json").is_file() else {}
+    marker = {
+        "schema_version": "1.0.0",
+        "positive_source": "reorg",
+        "reorg_type": args.reorg,
+        "base_bundle_dir": base.name,
+        "base_bundle_id": base_bundle.get("bundle_id"),
+        "base_cve_id": base_bundle.get("cve_id"),
+        "reorg_details": details,
+        "expected_reviewer_verdict": "accept",
+        "note": (
+            "Run `trace replay --execute --role reviewer --model <m>` against this "
+            "dir, then keep only if the Reviewer genuinely accepts (content is "
+            "unchanged; only patch.diff layout was reorganized)."
+        ),
+    }
+    (out / "reorg.json").write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n")
+
+    if args.format == "json":
+        print(json.dumps(marker, indent=2, sort_keys=True))
+    else:
+        print(f"reorg-positive bundle written -> {out}")
+        print(f"  base:   {base.name} ({marker['base_cve_id']})")
+        print(f"  reorg:  {args.reorg} ({details})")
+        print(f"  next: trace replay --execute --role reviewer --model claude-sonnet-4-6 {out.name}")
+    return 0
+
+
 def run(args: argparse.Namespace) -> int:
+    if getattr(args, "mutate_scope", None) == "reviewer-positive-reorg":
+        return _run_reorg(args)
+
     base: Path = args.base_dir
     out: Path = args.out_dir
     if not (base / "patch.diff").is_file():
@@ -266,46 +455,9 @@ def run(args: argparse.Namespace) -> int:
         )
         return 2
 
-    shutil.copytree(base, out)
-    # Drop the prior reviewer verdict + any signing/cert artifacts: the mutated
-    # bundle must be re-reviewed from scratch, and it is NOT a signed/cert bundle.
-    for stale in ("review.md", "review-scoring-report.json", "review-refusal.json",
-                  "reviewer-invocation.json", "bundle.sig", "build.json"):
-        sp = out / stale
-        if sp.exists():
-            sp.unlink()
-
-    # Scrub the copied replay.json's reviewer role: its recorded input hashes
-    # are for the pre-mutation patch.diff, so a fresh `replay --execute --role
-    # reviewer` would otherwise fail input verification instead of re-reviewing.
-    replay_path = out / "replay.json"
-    if replay_path.is_file():
-        try:
-            replay = json.loads(replay_path.read_text())
-            roles = replay.get("roles")
-            if isinstance(roles, list):
-                replay["roles"] = [r for r in roles if r.get("role") != "reviewer"]
-                replay_path.write_text(json.dumps(replay, indent=2) + "\n")
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    # Scrub signing metadata: a mutated bundle must never claim a signature for
-    # bytes that were deliberately changed (would misstate steward_signed
-    # provenance to the exporter / verifiers).
-    # A mutated bundle is NOT finalized: drop signing fields AND the file
-    # manifest (its hashes are for the pre-mutation patch.diff and reference
-    # now-deleted artifacts like bundle.sig/build.json). The mutation.json marker
-    # + the on-disk files are the source of truth; consumers must not trust a
-    # stale manifest. (Run `trace bundle finalize` if a real manifest is needed.)
-    bundle_path = out / "bundle.json"
-    if bundle_path.is_file():
-        try:
-            bj = json.loads(bundle_path.read_text())
-            for k in ("signed_manifest", "auto_merge_evidence_path", "files"):
-                bj.pop(k, None)
-            bundle_path.write_text(json.dumps(bj, indent=2) + "\n")
-        except (json.JSONDecodeError, OSError):
-            pass
+    # Copy + scrub prior verdict / signing / reviewer-replay / stale manifest, so
+    # the mutated bundle is re-reviewed from scratch (shared with reorg minting).
+    _stage_copy(base, out)
 
     try:
         details = _apply_mutation(out, args.mutation, args.decoy_hash)

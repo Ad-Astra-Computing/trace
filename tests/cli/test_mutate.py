@@ -225,3 +225,103 @@ def test_refuses_existing_out_dir(tmp_path):
     out.mkdir(parents=True)
     rc = mut.run(_args(base, "wrong-src-hash", out))
     assert rc == 2
+
+
+# --- reviewer-positive-reorg (structure-preserving positive variants) ----------
+
+def _reorg_args(base: Path, reorg: str, out: Path) -> argparse.Namespace:
+    return argparse.Namespace(
+        mutate_scope="reviewer-positive-reorg", base_dir=base, reorg=reorg,
+        out_dir=out, format="json",
+    )
+
+
+def _two_section_base(root: Path, name: str = "CVE-2025-0002--zr") -> Path:
+    """A 'patch-file-add' style backport: two file-level diff sections (the
+    zlib shape). Reordering the sections is content-preserving."""
+    bd = root / name
+    bd.mkdir(parents=True)
+    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "b2", "cve_id": "CVE-2025-0002"}))
+    (bd / "patch.diff").write_text(
+        "diff --git a/pkgs/x/CVE.patch b/pkgs/x/CVE.patch\n"
+        "new file mode 100644\n--- /dev/null\n+++ b/pkgs/x/CVE.patch\n"
+        "@@ -0,0 +1,3 @@\n+context\n+    (len = a - b) < c) {\n+more\n"
+        "diff --git a/pkgs/x/default.nix b/pkgs/x/default.nix\n"
+        "--- a/pkgs/x/default.nix\n+++ b/pkgs/x/default.nix\n"
+        "@@ -53,6 +53,7 @@ stdenv.mkDerivation (rec {\n"
+        "     ./other.patch\n+    ./CVE.patch\n   ];\n"
+    )
+    (bd / "review.md").write_text("## Verdict\naccept\n")
+    (bd / "bundle.sig").write_text("sig")
+    return bd
+
+
+def _multi_hunk_base(root: Path, name: str = "CVE-2025-0003--mh") -> Path:
+    """A single-file backport with two @@ hunks. Reordering the hunks within
+    the file is content-preserving."""
+    bd = root / name
+    bd.mkdir(parents=True)
+    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "b3", "cve_id": "CVE-2025-0003"}))
+    (bd / "patch.diff").write_text(
+        "diff --git a/src/foo.c b/src/foo.c\n--- a/src/foo.c\n+++ b/src/foo.c\n"
+        "@@ -10,3 +10,4 @@\n ctx1\n+added_line_A\n more1\n"
+        "@@ -40,3 +40,4 @@\n ctx2\n+added_line_B\n more2\n"
+    )
+    return bd
+
+
+def _changed_lines(diff: str) -> set:
+    return {l for l in diff.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))}
+
+
+def test_reorg_reorders_file_sections(tmp_path):
+    base = _two_section_base(tmp_path / "ex")
+    before = (base / "patch.diff").read_text()
+    out = tmp_path / "pos" / "r1"
+    rc = mut.run(_reorg_args(base, "reorder-hunks", out))
+    assert rc == 0
+    after = (out / "patch.diff").read_text()
+    assert after != before                          # layout changed
+    assert _changed_lines(after) == _changed_lines(before)  # content preserved
+    # default.nix section now precedes the CVE.patch section
+    assert after.index("default.nix") < after.index("CVE.patch b/")
+    marker = json.loads((out / "reorg.json").read_text())
+    assert marker["positive_source"] == "reorg"
+    assert marker["reorg_type"] == "reorder-hunks"
+    assert marker["expected_reviewer_verdict"] == "accept"
+
+
+def test_reorg_reorders_hunks_within_file(tmp_path):
+    base = _multi_hunk_base(tmp_path / "ex")
+    before = (base / "patch.diff").read_text()
+    out = tmp_path / "pos" / "r2"
+    rc = mut.run(_reorg_args(base, "reorder-hunks", out))
+    assert rc == 0
+    after = (out / "patch.diff").read_text()
+    assert _changed_lines(after) == _changed_lines(before)
+    # hunk B now appears before hunk A
+    assert after.index("added_line_B") < after.index("added_line_A")
+    # the single file header is not duplicated
+    assert after.count("diff --git a/src/foo.c") == 1
+
+
+def test_reorg_strips_review_and_signing(tmp_path):
+    base = _two_section_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "r3"
+    mut.run(_reorg_args(base, "reorder-hunks", out))
+    assert not (out / "review.md").exists()
+    assert not (out / "bundle.sig").exists()
+
+
+def test_reorg_refuses_unreorderable(tmp_path):
+    # single file, single hunk -> nothing to reorder -> refuse + roll back
+    base = tmp_path / "ex" / "CVE-2025-0004--one"
+    base.mkdir(parents=True)
+    (base / "bundle.json").write_text(json.dumps({"bundle_id": "b4", "cve_id": "CVE-2025-0004"}))
+    (base / "patch.diff").write_text(
+        "diff --git a/f.c b/f.c\n--- a/f.c\n+++ b/f.c\n@@ -1,2 +1,3 @@\n ctx\n+only\n more\n"
+    )
+    out = tmp_path / "pos" / "r4"
+    rc = mut.run(_reorg_args(base, "reorder-hunks", out))
+    assert rc == 2
+    assert not out.exists()  # rolled back
