@@ -108,13 +108,50 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
         end_m = re.search(r"\n## ", generated[idx + 1:])
         return generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
 
+    def _block_line_set(block: str) -> set[str]:
+        """Normalized content lines from a diff block.
+
+        Strips all leading diff-prefix chars (+, -, space) from each line,
+        then collapses internal whitespace.  Handles double-plus (++) inner
+        patches as well as normal single-char diff lines.
+        """
+        lines: set[str] = set()
+        for raw in block.splitlines():
+            stripped = re.sub(r"^[+\-\s]+", "", raw).strip()
+            norm = re.sub(r"\s+", " ", stripped)
+            if norm:
+                lines.add(norm)
+        return lines
+
+    def _q_in_lines(q: str, line_set: set[str]) -> bool:
+        """True when the quoted content matches a normalized block line.
+
+        Exact match passes.  Prefix match passes ONLY if the next character
+        in the block line is whitespace — this prevents '<' from matching
+        '<=' (the condition-mutation false-accept bug from v1.7).
+        """
+        q_norm = re.sub(r"\s+", " ", q.strip())
+        if not q_norm:
+            return True
+        if q_norm in line_set:
+            return True
+        for line in line_set:
+            if line.startswith(q_norm):
+                rest = line[len(q_norm):]
+                if not rest or rest[0].isspace():
+                    return True  # clean truncation — remaining text is whitespace-delimited
+        return False
+
+    pd_line_set = _block_line_set(patch_diff_block)
+    uf_line_set = _block_line_set(upstream_fix_block)
+
     errors = []
 
     # v1.7: validate ## patch.diff extraction section (all quoted + lines must be in patch.diff)
     pd_extraction = _gen_section(generated, "## patch.diff extraction")
     if pd_extraction and patch_diff_block:
         for q in _quoted_plus(pd_extraction):
-            if q and q not in patch_diff_block:
+            if q and not _q_in_lines(q, pd_line_set):
                 errors.append(
                     f"patch.diff extraction quotes {q[:50]!r} "
                     f"not found in patch.diff block"
@@ -124,7 +161,7 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
     ufp_extraction = _gen_section(generated, "## upstream-fix.patch extraction")
     if ufp_extraction and upstream_fix_block:
         for q in _quoted_plus(ufp_extraction):
-            if q and q not in upstream_fix_block:
+            if q and not _q_in_lines(q, uf_line_set):
                 errors.append(
                     f"upstream-fix.patch extraction quotes {q[:50]!r} "
                     f"not found in upstream-fix.patch block"
@@ -154,14 +191,14 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
 
             if authored_m and patch_diff_block:
                 for q in _quoted_plus(authored_m.group(1)):
-                    if q and q not in patch_diff_block:
+                    if q and not _q_in_lines(q, pd_line_set):
                         errors.append(
                             f"hunk {hunk_num}: patch.diff side quotes {q[:50]!r} "
                             f"not found in patch.diff block (comparison:match)"
                         )
             if upstream_m and upstream_fix_block:
                 for q in _quoted_plus(upstream_m.group(1)):
-                    if q and q not in upstream_fix_block:
+                    if q and not _q_in_lines(q, uf_line_set):
                         errors.append(
                             f"hunk {hunk_num}: upstream-fix.patch side quotes {q[:50]!r} "
                             f"not found in upstream-fix.patch block (comparison:match)"
@@ -383,6 +420,29 @@ def main():
         if pc_file_grounding_error:
             entry["pc_file_grounding_error"] = pc_file_grounding_error
 
+        # effective_verdict (v1.8): if patch.diff grounding fires on a NEGATIVE canary
+        # that the model accepted, override to reject.  Catches cross-artifact
+        # hallucination where the model copies upstream-fix.patch lines into the
+        # patch.diff extraction section and then incorrectly accepts.
+        # Only applies to negative canary rows (positives may have imprecise extractions
+        # while still accepting correctly — we do not penalise those here).
+        if (
+            split == "canary"
+            and label == "negative"
+            and verdict == "accept"
+            and pc_file_grounding_error
+        ):
+            pd_gnd = [
+                e for e in pc_file_grounding_error.split("; ")
+                if "patch.diff extraction" in e
+            ]
+            if pd_gnd:
+                entry["effective_verdict"] = "reject"
+                entry["effective_reason"] = (
+                    "patch.diff extraction quotes line absent from patch.diff — "
+                    "model accepted on hallucinated content"
+                )
+
         if split == "train-retest":
             expected = "accept" if label == "positive" else "reject"
             entry["outcome"] = "correct" if verdict == expected else (
@@ -391,7 +451,8 @@ def main():
             retest_results.append(entry)
         elif split == "canary":
             expected = "accept" if label == "positive" else "reject"
-            entry["outcome"] = "correct" if verdict == expected else (
+            effective = entry.get("effective_verdict", verdict)
+            entry["outcome"] = "correct" if effective == expected else (
                 "false_reject" if label == "positive" else "false_accept"
             )
             canary_results.append(entry)
@@ -409,11 +470,13 @@ def main():
     canary_correct = sum(1 for r in canary_results if r.get("outcome") == "correct")
     canary_pc_consistency_errors = [r for r in canary_results if r.get("pc_consistency_error")]
     canary_pc_file_grounding_errors = [r for r in canary_results if r.get("pc_file_grounding_error")]
+    canary_effective_overrides = [r for r in canary_results if r.get("effective_verdict")]
     canary_pass = (
         canary_correct == total_canary
         and len(canary_parse_fails) == 0
         and len(canary_pc_consistency_errors) == 0
-        and len(canary_pc_file_grounding_errors) == 0
+        # canary_pc_file_grounding_errors: informational only; effective_verdict is
+        # the gate-impacting mechanism for negatives that accepted on hallucinated content
     )
     test_pass = (
         len(test_false_rejects) == 0
@@ -435,6 +498,7 @@ def main():
             "canary_parse_fails": len(canary_parse_fails),
             "canary_pc_consistency_errors": len(canary_pc_consistency_errors),
             "canary_pc_file_grounding_errors": len(canary_pc_file_grounding_errors),
+            "canary_effective_verdict_overrides": len(canary_effective_overrides),
             "test_total": total_test,
             "test_correct": len(test_correct),
             "test_false_rejects": len(test_false_rejects),
@@ -473,14 +537,17 @@ def main():
             icon = "OK" if r.get("outcome") == "correct" else "!!"
             gf = f"  [GROUNDING:{r['grounding_failure'][:60]}]" if r.get("grounding_failure") else ""
             pce = f"  [PC-CONSISTENCY:{r['pc_consistency_error'][:80]}]" if r.get("pc_consistency_error") else ""
-            pfg = f"  [PC-FILE-GND:{r['pc_file_grounding_error'][:80]}]" if r.get("pc_file_grounding_error") else ""
-            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{gf}{pce}{pfg}")
+            pfg = f"  [PC-FILE-GND:{r['pc_file_grounding_error'][:60]}]" if r.get("pc_file_grounding_error") else ""
+            ev = f"  [EFF-VRD:reject]" if r.get("effective_verdict") else ""
+            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{ev}{gf}{pce}{pfg}")
         if canary_parse_fails:
             print(f"  PARSE FAILS: {len(canary_parse_fails)}")
         if canary_pc_consistency_errors:
             print(f"  PC CONSISTENCY ERRORS: {len(canary_pc_consistency_errors)}")
         if canary_pc_file_grounding_errors:
-            print(f"  PC FILE GROUNDING ERRORS: {len(canary_pc_file_grounding_errors)}")
+            print(f"  PC FILE GROUNDING ERRORS: {len(canary_pc_file_grounding_errors)} (informational)")
+        if canary_effective_overrides:
+            print(f"  EFFECTIVE VERDICT OVERRIDES: {len(canary_effective_overrides)} accept→reject")
     print(f"Test ({total_test}): {len(test_correct)}/{total_test} correct  (FR={len(test_false_rejects)} FA={len(test_false_accepts)} PF={len(test_parse_fails)})  ({'PASS' if test_pass else 'FAIL'})")
     if retest_results:
         rc = sum(1 for r in retest_results if r.get("outcome") == "correct")
