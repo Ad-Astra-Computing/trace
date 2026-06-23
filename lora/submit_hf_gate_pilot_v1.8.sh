@@ -49,7 +49,7 @@ hf upload ${ADAPTER_REPO} ${PILOT_JSONL} gate_pilot_inputs/gate-pilot.jsonl \
 echo "Submitting v1.8 gate pilot inference job ..."
 nix-shell -p python3Packages.huggingface-hub --run "
 hf jobs uv run \
-  --flavor 'l40s-x1' \
+  --flavor 'l40sx1' \
   --namespace 'odoom' \
   --timeout 1h \
   --detach \
