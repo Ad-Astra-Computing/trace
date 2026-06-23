@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "name": "reviewer-v1.8",
+  "overrides": {
+    "sqlite": {
+      "split": "train",
+      "reason": "hash-based assignment is dev; override to train for source-backport diversity (carried forward from v1.1-v1.7)"
+    },
+    "zlib": {
+      "split": "canary",
+      "reason": "v1.4+ canary: zlib fully held out from training. Sentinel for PC-consistency and grounding failures. Keep as canary in v1.8."
+    },
+    "jq": {
+      "split": "canary",
+      "reason": "v1.4+ canary: jq fully held out from training. Sentinel for off-by-one, missing-line, and condition-mutation failures. Keep as canary in v1.8."
+    }
+  }
+}
