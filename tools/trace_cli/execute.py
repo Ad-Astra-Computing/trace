@@ -94,6 +94,7 @@ def execute(
     build_runner_factory: "object | None" = None,
     nixpkgs_checkout: Path | None = None,
     builder_timeout_seconds: int | None = None,
+    reviewer_prompt_path: Path | None = None,
 ) -> dict[str, Any]:
     """Execute one role invocation for one replay record.
 
@@ -134,6 +135,7 @@ def execute(
                 verify=verify,
                 model_id=model_id,
                 adapter_factory=adapter_factory,
+                prompt_path=reviewer_prompt_path,
             )
         if role == "reproducer":
             return _execute_reproducer(
@@ -967,6 +969,19 @@ def _append_patcher_replay_entry(
 REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v4.md"
 
 
+def _reviewer_prompt_relpath(prompt: Path) -> str:
+    """Repo-relative path string for `prompt` when it lives under the repo
+    (e.g. `prompts/reviewer.v9.md`), else the absolute path. Recorded verbatim
+    in replay.json so an override under any directory is faithfully auditable —
+    a bare basename would be ambiguous across same-named checked-in prompts."""
+    repo_root = Path(__file__).resolve().parents[2]
+    resolved = prompt.resolve()
+    try:
+        return str(resolved.relative_to(repo_root))
+    except ValueError:
+        return str(resolved)
+
+
 def _execute_reviewer(
     *,
     bundle_dir: Path,
@@ -974,6 +989,7 @@ def _execute_reviewer(
     verify: bool,
     model_id: str,
     adapter_factory: object | None,
+    prompt_path: Path | None = None,
 ) -> dict[str, Any]:
     """Reviewer dispatcher: dispatch-guards, load inputs, run, atomic-write.
 
@@ -993,6 +1009,10 @@ def _execute_reviewer(
     """
     from agents.patcher import AnthropicAdapter
     from agents.reviewer import ReviewerOutputMalformed, run_reviewer
+
+    reviewer_prompt = prompt_path or REVIEWER_PROMPT_PATH_DEFAULT
+    if not reviewer_prompt.is_file():
+        raise ExecutionError(f"reviewer prompt not found: {reviewer_prompt}")
 
     bundle_path = bundle_dir / "bundle.json"
     if bundle_path.is_file():
@@ -1128,7 +1148,7 @@ def _execute_reviewer(
         result = run_reviewer(
             inputs=inputs,
             adapter=adapter,
-            prompt_path=REVIEWER_PROMPT_PATH_DEFAULT,
+            prompt_path=reviewer_prompt,
         )
     except ReviewerOutputMalformed as exc:
         _persist_role_failure(
@@ -1137,7 +1157,7 @@ def _execute_reviewer(
             exc=exc,
             model_id=model_id,
             started_at=started_at,
-            prompt_path_relative=f"prompts/{REVIEWER_PROMPT_PATH_DEFAULT.name}",
+            prompt_path_relative=_reviewer_prompt_relpath(reviewer_prompt),
         )
         raise ExecutionError(f"reviewer output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
@@ -1204,6 +1224,7 @@ def _execute_reviewer(
         outputs=outputs,
         started_at=started_at,
         ended_at=ended_at,
+        prompt_path_relative=_reviewer_prompt_relpath(reviewer_prompt),
     )
 
     # Sidecar BEFORE replay-append: model spend has happened; if the
@@ -1322,6 +1343,7 @@ def _build_reviewer_invocation(
     outputs: list[dict[str, Any]],
     started_at: str,
     ended_at: str,
+    prompt_path_relative: str = f"prompts/{REVIEWER_PROMPT_PATH_DEFAULT.name}",
 ) -> dict[str, Any]:
     """Build a single replay-shape invocation record for a Reviewer run."""
     inputs: list[dict[str, Any]] = []
@@ -1342,7 +1364,7 @@ def _build_reviewer_invocation(
         "started_at": started_at,
         "ended_at": ended_at,
         "model": _build_reviewer_model_block(reviewer_run),
-        "prompt": {"path": f"prompts/{REVIEWER_PROMPT_PATH_DEFAULT.name}", "sha256": reviewer_run["prompt_sha256"]},
+        "prompt": {"path": prompt_path_relative, "sha256": reviewer_run["prompt_sha256"]},
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
         "rng_seed": None,

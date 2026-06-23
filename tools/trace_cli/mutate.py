@@ -54,6 +54,8 @@ MUTATION_TYPES = (
     # evidence/rationale defects
     "rationale-cites-wrong-version",
     "rationale-cites-wrong-hash",
+    # order/placement defects (v9): token present, placement wrong
+    "token-preserving-misplacement",
 )
 
 # Structure-preserving reorganizations for reviewer POSITIVES. These change the
@@ -104,6 +106,11 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     rn.add_argument("--mutation", choices=MUTATION_TYPES, required=True)
     rn.add_argument("--out-dir", type=Path, required=True, help="destination bundle dir (created)")
     rn.add_argument("--decoy-hash", default=None, help="hash to use for hash-from-other-bundle")
+    rn.add_argument(
+        "--swap", nargs=2, metavar=("LINE_A", "LINE_B"), default=None,
+        help="for token-preserving-misplacement: two ADDED source lines (verbatim, "
+             "sans diff prefix) to swap so the fix is mis-ordered but the tokens remain",
+    )
     rn.add_argument("--format", choices=["human", "json"], default="human")
 
     rp = p_subs.add_parser(
@@ -132,7 +139,61 @@ def _patched_hash_lines(diff: str) -> list[int]:
     return out
 
 
-def _apply_mutation(out_dir: Path, mutation: str, decoy_hash: str | None) -> dict[str, Any]:
+def _added_line_match(line: str, code: str) -> int | None:
+    """If `line` is an ADDED diff line whose source content == `code`, return its
+    nesting depth (1 = plain `+<code>`, 2 = embedded `++<code>` inside a *.patch
+    that the outer diff adds); else None. `code` is verbatim source text WITHOUT
+    any diff prefix (it keeps the source's own indentation)."""
+    if line.startswith("++"):
+        return 2 if line[2:] == code else None
+    if line.startswith("+"):
+        return 1 if line[1:] == code else None
+    return None
+
+
+def _hunk_header_of(lines: list[str], idx: int, depth: int) -> int | None:
+    """Index of the nearest hunk header at `depth` preceding `lines[idx]` (a
+    plain `@@` for depth 1, an embedded `+@@` for depth 2), or None."""
+    prefix = "+" * (depth - 1) + "@@"
+    for i in range(idx, -1, -1):
+        if lines[i].startswith(prefix):
+            return i
+    return None
+
+
+def _swap_added_lines(out_dir: Path, code_a: str, code_b: str) -> dict[str, Any]:
+    """Swap two ADDED code lines in patch.diff (token-preserving-misplacement).
+
+    Both lines keep their `+`/`++` prefix, so every hunk's +/- line counts are
+    invariant and the old-side (context + removed) is untouched — the patch
+    still applies, but the added code now sits in the wrong order/position
+    (e.g. a declaration after the statement that reads it). The CTW token
+    strings are all still present; only their placement is broken."""
+    if code_a == code_b:
+        raise ValueError("--swap lines must differ (a no-op swap is not a defect)")
+    patch_path = out_dir / "patch.diff"
+    diff = patch_path.read_text()
+    lines = diff.splitlines()
+    hits_a = [(i, d) for i, l in enumerate(lines) if (d := _added_line_match(l, code_a)) is not None]
+    hits_b = [(i, d) for i, l in enumerate(lines) if (d := _added_line_match(l, code_b)) is not None]
+    if len(hits_a) != 1:
+        raise ValueError(f"--swap line A matched {len(hits_a)} added line(s), need exactly 1: {code_a!r}")
+    if len(hits_b) != 1:
+        raise ValueError(f"--swap line B matched {len(hits_b)} added line(s), need exactly 1: {code_b!r}")
+    (ia, da), (ib, db) = hits_a[0], hits_b[0]
+    if da != db:
+        raise ValueError(f"--swap lines are at different diff nesting depths ({da} vs {db}); cannot swap")
+    ha, hb = _hunk_header_of(lines, ia, da), _hunk_header_of(lines, ib, db)
+    if ha is None or hb is None or ha != hb:
+        raise ValueError("--swap lines are not in the same hunk; misplacement must be intra-hunk")
+    lines[ia], lines[ib] = lines[ib], lines[ia]
+    patch_path.write_text("\n".join(lines) + ("\n" if diff.endswith("\n") else ""))
+    return {"swapped_lines": [code_a, code_b], "line_indices": [ia, ib], "depth": da}
+
+
+def _apply_mutation(
+    out_dir: Path, mutation: str, decoy_hash: str | None, swap: tuple[str, str] | None = None
+) -> dict[str, Any]:
     """Mutate the staged bundle in-place; return details for the marker."""
     patch_path = out_dir / "patch.diff"
     diff = patch_path.read_text()
@@ -265,6 +326,11 @@ def _apply_mutation(out_dir: Path, mutation: str, decoy_hash: str | None) -> dic
         rat_path.write_text(rat.replace(real, repl))
         details["rationale_hash_claimed"] = repl
         details["actual_patch_hash"] = real
+
+    elif mutation == "token-preserving-misplacement":
+        if not swap:
+            raise ValueError("token-preserving-misplacement requires --swap LINE_A LINE_B")
+        details.update(_swap_added_lines(out_dir, swap[0], swap[1]))
 
     else:  # pragma: no cover - guarded by argparse choices
         raise ValueError(f"unknown mutation {mutation!r}")
@@ -532,6 +598,14 @@ def run(args: argparse.Namespace) -> int:
         print(f"error: out-dir already exists: {out}")
         return 2
 
+    if args.mutation == "token-preserving-misplacement" and not getattr(args, "swap", None):
+        print(
+            "error: --mutation token-preserving-misplacement requires --swap LINE_A LINE_B "
+            "(the two added source lines to reorder so the fix is mis-placed while its "
+            "tokens stay present)"
+        )
+        return 2
+
     if args.mutation == "hash-from-other-bundle" and not args.decoy_hash:
         print(
             "error: --mutation hash-from-other-bundle requires --decoy-hash "
@@ -545,7 +619,7 @@ def run(args: argparse.Namespace) -> int:
     _stage_copy(base, out)
 
     try:
-        details = _apply_mutation(out, args.mutation, args.decoy_hash)
+        details = _apply_mutation(out, args.mutation, args.decoy_hash, getattr(args, "swap", None))
     except Exception as exc:
         # Roll back the partial copy so a corrected rerun isn't blocked by an
         # 'out-dir already exists' from a half-mutated directory.
