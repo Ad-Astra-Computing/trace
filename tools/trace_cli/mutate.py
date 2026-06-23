@@ -62,6 +62,7 @@ MUTATION_TYPES = (
 # v1.8 zlib false-reject failure mode).
 REORG_TYPES = (
     "reorder-hunks",
+    "context-reshape",
 )
 
 # A syntactically-valid but deliberately-wrong SRI hash (base64 of 32 zero bytes).
@@ -302,9 +303,85 @@ def _split_hunks(section: list[str]) -> tuple[list[str], list[list[str]]]:
     return header, hunks
 
 
+_HUNK_HDR_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$")
+
+
+def _emb_char(line: str, depth: int) -> str:
+    """The diff-type char of `line` at nesting `depth` (0 = outer, 1 = a line
+    inside an embedded *.patch that the outer diff adds). Missing -> context."""
+    return line[depth] if len(line) > depth else " "
+
+
+def _recompute_header(old_line: str, body: list[str], depth: int) -> str:
+    """Rebuild a `@@ -a,b +c,d @@` header (preserving a, c, heading, and any
+    outer prefix) with b/d recomputed from `body` at nesting `depth`."""
+    prefix = old_line[:depth]
+    m = _HUNK_HDR_RE.match(old_line[depth:])
+    if not m:  # pragma: no cover - only called on matched headers
+        raise ValueError(f"not a hunk header: {old_line!r}")
+    a, c, heading = m.group(1), m.group(2), m.group(3)
+    old_count = sum(1 for l in body if _emb_char(l, depth) in " -")
+    new_count = sum(1 for l in body if _emb_char(l, depth) in " +")
+    return f"{prefix}@@ -{a},{old_count} +{c},{new_count} @@{heading}"
+
+
+def _reshape_context(out_dir: Path) -> dict[str, Any]:
+    """Drop one trailing context line from a hunk and recompute the affected
+    header(s), preserving every change line. Narrowing trailing context always
+    applies cleanly. Prefers an embedded *.patch hunk (the zlib failure shape);
+    falls back to a plain hunk. Raises if no droppable trailing context."""
+    patch_path = out_dir / "patch.diff"
+    diff = patch_path.read_text()
+    lines = diff.splitlines()
+    preamble, sections = _split_file_sections(lines)
+
+    def _flush() -> None:
+        new_lines = preamble + [l for sec in sections for l in sec]
+        patch_path.write_text("\n".join(new_lines) + ("\n" if diff.endswith("\n") else ""))
+
+    # 1) Embedded *.patch hunk: outer `@@ -0,0 +1,N @@` adds a file whose body is
+    #    itself a diff with a `+@@` header. Reshape the embedded hunk's context.
+    for si, sec in enumerate(sections):
+        emb_idxs = [i for i, l in enumerate(sec) if l.startswith("+@@")]
+        outer_idxs = [i for i, l in enumerate(sec) if l.startswith("@@")]
+        if not emb_idxs or not outer_idxs:
+            continue
+        emb_idx, outer_idx = emb_idxs[-1], outer_idxs[0]
+        body = sec[emb_idx + 1:]
+        if not body or _emb_char(body[-1], 1) != " ":
+            continue  # last embedded line is a change, not droppable context
+        dropped = body.pop()
+        new_emb_hdr = _recompute_header(sec[emb_idx], body, depth=1)
+        sec = sec[:emb_idx] + [new_emb_hdr] + body
+        outer_body = sec[outer_idx + 1:]
+        new_outer_hdr = _recompute_header(sec[outer_idx], outer_body, depth=0)
+        sections[si] = sec[:outer_idx] + [new_outer_hdr] + outer_body
+        _flush()
+        return {"target": "embedded", "section_index": si, "dropped_context": dropped}
+
+    # 2) Plain hunk: drop the trailing context line of the last hunk in a section.
+    for si, sec in enumerate(sections):
+        hidxs = [i for i, l in enumerate(sec) if l.startswith("@@")]
+        if not hidxs:
+            continue
+        hidx = hidxs[-1]
+        body = sec[hidx + 1:]
+        if not body or _emb_char(body[-1], 0) != " ":
+            continue
+        dropped = body.pop()
+        new_hdr = _recompute_header(sec[hidx], body, depth=0)
+        sections[si] = sec[:hidx] + [new_hdr] + body
+        _flush()
+        return {"target": "plain", "section_index": si, "dropped_context": dropped}
+
+    raise ValueError("no hunk with a droppable trailing context line to reshape")
+
+
 def _apply_reorg(out_dir: Path, reorg: str) -> dict[str, Any]:
     """Reorganize the staged bundle's patch.diff layout in-place; return marker
-    details. Content (the set of +/- lines) is preserved exactly."""
+    details. Content (the set of +/- change lines) is preserved exactly."""
+    if reorg == "context-reshape":
+        return _reshape_context(out_dir)
     if reorg != "reorder-hunks":  # pragma: no cover - guarded by argparse choices
         raise ValueError(f"unknown reorg {reorg!r}")
 
