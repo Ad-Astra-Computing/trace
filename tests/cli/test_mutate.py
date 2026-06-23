@@ -325,3 +325,89 @@ def test_reorg_refuses_unreorderable(tmp_path):
     rc = mut.run(_reorg_args(base, "reorder-hunks", out))
     assert rc == 2
     assert not out.exists()  # rolled back
+
+
+# --- context-reshape (internal hunk presentation, mirrors the zlib failure) ----
+
+def _embedded_patch_base(root: Path, name: str = "CVE-2025-0005--emb") -> Path:
+    """The dominant corpus shape: section 1 ADDS pkgs/.../CVE.patch (the embedded
+    C fix), section 2 edits default.nix to list it. Reshaping the embedded hunk's
+    context mirrors the v1.8 zlib multi-line-guard misread."""
+    bd = root / name
+    bd.mkdir(parents=True)
+    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "b5", "cve_id": "CVE-2025-0005"}))
+    # embedded hunk: 2 leading ctx + 1 removed + 1 added + 2 trailing ctx
+    # -> old/new side counts = 5,5; outer added-line count = 3 (hdr) + 6 (body) = 9
+    (bd / "patch.diff").write_text(
+        "diff --git a/pkgs/x/CVE.patch b/pkgs/x/CVE.patch\n"
+        "new file mode 100644\n--- /dev/null\n+++ b/pkgs/x/CVE.patch\n"
+        "@@ -0,0 +1,9 @@\n"
+        "+--- a/foo.c\n"
+        "++++ b/foo.c\n"
+        "+@@ -402,5 +402,5 @@\n"
+        "+             rbCtr++;\n"
+        "+         }\n"
+        "+-         if (curr >= MAX)\n"
+        "++         if (curr >= MAX - 1)\n"
+        "+             tooManyBlocks();\n"
+        "+          currBlock++;\n"
+        "diff --git a/pkgs/x/default.nix b/pkgs/x/default.nix\n"
+        "--- a/pkgs/x/default.nix\n+++ b/pkgs/x/default.nix\n"
+        "@@ -32,3 +32,4 @@\n   patches = [\n+    ./CVE.patch\n   ];\n"
+    )
+    return bd
+
+
+def _changed_only(diff: str) -> list:
+    """Change lines (additions/removals), at BOTH diff levels, ignoring the
+    file/hunk headers — what must be byte-identical after a reshape."""
+    out = []
+    for l in diff.splitlines():
+        if l.startswith(("+++", "---", "@@", "diff --git", "new file")):
+            continue
+        if l.startswith(("+", "-")):
+            out.append(l)
+    return out
+
+
+def test_context_reshape_preserves_change_lines(tmp_path):
+    base = _embedded_patch_base(tmp_path / "ex")
+    before = (base / "patch.diff").read_text()
+    out = tmp_path / "pos" / "c1"
+    rc = mut.run(_reorg_args(base, "context-reshape", out))
+    assert rc == 0
+    after = (out / "patch.diff").read_text()
+    assert after != before  # presentation changed
+    # the actual fix change lines (the embedded -/+ C lines) are untouched
+    assert "+-         if (curr >= MAX)" in after
+    assert "++         if (curr >= MAX - 1)" in after
+    marker = json.loads((out / "reorg.json").read_text())
+    assert marker["reorg_type"] == "context-reshape"
+    assert marker["expected_reviewer_verdict"] == "accept"
+
+
+def test_context_reshape_recomputes_headers(tmp_path):
+    base = _embedded_patch_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "c2"
+    mut.run(_reorg_args(base, "context-reshape", out))
+    after = (out / "patch.diff").read_text()
+    # one embedded trailing context line dropped -> outer count 9 -> 8
+    assert "@@ -0,0 +1,8 @@" in after
+    # embedded hunk header recomputed: was -402,5 +402,5 (5 ctx+chg each side) -> 4,4
+    assert "+@@ -402,4 +402,4 @@" in after
+    # the dropped line was the last embedded context line
+    assert after.count("currBlock") == 0
+
+
+def test_context_reshape_refuses_no_trailing_context(tmp_path):
+    # a hunk whose last line is a change (no trailing context to drop) -> refuse
+    base = tmp_path / "ex" / "CVE-2025-0006--nc"
+    base.mkdir(parents=True)
+    (base / "bundle.json").write_text(json.dumps({"bundle_id": "b6", "cve_id": "CVE-2025-0006"}))
+    (base / "patch.diff").write_text(
+        "diff --git a/f.c b/f.c\n--- a/f.c\n+++ b/f.c\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n"
+    )
+    out = tmp_path / "pos" / "c3"
+    rc = mut.run(_reorg_args(base, "context-reshape", out))
+    assert rc == 2
+    assert not out.exists()
