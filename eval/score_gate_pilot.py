@@ -207,6 +207,68 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
     return "; ".join(errors) if errors else None
 
 
+def check_pc_extraction_order(generated: str, pilot_rec: dict) -> str | None:
+    """Non-gating diagnostic (v1.10). Detect when the model's
+    `## patch.diff extraction` quotes lines that ARE present in patch.diff but
+    in the WRONG (non-file) order. v9's order-sensitive `comparison:` can amplify
+    such a stochastic extraction-order error into a FALSE reject (observed on the
+    libxmp context-reshape positive), so we surface it separately from verdict
+    correctness — an order-artifact reject is not the same as a real placement
+    defect. Returns a reason string when an out-of-order quote is found, else None.
+    """
+    msgs = pilot_rec.get("messages", [])
+    user_content = next((m["content"] for m in msgs if m["role"] == "user"), "")
+    if not user_content:
+        return None
+
+    m = re.search(r"# patch\.diff", user_content, re.IGNORECASE)
+    if not m:
+        return None
+    start = m.start()
+    nxt = re.search(r"\n# \S+\.(json|nix|diff|patch|md)\b", user_content[start + 1:], re.IGNORECASE)
+    end = start + 1 + nxt.start() if nxt else len(user_content)
+    patch_diff_block = user_content[start:end]
+
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"^[+\-\s]+", "", s)).strip()
+
+    block_lines = [_norm(l) for l in patch_diff_block.splitlines()]
+
+    idx = generated.find("## patch.diff extraction")
+    if idx < 0:
+        return None
+    end_m = re.search(r"\n## ", generated[idx + 1:])
+    section = generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
+    # Quoted +/-/context diff lines in extraction order (skip the CTW sub-bullet,
+    # whose content does not begin with a diff-prefix char).
+    quoted = [re.sub(r"\s+", " ", q.strip()) for q in re.findall(r"`[+\- ]\s*(.+?)`", section)]
+    quoted = [q for q in quoted if q]
+
+    def _positions(q: str) -> list[int]:
+        out = []
+        for i, bl in enumerate(block_lines):
+            if not bl:
+                continue
+            if bl == q or (bl.startswith(q) and (len(bl) == len(q) or bl[len(q)] == " ")):
+                out.append(i)
+        return out
+
+    cursor = -1
+    for q in quoted:
+        pos = _positions(q)
+        if not pos:
+            continue  # absence is a grounding concern, handled elsewhere; we flag ORDER only
+        fwd = [p for p in pos if p >= cursor]
+        if fwd:
+            cursor = fwd[0]
+        else:
+            return (
+                f"patch.diff extraction lists {q[:50]!r} out of file order "
+                f"(occurs at {pos} but all precede cursor {cursor})"
+            )
+    return None
+
+
 def check_pc_consistency(generated: str) -> str | None:
     """Check that `comparison:` verdicts in the PC section are consistent
     with the quoted +lines.
@@ -403,6 +465,7 @@ def main():
         grounding_failure = check_pc_grounding(text, pilot_rec) if split == "canary" else None
         pc_consistency_error = check_pc_consistency(text) if split == "canary" else None
         pc_file_grounding_error = check_pc_file_grounding(text, pilot_rec) if split == "canary" else None
+        pc_extraction_order_error = check_pc_extraction_order(text, pilot_rec) if split == "canary" else None
 
         entry = {
             "bundle_id": bundle_id,
@@ -419,6 +482,8 @@ def main():
             entry["pc_consistency_error"] = pc_consistency_error
         if pc_file_grounding_error:
             entry["pc_file_grounding_error"] = pc_file_grounding_error
+        if pc_extraction_order_error:
+            entry["pc_extraction_order_error"] = pc_extraction_order_error
 
         # effective_verdict (v1.8): if patch.diff grounding fires on a NEGATIVE canary
         # that the model accepted, override to reject.  Catches cross-artifact
@@ -470,6 +535,10 @@ def main():
     canary_correct = sum(1 for r in canary_results if r.get("outcome") == "correct")
     canary_pc_consistency_errors = [r for r in canary_results if r.get("pc_consistency_error")]
     canary_pc_file_grounding_errors = [r for r in canary_results if r.get("pc_file_grounding_error")]
+    # Non-gating diagnostic (v1.10): extraction-order artifacts. Surfaced separately
+    # so an order-artifact reject (e.g. the libxmp reshape false-reject) is
+    # distinguishable from a genuine placement-defect reject when reading the gate.
+    canary_pc_extraction_order_errors = [r for r in canary_results if r.get("pc_extraction_order_error")]
     canary_effective_overrides = [r for r in canary_results if r.get("effective_verdict")]
     canary_pass = (
         canary_correct == total_canary
@@ -498,6 +567,8 @@ def main():
             "canary_parse_fails": len(canary_parse_fails),
             "canary_pc_consistency_errors": len(canary_pc_consistency_errors),
             "canary_pc_file_grounding_errors": len(canary_pc_file_grounding_errors),
+            # Non-gating diagnostic (v1.10): see check_pc_extraction_order.
+            "canary_pc_extraction_order_errors": len(canary_pc_extraction_order_errors),
             "canary_effective_verdict_overrides": len(canary_effective_overrides),
             "test_total": total_test,
             "test_correct": len(test_correct),
@@ -538,14 +609,17 @@ def main():
             gf = f"  [GROUNDING:{r['grounding_failure'][:60]}]" if r.get("grounding_failure") else ""
             pce = f"  [PC-CONSISTENCY:{r['pc_consistency_error'][:80]}]" if r.get("pc_consistency_error") else ""
             pfg = f"  [PC-FILE-GND:{r['pc_file_grounding_error'][:60]}]" if r.get("pc_file_grounding_error") else ""
+            peo = f"  [EXTRACT-ORDER:{r['pc_extraction_order_error'][:60]}]" if r.get("pc_extraction_order_error") else ""
             ev = f"  [EFF-VRD:reject]" if r.get("effective_verdict") else ""
-            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{ev}{gf}{pce}{pfg}")
+            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{ev}{gf}{pce}{pfg}{peo}")
         if canary_parse_fails:
             print(f"  PARSE FAILS: {len(canary_parse_fails)}")
         if canary_pc_consistency_errors:
             print(f"  PC CONSISTENCY ERRORS: {len(canary_pc_consistency_errors)}")
         if canary_pc_file_grounding_errors:
             print(f"  PC FILE GROUNDING ERRORS: {len(canary_pc_file_grounding_errors)} (informational)")
+        if canary_pc_extraction_order_errors:
+            print(f"  PC EXTRACTION-ORDER ARTIFACTS: {len(canary_pc_extraction_order_errors)} (informational; an order-artifact reject is not a real placement defect)")
         if canary_effective_overrides:
             print(f"  EFFECTIVE VERDICT OVERRIDES: {len(canary_effective_overrides)} accept→reject")
     print(f"Test ({total_test}): {len(test_correct)}/{total_test} correct  (FR={len(test_false_rejects)} FA={len(test_false_accepts)} PF={len(test_parse_fails)})  ({'PASS' if test_pass else 'FAIL'})")
