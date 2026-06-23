@@ -429,10 +429,18 @@ def _stage_copy(base: Path, out: Path) -> None:
     signing artifacts, reviewer replay role, and stale file manifest so the
     result is re-reviewed from scratch. Shared by negative + reorg minting."""
     shutil.copytree(base, out)
-    # Drop the prior reviewer verdict + any signing/cert artifacts: the variant
+    # Drop the prior reviewer verdict + ALL signing/cert artifacts: the variant
     # bundle must be re-reviewed from scratch, and it is NOT a signed/cert bundle.
+    # cosign-cert.pem + bundle.canonical.json attest to the ORIGINAL bytes; a
+    # reshaped/mutated patch.diff would make them a stale signature over changed
+    # content (provenance tampering), so they must not survive the copy.
+    # authoring-example.json is a DIFFERENT pipeline's cache (read by `trace
+    # export authoring` from traces/example only) — it is never an input to a
+    # reviewer variant, so it is dead weight here and would needlessly carry the
+    # authoring exporter's vuln_raw into the reviewer corpus.
     for stale in ("review.md", "review-scoring-report.json", "review-refusal.json",
-                  "reviewer-invocation.json", "bundle.sig", "build.json"):
+                  "reviewer-invocation.json", "bundle.sig", "build.json",
+                  "cosign-cert.pem", "bundle.canonical.json", "authoring-example.json"):
         sp = out / stale
         if sp.exists():
             sp.unlink()

@@ -96,6 +96,16 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         ),
     )
     rv.add_argument(
+        "--reorg-positives-root",
+        type=Path,
+        default=None,
+        help=(
+            "root directory of structure-reorganized POSITIVE bundles (carry "
+            "reorg.json, accept verdict). Default: the 'positives-reorg' dir "
+            "sibling to --traces-root. Teaches CTW-equivalence under reordering."
+        ),
+    )
+    rv.add_argument(
         "--reviewer-prompt",
         type=Path,
         default=Path("prompts/reviewer.v2.md"),
@@ -386,6 +396,7 @@ def _example_for_bundle(
     override_split = (split_overrides or {}).get(family)
     split = override_split if override_split else _split_for(attr)
     mutation = _load_json(bundle_dir / "mutation.json")
+    reorg = _load_json(bundle_dir / "reorg.json")
     provenance = {
         "bundle_id": bundle_id,
         "cve_id": cve_id,
@@ -402,9 +413,12 @@ def _example_for_bundle(
         "patcher_model_id": models.get("patcher_model_id"),
         "negative_source": (mutation or {}).get("negative_source"),
         "mutation_type": (mutation or {}).get("mutation_type"),
-        "base_bundle_id": (mutation or {}).get("base_bundle_id"),
+        "positive_source": (reorg or {}).get("positive_source"),
+        "reorg_type": (reorg or {}).get("reorg_type"),
+        "base_bundle_id": (mutation or {}).get("base_bundle_id") or (reorg or {}).get("base_bundle_id"),
     }
     status["mutation_type"] = (mutation or {}).get("mutation_type")
+    status["reorg_type"] = (reorg or {}).get("reorg_type")
 
     example = {
         "schema_version": SCHEMA_VERSION,
@@ -711,6 +725,16 @@ def run(args: argparse.Namespace) -> int:
         negative_dirs = set(nd)
         bundle_dirs += nd
 
+    # Structure-reorganized positives (carry reorg.json, accept verdict).
+    reorg_root: Path = args.reorg_positives_root
+    reorg_dirs: set[Path] = set()
+    if reorg_root is None:
+        reorg_root = traces_root.parent / "positives-reorg"
+    if reorg_root.is_dir():
+        rd = sorted(d for d in reorg_root.glob("CVE-*") if d.is_dir())
+        reorg_dirs = set(rd)
+        bundle_dirs += rd
+
     examples: list[dict[str, Any]] = []
     statuses: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str | None]] = set()
@@ -730,8 +754,22 @@ def run(args: argparse.Namespace) -> int:
                 )
                 statuses.append(status)
                 continue
+        # Reorg-positives-root hygiene: a bundle here MUST carry reorg provenance
+        # AND have produced an accept (label positive). A reorg the Reviewer
+        # REJECTED is a correct fix wrongly rejected (the very failure we train
+        # against) — it must NOT enter the corpus as a negative; exclude entirely.
+        if ex is not None and bd in reorg_dirs:
+            if ex["provenance"].get("positive_source") != "reorg" or ex["label"] != "positive":
+                status["eligibility_for_training"] = False
+                status["exclusion_reason"] = (
+                    f"reorg-positives-root bundle is not a kept reorg accept "
+                    f"(positive_source={ex['provenance'].get('positive_source')}, label={ex['label']})"
+                )
+                statuses.append(status)
+                continue
         # Defensive: a positives-root bundle must NOT carry mutation provenance.
-        if ex is not None and bd not in negative_dirs and ex["provenance"].get("negative_source"):
+        if ex is not None and bd not in negative_dirs and bd not in reorg_dirs \
+                and ex["provenance"].get("negative_source"):
             status["eligibility_for_training"] = False
             status["exclusion_reason"] = "mutation provenance in positives root"
             statuses.append(status)
@@ -743,9 +781,11 @@ def run(args: argparse.Namespace) -> int:
                 status["exclusion_reason"] = "canary split (held-out for gate pilot only)"
                 statuses.append(status)
                 continue
-            # Include mutation_type so a mutated negative is NOT deduped against
-            # its base positive (same cve+attr, legitimately distinct example).
-            dedup_key = (status["cve_id"], status["attr_path"], status.get("mutation_type"))
+            # Include mutation_type AND reorg_type so a mutated negative or a
+            # reorganized positive is NOT deduped against its base positive
+            # (same cve+attr, legitimately distinct example).
+            dedup_key = (status["cve_id"], status["attr_path"],
+                         status.get("mutation_type"), status.get("reorg_type"))
             if dedup_key in seen:
                 status["eligibility_for_training"] = False
                 status["exclusion_reason"] = "duplicate (cve_id, attr_path, mutation_type)"
@@ -759,6 +799,7 @@ def run(args: argparse.Namespace) -> int:
     examples.sort(key=lambda e: (
         e["split"], e["label"], e["provenance"]["bundle_id"] or "",
         e["provenance"].get("mutation_type") or "",
+        e["provenance"].get("reorg_type") or "",
     ))
 
     out_dir.mkdir(parents=True, exist_ok=True)
