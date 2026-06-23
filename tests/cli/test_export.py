@@ -60,10 +60,12 @@ def _full_review(verdict: str, findings: str = "(none)") -> str:
     )
 
 
-def _args(out: Path, root: Path, prompt: Path, negatives_root: Path | None = None) -> argparse.Namespace:
+def _args(out: Path, root: Path, prompt: Path, negatives_root: Path | None = None,
+          reorg_positives_root: Path | None = None) -> argparse.Namespace:
     return argparse.Namespace(
         export_scope="reviewer", out=out, traces_root=root,
         negatives_root=negatives_root or (root.parent / "no-negatives"),
+        reorg_positives_root=reorg_positives_root or (root.parent / "no-reorg"),
         reviewer_prompt=prompt, format="json",
     )
 
@@ -322,6 +324,7 @@ def test_manifest_redacts_home_prompt_path(tmp_path):
     args = argparse.Namespace(
         export_scope="reviewer", out=tmp_path / "out", traces_root=root,
         negatives_root=tmp_path / "no-negatives",
+        reorg_positives_root=tmp_path / "no-reorg",
         reviewer_prompt=Path("/home/someuser/code/trace/prompts/reviewer.v2.md"),
         format="json",
     )
@@ -377,6 +380,48 @@ def test_negatives_root_accept_is_excluded(tmp_path):
     assert all(r["provenance"]["cve_id"] != "CVE-2025-0300" or r["provenance"].get("negative_source") is None for r in recs)
     m = json.loads((out / "manifest.json").read_text())
     assert any("not a kept mutation reject" in (e["exclusion_reason"] or "") for e in m["excluded"])
+
+
+def test_reorg_positives_root_accept(tmp_path):
+    """A reorganized positive (accept review + reorg.json) is exported as a
+    positive with reorg provenance, and is NOT deduped against its base."""
+    root = tmp_path / "traces"
+    reorg = tmp_path / "positives-reorg"
+    _make_bundle(root, "CVE-2025-0400--zk", cve="CVE-2025-0400", attr="zk", bundle_id="zkbase")
+    rb = _make_bundle(reorg, "CVE-2025-0400--zk--reshape", cve="CVE-2025-0400",
+                      attr="zk", verdict="accept", bundle_id="zkreorg")
+    _write(rb / "reorg.json", {
+        "positive_source": "reorg", "reorg_type": "context-reshape",
+        "base_bundle_id": "zkbase", "base_cve_id": "CVE-2025-0400",
+    })
+    out = tmp_path / "out"
+    ex.run(_args(out, root, _prompt(tmp_path), reorg_positives_root=reorg))
+    recs = [json.loads(l) for l in (out / "reviewer.jsonl").read_text().splitlines()]
+    assert len(recs) == 2  # base positive + reorg positive, not deduped
+    assert all(r["label"] == "positive" for r in recs)
+    reorg_rec = [r for r in recs if r["provenance"]["bundle_id"] == "zkreorg"][0]
+    assert reorg_rec["provenance"]["positive_source"] == "reorg"
+    assert reorg_rec["provenance"]["reorg_type"] == "context-reshape"
+    assert reorg_rec["provenance"]["base_bundle_id"] == "zkbase"
+
+
+def test_reorg_positives_root_reject_is_excluded(tmp_path):
+    """A reorg bundle the Reviewer REJECTED is a correct fix wrongly rejected —
+    it must NOT enter the corpus as a negative; exclude it entirely."""
+    root = tmp_path / "traces"
+    reorg = tmp_path / "positives-reorg"
+    _make_bundle(root, "CVE-2025-0500--base", cve="CVE-2025-0500", attr="basepkg", bundle_id="b")
+    rb = _make_bundle(reorg, "CVE-2025-0500--base--reshape", cve="CVE-2025-0500",
+                      attr="basepkg", verdict="reject", bundle_id="r")  # Reviewer rejected
+    _write(rb / "reorg.json", {"positive_source": "reorg", "reorg_type": "context-reshape",
+                               "base_bundle_id": "b"})
+    out = tmp_path / "out"
+    ex.run(_args(out, root, _prompt(tmp_path), reorg_positives_root=reorg))
+    recs = [json.loads(l) for l in (out / "reviewer.jsonl").read_text().splitlines()]
+    # only the base positive; the rejected reorg is excluded (not a negative)
+    assert all(r["provenance"]["bundle_id"] != "r" for r in recs)
+    m = json.loads((out / "manifest.json").read_text())
+    assert any("not a kept reorg accept" in (e["exclusion_reason"] or "") for e in m["excluded"])
 
 
 def test_normalize_attr_families():

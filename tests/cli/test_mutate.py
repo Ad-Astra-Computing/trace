@@ -23,6 +23,9 @@ def _base_bundle(root: Path, name: str = "CVE-2025-0001--zk") -> Path:
     )
     (bd / "review.md").write_text("## Verdict\naccept\n")  # should be stripped on copy
     (bd / "bundle.sig").write_text("sig")  # should be stripped on copy
+    (bd / "cosign-cert.pem").write_text("-----BEGIN CERTIFICATE-----")  # stale signing cert
+    (bd / "bundle.canonical.json").write_text("{}")  # stale canonical signing manifest
+    (bd / "authoring-example.json").write_text('{"vuln_raw": "x"}')  # other-pipeline cache
     return bd
 
 
@@ -53,6 +56,11 @@ def test_copy_strips_prior_review_and_signing(tmp_path):
     mut.run(_args(base, "wrong-src-hash", out))
     assert not (out / "review.md").exists()
     assert not (out / "bundle.sig").exists()
+    # stale signing artifacts must not survive (they attest to original bytes)
+    assert not (out / "cosign-cert.pem").exists()
+    assert not (out / "bundle.canonical.json").exists()
+    # authoring-export cache is a different pipeline's artifact, not a reviewer input
+    assert not (out / "authoring-example.json").exists()
 
 
 def test_version_without_hash_reverts_hash(tmp_path):
