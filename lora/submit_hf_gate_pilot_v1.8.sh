@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Submit v1.8 gate pilot inference job.
-# Uploads gate-pilot.jsonl to the adapter repo and submits an l40sx1 inference job.
+# Uploads gate-pilot.jsonl to the DATASET repo and mounts it at /data for the
+# inference job (matching lora/hf_gate_pilot_job.py, which reads /data/gate-pilot.jsonl).
 # Run AFTER the training job (adastracomputing/reviewer-lora-v1.8) completes.
+#
+# After the job completes, score with:
+#   python3 eval/score_gate_pilot.py \
+#     --pilot exports/reviewer-v1.8/gate-pilot.jsonl \
+#     --responses <downloaded_responses.jsonl> \
+#     --out data/reports/lora-gate-pilot-v1.8.json
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -9,6 +16,9 @@ set -a && source .env && set +a
 : "${HF_TOKEN:?HF_TOKEN not set}"
 export HF_TOKEN
 
+FLAVOR="l40sx1"
+NAMESPACE="odoom"
+DATASET="adastracomputing/reviewer-lora-data"
 ADAPTER_REPO="adastracomputing/reviewer-lora-v1.8"
 PILOT_JSONL="exports/reviewer-v1.8/gate-pilot.jsonl"
 
@@ -40,23 +50,28 @@ if "critical token window" not in sys_content:
 print(f"Gate pilot: {len(rows)} rows ({len(canary)} canary), upstream-fix.patch OK, CTW prompt OK")
 PYEOF
 
-echo "Uploading gate-pilot.jsonl to ${ADAPTER_REPO} ..."
-nix-shell -p python3Packages.huggingface-hub --run "
-hf upload ${ADAPTER_REPO} ${PILOT_JSONL} gate_pilot_inputs/gate-pilot.jsonl \
-  --repo-type model
-"
+N=$(wc -l < "${PILOT_JSONL}")
+echo "Uploading gate-pilot.jsonl (${N} examples) to hf://datasets/${DATASET} ..."
+nix-shell -p python3Packages.huggingface-hub --run \
+  "hf upload ${DATASET} ${PILOT_JSONL} gate-pilot.jsonl --repo-type dataset"
 
-echo "Submitting v1.8 gate pilot inference job ..."
+echo
+echo "Submitting v1.8 gate pilot inference job"
+echo "  flavor:   ${FLAVOR}"
+echo "  adapter:  ${ADAPTER_REPO}"
+echo "  dataset:  ${DATASET}"
+echo "  input:    gate-pilot.jsonl (${N} examples: 9 canary + 11 test)"
+
 nix-shell -p python3Packages.huggingface-hub --run "
 hf jobs uv run \
-  --flavor 'l40sx1' \
-  --namespace 'odoom' \
+  --flavor '${FLAVOR}' \
+  --namespace '${NAMESPACE}' \
   --timeout 1h \
   --detach \
   --secrets HF_TOKEN \
+  -v 'hf://datasets/${DATASET}:/data:ro' \
   -e HF_HOME=/tmp/hf \
+  -e DATA_DIR=/data \
   -e ADAPTER_REPO='${ADAPTER_REPO}' \
-  -e PILOT_FILE='gate_pilot_inputs/gate-pilot.jsonl' \
-  -e OUT_FILE='gate_pilot_responses/responses.jsonl' \
   lora/hf_gate_pilot_job.py
 "
