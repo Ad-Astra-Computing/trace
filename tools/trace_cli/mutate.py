@@ -56,6 +56,10 @@ MUTATION_TYPES = (
     "rationale-cites-wrong-hash",
     # order/placement defects (v9): token present, placement wrong
     "token-preserving-misplacement",
+    # compound-condition defects (v1.11 queue): break a multi-subterm guard
+    # while keeping it plausible — the zlib-shaped hard-generalization case.
+    "condition-operator-mutation",
+    "condition-drop-conjunct",
 )
 
 # Structure-preserving reorganizations for reviewer POSITIVES. These change the
@@ -111,6 +115,18 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="for token-preserving-misplacement: two ADDED source lines (verbatim, "
              "sans diff prefix) to swap so the fix is mis-ordered but the tokens remain",
     )
+    rn.add_argument(
+        "--guard", default=None,
+        help="for condition-* mutations: the exact ADDED compound-guard source line "
+             "(verbatim, sans diff prefix) to mutate",
+    )
+    rn.add_argument("--op-from", default=None,
+                    help="condition-operator-mutation: operator substring in --guard to replace")
+    rn.add_argument("--op-to", default=None,
+                    help="condition-operator-mutation: replacement operator")
+    rn.add_argument("--drop-subterm", default=None,
+                    help="condition-drop-conjunct: a conjunct substring (e.g. ' || pl > 255') "
+                         "to remove from --guard")
     rn.add_argument("--format", choices=["human", "json"], default="human")
 
     rp = p_subs.add_parser(
@@ -191,8 +207,38 @@ def _swap_added_lines(out_dir: Path, code_a: str, code_b: str) -> dict[str, Any]
     return {"swapped_lines": [code_a, code_b], "line_indices": [ia, ib], "depth": da}
 
 
+def _edit_added_guard_line(out_dir: Path, guard: str, find: str, replace: str) -> dict[str, Any]:
+    """Edit a single ADDED guard line in patch.diff in place: within the line
+    whose source content == `guard`, replace the first occurrence of `find` with
+    `replace`. Count-preserving (one line's content changes, no line added/removed),
+    so the embedded patch still applies — but the compound guard is now broken
+    (a flipped operator or a dropped conjunct), while the surrounding tokens stay.
+    `replace=""` drops a subterm. Used by condition-operator-mutation and
+    condition-drop-conjunct."""
+    if not guard:
+        raise ValueError("condition mutation requires --guard (the exact added source line)")
+    if find not in guard:
+        raise ValueError(f"edit target {find!r} not found in --guard {guard!r}")
+    new_inner = guard.replace(find, replace, 1)
+    if new_inner == guard:
+        raise ValueError("edit produced no change (find == replace?)")
+    patch_path = out_dir / "patch.diff"
+    diff = patch_path.read_text()
+    lines = diff.splitlines()
+    hits = [(i, d) for i, l in enumerate(lines) if (d := _added_line_match(l, guard)) is not None]
+    if len(hits) != 1:
+        raise ValueError(f"--guard matched {len(hits)} added line(s), need exactly 1: {guard!r}")
+    i, depth = hits[0]
+    lines[i] = lines[i][:depth] + new_inner
+    patch_path.write_text("\n".join(lines) + ("\n" if diff.endswith("\n") else ""))
+    return {"guard": guard, "find": find, "replace": replace, "mutated_to": new_inner,
+            "line_index": i, "depth": depth}
+
+
 def _apply_mutation(
-    out_dir: Path, mutation: str, decoy_hash: str | None, swap: tuple[str, str] | None = None
+    out_dir: Path, mutation: str, decoy_hash: str | None, swap: tuple[str, str] | None = None,
+    guard: str | None = None, op_from: str | None = None, op_to: str | None = None,
+    drop_subterm: str | None = None,
 ) -> dict[str, Any]:
     """Mutate the staged bundle in-place; return details for the marker."""
     patch_path = out_dir / "patch.diff"
@@ -331,6 +377,16 @@ def _apply_mutation(
         if not swap:
             raise ValueError("token-preserving-misplacement requires --swap LINE_A LINE_B")
         details.update(_swap_added_lines(out_dir, swap[0], swap[1]))
+
+    elif mutation == "condition-operator-mutation":
+        if not (guard and op_from and op_to):
+            raise ValueError("condition-operator-mutation requires --guard, --op-from, --op-to")
+        details.update(_edit_added_guard_line(out_dir, guard, op_from, op_to))
+
+    elif mutation == "condition-drop-conjunct":
+        if not (guard and drop_subterm):
+            raise ValueError("condition-drop-conjunct requires --guard and --drop-subterm")
+        details.update(_edit_added_guard_line(out_dir, guard, drop_subterm, ""))
 
     else:  # pragma: no cover - guarded by argparse choices
         raise ValueError(f"unknown mutation {mutation!r}")
@@ -619,7 +675,11 @@ def run(args: argparse.Namespace) -> int:
     _stage_copy(base, out)
 
     try:
-        details = _apply_mutation(out, args.mutation, args.decoy_hash, getattr(args, "swap", None))
+        details = _apply_mutation(
+            out, args.mutation, args.decoy_hash, getattr(args, "swap", None),
+            guard=getattr(args, "guard", None), op_from=getattr(args, "op_from", None),
+            op_to=getattr(args, "op_to", None), drop_subterm=getattr(args, "drop_subterm", None),
+        )
     except Exception as exc:
         # Roll back the partial copy so a corrected rerun isn't blocked by an
         # 'out-dir already exists' from a half-mutated directory.
