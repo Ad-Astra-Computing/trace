@@ -529,6 +529,153 @@ def _is_nixpkgs_repo(url: object) -> bool:
     )
 
 
+def _strip_ab_prefix(path: str) -> str:
+    """Normalize a unified-diff path: drop a leading `a/` or `b/`, leave bare
+    paths (curated patches sometimes use `--- bzip2recover.c`) untouched."""
+    path = path.strip()
+    if path.startswith(("a/", "b/")):
+        return path[2:]
+    return path
+
+
+def _authoring_label_from_patch(patch_text: str) -> dict[str, Any] | None:
+    """Parse a curated `upstream-fix.patch` into the authoring LABEL: a canonical
+    source-only unified diff plus per-file churn. Returns
+    `{"fix_diff": <canonical body>, "churn": {path: +/- lines},
+      "added": {paths created from /dev/null}}` or None when no SOURCE hunk
+    survives.
+
+    Why this over `git show <fix-sha>`: source-backport bundles curate
+    `upstream-fix.patch` as the MINIMAL semantic fix (the same artifact the
+    Reviewer verifies against). The fix-commit sha can be a release commit whose
+    `git show` carries version bumps / vendored files / extra hunks (pyjwt:
+    243-line 5-file release diff) OR can be truncated against a different base
+    (python-multipart: git-show dropped a second real hunk). The curated patch is
+    the authoritative minimal fix, so it is the correct authoring target.
+
+    Handles all curated header shapes (`diff --git a/X b/X`, `--- a/X`, `--- X`)
+    and emits a canonical `diff --git a/PATH b/PATH` per source file so the
+    downstream window helpers (`_file_diff_starts`, `_pick_authoring_input_file`)
+    consume it unchanged. Non-source files (tests/docs/changelog, via
+    `bp._NON_SOURCE_RE`) are dropped so a curated patch that bundled a test does
+    not leak the test into the label."""
+    from tools.trace_cli import backport_patch as bp
+
+    body = bp._extract_diff(patch_text) if "diff --git" in patch_text else patch_text
+    lines = body.splitlines()
+    sections: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+
+    def _flush() -> None:
+        nonlocal cur
+        if cur and cur.get("path"):
+            sections.append(cur)
+        cur = None
+
+    i, n = 0, len(lines)
+    while i < n:
+        ln = lines[i]
+        if ln.startswith("diff --git "):
+            _flush()
+            cur = {"path": None, "churn": 0, "starts": [], "hunks": [],
+                   "added": False, "deleted": False}
+            i += 1
+            continue
+        if ln.startswith("--- ") and i + 1 < n and lines[i + 1].startswith("+++ "):
+            old_p, new_p = ln[4:].strip(), lines[i + 1][4:].strip()
+            # A `diff --git` header opened `cur` without a path yet — keep it; a
+            # bare `--- `/`+++ ` pair (no git header) opens a fresh file section.
+            if cur is None or cur.get("hunks"):
+                _flush()
+                cur = {"path": None, "churn": 0, "starts": [], "hunks": [],
+                       "added": False, "deleted": False}
+            cur["added"] = old_p == "/dev/null"
+            cur["deleted"] = new_p == "/dev/null"
+            # Deletions name the real file on the `---` side; everything else on
+            # the `+++` side.
+            cur["path"] = _strip_ab_prefix(old_p if new_p == "/dev/null" else new_p)
+            i += 2
+            continue
+        if ln.startswith("@@") and cur is not None:
+            m = re.match(r"^@@ -(\d+)", ln)
+            if m:
+                cur["starts"].append(int(m.group(1)))
+            cur["hunks"].append(ln)
+            i += 1
+            continue
+        if cur is not None and cur.get("path"):
+            if ln[:1] in ("+", "-") and not ln.startswith(("+++", "---")):
+                cur["churn"] += 1
+            cur["hunks"].append(ln)
+        i += 1
+    _flush()
+
+    parts: list[str] = []
+    churn: dict[str, int] = {}
+    added: set[str] = set()
+    for sec in sections:
+        path = sec["path"]
+        if not path or bp._NON_SOURCE_RE.search(path):
+            continue
+        churn[path] = churn.get(path, 0) + sec["churn"]
+        if sec["added"]:
+            added.add(path)
+        # Preserve add/delete semantics: a created/removed file keeps its
+        # `/dev/null` side so the label is a faithful add/delete diff, not a
+        # spurious modify of an existing file (codex 2026-06-25).
+        parts.append(f"diff --git a/{path} b/{path}")
+        parts.append("--- /dev/null" if sec["added"] else f"--- a/{path}")
+        parts.append("+++ /dev/null" if sec["deleted"] else f"+++ b/{path}")
+        parts.extend(sec["hunks"])
+    if not churn:
+        return None
+    return {"fix_diff": "\n".join(parts), "churn": churn, "added": added}
+
+
+def _label_file_has_removed(fix_diff: str, fpath: str) -> bool:
+    """Whether `fpath`'s section of a (possibly multi-file) label has any non-blank
+    removed line. Scoped to fpath so a suffix-resolved input file is not trusted on
+    the strength of ANOTHER file's deletions (codex 2026-06-25)."""
+    in_file = False
+    for ln in fix_diff.splitlines():
+        if ln.startswith("diff --git "):
+            m = re.match(r"diff --git a/(.+?) b/(.+)$", ln)
+            in_file = bool(m) and (m.group(1) == fpath or m.group(2) == fpath)
+        elif in_file and ln.startswith("-") and not ln.startswith("---") and ln[1:].strip():
+            return True
+    return False
+
+
+def _patch_grounded(fix_diff: str, fpath: str, pre_fix: str) -> bool:
+    """Consistency gate for a curated-patch label: every line the patch REMOVES
+    from `fpath` must appear in the windowed pre-fix input (you cannot remove a
+    line that is not there). This catches a curated `upstream-fix.patch` authored
+    against a DIFFERENT base than the recorded fix-commit (procps-ng: the patch
+    targets `ps/parser.c` but the commit's parent tree has a divergent
+    `src/ps/parser.c`), where windowing the real blob at the patch's hunk lines
+    would desync the pair. Pure-addition hunks (no `-` lines) fall back to
+    requiring the hunk's CONTEXT lines to be present. Returns True when grounded
+    (or when there is nothing to check), so the caller can prefer the patch label;
+    False tells the caller to fall back to the git-show derivation."""
+    pool = {ln.strip() for ln in pre_fix.splitlines() if ln.strip()}
+    removed: list[str] = []
+    context: list[str] = []
+    in_file = False
+    for ln in fix_diff.splitlines():
+        if ln.startswith("diff --git "):
+            m = re.match(r"diff --git a/(.+?) b/(.+)$", ln)
+            in_file = bool(m) and (m.group(1) == fpath or m.group(2) == fpath)
+            continue
+        if not in_file or ln.startswith(("---", "+++", "@@")):
+            continue
+        if ln.startswith("-") and ln[1:].strip():
+            removed.append(ln[1:].strip())
+        elif ln.startswith(" ") and ln[1:].strip():
+            context.append(ln[1:].strip())
+    check = removed or context
+    return all(c in pool for c in check)
+
+
 def _pick_authoring_input_file(
     churn: dict[str, int], parent_existing: set[str] | None = None
 ) -> str | None:
@@ -656,40 +803,90 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
         parent = git("rev-parse", "-q", "--verify", f"{sha}^").stdout.strip()
         if not parent:
             return None
-        # label = the upstream commit's SOURCE diff (exclude tests/docs/changelog).
-        ns = git("show", "--numstat", "--format=", "--no-color", sha)
-        churn: dict[str, int] = {}
-        for ln in ns.stdout.splitlines():
-            parts = ln.split("\t")
-            if len(parts) == 3 and parts[0] != "-" and not bp._NON_SOURCE_RE.search(parts[2]):
-                churn[parts[2]] = int(parts[0]) + int(parts[1])
-        src_paths = list(churn)
-        if not src_paths:
-            return None
-        fix_diff = git("show", "--no-color", "--format=", sha, "--", *src_paths).stdout
-        fix_diff = bp._extract_diff(fix_diff) if "diff --git" in fix_diff else fix_diff
-        # input = the highest-churn affected SOURCE file that EXISTS in the parent
-        # (the vulnerable impl), windowed around THIS file's hunks. Exclude only
-        # NEWLY-ADDED (status A) files — their parent blob doesn't exist, so they
-        # can't be windowed and would skip the pair. Modified AND deleted files
-        # both exist in the parent (a fix that DELETES the vulnerable file is a
-        # valid input), so they stay candidates.
-        added = git("show", "--numstat", "--format=", "--no-color", "--diff-filter=A", sha)
-        added_paths = {p.split("\t")[2] for p in added.stdout.splitlines() if len(p.split("\t")) == 3}
-        parent_existing = {p for p in churn if p not in added_paths}
-        fpath = _pick_authoring_input_file(churn, parent_existing) or src_paths[0]
-        starts = _file_diff_starts(fix_diff, fpath) or [1]
-        blob = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{fpath}"],
-                              capture_output=True, text=True, env=env)
-        if blob.returncode != 0:
-            return None
-        lines = blob.stdout.splitlines()
-        # Window around EACH hunk (±20), merging overlaps and eliding large gaps.
-        # A single min..max span would either balloon for distant hunks (relaxng.c
-        # ~7k lines) or, if capped, drop label-relevant regions and DESYNC the pair
-        # (the label edits code absent from the input). Per-hunk windows keep every
-        # region the label touches present while staying bounded by hunk count.
-        pre_fix = _hunk_windows(lines, starts, radius=20)
+        def _tree_blob(fp: str) -> tuple[list[str], bool] | None:
+            """Read fp's parent-tree blob as (lines, exact). `exact` is False when
+            the path only resolved via a UNIQUE suffix match (the curated patch may
+            use `ps/parser.c` where the tree has `src/ps/parser.c`); the caller
+            requires removed-line grounding before trusting a non-exact match."""
+            b = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{fp}"],
+                               capture_output=True, text=True, env=env)
+            if b.returncode == 0:
+                return b.stdout.splitlines(), True
+            tree = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r",
+                                   "--name-only", parent], capture_output=True, text=True, env=env)
+            cands = [t for t in tree.stdout.splitlines() if t == fp or t.endswith("/" + fp)]
+            if len(cands) != 1:
+                return None
+            b = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{cands[0]}"],
+                               capture_output=True, text=True, env=env)
+            return (b.stdout.splitlines(), False) if b.returncode == 0 else None
+
+        def _git_show_label() -> tuple[str, dict[str, int], set[str]] | None:
+            """The fix-commit's SOURCE diff (the fallback label). Excludes
+            tests/docs/changelog; Status-A files can't be windowed so they're
+            tracked for the input-file pick."""
+            ns = git("show", "--numstat", "--format=", "--no-color", sha)
+            ch: dict[str, int] = {}
+            for ln in ns.stdout.splitlines():
+                parts = ln.split("\t")
+                if len(parts) == 3 and parts[0] != "-" and not bp._NON_SOURCE_RE.search(parts[2]):
+                    ch[parts[2]] = int(parts[0]) + int(parts[1])
+            if not ch:
+                return None
+            fd = git("show", "--no-color", "--format=", sha, "--", *list(ch)).stdout
+            fd = bp._extract_diff(fd) if "diff --git" in fd else fd
+            ad = git("show", "--numstat", "--format=", "--no-color", "--diff-filter=A", sha)
+            apaths = {p.split("\t")[2] for p in ad.stdout.splitlines() if len(p.split("\t")) == 3}
+            return fd, ch, apaths
+
+        def _windowed(fd: str, churn: dict[str, int], added_paths: set[str]) -> tuple[str, str, bool] | None:
+            """(fpath, pre_fix_window, path_exact) for a label, or None when the
+            chosen input file has no readable parent blob."""
+            srcs = list(churn)
+            if not srcs:
+                return None
+            parent_existing = {p for p in churn if p not in added_paths}
+            fp = _pick_authoring_input_file(churn, parent_existing) or srcs[0]
+            blob = _tree_blob(fp)
+            if blob is None:
+                return None
+            blob_lines, exact = blob
+            # Window around EACH hunk (±20), merging overlaps and eliding large
+            # gaps — keeps every region the label edits present while staying
+            # bounded by hunk count rather than file size (relaxng.c ~7k lines).
+            return fp, _hunk_windows(blob_lines, _file_diff_starts(fd, fp) or [1], radius=20), exact
+
+        # label = the MINIMAL upstream SOURCE fix. Prefer the curated
+        # upstream-fix.patch: source-backport bundles author it as the semantic
+        # ground truth (the same artifact the Reviewer verifies against), so it is
+        # the authoritative minimal fix. `git show <fix-sha>` can carry
+        # release-commit noise (pyjwt: a 243-line 5-file version-bump diff) or be
+        # truncated against a different base (python-multipart: git-show dropped a
+        # second real hunk). The curated patch is used ONLY when it grounds against
+        # the parent tree (`_patch_grounded`); a patch authored against a divergent
+        # base (procps-ng) falls back to git-show so the pair stays consistent.
+        fix_diff = fpath = pre_fix = label_source = None
+        ufp = bundle_dir / "upstream-fix.patch"
+        label_src = _authoring_label_from_patch(ufp.read_text()) if ufp.is_file() else None
+        if label_src is not None:
+            w = _windowed(label_src["fix_diff"], label_src["churn"], label_src["added"])
+            if w is not None and _patch_grounded(label_src["fix_diff"], w[0], w[1]):
+                # A suffix-resolved (non-exact) path is only trusted when removed-line
+                # grounding is non-vacuous for THAT file — a pure-addition fix on a
+                # moved path can otherwise pass on generic context alone, and another
+                # file's deletions must not vouch for it (codex 2026-06-25).
+                fp, pf, exact = w
+                if exact or _label_file_has_removed(label_src["fix_diff"], fp):
+                    fix_diff, fpath, pre_fix, label_source = label_src["fix_diff"], fp, pf, "upstream-fix.patch"
+        if fix_diff is None:
+            gs = _git_show_label()
+            if gs is None:
+                return None
+            w = _windowed(*gs)
+            if w is None:
+                return None
+            fix_diff, (fpath, pre_fix, _exact) = gs[0], w
+            label_source = "git-show" if label_src is None else "git-show-fallback"
 
     pair = {
         "cve_id": finding.get("cve_id"),
@@ -698,6 +895,7 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
         "file": fpath,
         "pre_fix_source": pre_fix,
         "fix_diff": fix_diff.strip(),
+        "label_source": label_source,
         "fix_commit": {"repo_url": repo_url, "commit_sha": sha},
     }
     cache.write_text(json.dumps(pair, indent=2) + "\n")
@@ -738,7 +936,8 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # leak class the heuristic can't name) passes the gate silently — flag it
         # so "nothing to scrub" is visibly distinct from "scrubbed clean".
         diagnostics.append({"bundle": bd.name, "cve_id": pair["cve_id"],
-                            "fix_symbols": len(fix_syms), "low_signal": not fix_syms})
+                            "fix_symbols": len(fix_syms), "low_signal": not fix_syms,
+                            "label_source": pair.get("label_source")})
         bundle = _load_json(bd / "bundle.json") or {}
         attr = pair["attr_path"] or bd.name
         user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
@@ -776,6 +975,8 @@ def _run_authoring(args: argparse.Namespace) -> int:
         "excluded": excluded,
         "diagnostics": diagnostics,
         "low_signal_bundles": [d["bundle"] for d in diagnostics if d["low_signal"]],
+        "git_show_fallback_bundles": [d["bundle"] for d in diagnostics
+                                      if d.get("label_source") == "git-show-fallback"],
         "note": "label = validated upstream source fix; input = CVE (vuln-only) + pre-fix source. "
                 "Leakage-partitioned: these CVEs are the author-from-vuln task; exclude them from "
                 "any transcription/backport-package export to avoid answer-key leakage. "

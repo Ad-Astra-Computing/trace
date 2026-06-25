@@ -273,3 +273,209 @@ def test_hunk_windows_merges_overlap_and_elides_gaps():
     assert "L799" in out.splitlines()             # distant hunk region present (label-consistent)
     # bounded by hunk count, not the 1000-line file span
     assert len(out.splitlines()) < 60
+
+
+# ── curated upstream-fix.patch as the authoring LABEL ─────────────────────────
+# The label is the MINIMAL upstream source fix. Prefer the curated
+# upstream-fix.patch (Reviewer ground truth) over `git show <fix-sha>`, which can
+# carry release-commit noise (pyjwt version bump) or drop hunks (python-multipart).
+
+def test_strip_ab_prefix():
+    assert ex._strip_ab_prefix("a/jwt/algorithms.py") == "jwt/algorithms.py"
+    assert ex._strip_ab_prefix("b/jwt/algorithms.py") == "jwt/algorithms.py"
+    assert ex._strip_ab_prefix("bzip2recover.c") == "bzip2recover.c"   # bare, untouched
+    assert ex._strip_ab_prefix("  a/x.c \n") == "x.c"                   # whitespace tidy
+
+
+def test_label_from_patch_diff_git_format():
+    patch = (
+        "From abc Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix\n\n"
+        "diff --git a/jwt/algorithms.py b/jwt/algorithms.py\n"
+        "--- a/jwt/algorithms.py\n+++ b/jwt/algorithms.py\n"
+        "@@ -325,3 +325,6 @@ def prepare_key(self, key):\n"
+        " key_bytes = force_bytes(key)\n"
+        "+        if len(key_bytes) == 0:\n+            raise InvalidKeyError('empty')\n"
+        "+\n if is_pem_format(key_bytes):\n"
+    )
+    r = ex._authoring_label_from_patch(patch)
+    assert list(r["churn"]) == ["jwt/algorithms.py"]
+    assert r["added"] == set()
+    assert "__version__" not in r["fix_diff"]                    # release noise excluded
+    assert r["fix_diff"].startswith("diff --git a/jwt/algorithms.py b/jwt/algorithms.py")
+
+
+def test_label_from_patch_bare_and_a_slash_headers():
+    # `--- a/X` (no diff --git) and `--- X` (bare, bzip2-style) both parse.
+    for header in ("--- a/src/x.c\n+++ b/src/x.c\n", "--- src/x.c\n+++ src/x.c\n"):
+        patch = header + "@@ -10,2 +10,2 @@\n-old line\n+new line\n"
+        r = ex._authoring_label_from_patch(patch)
+        assert list(r["churn"]) == ["src/x.c"]
+        assert "diff --git a/src/x.c b/src/x.c" in r["fix_diff"]   # canonicalized
+
+
+def test_label_from_patch_keeps_all_hunks():
+    # python-multipart shape: a 2-hunk fix. git-show dropped the 2nd; the curated
+    # patch keeps both. The parser must preserve every hunk.
+    patch = (
+        "--- a/multipart.py\n+++ b/multipart.py\n"
+        "@@ -1105,2 +1105,5 @@\n-    i += 1\n+    i = data.find(b'-', i)\n+    if i == -1:\n+        break\n"
+        "@@ -1414,4 +1418,2 @@\n-    self.logger.warning('skip')\n-    i += 2\n+    i = length\n+    break\n"
+    )
+    r = ex._authoring_label_from_patch(patch)
+    assert ex._file_diff_starts(r["fix_diff"], "multipart.py") == [1105, 1414]  # both hunks
+    assert r["churn"]["multipart.py"] == 8                        # 3 removed + 5 added
+
+
+def test_label_from_patch_drops_non_source_files():
+    # A curated patch that bundled a test must not leak the test into the label.
+    patch = (
+        "diff --git a/src/parser.c b/src/parser.c\n--- a/src/parser.c\n+++ b/src/parser.c\n"
+        "@@ -10,2 +10,2 @@\n-bad\n+good\n"
+        "diff --git a/tests/test_parser.c b/tests/test_parser.c\n"
+        "--- a/tests/test_parser.c\n+++ b/tests/test_parser.c\n"
+        "@@ -1,1 +1,2 @@\n test\n+more test\n"
+    )
+    r = ex._authoring_label_from_patch(patch)
+    assert list(r["churn"]) == ["src/parser.c"]                  # test file dropped
+    assert "tests/test_parser.c" not in r["fix_diff"]
+
+
+def test_label_from_patch_detects_added_file_and_none_when_all_nonsource():
+    added = ("diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n"
+             "@@ -0,0 +1,2 @@\n+int x;\n+int y;\n")
+    r = ex._authoring_label_from_patch(added)
+    assert r["added"] == {"new.c"}
+    # all-non-source -> nothing to author from
+    assert ex._authoring_label_from_patch(
+        "--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1 +1 @@\n-a\n+b\n") is None
+
+
+def test_label_from_patch_preserves_dev_null_headers():
+    # An added source file keeps `--- /dev/null`; a deleted one keeps `+++ /dev/null`
+    # so the label is a faithful add/delete diff, not a spurious modify.
+    added = ("diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n@@ -0,0 +1,1 @@\n+int x;\n")
+    r = ex._authoring_label_from_patch(added)
+    assert "--- /dev/null" in r["fix_diff"] and "+++ b/new.c" in r["fix_diff"]
+    deleted = ("diff --git a/old.c b/old.c\n--- a/old.c\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-int y;\n")
+    r2 = ex._authoring_label_from_patch(deleted)
+    assert "--- a/old.c" in r2["fix_diff"] and "+++ /dev/null" in r2["fix_diff"]
+
+
+def test_label_file_has_removed_is_file_scoped():
+    # x.c is pure-addition; y.c has a deletion. has-removed for x.c must be False
+    # (another file's deletion must not vouch for a suffix-resolved x.c).
+    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -10,1 +10,2 @@\n ctx;\n+added;\n"
+           "diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n@@ -5,2 +5,1 @@\n-gone;\n ctx2;\n")
+    assert ex._label_file_has_removed(fix, "y.c")
+    assert not ex._label_file_has_removed(fix, "x.c")
+
+
+def test_patch_grounded_removed_lines_present_vs_absent():
+    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
+           "@@ -10,2 +10,2 @@\n-    int bad = 1;\n+    int good = 1;\n")
+    assert ex._patch_grounded(fix, "x.c", "void f() {\n    int bad = 1;\n}")       # removed line present
+    assert not ex._patch_grounded(fix, "x.c", "void f() {\n    int other = 1;\n}")  # absent -> ungrounded
+
+
+def test_patch_grounded_pure_addition_uses_context():
+    # No removed lines -> require the hunk CONTEXT to appear in the window.
+    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
+           "@@ -10,2 +10,3 @@\n context anchor;\n+    int added;\n trailing;\n")
+    assert ex._patch_grounded(fix, "x.c", "context anchor;\ntrailing;\nmore;")     # context present
+    assert not ex._patch_grounded(fix, "x.c", "unrelated;\nlines;")                # context absent
+
+
+def test_patch_grounded_scopes_to_named_file():
+    # A removed line belonging to ANOTHER file must not be required in fpath's window.
+    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -10,2 +10,2 @@\n-here;\n+now;\n"
+           "diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n@@ -5,2 +5,2 @@\n-elsewhere;\n+changed;\n")
+    assert ex._patch_grounded(fix, "x.c", "here;\nrest;")   # only x.c's `here;` checked
+
+
+# ── offline integration: patch-preferred, version-bump excluded, divergent fallback ──
+
+def _git(repo: Path, *a: str):
+    import subprocess
+    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True,
+                          env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                               "PATH": __import__("os").environ.get("PATH", "")})
+
+
+def _fix_repo(tmp_path: Path, parent_src: str, fix_src: str, *, extra_commit_file=None):
+    """A local git repo with a vulnerable parent commit and a fix commit. When
+    `extra_commit_file` is given, the FIX COMMIT also touches it (release noise the
+    curated patch must exclude)."""
+    repo = tmp_path / "upstream"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "impl.c").write_text(parent_src)
+    _git(repo, "add", "-A"); _git(repo, "commit", "-qm", "parent")
+    (repo / "impl.c").write_text(fix_src)
+    if extra_commit_file:
+        (repo / extra_commit_file).write_text("__version__ = '2.0'\n")
+    _git(repo, "add", "-A"); _git(repo, "commit", "-qm", "fix")
+    return repo, _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def _bundle(tmp_path, repo, sha, patch_body):
+    bd = tmp_path / "CVE-2099-0001--local-backport"
+    bd.mkdir()
+    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "x", "cve_id": "CVE-2099-0001"}))
+    (bd / "finding.json").write_text(json.dumps(
+        {"cve_id": "CVE-2099-0001", "summary": "Overflow when input is large.",
+         "affected": [{"attr_path": "local"}]}))
+    (bd / "upstream-ref.json").write_text(json.dumps({
+        "eligibility": {"patch_strategy": "source-backport"},
+        "upstream_fix_commits": [{"repo_url": str(repo), "commit_sha": sha}]}))
+    (bd / "upstream-fix.patch").write_text(patch_body)
+    return bd
+
+
+def _allow_file_proto(monkeypatch):
+    """The offline integration repos are local paths; the production
+    `GIT_ALLOW_PROTOCOL=https:git:ssh` hardening blocks `file`. These tests
+    exercise the LABEL logic, not the protocol guard, so widen it locally."""
+    bp = ex_bp()
+    monkeypatch.setattr(bp, "_validate_repo_url", lambda u: u)
+    monkeypatch.setattr(bp, "_HARDENED_ENV",
+                        {**bp._HARDENED_ENV, "GIT_ALLOW_PROTOCOL": "file:https:git:ssh"})
+
+
+def test_authoring_prefers_curated_patch_over_noisy_git_show(tmp_path, monkeypatch):
+    # Fix commit bumps a version file (release noise); curated patch is 1-file minimal.
+    _allow_file_proto(monkeypatch)
+    parent = "int f() {\n    int n = read();\n    use(n);\n    return 0;\n}\n"
+    fixed = "int f() {\n    int n = read();\n    if (n > 255) return -1;\n    use(n);\n    return 0;\n}\n"
+    repo, sha = _fix_repo(tmp_path, parent, fixed, extra_commit_file="version.py")
+    patch = ("--- a/impl.c\n+++ b/impl.c\n@@ -2,3 +2,4 @@\n"
+             "     int n = read();\n+    if (n > 255) return -1;\n     use(n);\n     return 0;\n")
+    bd = _bundle(tmp_path, repo, sha, patch)
+    pair = ex._authoring_pair(bd)
+    assert pair is not None
+    assert pair["label_source"] == "upstream-fix.patch"
+    assert "__version__" not in pair["fix_diff"]            # release noise excluded
+    assert "n > 255" in pair["fix_diff"]
+    assert "if (n > 255) return -1;" in pair["pre_fix_source"] or "use(n)" in pair["pre_fix_source"]
+
+
+def test_authoring_falls_back_when_patch_base_diverges(tmp_path, monkeypatch):
+    # Curated patch removes a line that is NOT in the fix-commit's parent (authored
+    # against a different base) -> ungrounded -> git-show fallback (procps shape).
+    _allow_file_proto(monkeypatch)
+    parent = "int f() {\n    int n = read();\n    use(n);\n}\n"
+    fixed = "int f() {\n    int n = read();\n    if (n > 255) return -1;\n    use(n);\n}\n"
+    repo, sha = _fix_repo(tmp_path, parent, fixed)
+    # patch claims to remove a line absent from this parent:
+    patch = ("--- a/impl.c\n+++ b/impl.c\n@@ -2,2 +2,2 @@\n"
+             "-    int n = scanf_unbounded();\n+    int n = read_bounded();\n")
+    bd = _bundle(tmp_path, repo, sha, patch)
+    pair = ex._authoring_pair(bd)
+    assert pair is not None
+    assert pair["label_source"] == "git-show-fallback"      # diverged -> git-show
+    assert "n > 255" in pair["fix_diff"]                    # the REAL commit's fix
+
+
+def ex_bp():
+    from tools.trace_cli import backport_patch as bp
+    return bp
