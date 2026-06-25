@@ -269,6 +269,71 @@ def check_pc_extraction_order(generated: str, pilot_rec: dict) -> str | None:
     return None
 
 
+def check_pc_role_grounding(generated: str, pilot_rec: dict) -> str | None:
+    """Deterministic role-grounding (v1.11). The `## patch.diff extraction`
+    quotes lines under a `+` marker (the patch's APPLIED/added lines). This flags
+    when such a `+`-quoted line is actually a REMOVED (`-`) line in patch.diff and
+    appears nowhere as an added line — i.e. the model presented a deleted line as
+    if the patch applied it. This is the reversed-hunk hallucination that
+    presence-only `check_pc_file_grounding` misses (the text IS in the diff, just
+    in the wrong +/- role). Returns a reason string when found, else None.
+    """
+    msgs = pilot_rec.get("messages", [])
+    user_content = next((m["content"] for m in msgs if m["role"] == "user"), "")
+    if not user_content:
+        return None
+    m = re.search(r"# patch\.diff", user_content, re.IGNORECASE)
+    if not m:
+        return None
+    start = m.start()
+    nxt = re.search(r"\n# \S+\.(json|nix|diff|patch|md)\b", user_content[start + 1:], re.IGNORECASE)
+    end = start + 1 + nxt.start() if nxt else len(user_content)
+    block = user_content[start:end]
+
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"^[+\-\s]+", "", s)).strip()
+
+    added: set[str] = set()
+    removed: set[str] = set()
+    for raw in block.splitlines():
+        # Embedded *.patch (outer diff adds the file): inner role is the 2nd char.
+        if raw.startswith("++"):
+            added.add(_norm(raw))
+        elif raw.startswith("+-"):
+            removed.add(_norm(raw))
+        elif raw.startswith("+") and not raw.startswith("+++"):
+            added.add(_norm(raw))          # plain added line
+        elif raw.startswith("-") and not raw.startswith("---"):
+            removed.add(_norm(raw))         # plain removed line
+    added.discard("")
+    removed.discard("")
+
+    idx = generated.find("## patch.diff extraction")
+    if idx < 0:
+        return None
+    end_m = re.search(r"\n## ", generated[idx + 1:])
+    section = generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
+    plus_quoted = [re.sub(r"\s+", " ", q.strip()) for q in re.findall(r"`\+\s+(.+?)`", section)]
+
+    def _in(q: str, s: set[str]) -> bool:
+        if q in s:
+            return True
+        for line in s:
+            if line.startswith(q) and (len(line) == len(q) or line[len(q)] == " "):
+                return True
+        return False
+
+    for q in plus_quoted:
+        if not q:
+            continue
+        if _in(q, removed) and not _in(q, added):
+            return (
+                f"patch.diff extraction presents {q[:50]!r} as an APPLIED (+) line, "
+                f"but it is a REMOVED (-) line in patch.diff"
+            )
+    return None
+
+
 def check_pc_consistency(generated: str) -> str | None:
     """Check that `comparison:` verdicts in the PC section are consistent
     with the quoted +lines.
@@ -466,6 +531,7 @@ def main():
         pc_consistency_error = check_pc_consistency(text) if split == "canary" else None
         pc_file_grounding_error = check_pc_file_grounding(text, pilot_rec) if split == "canary" else None
         pc_extraction_order_error = check_pc_extraction_order(text, pilot_rec) if split == "canary" else None
+        pc_role_grounding_error = check_pc_role_grounding(text, pilot_rec) if split == "canary" else None
 
         entry = {
             "bundle_id": bundle_id,
@@ -484,6 +550,8 @@ def main():
             entry["pc_file_grounding_error"] = pc_file_grounding_error
         if pc_extraction_order_error:
             entry["pc_extraction_order_error"] = pc_extraction_order_error
+        if pc_role_grounding_error:
+            entry["pc_role_grounding_error"] = pc_role_grounding_error
 
         # effective_verdict (v1.8): if patch.diff grounding fires on a NEGATIVE canary
         # that the model accepted, override to reject.  Catches cross-artifact
@@ -507,6 +575,31 @@ def main():
                     "patch.diff extraction quotes line absent from patch.diff — "
                     "model accepted on hallucinated content"
                 )
+
+        # Reconciliation (v1.11): a PC-consistency contradiction is NON-FATAL only
+        # when the model made the SAFE decision (correctly rejected a negative) AND a
+        # deterministic layer (patch.diff-side grounding) independently caught the
+        # hallucinated PC evidence. This recognises unfaithful chain-of-thought
+        # (right verdict, post-hoc-inconsistent trace — a documented, prevalent
+        # failure in mid-size models) WITHOUT weakening the gate: it stays FATAL for
+        # any accept, any positive, any false-accept, or any ungrounded contradiction.
+        # Rationale + sources in DECISIONS 2026-06-25; conditions per codex 2026-06-24.
+        if (
+            split == "canary"
+            and pc_consistency_error
+            and label == "negative"
+            and verdict == "reject"
+            and entry.get("effective_verdict", verdict) == "reject"
+            and "PC conclusion says accept but verdict is reject" in pc_consistency_error
+            # The hallucinated PC evidence is independently caught by a deterministic
+            # layer — EITHER absence (patch.diff-side file grounding) OR wrong +/-
+            # role (the model presented a removed line as the applied critical token).
+            and (
+                (pc_file_grounding_error and "patch.diff extraction" in pc_file_grounding_error)
+                or pc_role_grounding_error
+            )
+        ):
+            entry["pc_consistency_grounding_explained"] = True
 
         if split == "train-retest":
             expected = "accept" if label == "positive" else "reject"
@@ -534,7 +627,18 @@ def main():
     total_retest = len([r for r in pilot_records if r.get("split") == "train-retest"])
     canary_correct = sum(1 for r in canary_results if r.get("outcome") == "correct")
     canary_pc_consistency_errors = [r for r in canary_results if r.get("pc_consistency_error")]
+    # v1.11 reconciliation: split PC-consistency contradictions into FATAL vs
+    # grounding-explained (safe reject independently caught by deterministic
+    # patch.diff-side grounding). Only FATAL ones fail the gate.
+    canary_pc_consistency_grounding_explained = [
+        r for r in canary_results if r.get("pc_consistency_grounding_explained")
+    ]
+    canary_pc_consistency_fatal = [
+        r for r in canary_results
+        if r.get("pc_consistency_error") and not r.get("pc_consistency_grounding_explained")
+    ]
     canary_pc_file_grounding_errors = [r for r in canary_results if r.get("pc_file_grounding_error")]
+    canary_pc_role_grounding_errors = [r for r in canary_results if r.get("pc_role_grounding_error")]
     # Non-gating diagnostic (v1.10): extraction-order artifacts. Surfaced separately
     # so an order-artifact reject (e.g. the libxmp reshape false-reject) is
     # distinguishable from a genuine placement-defect reject when reading the gate.
@@ -543,7 +647,7 @@ def main():
     canary_pass = (
         canary_correct == total_canary
         and len(canary_parse_fails) == 0
-        and len(canary_pc_consistency_errors) == 0
+        and len(canary_pc_consistency_fatal) == 0
         # canary_pc_file_grounding_errors: informational only; effective_verdict is
         # the gate-impacting mechanism for negatives that accepted on hallucinated content
     )
@@ -566,7 +670,10 @@ def main():
             "canary_pass": canary_pass,
             "canary_parse_fails": len(canary_parse_fails),
             "canary_pc_consistency_errors": len(canary_pc_consistency_errors),
+            "canary_pc_consistency_fatal": len(canary_pc_consistency_fatal),
+            "canary_pc_consistency_grounding_explained": len(canary_pc_consistency_grounding_explained),
             "canary_pc_file_grounding_errors": len(canary_pc_file_grounding_errors),
+            "canary_pc_role_grounding_errors": len(canary_pc_role_grounding_errors),
             # Non-gating diagnostic (v1.10): see check_pc_extraction_order.
             "canary_pc_extraction_order_errors": len(canary_pc_extraction_order_errors),
             "canary_effective_verdict_overrides": len(canary_effective_overrides),
@@ -609,13 +716,17 @@ def main():
             gf = f"  [GROUNDING:{r['grounding_failure'][:60]}]" if r.get("grounding_failure") else ""
             pce = f"  [PC-CONSISTENCY:{r['pc_consistency_error'][:80]}]" if r.get("pc_consistency_error") else ""
             pfg = f"  [PC-FILE-GND:{r['pc_file_grounding_error'][:60]}]" if r.get("pc_file_grounding_error") else ""
-            peo = f"  [EXTRACT-ORDER:{r['pc_extraction_order_error'][:60]}]" if r.get("pc_extraction_order_error") else ""
+            peo = f"  [EXTRACT-ORDER:{r['pc_extraction_order_error'][:50]}]" if r.get("pc_extraction_order_error") else ""
+            prg = f"  [ROLE-GND:{r['pc_role_grounding_error'][:50]}]" if r.get("pc_role_grounding_error") else ""
+            ge = "  [GND-EXPLAINED]" if r.get("pc_consistency_grounding_explained") else ""
             ev = f"  [EFF-VRD:reject]" if r.get("effective_verdict") else ""
-            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{ev}{gf}{pce}{pfg}{peo}")
+            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{ev}{gf}{pce}{pfg}{peo}{prg}{ge}")
         if canary_parse_fails:
             print(f"  PARSE FAILS: {len(canary_parse_fails)}")
         if canary_pc_consistency_errors:
-            print(f"  PC CONSISTENCY ERRORS: {len(canary_pc_consistency_errors)}")
+            print(f"  PC CONSISTENCY ERRORS: {len(canary_pc_consistency_errors)} "
+                  f"({len(canary_pc_consistency_fatal)} FATAL, "
+                  f"{len(canary_pc_consistency_grounding_explained)} grounding-explained/non-fatal)")
         if canary_pc_file_grounding_errors:
             print(f"  PC FILE GROUNDING ERRORS: {len(canary_pc_file_grounding_errors)} (informational)")
         if canary_pc_extraction_order_errors:

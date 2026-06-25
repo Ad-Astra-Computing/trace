@@ -62,6 +62,46 @@ def test_extraction_order_no_section_returns_none():
     assert sgp.check_pc_extraction_order(generated, _pilot_rec(_PATCH)) is None
 
 
+def _pilot_rec_block(patch_diff_body: str) -> dict:
+    user = f"# finding.json\n{{...}}\n# patch.diff\n{patch_diff_body}\n# upstream-fix.patch\n+ guard;\n"
+    return {"messages": [{"role": "user", "content": user}]}
+
+
+def test_role_grounding_flags_removed_line_quoted_as_added():
+    # Embedded patch DELETES the guard (`+-` = embedded removed). Model quotes it
+    # under a `+` extraction marker as if the patch applied it.
+    patch = (
+        "@@ -0,0 +1,4 @@\n"
+        "+@@ -764,3 +764,2 @@\n"
+        "+ if (copy) {\n"
+        "+-        (len = x) < extra_max) {\n"
+        "++        unguarded;\n"
+    )
+    generated = (
+        "## patch.diff extraction\n"
+        "- `+ (len = x) < extra_max) {`\n"
+        "## upstream-fix.patch extraction\n"
+    )
+    err = sgp.check_pc_role_grounding(generated, _pilot_rec_block(patch))
+    assert err is not None
+    assert "REMOVED" in err
+
+
+def test_role_grounding_clean_when_line_is_genuinely_added():
+    patch = (
+        "@@ -0,0 +1,3 @@\n"
+        "+@@ -764,2 +764,3 @@\n"
+        "+ if (copy) {\n"
+        "++        (len = x) < extra_max) {\n"
+    )
+    generated = (
+        "## patch.diff extraction\n"
+        "- `+ (len = x) < extra_max) {`\n"
+        "## upstream-fix.patch extraction\n"
+    )
+    assert sgp.check_pc_role_grounding(generated, _pilot_rec_block(patch)) is None
+
+
 def test_extraction_order_absent_line_not_flagged_as_order():
     # A quoted line absent from patch.diff is a grounding concern, not an order
     # one — check_pc_extraction_order must stay silent on it.
