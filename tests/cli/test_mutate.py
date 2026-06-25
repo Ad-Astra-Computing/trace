@@ -31,12 +31,40 @@ def _base_bundle(root: Path, name: str = "CVE-2025-0001--zk") -> Path:
 
 def _args(
     base: Path, mutation: str, out: Path, decoy: str | None = None,
-    swap: tuple[str, str] | None = None,
+    swap: tuple[str, str] | None = None, guard: str | None = None,
+    op_from: str | None = None, op_to: str | None = None, drop_subterm: str | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         mutate_scope="reviewer-negative", base_dir=base, mutation=mutation,
-        out_dir=out, decoy_hash=decoy, swap=swap, format="json",
+        out_dir=out, decoy_hash=decoy, swap=swap, guard=guard, op_from=op_from,
+        op_to=op_to, drop_subterm=drop_subterm, format="json",
     )
+
+
+def _compound_guard_base(root: Path, name: str = "CVE-2025-0003--cg") -> Path:
+    """A bundle whose patch.diff ADDS an embedded *.patch with a COMPOUND guard
+    (the zlib-shaped multi-subterm condition)."""
+    bd = root / name
+    bd.mkdir(parents=True)
+    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "cg123", "cve_id": "CVE-2025-0003"}))
+    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-0003"}))
+    (bd / "package.nix").write_text("{ }: { }\n")
+    (bd / "patch.diff").write_text(
+        "diff --git a/pkgs/x/CVE-2025-0003.patch b/pkgs/x/CVE-2025-0003.patch\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/pkgs/x/CVE-2025-0003.patch\n"
+        "@@ -0,0 +1,5 @@\n"
+        "+--- a/src/dns.c\n"
+        "++++ b/src/dns.c\n"
+        "+@@ -10,2 +10,3 @@\n"
+        "+ \tport = parse(s);\n"
+        "++\t\tif(ul > 255 || pl > 255)\n"
+    )
+    return bd
+
+
+_GUARD = "\t\tif(ul > 255 || pl > 255)"
 
 
 def _embedded_backport_base(root: Path, name: str = "CVE-2025-0002--ord") -> Path:
@@ -315,6 +343,55 @@ def test_misplacement_identical_lines_errors(tmp_path):
     rc = mut.run(_args(base, "token-preserving-misplacement", out, swap=(_DECL, _DECL)))
     assert rc == 2
     assert not out.exists()
+
+
+# --- compound-condition mutations (v1.11 queue) --------------------------------
+
+def test_condition_operator_mutation_flips_operator(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "cg1"
+    rc = mut.run(_args(base, "condition-operator-mutation", out, guard=_GUARD,
+                       op_from="||", op_to="&&"))
+    assert rc == 0
+    diff = (out / "patch.diff").read_text()
+    assert "++\t\tif(ul > 255 && pl > 255)" in diff  # || -> && (weakened)
+    assert "|| pl > 255" not in diff
+    # count-invariant: the embedded +1,5 / outer hunk header is unchanged
+    assert "@@ -0,0 +1,5 @@" in diff
+    marker = json.loads((out / "mutation.json").read_text())
+    assert marker["mutation_type"] == "condition-operator-mutation"
+    assert marker["negative_source"] == "mutation"
+    assert marker["mutation_details"]["find"] == "||"
+    assert marker["mutation_details"]["mutated_to"] == "\t\tif(ul > 255 && pl > 255)"
+
+
+def test_condition_drop_conjunct_removes_subterm(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "neg" / "cg2"
+    rc = mut.run(_args(base, "condition-drop-conjunct", out, guard=_GUARD,
+                       drop_subterm=" || pl > 255"))
+    assert rc == 0
+    diff = (out / "patch.diff").read_text()
+    assert "++\t\tif(ul > 255)" in diff      # pl check dropped (incomplete guard)
+    assert "pl > 255" not in diff
+    assert "@@ -0,0 +1,5 @@" in diff
+    marker = json.loads((out / "mutation.json").read_text())
+    assert marker["mutation_type"] == "condition-drop-conjunct"
+    assert marker["expected_reviewer_verdict"] == "reject"
+
+
+def test_condition_operator_requires_args(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    rc = mut.run(_args(base, "condition-operator-mutation", tmp_path / "neg" / "cg3", guard=_GUARD))
+    assert rc == 2  # missing --op-from/--op-to
+
+
+def test_condition_guard_not_found_errors(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    rc = mut.run(_args(base, "condition-drop-conjunct", tmp_path / "neg" / "cg4",
+                       guard="\t\tif(NONEXISTENT)", drop_subterm=" || x"))
+    assert rc == 2
+    assert not (tmp_path / "neg" / "cg4").exists()
 
 
 # --- reviewer-positive-reorg (structure-preserving positive variants) ----------
