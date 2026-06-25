@@ -214,3 +214,62 @@ def test_file_diff_starts_only_for_named_file():
     assert ex._file_diff_starts(diff, "relaxng.c") == [820, 1200]
     assert ex._file_diff_starts(diff, "include/libxml/relaxng.h") == [10]
     assert ex._file_diff_starts(diff, "nonexistent.c") == []
+
+
+def test_authoring_pair_skips_nixpkgs_repo_commit(tmp_path):
+    """A bundle whose upstream_fix_commit points at nixpkgs (the packaging commit
+    that adds the backport .patch) is NOT an authoring candidate — the fix is .nix
+    packaging, not vulnerable upstream source. _authoring_pair must return None."""
+    bd = tmp_path / "CVE-2025-6170--libxml2-backport"
+    bd.mkdir(parents=True)
+    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-6170"}))
+    (bd / "upstream-ref.json").write_text(json.dumps({
+        "eligibility": {"patch_strategy": "source-backport"},
+        "upstream_fix_commits": [{
+            "repo_url": "https://github.com/NixOS/nixpkgs",
+            "commit_sha": "2da008e2ee4eda00000000000000000000000000",
+        }],
+    }))
+    assert ex._authoring_pair(bd) is None
+
+
+def test_authoring_pair_skips_cached_nixpkgs_pair(tmp_path):
+    """The nixpkgs skip must apply to CACHED pairs too — a stale cache built from a
+    nixpkgs packaging commit must not export (the guard runs before cache-return)."""
+    bd = tmp_path / "CVE-2025-6170--libxml2-backport"
+    bd.mkdir(parents=True)
+    (bd / "authoring-example.json").write_text(json.dumps({
+        "cve_id": "CVE-2025-6170", "file": "pkgs/development/libraries/libxml2/default.nix",
+        "pre_fix_source": "{ ... }", "fix_diff": "diff --git a/default.nix b/default.nix\n",
+        "fix_commit": {"repo_url": "https://github.com/NixOS/nixpkgs", "commit_sha": "2da008e2"},
+    }))
+    assert ex._authoring_pair(bd) is None
+
+
+def test_is_nixpkgs_repo_url_forms():
+    assert ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs")
+    assert ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs.git")
+    assert ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs/")
+    assert ex._is_nixpkgs_repo("git@github.com:NixOS/nixpkgs.git")   # scp-style
+    assert not ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs-tools")  # anchored
+    assert not ex._is_nixpkgs_repo("https://gitlab.gnome.org/GNOME/libxml2")
+    assert not ex._is_nixpkgs_repo(None)    # malformed: no crash, treated as not-nixpkgs
+    assert not ex._is_nixpkgs_repo(1234)
+
+
+def test_hunk_windows_single_region():
+    lines = [f"L{i}" for i in range(100)]
+    out = ex._hunk_windows(lines, [50], radius=5)
+    assert out.splitlines() == [f"L{i}" for i in range(45, 55)]  # lines[50-5:50+5]
+    assert "/* ... */" not in out  # single region, no elision
+
+
+def test_hunk_windows_merges_overlap_and_elides_gaps():
+    lines = [f"L{i}" for i in range(1000)]
+    out = ex._hunk_windows(lines, [10, 12, 800], radius=5)  # 10&12 overlap; 800 distant
+    assert out.count("/* ... */") == 1          # one gap (merged 10/12 vs 800)
+    assert "L5" in out.splitlines() and "L16" in out.splitlines()  # merged first region (lines[5:17])
+    assert "L4" not in out.splitlines()           # just outside the first window
+    assert "L799" in out.splitlines()             # distant hunk region present (label-consistent)
+    # bounded by hunk count, not the 1000-line file span
+    assert len(out.splitlines()) < 60

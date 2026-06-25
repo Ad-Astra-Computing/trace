@@ -516,6 +516,19 @@ def _strip_remediation(summary: str) -> str:  # kept for back-compat / tests
                     if not _REMEDIATION_RE.search(s)).strip()
 
 
+def _is_nixpkgs_repo(url: object) -> bool:
+    """True when `url` is a nixpkgs clone URL in any form `_validate_repo_url`
+    allows (https `github.com/NixOS/nixpkgs` AND scp-style
+    `git@github.com:NixOS/nixpkgs.git`). Non-string `url` (a malformed
+    upstream-ref) returns False so the caller falls through to the existing
+    URL validation rather than crashing on `re.search(pat, None)`."""
+    return isinstance(url, str) and bool(
+        # Anchor the repo name so `nixpkgs-tools` etc. are NOT matched: the path
+        # must END at `nixpkgs` / `nixpkgs.git` (optionally a trailing slash).
+        re.search(r"github\.com[:/]NixOS/nixpkgs(?:\.git)?(?:/|$)", url, re.IGNORECASE)
+    )
+
+
 def _pick_authoring_input_file(
     churn: dict[str, int], parent_existing: set[str] | None = None
 ) -> str | None:
@@ -539,6 +552,32 @@ def _pick_authoring_input_file(
     if not pool:
         return None
     return max(sorted(pool), key=lambda p: pool[p])
+
+
+def _hunk_windows(lines: list[str], starts: list[int], radius: int = 20) -> str:
+    """Bounded vulnerable-source input: a ±`radius` window around each 1-based hunk
+    start in `starts`, with overlapping windows merged and non-adjacent regions
+    separated by a `/* ... */` elision marker. Keeps every region the label edits
+    present in the input (so the pair stays consistent) while skipping large
+    inter-hunk gaps — bounded by hunk count, not file size."""
+    if not lines:
+        return ""
+    n = len(lines)
+    ivals = sorted((max(0, s - radius), min(n, s + radius)) for s in set(starts) if s >= 1)
+    if not ivals:
+        ivals = [(0, min(n, radius))]
+    merged: list[list[int]] = []
+    for lo, hi in ivals:
+        if merged and lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    chunks: list[str] = []
+    for k, (lo, hi) in enumerate(merged):
+        if k > 0:
+            chunks.append("        /* ... */")
+        chunks.append("\n".join(lines[lo:hi]))
+    return "\n".join(chunks)
 
 
 def _file_diff_starts(fix_diff: str, fpath: str) -> list[int]:
@@ -565,7 +604,12 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
     re-export (the git blobs are sha-pinned, so the content is reproducible)."""
     cache = bundle_dir / "authoring-example.json"
     if cache.is_file():
-        return json.loads(cache.read_text())
+        cached = json.loads(cache.read_text())
+        # The nixpkgs-repo skip (below) must apply to CACHED pairs too — a stale
+        # cache built from a nixpkgs packaging commit would otherwise still export.
+        if _is_nixpkgs_repo((cached.get("fix_commit") or {}).get("repo_url")):
+            return None
+        return cached
 
     import subprocess, tempfile
     from tools.trace_cli import backport_patch as bp
@@ -576,6 +620,14 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
     if not commits or ur.get("eligibility", {}).get("patch_strategy") != "source-backport":
         return None
     repo_url, sha = commits[0]["repo_url"], commits[0]["commit_sha"]
+    # Authoring needs the UPSTREAM-SOURCE fix commit. When the resolver recorded a
+    # nixpkgs-side commit (the packaging commit that ADDS the backport .patch and
+    # bumps default.nix), there is no upstream (vuln-source -> fix) pair to make:
+    # the changed files are .nix packaging + the wrapper .patch, not the vulnerable
+    # implementation. Skip — these stay valid Reviewer/Builder bundles, just not
+    # authoring candidates (a packaging diff would teach the model the wrong task).
+    if _is_nixpkgs_repo(repo_url):
+        return None
     try:
         bp._validate_repo_url(repo_url)
     except bp.BackportError:
@@ -632,8 +684,12 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
         if blob.returncode != 0:
             return None
         lines = blob.stdout.splitlines()
-        lo, hi = max(0, min(starts) - 20), min(len(lines), max(starts) + 20)
-        pre_fix = "\n".join(lines[lo:hi])
+        # Window around EACH hunk (±20), merging overlaps and eliding large gaps.
+        # A single min..max span would either balloon for distant hunks (relaxng.c
+        # ~7k lines) or, if capped, drop label-relevant regions and DESYNC the pair
+        # (the label edits code absent from the input). Per-hunk windows keep every
+        # region the label touches present while staying bounded by hunk count.
+        pre_fix = _hunk_windows(lines, starts, radius=20)
 
     pair = {
         "cve_id": finding.get("cve_id"),
