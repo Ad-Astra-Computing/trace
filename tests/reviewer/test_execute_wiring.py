@@ -264,14 +264,15 @@ def test_reviewer_requires_patch_diff_on_disk(tmp_path: Path) -> None:
 # ─── v2 prompt wiring (DECISIONS 2026-05-19) ───────────────────────────────
 
 
-def test_reviewer_prompt_path_default_is_v4() -> None:
-    """The Reviewer runner must default to prompt v4. v4 (2026-06-21) adds two
-    source-backport rule tightenings: hunk content is authoritative over commit
-    prose (check 0), and rule-8 only fires when patch.diff actually changes a
-    hash field (check 2). These close the sqlite and procps false-reject patterns
-    from the v1.0 shadow pilot."""
+def test_reviewer_prompt_path_default_is_v9() -> None:
+    """The Reviewer runner defaults to prompt v9 — the canonical prompt the
+    current Reviewer-LoRA (v1.10) was trained and gate-validated against. Bumped
+    from v4 (2026-06-25) after the v1.10 gate passed: the stale v4 default was why
+    v8/v9's CTW + ordered-PC machinery never reached a live review and the whole
+    source-backport corpus had to be regenerated. The override (`--reviewer-prompt`)
+    remains for explicit per-run selection."""
     from tools.trace_cli.execute import REVIEWER_PROMPT_PATH_DEFAULT
-    assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v4.md"
+    assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v9.md"
     assert REVIEWER_PROMPT_PATH_DEFAULT.is_file()
 
 

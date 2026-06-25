@@ -966,7 +966,7 @@ def _append_patcher_replay_entry(
 # ─── reviewer execution ────────────────────────────────────────────────────
 
 
-REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v4.md"
+REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v9.md"
 
 
 def _reviewer_prompt_relpath(prompt: Path) -> str:
