@@ -162,3 +162,55 @@ def test_authoring_manifest_records_leakage_partition(tmp_path):
     assert "author-from-vuln" in manifest["note"]
     assert "leakage" in manifest["note"].lower()
     assert manifest["families"] == ["proxychains-ng"]
+
+
+# ── input-file selection for multi-file fix commits (CVE-2026-0989 shape) ──────
+
+def test_pick_input_file_prefers_highest_churn_impl_over_header():
+    # libxml2 CVE-2026-0989: header listed first, but the vuln (and the bulk of
+    # the change) is in relaxng.c. The input window must center on the impl.
+    churn = {"include/libxml/relaxng.h": 2, "relaxng.c": 37}
+    assert ex._pick_authoring_input_file(churn) == "relaxng.c"
+
+
+def test_pick_input_file_deterministic_tie_break():
+    assert ex._pick_authoring_input_file({"b.c": 5, "a.c": 5}) == "a.c"
+    assert ex._pick_authoring_input_file({}) is None
+
+
+def test_pick_input_file_skips_newly_added_high_churn_file():
+    # A new file (absent from parent) has the most churn, but the input is a
+    # PRE-fix parent window, so we pick the highest-churn parent-existing file.
+    churn = {"newfile.c": 99, "relaxng.c": 30, "include/libxml/relaxng.h": 2}
+    parent_existing = {"relaxng.c", "include/libxml/relaxng.h"}  # newfile.c is status A
+    assert ex._pick_authoring_input_file(churn, parent_existing) == "relaxng.c"
+
+
+def test_pick_input_file_allows_deleted_vulnerable_file():
+    # A fix that DELETES the vulnerable file (status D) while editing a companion:
+    # the deleted file exists in the parent, so it's a valid (highest-churn) input.
+    churn = {"vuln.c": 40, "companion.c": 6}
+    parent_existing = {"vuln.c", "companion.c"}  # both exist in parent (D + M)
+    assert ex._pick_authoring_input_file(churn, parent_existing) == "vuln.c"
+
+
+def test_pick_input_file_falls_back_when_none_parent_existing():
+    # All changed files are new -> fall back to overall max (the blob fetch in
+    # _authoring_pair still guards a genuinely-absent parent).
+    churn = {"a.c": 10, "b.c": 4}
+    assert ex._pick_authoring_input_file(churn, set()) == "a.c"
+
+
+def test_file_diff_starts_only_for_named_file():
+    diff = (
+        "diff --git a/include/libxml/relaxng.h b/include/libxml/relaxng.h\n"
+        "--- a/include/libxml/relaxng.h\n+++ b/include/libxml/relaxng.h\n"
+        "@@ -10,3 +10,4 @@\n+ int x;\n"
+        "diff --git a/relaxng.c b/relaxng.c\n"
+        "--- a/relaxng.c\n+++ b/relaxng.c\n"
+        "@@ -820,6 +820,9 @@\n+ guard;\n"
+        "@@ -1200,3 +1200,5 @@\n+ more;\n"
+    )
+    assert ex._file_diff_starts(diff, "relaxng.c") == [820, 1200]
+    assert ex._file_diff_starts(diff, "include/libxml/relaxng.h") == [10]
+    assert ex._file_diff_starts(diff, "nonexistent.c") == []
