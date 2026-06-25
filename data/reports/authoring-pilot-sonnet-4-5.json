@@ -7,6 +7,7 @@
   "structural_pass_rate": 0.5,
   "behavioral_pass_rate": null,
   "behavioral_attempted_n": 0,
+  "behavioral_statuses": null,
   "tier0_check_rates": {
     "parses": 1.0,
     "no_version_bump": 1.0,
