@@ -140,3 +140,79 @@ for machine output.
 Snapshot 2026-06-14: 28/50 positives (gap 22), 25/25 negatives, leakage-free, 11
 excluded (8 triage / 3 structural), 4 authoring examples → verdict NOT YET. Run this
 before any baseline freeze; freeze only when it prints READY.
+
+---
+
+# Results & findings (v1.0 → v1.10) — research log
+
+> Consolidated narrative of the actual training journey. The chronological detail
+> (run IDs, SHAs, prompt SHAs, loss curves, cert URLs) lives in `docs/DECISIONS.md`;
+> this section is the readable index into it. Base model throughout:
+> `Qwen/Qwen2.5-Coder-14B-Instruct`, QLoRA on HF Jobs (a100-large), adapters at
+> `adastracomputing/reviewer-lora-v1.N`. Held-out **canary** = zlib (CVE-2022-37434)
+> + jq (CVE-2025-48060 / -33948 / -39979), 9 rows, never trained on.
+
+## The core insight that shaped every version
+
+The Reviewer's binary accept/reject **verdict** got reliable early, but a verdict
+without a trustworthy *reason* is not auto-merge-safe. So the gate hardened in lockstep
+with the prompt's **required reasoning artifact** for source-backport reviews: a
+`## Patch comparison` (PC) section that quotes the actual `+/-` lines and concludes
+match/mismatch. Each version closed a way the model could reach a verdict via a
+**hallucinated or inconsistent PC trace** — the central failure class, and (per the
+unfaithful-chain-of-thought literature, DECISIONS 2026-06-25) a known mid-size-model
+limitation rather than a corpus bug.
+
+## Version-by-version
+
+| Ver | Change | Gate canary | Lesson |
+|---|---|---|---|
+| v1.0–v1.3 | binary task; prompt v1–v4 source-backport rule tightenings (hunk content authoritative over commit prose; rule-8 only on hash-field changes) | — | verdict reliable; reasoning not yet a required artifact |
+| v1.4 | — | zlib positive **false-reject** | model quoted identical `+`lines yet wrote `comparison: mismatch` → prompt **v6** PC-verdict consistency rule |
+| v1.6 | prompt **v7** two-step extraction | 6/9 | **cross-artifact hallucination**: model filled the patch.diff side from upstream-fix → split into independent `## patch.diff extraction` + `## upstream-fix.patch extraction` |
+| v1.7 | — | 7/9 | condition-mutation (`<`→`<=`) + missing-line false-accepts → prompt **v8** critical-token-window (CTW) sub-bullet + token-boundary scorer |
+| v1.8 | v8 CTW corpus | — | CTW shipped; canary still imperfect |
+| v1.9 | +8 context-reshape **positives** | **zlib positive FIXED**, 9/9 verdicts, gate **FAIL** | reshaping taught CTW-equivalence under context-count differences. But 2 PC-consistency errors remained (PC concludes accept, verdict rejects) |
+| v1.10 | prompt **v9** order/placement-sensitive `comparison:` + 4 token-preserving-misplacement negatives + A-full v9 regeneration of the whole SB corpus | 9/9 verdicts, gate **FAIL→PASS** (reconciled) | the 2 remaining failures were **NOT** placement defects — they were absence/role hallucination, so order-sensitivity was orthogonal. Fixed at the **gate definition**, not the model (below) |
+
+## The v1.10 resolution (current state)
+
+`reviewer-lora-v1.10` is the **current adapter**, gate-**green**: canary 9/9, test 11/11
+(`data/reports/lora-gate-pilot-v1.10.json`). The 2 persistent zlib PC-consistency
+failures (missing-hunk, reversed-hunk) are **unfaithful chain-of-thought**: the model
+reaches the correct **reject** verdict but its PC trace hallucinates the absent guard as
+present/applied. We reconciled the gate (not the model), grounded in the CoT-faithfulness
++ process-vs-outcome-supervision literature:
+
+- A PC-consistency contradiction is **non-fatal** only when ALL hold: label=negative,
+  raw verdict=reject, effective verdict=reject, PC says match/accept, AND a deterministic
+  layer falsifies the hallucinated evidence — **`pc_file_grounding`** (quoted line is
+  ABSENT from patch.diff) OR **`pc_role_grounding`** (a `+`-quoted "applied" line is
+  actually a REMOVED `-` line — the reversed-hunk case). Fatal for any positive, any
+  accept, any false-accept, any ungrounded contradiction.
+- **Gate guarantee:** no unsafe accepts, no ungrounded/un-role-checked accepts, every PC
+  contradiction on a reject is deterministically explained.
+
+This also corrected an earlier mis-read: 2 context-reshape positives that flipped under
+v9 were **false-rejects** (the model mis-extracted line order on a narrowed-context
+hunk), not genuine defects — dropped from training, not relabeled.
+
+## Operational findings worth keeping
+
+- **The live-reviewer prompt constant was stale** (`reviewer.v4.md`) for the whole
+  v1.6–v1.9 line, so v8/v9's CTW + ordered-PC machinery never reached a *generated*
+  target — only the export's *system* prompt. Surfaced + fixed during the v1.10 A-full
+  regeneration; default bumped to v9 once v1.10 passed.
+- **Corpus consistency is a real cost.** Targets generated under mixed prompt versions
+  (v2–v4) silently violate a newer prompt's required-section contract. A-full
+  regeneration under one prompt is the clean baseline.
+- **`NO_CREDITS` mid-run** is a billing stop, not a failure — the adapter only pushes at
+  run end, so a killed run leaves no adapter; re-dispatch is idempotent.
+
+## Queued for the next batch
+
+4–6 compound-condition missing/reversed-hunk negatives (long compound guard omitted /
+wrong operator / wrong grouping / missing conjunct / check-after-use) to strengthen
+generalization on hard multi-subterm guards (the zlib `(len = extra_len - length) <
+extra_max` shape). Folded into the next normal training batch, NOT a dedicated run; no
+prompt change unless a future failure escapes grounding.
