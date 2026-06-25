@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "name": "authoring-v1",
+  "description": "Held-out canary families for the authoring gate pilot. The authoring task asks the model to AUTHOR a source-level fix from a CVE summary (vuln-only, fix-symbols scrubbed) plus the pre-fix source window; the label is the curated upstream-fix.patch. These families are held out of the training JSONL entirely so the authoring eval (eval/score_authoring_pilot.py) measures generalization, never memorization. Diverse by language and bug class; all carry clean curated-patch labels (label_source=upstream-fix.patch, not git-show-fallback).",
+  "overrides": {
+    "zlib": {
+      "split": "canary",
+      "reason": "CVE-2022-37434: classic C heap over-read (gzip header state). Single-hunk inflate.c guard; the canonical source-backport shape."
+    },
+    "bzip": {
+      "split": "canary",
+      "reason": "CVE-2026-42250: C bounds fix in bzip2recover.c. Tight single-file change; tests the model on a minimal off-by-one-class guard."
+    },
+    "pythonPackages.requests": {
+      "split": "canary",
+      "reason": "CVE-2024-47081: Python credential-leak fix (netrc host matching). Tests authoring on a non-memory-safety logic bug in a different language."
+    },
+    "pythonPackages.pyjwt": {
+      "split": "canary",
+      "reason": "CVE-2026-48526: Python algorithm-confusion fix (reject JWK-as-HMAC-secret in prepare_key). The label-source fix validated this bundle; held out so the pilot cannot just echo it."
+    }
+  },
+  "note": "Holding out 4 families (4 examples) leaves 13 for train/dev. Canary CVEs must NEVER appear in any authoring training corpus. Revise this manifest (bump to authoring-v2) if the held-out set changes; the gate pilot's generalization claim is only valid against the manifest version it was scored under."
+}

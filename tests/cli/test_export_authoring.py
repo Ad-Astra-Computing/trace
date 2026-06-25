@@ -54,9 +54,9 @@ def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
     return bd
 
 
-def _args(out: Path, root: Path) -> argparse.Namespace:
+def _args(out: Path, root: Path, split_manifest: Path | None = None) -> argparse.Namespace:
     return argparse.Namespace(export_scope="authoring", out=out, traces_root=root,
-                              format="json")
+                              format="json", split_manifest=split_manifest)
 
 
 # --- pure scrub functions -------------------------------------------------
@@ -479,3 +479,72 @@ def test_authoring_falls_back_when_patch_base_diverges(tmp_path, monkeypatch):
 def ex_bp():
     from tools.trace_cli import backport_patch as bp
     return bp
+
+
+# ── held-out canary split (authoring gate pilot) ──────────────────────────────
+
+def test_authoring_canary_split_held_out_of_training(tmp_path):
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
+                   attr="zlib", summary="Heap over-read in inflate when processing a gzip header.")
+    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport", cve="CVE-2025-34451",
+                   attr="proxychains-ng", summary="Stack overflow in proxy parsing with long credentials.")
+    manifest = tmp_path / "split.json"
+    manifest.write_text(json.dumps({"name": "t", "overrides": {"zlib": {"split": "canary"}}}))
+    rc = ex.run(_args(tmp_path / "out", root, split_manifest=manifest))
+    assert rc == 0
+    out = tmp_path / "out"
+    train = [json.loads(l) for l in (out / "authoring.jsonl").read_text().splitlines()]
+    canary = [json.loads(l) for l in (out / "authoring-canary.jsonl").read_text().splitlines()]
+    assert [e["provenance"]["cve_id"] for e in train] == ["CVE-2025-34451"]   # zlib held out
+    assert [e["provenance"]["cve_id"] for e in canary] == ["CVE-2022-37434"]  # zlib is canary
+    assert all(e["split"] == "canary" for e in canary)
+    m = json.loads((out / "manifest.json").read_text())
+    assert m["canary_examples"] == 1
+    assert m["canary_families"] == ["zlib"]
+    assert m["canary_cves"] == ["CVE-2022-37434"]
+    assert m["split_manifest"]["name"] == "t"
+    assert "CVE-2022-37434" not in [e["provenance"]["cve_id"] for e in train]  # NO leakage
+
+
+def test_authoring_canary_file_empty_without_manifest(tmp_path):
+    # Deterministic output: the canary file is always written (empty when none) so a
+    # reused output dir can't surface a stale held-out set (codex 2026-06-25).
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
+                   attr="zlib", summary="Heap over-read in inflate processing a gzip header.")
+    ex.run(_args(tmp_path / "out", root))
+    canary = tmp_path / "out" / "authoring-canary.jsonl"
+    assert canary.exists() and canary.read_text() == ""   # present but empty
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert m["canary_examples"] == 0 and m["split_manifest"] is None
+
+
+def test_authoring_canary_file_overwritten_stale(tmp_path):
+    # A run with canaries then a run without must not leave the stale canary set.
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
+                   attr="zlib", summary="Heap over-read in inflate.")
+    out = tmp_path / "out"
+    mani = tmp_path / "split.json"
+    mani.write_text(json.dumps({"name": "t", "overrides": {"zlib": {"split": "canary"}}}))
+    ex.run(_args(out, root, split_manifest=mani))
+    assert (out / "authoring-canary.jsonl").read_text() != ""   # canary written
+    ex.run(_args(out, root))                                     # rerun, no manifest
+    assert (out / "authoring-canary.jsonl").read_text() == ""    # stale set cleared
+
+
+def test_authoring_split_manifest_missing_file_errors(tmp_path):
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
+                   attr="zlib", summary="Heap over-read in inflate.")
+    rc = ex.run(_args(tmp_path / "out", root, split_manifest=tmp_path / "nope.json"))
+    assert rc == 2
+
+
+def test_authoring_v1_manifest_is_valid_and_clean():
+    # The shipped canary manifest must parse and reference only clean-label families.
+    m = json.loads(Path("data/splits/authoring-v1.json").read_text())
+    assert m["name"] == "authoring-v1"
+    assert all(v["split"] == "canary" for v in m["overrides"].values())
+    assert all("reason" in v for v in m["overrides"].values())
