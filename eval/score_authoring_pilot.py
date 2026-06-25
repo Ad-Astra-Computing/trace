@@ -36,9 +36,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 # Runnable as a standalone script (`python3 eval/score_authoring_pilot.py`): put
@@ -52,7 +55,7 @@ from tools.trace_cli.export import (
     _fix_symbols,
     _patch_grounded,
 )
-from eval.backport_validation import _VERSION_BUMP_RE
+from eval.backport_validation import _VERSION_BUMP_RE, validate_backport
 
 # `_VERSION_BUMP_RE` catches nix-style `version =`/`rev =`/`sha256 =`; add the
 # Python `__version__ = "x"` / `VERSION = "x"` shape (the pyjwt release-bump tell).
@@ -216,6 +219,144 @@ def score_candidate(generated: str, record: dict) -> dict:
     }
 
 
+# ── Tier 2: Behavioral (build + reproducer) ───────────────────────────────────
+# Behind --behavioral; needs a Linux nix host + nixpkgs checkout (like
+# bundle-linux-cert.yml). The candidate is injected by rewriting ONLY the embedded
+# source-patch body inside the bundle's patch.diff — preserving the package path,
+# the `patches = [ ./CVE.patch ]` wiring, and the reproducer — then run_builder +
+# validate_backport's BUILD-derived subset decides. `semantic-match-upstream-fix`
+# (reviewer accept on the ORIGINAL bundle) is excluded; `unpatched-reproducer-fires`
+# is a PRECONDITION, not a pass/fail (codex 2026-06-25).
+
+# Candidate-specific behavioral success: the authored patch applies AND closes the
+# bug. `unpatched-reproducer-fires` is the precondition checked separately.
+_BEHAVIORAL_GATE = ("patch-applies", "backported-reproducer-clean")
+_PRECONDITION = "unpatched-reproducer-fires"
+_EMBEDDED_PATCH_HDR = re.compile(r"^diff --git a/(\S+\.patch) b/\1$")
+
+
+def _rewrite_embedded_patch(patch_diff: str, candidate: str) -> str | None:
+    """Replace the embedded source-patch body (the `+`-prefixed hunk of the
+    `new file mode ... CVE-*.patch` section) inside a source-backport `patch.diff`
+    with the generated candidate diff. Returns the rewritten tree-diff, or None
+    when `patch.diff` does not create EXACTLY ONE `.patch` file (the v1 contract —
+    a multi-patch bundle is ambiguous and refused rather than guessed)."""
+    lines = patch_diff.splitlines()
+    starts = [i for i, ln in enumerate(lines) if _EMBEDDED_PATCH_HDR.match(ln)
+              and i + 1 < len(lines) and lines[i + 1].startswith("new file")]
+    if len(starts) != 1:
+        return None
+    start = starts[0]
+    hh = next((j for j in range(start, min(start + 8, len(lines)))
+               if lines[j].startswith("@@")), None)
+    if hh is None:
+        return None
+    body_end = hh + 1
+    while body_end < len(lines) and (lines[body_end].startswith("+")
+                                     or lines[body_end] == r"\ No newline at end of file"):
+        body_end += 1
+    cand = candidate.rstrip("\n").split("\n")
+    rewritten = (lines[:hh]
+                 + [f"@@ -0,0 +1,{len(cand)} @@"]
+                 + [f"+{c}" for c in cand]
+                 + lines[body_end:])
+    return "\n".join(rewritten) + "\n"
+
+
+def _bundle_for(traces_root: Path, record: dict) -> Path | None:
+    """The bundle dir for a canary record. Disambiguates by the record's
+    provenance `bundle_id` when multiple dirs share a CVE (the corpus has both
+    original and `*-backport` bundles for some CVEs) so the candidate is injected
+    into the INTENDED bundle, not just the first sorted match (codex 2026-06-25)."""
+    cve = record["provenance"]["cve_id"]
+    want_id = record["provenance"].get("bundle_id")
+    candidates = sorted(traces_root.glob(f"{cve}--*"))
+    if want_id:
+        for c in candidates:
+            b = _load(c / "bundle.json")
+            if b and b.get("bundle_id") == want_id:
+                return c
+    return candidates[0] if candidates else None
+
+
+def _load(p: Path) -> dict | None:
+    try:
+        return json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def score_behavioral(generated: str, record: dict, *, traces_root: Path, build_fn) -> dict:
+    """Tier 2 behavioral verdict for one candidate. `build_fn(candidate_bundle_dir)`
+    returns the build.json dict (production: run_builder + LocalNixBuildRunner;
+    tests inject a synthetic build.json). Pure orchestration otherwise."""
+    cve = record["provenance"]["cve_id"]
+    out = {"cve_id": cve, "behavioral_status": None, "behavioral_pass": False}
+    bundle = _bundle_for(traces_root, record)
+    if bundle is None:
+        out["behavioral_status"] = "bundle_not_found"
+        return out
+    pd = bundle / "patch.diff"
+    if not pd.is_file():
+        out["behavioral_status"] = "no_patch_diff"
+        return out
+    rewritten = _rewrite_embedded_patch(pd.read_text(), generated)
+    if rewritten is None:
+        out["behavioral_status"] = "no_unique_embedded_patch"
+        return out
+    out["candidate_sha256"] = hashlib.sha256(generated.encode()).hexdigest()[:16]
+    out["rewritten_patch_sha256"] = hashlib.sha256(rewritten.encode()).hexdigest()[:16]
+    with tempfile.TemporaryDirectory(prefix="trace-author-behav-") as td:
+        cdir = Path(td) / bundle.name
+        shutil.copytree(bundle, cdir)
+        (cdir / "patch.diff").write_text(rewritten)
+        (cdir / "build.json").unlink(missing_ok=True)  # force a fresh build
+        build_json = build_fn(cdir)
+        (cdir / "build.json").write_text(json.dumps(build_json))
+        bv = validate_backport(cdir)
+    asserts = {a.name: a.passed for a in bv.assertions}
+    out["assertions"] = asserts
+    if not asserts.get(_PRECONDITION, False):
+        # The bundle reproducer can't even fire unpatched, so patched-clean is
+        # meaningless — invalid/skipped, NOT a candidate failure.
+        out["behavioral_status"] = "precondition_failed"
+        return out
+    out["behavioral_status"] = "ran"
+    out["behavioral_pass"] = all(asserts.get(k, False) for k in _BEHAVIORAL_GATE)
+    return out
+
+
+def _make_build_fn(nixpkgs: Path, timeout: int):
+    """Production build_fn: run the real Builder against a nixpkgs checkout. Lazy
+    imports so the module loads without a Linux nix host.
+
+    `run_builder(apply_patch=True)` applies the candidate patch INTO the checkout,
+    so each candidate gets a fresh detached `git worktree` (shares the object store,
+    own working tree) — otherwise the second candidate would apply against a tree
+    already dirtied by the first, making the pass rate order-dependent (codex P1
+    2026-06-25). The shared `--nixpkgs` checkout is never mutated."""
+    import subprocess
+    from agents.builder import LocalNixBuildRunner, run_builder
+
+    def build_fn(bundle_dir: Path) -> dict:
+        with tempfile.TemporaryDirectory(prefix="trace-nixpkgs-wt-") as wt:
+            wtree = Path(wt) / "tree"
+            add = subprocess.run(
+                ["git", "-C", str(nixpkgs), "worktree", "add", "--detach", str(wtree), "HEAD"],
+                capture_output=True, text=True)
+            if add.returncode != 0:
+                raise RuntimeError(f"git worktree add failed: {add.stderr.strip()[:200]}")
+            try:
+                res = run_builder(bundle_dir=bundle_dir, build_runner=LocalNixBuildRunner(),
+                                  nixpkgs_checkout=wtree, apply_patch=True,
+                                  timeout_seconds_per_build=timeout)
+                return res.build_json
+            finally:
+                subprocess.run(["git", "-C", str(nixpkgs), "worktree", "remove", "--force", str(wtree)],
+                               capture_output=True)
+    return build_fn
+
+
 def _generate(records: list[dict], model_id: str) -> dict[str, str]:
     """Live base-model generation for each canary. Costs API spend."""
     from agents.patcher.adapter import AnthropicAdapter
@@ -240,6 +381,18 @@ def _aggregate(scored: list[dict], model_id: str | None) -> dict:
         keys = scored[0][tier].keys() if scored else []
         return {k: round(sum(1 for s in scored if s[tier][k]) / n, 3) for k in keys} if n else {}
 
+    # Tier 2 (if any candidate carries a behavioral block). `attempted` = candidates
+    # whose behavioral run actually ran (status=="ran"); precondition_failed and
+    # the various skip statuses are NOT in the denominator (codex 2026-06-25).
+    behav = [s["behavioral"] for s in scored if s.get("behavioral")]
+    ran = [b for b in behav if b.get("behavioral_status") == "ran"]
+    behavioral_pass_rate = (round(sum(1 for b in ran if b["behavioral_pass"]) / len(ran), 3)
+                            if ran else None)
+    behavioral_statuses: dict[str, int] = {}
+    for b in behav:
+        st = b.get("behavioral_status") or "none"
+        behavioral_statuses[st] = behavioral_statuses.get(st, 0) + 1
+
     return {
         "scope": "authoring-pilot",
         "schema_version": "1.0.0",
@@ -247,9 +400,10 @@ def _aggregate(scored: list[dict], model_id: str | None) -> dict:
         "n": n,
         "format_pass_rate": round(fmt / n, 3) if n else 0.0,
         "structural_pass_rate": round(struct / n, 3) if n else 0.0,
-        # Tier 2 is deferred behind --behavioral; surface it as unrun, never as 0.
-        "behavioral_pass_rate": None,
-        "behavioral_attempted_n": 0,
+        # Tier 2: null when --behavioral was not run (never reported as 0).
+        "behavioral_pass_rate": behavioral_pass_rate,
+        "behavioral_attempted_n": len(ran),
+        "behavioral_statuses": behavioral_statuses or None,
         "tier0_check_rates": _check_rates("tier0"),
         "tier1_check_rates": _check_rates("tier1"),
         "per_candidate": scored,
@@ -269,6 +423,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True, help="report JSON path")
     ap.add_argument("--save-responses", type=Path, default=None,
                     help="when generating, also write the raw responses here")
+    ap.add_argument("--behavioral", action="store_true",
+                    help="Tier 2: build the authored fix + run the reproducer "
+                         "(needs a Linux nix host + --nixpkgs). Runs only on "
+                         "format-passing candidates.")
+    ap.add_argument("--nixpkgs", type=Path, default=None,
+                    help="nixpkgs checkout at the bundle's rev (required for --behavioral)")
+    ap.add_argument("--traces-root", type=Path, default=Path("traces/example"),
+                    help="root of CVE-* bundles (for --behavioral patch injection)")
+    ap.add_argument("--build-timeout", type=int, default=1800,
+                    help="per-build timeout seconds for --behavioral (default 1800)")
     args = ap.parse_args(argv)
 
     if not args.canary.is_file():
@@ -303,12 +467,32 @@ def main(argv: list[str] | None = None) -> int:
             print(f"warning: no candidate for {cve}; scoring as empty", file=sys.stderr)
         scored.append(score_candidate(gen.get(cve, ""), rec))
 
+    if args.behavioral:
+        if args.nixpkgs is None:
+            print("error: --behavioral requires --nixpkgs <checkout>", file=sys.stderr)
+            return 2
+        build_fn = _make_build_fn(args.nixpkgs, args.build_timeout)
+        by_cve = {rec["provenance"]["cve_id"]: rec for rec in records}
+        for s in scored:
+            # Tier 2 gates on Tier 0 (format/apply) ONLY — a structurally-divergent
+            # but behaviorally-correct fix must still get a build.
+            if not s["format_pass"]:
+                s["behavioral"] = {"cve_id": s["cve_id"], "behavioral_status": "skipped_format_fail",
+                                   "behavioral_pass": False}
+                continue
+            rec = by_cve[s["cve_id"]]
+            s["behavioral"] = score_behavioral(gen.get(s["cve_id"], ""), rec,
+                                                traces_root=args.traces_root, build_fn=build_fn)
+
     report = _aggregate(scored, model_id)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"format_pass_rate={report['format_pass_rate']} "
-          f"structural_pass_rate={report['structural_pass_rate']} "
-          f"(n={report['n']}, model={model_id}) -> {args.out}")
+    msg = (f"format_pass_rate={report['format_pass_rate']} "
+           f"structural_pass_rate={report['structural_pass_rate']}")
+    if report["behavioral_pass_rate"] is not None:
+        msg += (f" behavioral_pass_rate={report['behavioral_pass_rate']} "
+                f"(attempted={report['behavioral_attempted_n']})")
+    print(f"{msg} (n={report['n']}, model={model_id}) -> {args.out}")
     return 0
 
 
