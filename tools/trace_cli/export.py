@@ -132,6 +132,17 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     au.add_argument("--traces-root", type=Path, default=Path("traces/example"),
                     help="root of CVE-* bundles (default traces/example)")
     au.add_argument("--format", choices=["human", "json"], default="human")
+    au.add_argument(
+        "--split-manifest",
+        type=Path,
+        default=None,
+        help=(
+            "versioned split-override manifest (e.g. data/splits/authoring-v1.json). "
+            "family_key -> split overrides take precedence over the hash-based "
+            "assignment; a `canary` split is held out of the JSONL entirely (for the "
+            "authoring gate pilot only). Overrides are recorded in manifest.json."
+        ),
+    )
     return p
 
 
@@ -910,7 +921,22 @@ def _run_authoring(args: argparse.Namespace) -> int:
         return 2
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    examples, excluded, diagnostics = [], [], []
+    # Optional versioned split-override manifest (data/splits/authoring-v1.json):
+    # family_key -> split. `canary` families are held out of the JSONL for the
+    # authoring gate pilot, mirroring the reviewer export's held-out mechanism.
+    split_overrides: dict[str, str] = {}
+    split_manifest_meta: dict | None = None
+    manifest_path = getattr(args, "split_manifest", None)
+    if manifest_path is not None:
+        if not manifest_path.is_file():
+            print(f"error: split manifest not found: {manifest_path}")
+            return 2
+        sm = json.loads(manifest_path.read_text())
+        split_overrides = {k: v["split"] for k, v in sm.get("overrides", {}).items()}
+        split_manifest_meta = {"name": sm.get("name"), "path": str(manifest_path),
+                               "overrides": list(split_overrides.keys())}
+
+    examples, canaries, excluded, diagnostics = [], [], [], []
     for bd in sorted(traces_root.glob("CVE-*")):
         if not (bd / "upstream-ref.json").is_file():
             continue
@@ -940,30 +966,41 @@ def _run_authoring(args: argparse.Namespace) -> int:
                             "label_source": pair.get("label_source")})
         bundle = _load_json(bd / "bundle.json") or {}
         attr = pair["attr_path"] or bd.name
+        family = _normalize_attr(attr)
+        # A manifest override (incl. `canary`) takes precedence over the hash split.
+        split = split_overrides.get(family) or _split_for(attr)
         user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
                 f"# Vulnerable source ({pair['file']})\n```c\n{pair['pre_fix_source']}\n```")
-        examples.append({
+        record = {
             "messages": [
                 {"role": "system", "content": _redact(_AUTHORING_SYSTEM)},
                 {"role": "user", "content": _redact(user)},
                 {"role": "assistant", "content": _redact(pair["fix_diff"])},
             ],
             "task": "author-from-vuln",
-            "split": _split_for(attr),
+            "split": split,
             "provenance": {
                 "bundle_id": bundle.get("bundle_id"),
                 "cve_id": pair["cve_id"], "attr_path": attr,
-                "split_family": _normalize_attr(attr),
+                "split_family": family,
                 "fix_commit": pair["fix_commit"]["commit_sha"],
                 "steward_signed": bool((bundle.get("signed_manifest") or {}).get("rekor_log_index")),
                 "kind": bundle.get("kind"),
             },
-        })
+        }
+        # Canary families are held out of the training JSONL (gate-pilot only).
+        (canaries if split == "canary" else examples).append(record)
 
     examples.sort(key=lambda e: (e["split"], e["provenance"]["cve_id"] or ""))
+    canaries.sort(key=lambda e: e["provenance"]["cve_id"] or "")
     jsonl = out_dir / "authoring.jsonl"
     with jsonl.open("w") as fh:
         for ex in examples:
+            fh.write(json.dumps(ex, sort_keys=True) + "\n")
+    # Always write the canary file deterministically (empty when none), so a reused
+    # output dir can't surface a STALE held-out set that contradicts manifest.json.
+    with (out_dir / "authoring-canary.jsonl").open("w") as fh:
+        for ex in canaries:
             fh.write(json.dumps(ex, sort_keys=True) + "\n")
     splits: dict[str, int] = {}
     for e in examples:
@@ -972,6 +1009,10 @@ def _run_authoring(args: argparse.Namespace) -> int:
         "scope": "authoring", "schema_version": "1.0.0",
         "eligible_examples": len(examples), "splits": splits,
         "families": sorted({e["provenance"]["split_family"] for e in examples}),
+        "canary_examples": len(canaries),
+        "canary_families": sorted({e["provenance"]["split_family"] for e in canaries}),
+        "canary_cves": [e["provenance"]["cve_id"] for e in canaries],
+        "split_manifest": split_manifest_meta,
         "excluded": excluded,
         "diagnostics": diagnostics,
         "low_signal_bundles": [d["bundle"] for d in diagnostics if d["low_signal"]],
