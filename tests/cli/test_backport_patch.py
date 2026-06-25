@@ -112,6 +112,21 @@ def test_tag_candidates_dedup_for_v_prefixed():
     ("README.md", True),
     ("data/sample.bin", True),
     (".github/workflows/ci.yml", True),
+    # top-level test-harness files (libxml2 CVE-2026-0989 shape)
+    ("runtest.c", True),
+    ("runtests.c", True),
+    ("run_test.c", True),
+    ("test_relaxng.c", True),      # test_ separator
+    ("HTMLparser_test.c", True),   # _test separator
+    # ...but real source whose name merely starts with/contains "test" stays
+    # source (a false exclusion would drop a real security fix).
+    ("latest.c", False),
+    ("contest.c", False),
+    ("testing.c", False),
+    ("testament.c", False),
+    ("testapi.c", False),          # no separator: kept as source (safe bias)
+    ("relaxng.c", False),
+    ("include/libxml/relaxng.h", False),
 ])
 def test_non_source_exclusion(path, excluded):
     assert bool(bp._NON_SOURCE_RE.search(path)) == excluded

@@ -516,6 +516,48 @@ def _strip_remediation(summary: str) -> str:  # kept for back-compat / tests
                     if not _REMEDIATION_RE.search(s)).strip()
 
 
+def _pick_authoring_input_file(
+    churn: dict[str, int], parent_existing: set[str] | None = None
+) -> str | None:
+    """Pick the input-window file: the changed SOURCE file with the most churn
+    (added+removed lines) — i.e. the vulnerable implementation, not an incidental
+    public header or small companion edit. Without this, a multi-file fix commit
+    whose first-listed path is a header (e.g. libxml2 CVE-2026-0989 listing
+    `include/libxml/relaxng.h` before `relaxng.c`) would window the input on the
+    header, so the pair's input lacks the vulnerable code the label patches.
+
+    `parent_existing` (when given) is the set of paths that EXIST in the parent
+    commit (everything except newly-Added files — Modified AND Deleted both
+    qualify). The input is a PRE-fix parent window, so a newly-added file (which
+    can have the highest churn) is not a valid candidate — `git show parent:<new>`
+    would fail and skip the whole pair. We pick the max-churn parent-existing file;
+    only if none qualify do we fall back to the overall max. Ties break
+    alphabetically for deterministic, reproducible caches."""
+    pool = {p: c for p, c in churn.items() if parent_existing is None or p in parent_existing}
+    if not pool:
+        pool = churn
+    if not pool:
+        return None
+    return max(sorted(pool), key=lambda p: pool[p])
+
+
+def _file_diff_starts(fix_diff: str, fpath: str) -> list[int]:
+    """The `@@ -N` old-file line starts for `fpath`'s section of a multi-file
+    unified diff, so the input window centres on THIS file's hunks rather than
+    another file's line numbers."""
+    starts: list[int] = []
+    in_file = False
+    for ln in fix_diff.splitlines():
+        if ln.startswith("diff --git "):
+            m = re.match(r"diff --git a/(.+?) b/(.+)$", ln)
+            in_file = bool(m) and (m.group(1) == fpath or m.group(2) == fpath)
+        elif in_file and ln.startswith("@@"):
+            mm = re.match(r"^@@ -(\d+)", ln)
+            if mm:
+                starts.append(int(mm.group(1)))
+    return starts
+
+
 def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
     """Build (or load cached) the authoring training pair for a source-backport
     bundle: pre-fix source window (input) + the upstream commit's source diff
@@ -564,16 +606,27 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
             return None
         # label = the upstream commit's SOURCE diff (exclude tests/docs/changelog).
         ns = git("show", "--numstat", "--format=", "--no-color", sha)
-        src_paths = [ln.split("\t")[2] for ln in ns.stdout.splitlines()
-                     if len(ln.split("\t")) == 3 and ln.split("\t")[0] != "-"
-                     and not bp._NON_SOURCE_RE.search(ln.split("\t")[2])]
+        churn: dict[str, int] = {}
+        for ln in ns.stdout.splitlines():
+            parts = ln.split("\t")
+            if len(parts) == 3 and parts[0] != "-" and not bp._NON_SOURCE_RE.search(parts[2]):
+                churn[parts[2]] = int(parts[0]) + int(parts[1])
+        src_paths = list(churn)
         if not src_paths:
             return None
         fix_diff = git("show", "--no-color", "--format=", sha, "--", *src_paths).stdout
         fix_diff = bp._extract_diff(fix_diff) if "diff --git" in fix_diff else fix_diff
-        # input = the FIRST affected file at the PARENT, windowed around its hunks.
-        fpath = src_paths[0]
-        starts = [int(m) for m in re.findall(r"^@@ -(\d+)", fix_diff, re.MULTILINE)] or [1]
+        # input = the highest-churn affected SOURCE file that EXISTS in the parent
+        # (the vulnerable impl), windowed around THIS file's hunks. Exclude only
+        # NEWLY-ADDED (status A) files — their parent blob doesn't exist, so they
+        # can't be windowed and would skip the pair. Modified AND deleted files
+        # both exist in the parent (a fix that DELETES the vulnerable file is a
+        # valid input), so they stay candidates.
+        added = git("show", "--numstat", "--format=", "--no-color", "--diff-filter=A", sha)
+        added_paths = {p.split("\t")[2] for p in added.stdout.splitlines() if len(p.split("\t")) == 3}
+        parent_existing = {p for p in churn if p not in added_paths}
+        fpath = _pick_authoring_input_file(churn, parent_existing) or src_paths[0]
+        starts = _file_diff_starts(fix_diff, fpath) or [1]
         blob = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{fpath}"],
                               capture_output=True, text=True, env=env)
         if blob.returncode != 0:

@@ -259,7 +259,14 @@ _NON_SOURCE_RE = re.compile(
     r"(^|/)(tests?|testsuite|test-dev|t/|doc|docs|examples?|samples?|"
     r"fixtures?|data|benchmarks?|\.github)(/|$)"
     r"|(^|/)(changelog|changes|news|authors|readme|copying|license|"
-    r"notice|todo|\.gitignore)(\.[a-z]+)?$",
+    r"notice|todo|\.gitignore)(\.[a-z]+)?$"
+    # Test-harness FILES at any directory level (not just under a tests/ dir):
+    # libxml2-style run_test, and the test_*.c / *_test.c separator conventions.
+    # Deliberately NARROW (separator-based) so real source whose name merely
+    # starts with 'test' (testing.c, testament.c, testapi.c) is NOT dropped — a
+    # false exclusion would omit a real security fix, which is worse than keeping
+    # an occasional harness file.
+    r"|(^|/)(run_?tests?|test[_-][\w-]*|[\w-]+[_-]tests?)\.[a-z0-9]+$",
     re.IGNORECASE,
 )
 
