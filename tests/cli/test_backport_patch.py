@@ -318,6 +318,97 @@ def test_validate_tag_rejects_dotdot_traversal():
         bp._validate_tag("v1/../../etc")
 
 
+# ── clone_url: cgit browse URL -> clone endpoint, validate-first ──────────────
+
+@pytest.mark.parametrize("browse,clone", [
+    ("https://git.savannah.gnu.org/cgit/coreutils.git",
+     "https://git.savannah.gnu.org/git/coreutils.git"),
+    ("https://git.savannah.gnu.org/cgit/gnulib.git",
+     "https://git.savannah.gnu.org/git/gnulib.git"),
+])
+def test_clone_url_maps_savannah_cgit_browse(browse, clone):
+    assert bp.clone_url(browse) == clone
+
+
+@pytest.mark.parametrize("url", [
+    "https://github.com/jqlang/jq",                 # github untouched
+    "https://git.busybox.net/busybox",              # cgit but already a clone endpoint
+    "https://git.savannah.gnu.org/git/coreutils.git",  # already normalized
+])
+def test_clone_url_passthrough(url):
+    assert bp.clone_url(url) == url
+
+
+def test_clone_url_validates_first():
+    # normalization must never rescue an unsafe transport
+    with pytest.raises(bp.BackportError):
+        bp.clone_url("ext::sh -c id")
+
+
+# ── blobless_fetch_commit: tiered fetch with an injected git callable ─────────
+
+class _FakeGit:
+    """Records git invocations and resolves `present_after` set of fetch verbs."""
+    def __init__(self, want_ok: bool, present_after: set[str]):
+        self.want_ok = want_ok            # does the shallow sha-want succeed?
+        self.present_after = present_after  # which fetch makes sha resolvable
+        self.fetched: set[str] = set()
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, *args):
+        self.calls.append(args)
+        rc = 0
+        if args[0] == "fetch":
+            if "--depth" in args:
+                rc = 0 if self.want_ok else 1
+                if self.want_ok:
+                    self.fetched.add("want")
+            elif "--tags" in args:
+                self.fetched.add("tags")
+            else:
+                self.fetched.add("branches")
+        elif args[0] == "rev-parse":
+            rc = 0 if (self.present_after & self.fetched) else 1
+        return subprocess.CompletedProcess(args, rc, stdout="", stderr="")
+
+
+def test_blobless_fetch_fast_path_skips_allbranches():
+    g = _FakeGit(want_ok=True, present_after={"want"})
+    assert bp.blobless_fetch_commit(g, "a" * 40) is True
+    # the shallow want resolved it; no all-branches/tags fetch needed
+    assert g.fetched == {"want"}
+    assert all("--filter=blob:none" in c for c in g.calls if c[0] == "fetch")
+
+
+def test_blobless_fetch_falls_back_to_allbranches_and_tags():
+    # server refuses the sha-want (cgit/abbrev); the complete fetch resolves it
+    g = _FakeGit(want_ok=False, present_after={"branches", "tags"})
+    assert bp.blobless_fetch_commit(g, "deadbeef") is True
+    assert "branches" in g.fetched and "tags" in g.fetched
+
+
+def test_blobless_fetch_returns_false_when_unreachable():
+    g = _FakeGit(want_ok=False, present_after=set())  # sha on no ref (fossil/bad sha)
+    assert bp.blobless_fetch_commit(g, "c" * 40) is False
+
+
+def test_blobless_fetch_always_blobless():
+    g = _FakeGit(want_ok=False, present_after={"branches"})
+    bp.blobless_fetch_commit(g, "b" * 40)
+    assert all("--filter=blob:none" in c for c in g.calls if c[0] == "fetch")
+
+
+def test_blobless_fetch_rejects_option_injection_sha():
+    # a feed-sourced sha that is git option syntax must never reach `git fetch`:
+    # the hex-only guard returns False before any fetch runs (option-injection,
+    # e.g. --upload-pack=<cmd> / --exec=<cmd>, can't smuggle through a bare arg).
+    for bad in ("--upload-pack=touch /tmp/x", "--exec=sh", "-deadbeef", "HEAD",
+                "a" * 6, "g" * 40, "abc def"):
+        g = _FakeGit(want_ok=True, present_after={"want"})
+        assert bp.blobless_fetch_commit(g, bad) is False
+        assert not any(c[0] == "fetch" for c in g.calls)
+
+
 def test_assert_git_version_floor():
     bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="git version 2.43.0"))
     with pytest.raises(bp.BackportError):

@@ -787,7 +787,7 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
     if _is_nixpkgs_repo(repo_url):
         return None
     try:
-        bp._validate_repo_url(repo_url)
+        repo_url = bp.clone_url(repo_url)  # validate + map cgit browse URL -> clone endpoint
     except bp.BackportError:
         return None
     # sha is feed-sourced (upstream-ref.json); it reaches `git fetch origin <sha>`
@@ -809,8 +809,12 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
             return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, env=env)
         git("init", "-q")
         git("remote", "add", "origin", repo_url)
-        if git("fetch", "--depth", "2", "origin", sha).returncode != 0:
-            git("fetch", "origin")
+        # Blobless tiered fetch: a shallow sha-want when the server allows it, else
+        # a complete blobless all-branches+tags fetch. This resolves abbreviated
+        # shas and shas the server refuses as a direct want (cgit/savannah) without
+        # a slow full-history transfer — the file blob is pulled lazily below.
+        if not bp.blobless_fetch_commit(git, sha):
+            return None
         parent = git("rev-parse", "-q", "--verify", f"{sha}^").stdout.strip()
         if not parent:
             return None
