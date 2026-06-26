@@ -1,0 +1,256 @@
+name: authoring-behavioral-cert
+
+# Manual-dispatch Tier 2 (behavioral) run for the authoring gate pilot.
+#
+# The authoring eval harness (eval/score_authoring_pilot.py) scores a model's
+# AUTHORED source fix in three tiers: Tier 0 format/safety, Tier 1 structural
+# (vs the curated upstream-fix.patch), Tier 2 behavioral (apply the fix + build
+# the package + run the reproducer). Tier 2 needs a Linux host with a STABLE nix
+# store + adequate disk — it does not run in the dev sandbox (overlay-store ESTALE,
+# 3.9G rootfs; see docs/DECISIONS.md 2026-06-25). THIS workflow is that host.
+#
+# What it does:
+#   1. Export the held-out canary set (trace export authoring --split-manifest).
+#   2. Generate candidates once from --model (live Anthropic; needs the secret) and
+#      score Tier 0/1.
+#   3. For EACH canary CVE: clone nixpkgs at THAT bundle's nixpkgs_rev (the canaries
+#      span several revs), run Tier 2 behavioral for that one canary, drop the
+#      checkout. The scorer injects the candidate by rewriting the embedded
+#      source-patch in patch.diff and runs it in a fresh git worktree.
+#   4. Merge the per-canary behavioral verdicts into one report + upload it.
+#
+# Cost: one Anthropic call per canary's worth of generation (default 4) plus the
+# Nix builds. Manual dispatch only — account-wide Anthropic budget, no push trigger.
+#
+# Required secret: ANTHROPIC_API_KEY.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id to author the fixes (live Anthropic)"
+        required: false
+        default: "claude-sonnet-4-5-20250929"
+        type: string
+      split_manifest:
+        description: "Canary split manifest under data/splits/"
+        required: false
+        default: "data/splits/authoring-v1.json"
+        type: string
+      build_timeout_seconds:
+        description: "Per-build timeout for the reproducer (seconds)"
+        required: false
+        default: "1800"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  behavioral:
+    name: authoring Tier 2 behavioral (${{ inputs.model }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify ANTHROPIC_API_KEY is present
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+            echo "::error::ANTHROPIC_API_KEY secret is required for --generate."
+            echo "Set it under repo Settings → Secrets and variables → Actions."
+            exit 64
+          fi
+          echo "ANTHROPIC_API_KEY is present (length=${#ANTHROPIC_API_KEY})"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          determinate: true
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      - name: Export held-out canary set
+        env:
+          SPLIT_MANIFEST: ${{ inputs.split_manifest }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f "${SPLIT_MANIFEST}" ]]; then
+            echo "::error::split manifest not found: ${SPLIT_MANIFEST}"
+            exit 64
+          fi
+          nix develop --command python -m tools.trace_cli export authoring \
+            --split-manifest "${SPLIT_MANIFEST}" \
+            --out "${RUNNER_TEMP}/authoring"
+          CANARY="${RUNNER_TEMP}/authoring/authoring-canary.jsonl"
+          if [[ ! -s "${CANARY}" ]]; then
+            echo "::error::no held-out canaries produced (empty ${CANARY})"
+            exit 1
+          fi
+          echo "canary CVEs:"
+          python3 -c "import json;[print(' ',json.loads(l)['provenance']['cve_id']) for l in open('${CANARY}')]"
+
+      - name: Generate candidates + score Tier 0/1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          set -euo pipefail
+          nix develop --command python eval/score_authoring_pilot.py \
+            --canary "${RUNNER_TEMP}/authoring/authoring-canary.jsonl" \
+            --generate --model "${MODEL}" \
+            --save-responses "${RUNNER_TEMP}/responses.jsonl" \
+            --out "${RUNNER_TEMP}/structural.json"
+          echo "structural report:"; cat "${RUNNER_TEMP}/structural.json" | python3 -c "import json,sys;r=json.load(sys.stdin);print('format',r['format_pass_rate'],'structural',r['structural_pass_rate'])"
+
+      - name: Run Tier 2 behavioral per canary (own nixpkgs rev each)
+        env:
+          MODEL: ${{ inputs.model }}
+          BUILD_TIMEOUT: ${{ inputs.build_timeout_seconds }}
+        run: |
+          set -euo pipefail
+          CANARY="${RUNNER_TEMP}/authoring/authoring-canary.jsonl"
+          mapfile -t CVES < <(python3 -c "import json;[print(json.loads(l)['provenance']['cve_id']) for l in open('${CANARY}')]")
+          for CVE in "${CVES[@]}"; do
+            echo "::group::behavioral ${CVE}"
+            # Resolve the bundle the SCORER will use: match the record's provenance
+            # bundle_id (mirrors _bundle_for), so a CVE with both original/backport
+            # dirs clones the SAME bundle's nixpkgs_rev the scorer evaluates (codex P2).
+            BUNDLE=$(python3 - "$CVE" "$CANARY" <<'PY'
+          import sys, json, glob, os
+          cve, canary = sys.argv[1], sys.argv[2]
+          rec = next(json.loads(l) for l in open(canary) if json.loads(l)["provenance"]["cve_id"] == cve)
+          want = rec["provenance"].get("bundle_id")
+          cands = sorted(glob.glob(f"traces/example/{cve}--*"))
+          chosen = ""
+          if want:
+              for c in cands:
+                  try: b = json.load(open(os.path.join(c, "bundle.json")))
+                  except Exception: continue
+                  if b.get("bundle_id") == want: chosen = c; break
+          if not chosen and cands: chosen = cands[0]
+          print(os.path.basename(chosen), end="")
+          PY
+            )
+            ERR="${RUNNER_TEMP}/behav-${CVE}.json"
+            mark_error() { python3 -c "import json,sys;json.dump({'per_candidate':[{'cve_id':sys.argv[1],'behavioral':{'behavioral_status':sys.argv[2],'behavioral_pass':False}}]},open(sys.argv[3],'w'))" "$CVE" "$1" "$ERR"; }
+            if [[ -z "${BUNDLE}" ]]; then
+              echo "::error::no bundle dir for ${CVE}"; mark_error "bundle_not_found"; echo "::endgroup::"; continue
+            fi
+            REV=$(python3 -c "import json;print(json.load(open('traces/example/${BUNDLE}/bundle.json'))['nixpkgs_rev'])")
+            echo "bundle=${BUNDLE} rev=${REV}"
+            python3 - "$CVE" "$CANARY" "${RUNNER_TEMP}/canary-${CVE}.jsonl" <<'PY'
+          import sys, json
+          cve, src, dst = sys.argv[1], sys.argv[2], sys.argv[3]
+          rec = next(json.loads(l) for l in open(src) if json.loads(l)["provenance"]["cve_id"] == cve)
+          open(dst, "w").write(json.dumps(rec) + "\n")
+          PY
+            NIXPKGS="${RUNNER_TEMP}/nixpkgs-${CVE}"
+            mkdir -p "${NIXPKGS}"
+            if ! ( cd "${NIXPKGS}" \
+              && git init -q \
+              && git remote add origin https://github.com/NixOS/nixpkgs.git \
+              && git fetch --depth=1 origin "${REV}" \
+              && git checkout -q FETCH_HEAD \
+              && git -c user.email=ci@example.com -c user.name=ci commit --allow-empty -q -m "cert anchor" ); then
+              echo "::error::nixpkgs checkout failed for ${CVE} (rev ${REV})"; mark_error "nixpkgs_checkout_failed"
+              rm -rf "${NIXPKGS}"; echo "::endgroup::"; continue
+            fi
+            # A non-zero exit here is an unhandled harness crash (the scorer writes a
+            # report + exits 0 for handled outcomes incl. precondition_failed). Record
+            # it as an explicit failed status — never swallow it into a smaller
+            # denominator (codex P1). The merge step fails the run on any non-"ran".
+            if ! nix develop --command python eval/score_authoring_pilot.py \
+              --canary "${RUNNER_TEMP}/canary-${CVE}.jsonl" \
+              --responses "${RUNNER_TEMP}/responses.jsonl" --model "${MODEL}" \
+              --behavioral --nixpkgs "${NIXPKGS}" --build-timeout "${BUILD_TIMEOUT}" \
+              --out "${ERR}"; then
+              echo "::error::scorer crashed for ${CVE}"; mark_error "harness_error"
+            fi
+            rm -rf "${NIXPKGS}"   # reclaim disk before the next rev
+            echo "::endgroup::"
+          done
+
+      - name: Merge behavioral verdicts + report
+        run: |
+          set -euo pipefail
+          CANARY="${RUNNER_TEMP}/authoring/authoring-canary.jsonl"
+          # Key the report off the canary LIST (not glob) so a missing per-canary
+          # report is surfaced as `missing`, never silently dropped (codex P1).
+          python3 - "$CANARY" > "${RUNNER_TEMP}/authoring-behavioral.json" <<'PY'
+          import json, os, sys
+          rt = os.environ["RUNNER_TEMP"]
+          cves = [json.loads(l)["provenance"]["cve_id"] for l in open(sys.argv[1])]
+          structural = json.load(open(f"{rt}/structural.json"))
+          per = {}
+          for cve in cves:
+              f = f"{rt}/behav-{cve}.json"
+              per[cve] = (json.load(open(f))["per_candidate"][0].get("behavioral", {})
+                          if os.path.isfile(f) else {"behavioral_status": "missing", "behavioral_pass": False})
+          ran = [b for b in per.values() if b.get("behavioral_status") == "ran"]
+          passes = [b for b in ran if b.get("behavioral_pass")]
+          out = {
+              "scope": "authoring-behavioral-cert",
+              "model_id": structural.get("model_id"),
+              "format_pass_rate": structural["format_pass_rate"],
+              "structural_pass_rate": structural["structural_pass_rate"],
+              "behavioral_attempted_n": len(ran),
+              "behavioral_pass_rate": round(len(passes) / len(ran), 3) if ran else None,
+              "per_canary": per,
+          }
+          print(json.dumps(out, indent=2))
+          PY
+          cat "${RUNNER_TEMP}/authoring-behavioral.json"
+          echo "## Authoring Tier 2 behavioral" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          r = json.load(open(os.environ["RUNNER_TEMP"] + "/authoring-behavioral.json"))
+          print(f"model: `{r['model_id']}`  ")
+          print(f"format **{r['format_pass_rate']}** · structural **{r['structural_pass_rate']}** · "
+                f"behavioral **{r['behavioral_pass_rate']}** (attempted {r['behavioral_attempted_n']})")
+          print("")
+          print("| CVE | status | pass | applies | unpatched-fires | patched-clean |")
+          print("|---|---|---|---|---|---|")
+          for cve, b in sorted(r["per_canary"].items()):
+              a = b.get("assertions", {})
+              print(f"| {cve} | {b.get('behavioral_status')} | {b.get('behavioral_pass')} | "
+                    f"{a.get('patch-applies')} | {a.get('unpatched-reproducer-fires')} | "
+                    f"{a.get('backported-reproducer-clean')} |")
+          PY
+          # Fail the cert if any canary could not be behaviorally MEASURED (status
+          # != "ran"). A measured candidate that fails (behavioral_pass=false) is a
+          # valid result and keeps the run green; an unmeasurable canary
+          # (precondition_failed / harness_error / missing / ...) is a red cert.
+          python3 - <<'PY'
+          import json, os, sys
+          r = json.load(open(os.environ["RUNNER_TEMP"] + "/authoring-behavioral.json"))
+          bad = {c: b.get("behavioral_status") for c, b in r["per_canary"].items()
+                 if b.get("behavioral_status") != "ran"}
+          if bad:
+              for c, s in bad.items():
+                  print(f"::error::{c}: behavioral not measured (status={s})")
+              print(f"::error::cert FAILED: {len(bad)}/{len(r['per_canary'])} canaries unmeasurable")
+              sys.exit(1)
+          print(f"all {len(r['per_canary'])} canaries measured; "
+                f"behavioral_pass_rate={r['behavioral_pass_rate']}")
+          PY
+
+      - name: Upload behavioral artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: ${{ always() }}
+        with:
+          name: authoring-behavioral-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/authoring-behavioral.json
+            ${{ runner.temp }}/structural.json
+            ${{ runner.temp }}/behav-*.json
+            ${{ runner.temp }}/responses.jsonl
+          if-no-files-found: warn
+          retention-days: 90
