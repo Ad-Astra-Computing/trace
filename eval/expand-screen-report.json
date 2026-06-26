@@ -1,0 +1,207 @@
+{
+  "scope": "authoring-expansion-screen",
+  "n": 13,
+  "dispositions": {
+    "needs-review": 8,
+    "reject-judge": 3,
+    "viable-judge-only": 2
+  },
+  "results": [
+    {
+      "cve": "CVE-2022-35920",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE only moves `unquote()` earlier in the flow but does not add the critical checks for \"..\" segments or OS separators within segments that the REFERENCE introduces to prevent path traversal attacks."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2022-37434",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE adds a conditional block around `zmemcpy` but does not prevent the computation of a potentially negative `len` value when `state->length > state->head->extra_len`, whereas the REFERENCE prevents using `len` at all by short-circuiting the entire condition before `len` is used i"
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2024-47081",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe REFERENCE fixes incorrect hostname parsing (using `ri.hostname` instead of manual netloc splitting), while the CANDIDATE adds a file permission check but doesn't address the hostname parsing vulnerability that allows authentication credential leakage to unintended hosts."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2025-34451",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe CANDIDATE adds the unconditional length check before the existing conditional check, effectively ensuring that all proxy types (not just SOCKS5) validate username and password lengths are \u2264255 before the memcpy, which is semantically equivalent to removing the proxytype condition as done i"
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2025-47256",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe REFERENCE fixes an uninitialized variable `k` by removing its early initialization and reinitializing it to 0 at the correct location before use, while the CANDIDATE attempts to add bounds checking on an array access using the uninitialized `k`, which does not address the root cause of us"
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-33948",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe CANDIDATE attempts to null-terminate the buffer but does not remove the vulnerable `strlen(state->buf)` call that the REFERENCE removes, which is the actual root cause of the vulnerability when NUL bytes are present in input."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-39979",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nBoth patches identically fix the format string vulnerability by adding the precision specifier `.*` and the `length` parameter to limit string output, preventing buffer over-read when `string` is not null-terminated."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2026-40347",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE moves the increment to the top of the loop but does not implement the critical optimization in the REFERENCE that uses `find(b\"-\", i)` to skip to the next potential boundary marker during START state, leaving the O(n) vulnerability in place when processing leading CR/LF bytes."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-42250",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE moves the increment before the check instead of adjusting the threshold, which means it checks `currBlock` *after* incrementing but before using it as an array index in `bStart[currBlock]`, still allowing an out-of-bounds write when `currBlock` equals `BZ_MAX_HANDLED_BLOCKS-1`"
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-4539",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE fixes the GUID ReDoS but leaves multiple unbounded `\\w+` quantifiers in the archetype_id pattern (such as `[a-zA-Z]\\w+` appearing multiple times) that the REFERENCE constrains to `\\w{1,100}`, and also doesn't bound all instances of `[\\w-]*` that remain vulnerable to catastroph"
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-48526",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE enforces a minimum key length but does not detect or reject JWK JSON documents being used directly as HMAC secrets, which is the core algorithm-confusion vulnerability addressed by the REFERENCE patch."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-50593",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE checks array bounds using `map.size()` but only validates the index `x` itself, while the REFERENCE validates the actual pointer arithmetic `map + (x)` against `smap` boundaries, which can catch cases where `map` pointer has been modified or offset from the original `smap` all"
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-7598",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe CANDIDATE fixes the first two overflow checks but completely misses the third critical fix in the password change path (line 470 in REFERENCE) where the overflow check logic is corrected from `username_len + password_len + 44 <= UINT_MAX` to `username_len <= UINT32_MAX - password_len - "
+      },
+      "disposition": "needs-review"
+    }
+  ],
+  "guardrail": "screening only; training label stays the curated upstream-fix.patch"
+}
