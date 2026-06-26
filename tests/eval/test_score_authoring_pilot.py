@@ -266,6 +266,57 @@ def test_behavioral_fail_when_not_clean(tmp_path):
     assert r["behavioral_status"] == "ran" and r["behavioral_pass"] is False
 
 
+def test_reproducer_kind_marker_and_default(tmp_path):
+    root = tmp_path / "traces"
+    bd = _scaffold_backport_bundle(root, cve="CVE-2099-0002")
+    assert sp._reproducer_kind(bd) == "behavioral"            # no marker -> default
+    (bd / "expect.json").write_text(json.dumps({"reproducer_kind": "text-inspection-proxy"}))
+    assert sp._reproducer_kind(bd) == "text-inspection-proxy"
+
+
+def test_detect_proxy_reproducer_pattern():
+    proxy = ('let t = pkgs.runCommand "x" { inherit (pkgs.zlib) patches; } '
+             "''\n for p in $patches; do\n if grep -qF \"extra_max)\" \"$p\"; then :; fi\n done\n'';")
+    real = ('let e = pkgs.python3.withPackages (ps: [ ps.requests ]); '
+            "in pkgs.runCommand \"x\" {} '' ${e}/bin/python poc.py '';")
+    import tempfile, os
+    from pathlib import Path as _P
+    for body, want in [(proxy, True), (real, False)]:
+        d = _P(tempfile.mkdtemp())
+        (d / "reproducer.nix").write_text(body)
+        assert sp._detect_proxy_reproducer(d) is want
+
+
+def test_marker_matches_autodetect_on_real_canaries():
+    # The explicit expect.json marker must agree with auto-detection on the four
+    # shipped canaries (codex 2026-06-26: auto-detect verifies the marker).
+    from pathlib import Path as _P
+    cases = {
+        "CVE-2022-37434--zlib-backport": True,
+        "CVE-2026-42250--bzip2-backport": True,
+        "CVE-2024-47081--requests-backport": False,
+        "CVE-2026-48526--pyjwt-backport": False,
+    }
+    for name, is_proxy in cases.items():
+        b = _P("traces/example") / name
+        if not b.is_dir():
+            continue
+        marked_proxy = sp._reproducer_kind(b) == "text-inspection-proxy"
+        assert marked_proxy == is_proxy, f"{name}: marker"
+        assert sp._detect_proxy_reproducer(b) == is_proxy, f"{name}: autodetect"
+
+
+def test_behavioral_exempts_proxy_without_building(tmp_path):
+    root = tmp_path / "traces"
+    bd = _scaffold_backport_bundle(root, cve="CVE-2099-0003")
+    (bd / "expect.json").write_text(json.dumps({"reproducer_kind": "text-inspection-proxy"}))
+    def boom(d):
+        raise AssertionError("build_fn must not run for an exempt proxy")
+    r = sp.score_behavioral("x", _record(cve="CVE-2099-0003"), traces_root=root, build_fn=boom)
+    assert r["behavioral_status"] == "exempt_proxy_reproducer"
+    assert r["behavioral_pass"] is False
+
+
 def test_behavioral_bundle_not_found(tmp_path):
     r = sp.score_behavioral("x", _record(cve="CVE-9999-0000"),
                             traces_root=tmp_path / "traces", build_fn=lambda d: {})

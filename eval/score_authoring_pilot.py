@@ -263,6 +263,27 @@ def _rewrite_embedded_patch(patch_diff: str, candidate: str) -> str | None:
     return "\n".join(rewritten) + "\n"
 
 
+def _reproducer_kind(bundle_dir: Path) -> str:
+    """The bundle's declared reproducer kind from expect.json. `text-inspection-proxy`
+    means the reproducer derives its signal by grepping patch/source TEXT for a fix
+    token rather than building + executing the package — so it cannot behaviorally
+    validate an AUTHORED candidate (a wrong-but-token-matching fix would pass, a
+    correct-but-reworded one would fail). Default `behavioral`."""
+    e = _load(bundle_dir / "expect.json") or {}
+    return e.get("reproducer_kind", "behavioral")
+
+
+def _detect_proxy_reproducer(bundle_dir: Path) -> bool:
+    """Auto-detect a text-inspection-proxy reproducer (helper for verifying the
+    explicit expect.json marker, NOT the authority). Tell: a shell loop greps the
+    realized patch paths (`for p in $patches` … `grep … "$p"`) for a fix token."""
+    rp = bundle_dir / "reproducer.nix"
+    if not rp.is_file():
+        return False
+    t = rp.read_text()
+    return bool(re.search(r"for\s+p\s+in\s+\$patches", t) and re.search(r'grep\s+-q\S*\s+\S.*"\$p"', t))
+
+
 def _bundle_for(traces_root: Path, record: dict) -> Path | None:
     """The bundle dir for a canary record. Disambiguates by the record's
     provenance `bundle_id` when multiple dirs share a CVE (the corpus has both
@@ -295,6 +316,12 @@ def score_behavioral(generated: str, record: dict, *, traces_root: Path, build_f
     bundle = _bundle_for(traces_root, record)
     if bundle is None:
         out["behavioral_status"] = "bundle_not_found"
+        return out
+    # Text-inspection-proxy reproducers grep patch/source text for a fix token and
+    # cannot behaviorally validate an authored candidate — exempt them (excluded
+    # from the behavioral denominator, NOT a cert failure). codex 2026-06-26.
+    if _reproducer_kind(bundle) == "text-inspection-proxy":
+        out["behavioral_status"] = "exempt_proxy_reproducer"
         return out
     pd = bundle / "patch.diff"
     if not pd.is_file():
@@ -392,6 +419,9 @@ def _aggregate(scored: list[dict], model_id: str | None) -> dict:
     for b in behav:
         st = b.get("behavioral_status") or "none"
         behavioral_statuses[st] = behavioral_statuses.get(st, 0) + 1
+    behavioral_pass_n = sum(1 for b in ran if b["behavioral_pass"])
+    proxy_exempt_n = behavioral_statuses.get("exempt_proxy_reproducer", 0)
+    precondition_failed_n = behavioral_statuses.get("precondition_failed", 0)
 
     return {
         "scope": "authoring-pilot",
@@ -403,6 +433,9 @@ def _aggregate(scored: list[dict], model_id: str | None) -> dict:
         # Tier 2: null when --behavioral was not run (never reported as 0).
         "behavioral_pass_rate": behavioral_pass_rate,
         "behavioral_attempted_n": len(ran),
+        "behavioral_pass_n": behavioral_pass_n,
+        "proxy_exempt_n": proxy_exempt_n,
+        "precondition_failed_n": precondition_failed_n,
         "behavioral_statuses": behavioral_statuses or None,
         "tier0_check_rates": _check_rates("tier0"),
         "tier1_check_rates": _check_rates("tier1"),
