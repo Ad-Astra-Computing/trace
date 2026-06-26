@@ -1,11 +1,136 @@
 {
-  "model": "claude-opus-4-7",
-  "n": 4,
+  "model": "claude-sonnet-4-5-20250929",
+  "n": 23,
   "counts": {
-    "exact": 2,
-    "differs": 2
+    "skip": 10,
+    "differs": 12,
+    "exact": 1
   },
   "results": [
+    {
+      "cve": "CVE-2011-10007",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2021-45340",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2022-35920",
+      "file": "sanic/mixins/routes.py",
+      "verdict": "differs",
+      "upstream_removed": [
+        "#Stripall/thatinthebeginningoftheURLtohelppreventpython",
+        "#URLdecodethepathsentbythebrowserotherwisewewon'tbeableto",
+        "#UsingthistodetermineiftheURListryingtobreakoutofthepath",
+        "#fromherpingaderpandtreatingtheuriasanabsolutepath",
+        "#matchfilenameswhichgotencoded(filenameswithspacesetc)",
+        "#served.os.path.realpathseemstobeveryslow",
+        ")",
+        "file_or_directory,sub(\"^[/]*\",\"\",__file_uri__)",
+        "file_path=path.abspath(unquote(file_path))",
+        "file_path=path.join(",
+        "fromosimportpath",
+        "if__file_uri__and\"../\"in__file_uri__:",
+        "ifnotfile_path.startswith(path.abspath(unquote(root_path))):",
+        "raiseInvalidUsage(\"InvalidURL\")",
+        "root_path=file_path=file_or_directory"
+      ],
+      "upstream_added": [
+        "#Stripall/thatinthebeginningoftheURLtohelpprevent",
+        "#absolutepath",
+        "#pythonfromherpingaderpandtreatingtheuriasan",
+        "file_path=path.abspath(file_path)",
+        "file_path=path.join(file_or_directory,unquoted_file_uri)",
+        "fromosimportpath,sep",
+        "if\"..\"insegmentsorany(sepinsegmentforsegmentinsegments):",
+        "ifnotfile_path.startswith(root_path):",
+        "raiseInvalidUsage(\"InvalidURL\")",
+        "root_path=file_path=path.abspath(unquote(file_or_directory))",
+        "segments=unquoted_file_uri.split(\"/\")",
+        "unquoted_file_uri=unquote(__file_uri__).lstrip(\"/\")"
+      ],
+      "authored_removed": [
+        "frompathlibimportPurePath",
+        "if__file_uri__and\"../\"in__file_uri__:",
+        "ifnotfile_path.startswith(path.abspath(unquote(root_path))):"
+      ],
+      "authored_added": [
+        "#Normalizetherootpathtopreventtraversalviaprefixmatching",
+        "__file_uri__=unquote(__file_uri__)",
+        "file_or_directory=Path(file_or_directory).resolve()",
+        "frompathlibimportPath,PurePath",
+        "if__file_uri__and(\"..\"in__file_uri__or__file_uri__.startswith(\"/\")):",
+        "ifrootnotinresolved.parentsandroot!=resolved:",
+        "resolved=Path(file_path).resolve()",
+        "root=Path(root_path).resolve()"
+      ]
+    },
+    {
+      "cve": "CVE-2022-37434",
+      "file": "inflate.c",
+      "verdict": "differs",
+      "upstream_removed": [
+        "len=state->head->extra_len-state->length;",
+        "state->head->extra!=Z_NULL){"
+      ],
+      "upstream_added": [
+        "(len=state->head->extra_len-state->length)<",
+        "state->head->extra!=Z_NULL&&",
+        "state->head->extra_max){"
+      ],
+      "authored_removed": [
+        "len=state->head->extra_len-state->length;"
+      ],
+      "authored_added": [
+        "if(len>state->head->extra_max)len=state->head->extra_max;",
+        "len=state->head->extra_len-state->length;"
+      ]
+    },
+    {
+      "cve": "CVE-2022-46908",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2024-41810",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2024-47081",
+      "file": "src/requests/utils.py",
+      "verdict": "differs",
+      "upstream_removed": [
+        "#Stripportnumbersfromnetloc.Thisweird`if...encode``danceis",
+        "#usedforPython3.2,whichdoesn'tsupportunicodeliterals.",
+        "host=ri.netloc.split(splitstr)[0]",
+        "ifisinstance(url,str):",
+        "splitstr=b\":\"",
+        "splitstr=splitstr.decode(\"ascii\")"
+      ],
+      "upstream_added": [
+        "host=ri.hostname"
+      ],
+      "authored_removed": [
+        "host=ri.netloc.split(splitstr)[0]"
+      ],
+      "authored_added": [
+        "host=ri.hostname"
+      ]
+    },
+    {
+      "cve": "CVE-2025-0938",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2025-31344",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
     {
       "cve": "CVE-2025-34451",
       "file": "src/libproxychains.c",
@@ -36,16 +161,130 @@
         "k=0;"
       ],
       "authored_removed": [
-        "k=paddr[0];"
+        "ocpt[(k+3)%4]=0xff-pdata[i];"
       ],
       "authored_added": [
-        "k=paddr[0]&3;"
+        "if(pdata[i]<=0xff)ocpt[(k+3)%4]=0xff-pdata[i];"
+      ]
+    },
+    {
+      "cve": "CVE-2025-48060",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2025-5278",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2025-60876",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2025-6170",
+      "status": "skip",
+      "reason": "could not fetch pre-fix source"
+    },
+    {
+      "cve": "CVE-2026-33948",
+      "file": "src/util.c",
+      "verdict": "differs",
+      "upstream_removed": [
+        "*/",
+        "*ThereshouldbenoNULsinJSONtexts(butJSONtext",
+        "*sequencesareanotherstory).",
+        "/*",
+        "if(p==NULL&&state->parser!=NULL){",
+        "state->buf_valid_len=strlen(state->buf);",
+        "}elseif(p==NULL&&feof(state->current_input)){"
+      ],
+      "upstream_added": [
+        "if(p==NULL&&feof(state->current_input)){"
+      ],
+      "authored_removed": [
+        "state->buf_valid_len=strlen(state->buf);"
+      ],
+      "authored_added": [
+        "state->buf_valid_len=memchr(state->buf,'\\0',max_gets_len)-state->buf;"
+      ]
+    },
+    {
+      "cve": "CVE-2026-39979",
+      "file": "src/jv_parse.c",
+      "verdict": "differs",
+      "upstream_removed": [
+        "value=jv_invalid_with_msg(jv_string_fmt(\"%s(whileparsing'%s')\","
+      ],
+      "upstream_added": [
+        "length,",
+        "value=jv_invalid_with_msg(jv_string_fmt(\"%s(whileparsing'%.*s')\","
+      ],
+      "authored_removed": [
+        "string));",
+        "value=jv_invalid_with_msg(jv_string_fmt(\"%s(whileparsing'%s')\","
+      ],
+      "authored_added": [
+        "length,string));",
+        "value=jv_invalid_with_msg(jv_string_fmt(\"%s(whileparsing'%.*s')\","
+      ]
+    },
+    {
+      "cve": "CVE-2026-40347",
+      "file": "python_multipart/multipart.py",
+      "verdict": "differs",
+      "upstream_removed": [
+        "#Don'tdoanythingifchunkendswithCRLF.",
+        "#Skipdataafterthelastboundary.",
+        "continue",
+        "i+=1",
+        "i+=2",
+        "ifc==CRandi+1<lengthanddata[i+1]==LF:",
+        "self.logger.warning(\"Skippingdataafterlastboundary\")"
+      ],
+      "upstream_added": [
+        "#Noboundarycandidateinthischunk,soignorethecontentaftertheleadingCR/LF.",
+        "#Silentlydiscardanyepiloguedata(RFC2046section5.1.1allowsaCRLFandoptional",
+        "#epilogueaftertheclosingboundary).DjangoandWerkzeugdothesame.",
+        "break",
+        "i=data.find(b\"-\",i)",
+        "i=length",
+        "ifi==-1:"
+      ],
+      "authored_removed": [
+        "#Don'tdoanythingifchunkendswithCRLF.",
+        "i+=1",
+        "i+=2",
+        "ifc==CRandi+1<lengthanddata[i+1]==LF:",
+        "ifc==CRorc==LF:"
+      ],
+      "authored_added": [
+        "#Ifwereachedtheendofthechunk,we'redone",
+        "#Ifwestoppedbeforetheend,skipremainingdata",
+        "#Otherwise,wefoundanon-CR/LFbyte",
+        "#ProcessthischaracterinSTART_BOUNDARYstate",
+        "#ScanaheadtoskipallleadingCR/LFbytesatonce",
+        "#SkipalltrailingCR/LFpairsatonce",
+        "break",
+        "c=data[i]",
+        "i+=1",
+        "i+=2",
+        "i-=1",
+        "i=length",
+        "ifi<length:",
+        "ifi>=length:",
+        "index=0",
+        "self.logger.warning(\"Skippingdataafterlastboundary\")",
+        "state=MultipartState.START_BOUNDARY",
+        "whilei+1<lengthanddata[i]==CRanddata[i+1]==LF:",
+        "whilei<lengthand(data[i]==CRordata[i]==LF):"
       ]
     },
     {
       "cve": "CVE-2026-42250",
       "file": "bzip2recover.c",
-      "verdict": "exact",
+      "verdict": "differs",
       "upstream_removed": [
         "if(currBlock>=BZ_MAX_HANDLED_BLOCKS)"
       ],
@@ -53,10 +292,69 @@
         "if(currBlock>=BZ_MAX_HANDLED_BLOCKS-1)"
       ],
       "authored_removed": [
-        "if(currBlock>=BZ_MAX_HANDLED_BLOCKS)"
+        "currBlock++;"
       ],
       "authored_added": [
-        "if(currBlock>=BZ_MAX_HANDLED_BLOCKS-1)"
+        "currBlock++;"
+      ]
+    },
+    {
+      "cve": "CVE-2026-4539",
+      "file": "pygments/lexers/archetype.py",
+      "verdict": "differs",
+      "upstream_removed": [
+        "(r'([\\t]*)(([a-zA-Z]\\w+(\\.[a-zA-Z]\\w+)*::)?[a-zA-Z]\\w+(-[a-zA-Z]\\w+){2}'",
+        "(r'(\\d|[a-fA-F])+(-(\\d|[a-fA-F])+){3,}',Literal),",
+        "r'\\.\\w+[\\w-]*\\.v\\d+(\\.\\d+){,2}((-[a-z]+)(\\.\\d+)?)?)',"
+      ],
+      "upstream_added": [
+        "(r'([\\t]*)(([a-zA-Z]\\w{1,100}(\\.[a-zA-Z]\\w{1,100})*::)?[a-zA-Z]\\w{1,100}(-[a-zA-Z]\\w{1,100}){2}'",
+        "(r'[0-9a-fA-F]{1,36}(-[0-9a-fA-F]{1,36}){3,}',Literal),",
+        "r'\\.\\w{1,100}[\\w-]*\\.v\\d+(\\.\\d+){,2}((-[a-z]+)(\\.\\d+)?)?)',"
+      ],
+      "authored_removed": [
+        "(r'([\\t]*)(([a-zA-Z]\\w+(\\.[a-zA-Z]\\w+)*::)?[a-zA-Z]\\w+(-[a-zA-Z]\\w+){2}'",
+        "(r'(\\d|[a-fA-F])+(-(\\d|[a-fA-F])+){3,}',Literal),"
+      ],
+      "authored_added": [
+        "(r'([\\t]*)(([a-zA-Z][\\w-]+(\\.[a-zA-Z][\\w-]+)*::)?[a-zA-Z][\\w-]+(-[a-zA-Z][\\w-]+){2}'",
+        "(r'[\\da-fA-F]+(-[\\da-fA-F]+){3,}',Literal),"
+      ]
+    },
+    {
+      "cve": "CVE-2026-48526",
+      "file": "jwt/algorithms.py",
+      "verdict": "differs",
+      "upstream_removed": [],
+      "upstream_added": [
+        "\"PyJWK/HMACAlgorithm.from_jwkfirst.\"",
+        "\"ThespecifiedkeylookslikeaJWKandshouldnotbe\"",
+        "\"useddirectlyasanHMACsecret.Loaditvia\"",
+        "#Defenseagainstalgorithm-confusionattacks:anattackerwith",
+        "#alg=HS*,andHMACAlgorithmistheonlyalgorithmthataccepts",
+        "#arbitrarybytesasavalidsecret.Otheralgorithmsreject",
+        "#bytes(whosecontentsarenotthesecretmaterial).",
+        "#controloverthetokenheadercanforcethiscodepathbysetting",
+        "#non-key-shapedinputnaturally.Evenasymmetric(kty=oct)JWK",
+        "#shouldbeloadedviaPyJWK/from_jwkratherthanfedasrawJSON",
+        ")",
+        "exceptValueError:",
+        "ifisinstance(jwk_obj,dict)and\"kty\"injwk_obj:",
+        "iflen(key_bytes)==0:",
+        "ifstripped.startswith(b\"{\"):",
+        "jwk_obj=None",
+        "jwk_obj=json.loads(key_bytes)",
+        "raiseInvalidKeyError(",
+        "raiseInvalidKeyError(\"HMACkeymustnotbeempty.\")",
+        "stripped=key_bytes.lstrip()",
+        "try:"
+      ],
+      "authored_removed": [],
+      "authored_added": [
+        "\"ThespecifiedkeyisaJWKdocumentandshouldnotbeusedasanHMACsecret.\"",
+        ")",
+        "ifkey_bytes.startswith(b'{'):",
+        "raiseInvalidKeyError("
       ]
     },
     {
@@ -72,8 +370,41 @@
       ],
       "authored_removed": [],
       "authored_added": [
-        "#defineslotat(x)(((x)<-int(map.context())||(x)>=int(map.size())-int(map.context()))?(DIE):0,map[(x)])",
-        "#undefslotat"
+        "#defineslotat(x)(map&&(x)>=0&&(x)<seg.numAttrs()?map[(x)]:0)"
+      ]
+    },
+    {
+      "cve": "CVE-2026-7598",
+      "file": "src/userauth.c",
+      "verdict": "differs",
+      "upstream_removed": [
+        "if(username_len+password_len+44<=UINT_MAX){"
+      ],
+      "upstream_added": [
+        "\"username_lenoutofbounds\");",
+        "_libssh2_error(session,LIBSSH2_ERROR_PROTO,",
+        "if(username_len<=UINT32_MAX-password_len-44){",
+        "if(username_len>UINT32_MAX-27){",
+        "if(username_len>UINT32_MAX-40){",
+        "returnNULL;",
+        "return_libssh2_error(session,LIBSSH2_ERROR_PROTO,",
+        "}"
+      ],
+      "authored_removed": [
+        "session->userauth_list_data_len=username_len+27;",
+        "session->userauth_pswd_data_len=username_len+40;"
+      ],
+      "authored_added": [
+        "\"Usernametoolong\");",
+        "/*Checkforintegeroverflow*/",
+        "_libssh2_error(session,LIBSSH2_ERROR_INVAL,",
+        "if(username_len>UINT32_MAX-27){",
+        "if(username_len>UINT32_MAX-40){",
+        "returnNULL;",
+        "return_libssh2_error(session,LIBSSH2_ERROR_INVAL,",
+        "session->userauth_list_data_len=(uint32_t)(username_len+27);",
+        "session->userauth_pswd_data_len=(uint32_t)(username_len+40);",
+        "}"
       ]
     }
   ],
