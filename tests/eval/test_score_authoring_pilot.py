@@ -292,8 +292,8 @@ def test_marker_matches_autodetect_on_real_canaries():
     # shipped canaries (codex 2026-06-26: auto-detect verifies the marker).
     from pathlib import Path as _P
     cases = {
-        "CVE-2022-37434--zlib-backport": True,
-        "CVE-2026-42250--bzip2-backport": True,
+        "CVE-2022-37434--zlib-backport": True,        # patch-text-grep proxy (cert-deferred 2022 rev)
+        "CVE-2026-42250--bzip2-backport": False,       # upgraded to a real ASAN build+execute reproducer
         "CVE-2024-47081--requests-backport": False,
         "CVE-2026-48526--pyjwt-backport": False,
     }
