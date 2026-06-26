@@ -97,6 +97,10 @@ def _default_runner(cmd: Sequence[str], cwd: Path | None = None) -> subprocess.C
 # past the validator ($ matches before a final \n; \Z matches only true EOS).
 _SAFE_REPO_URL_RE = re.compile(r"(?:https?|git|ssh)://[^\s]+\Z|git@[^\s:]+:[^\s]+\Z")
 _SAFE_REV_RE = re.compile(r"[0-9a-f]{40}\Z")
+# Fetch-time revs may be git-abbreviated (a feed sometimes records a short sha),
+# so the fetch path accepts 7-40 hex — still strictly hex, so it can never
+# option-inject as a bare `git fetch ... origin <sha>` argument.
+_SAFE_FETCH_REV_RE = re.compile(r"[0-9a-f]{7,40}\Z")
 _SAFE_TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+~/-]*\Z")
 
 # Minimum git that refuses path-traversal/symlink writes during `git apply`
@@ -119,6 +123,57 @@ def _validate_tag(version_tag: str) -> str:
             or ".." in version_tag):
         raise BackportError(f"refusing unsafe version tag {version_tag!r}")
     return version_tag
+
+
+# cgit/gitweb "browse" URLs are not smart-http git endpoints, so cloning/fetching
+# them 404s (savannah serves the repo at /git/<x>.git, not the /cgit/<x>.git
+# browse path). Map the known browse form of our feed sources to the clone
+# endpoint. Host-pinned + anchored so normalization can never widen the trust
+# boundary: _validate_repo_url runs FIRST (rejects ext::/fd:: transport helpers),
+# and we rewrite ONLY this exact single-host pattern.
+_CGIT_BROWSE_RE = re.compile(r"\A(https://git\.savannah\.gnu\.org)/cgit/([^?#\s]+?\.git)\Z")
+
+
+def clone_url(repo_url: str) -> str:
+    """Validate `repo_url`, then map a known cgit browse URL to its clone
+    endpoint. Returns the validated (possibly rewritten) URL."""
+    safe = _validate_repo_url(repo_url)
+    m = _CGIT_BROWSE_RE.match(safe)
+    return f"{m.group(1)}/git/{m.group(2)}" if m else safe
+
+
+def blobless_fetch_commit(git: Callable[..., subprocess.CompletedProcess], sha: str) -> bool:
+    """Make commit `sha` (full or git-abbreviated) resolvable in the repo behind
+    the bound `git(*args)` callable, fetching as little as possible:
+
+      1. a shallow blobless want for the sha (fast on servers that allow it);
+      2. else a blobless fetch of ALL branches + tags. This is COMPLETE: it
+         resolves abbreviated shas and shas the server refuses as a direct want
+         (`not our ref` on GitHub, `unadvertised object` on cgit), because the
+         object lands via a reachable ref and git resolves it locally afterward.
+
+    `--filter=blob:none` keeps the transfer to the commit/tree graph; the single
+    file blob the caller needs is pulled lazily by a later `git show
+    <parent>:<file>`. Returns True iff `sha^{commit}` resolves afterward.
+
+    `sha` is validated hex-only here (the choke point), so a feed-sourced value
+    like `--upload-pack=...` / `--exec=...` can never option-inject as a bare
+    `git fetch ... origin <sha>` argument: a non-hex sha returns False before any
+    fetch runs. Callers may validate too, but this guard is authoritative.
+    """
+    if not isinstance(sha, str) or not _SAFE_FETCH_REV_RE.match(sha):
+        return False
+
+    def _present() -> bool:
+        return git("rev-parse", "-q", "--verify", f"{sha}^{{commit}}").returncode == 0
+
+    if git("fetch", "--filter=blob:none", "--depth", "2", "origin", sha).returncode == 0 \
+            and _present():
+        return True
+    # Fall back to a complete (but still blobless) fetch of every branch + tag.
+    git("fetch", "--filter=blob:none", "origin")
+    git("fetch", "--filter=blob:none", "--tags", "origin")
+    return _present()
 
 
 def _assert_git_version(runner: Runner) -> None:

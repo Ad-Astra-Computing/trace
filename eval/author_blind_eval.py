@@ -82,14 +82,24 @@ def _prefix_source(repo_url: str, commit: str, fpath: str, lines_span: tuple[int
     """Fetch the PRE-fix source: the affected file at the fix commit's PARENT,
     windowed to cover ALL code hunks (peer traps #5 genuine pre-fix tree). A full
     fetch is needed when the parent isn't reachable shallowly (e.g. sourceware)."""
+    from tools.trace_cli import backport_patch as bp
+    try:
+        repo_url = bp.clone_url(repo_url)  # validate + map cgit browse URL -> clone endpoint
+    except bp.BackportError:
+        return None
     repo = workdir / "src"
     repo.mkdir(exist_ok=True)
     _git(repo, "init", "-q")
     _git(repo, "config", "remote.origin.url", repo_url) if _git(
         repo, "remote", "add", "origin", repo_url).returncode != 0 else None
-    if _git(repo, "fetch", "--depth", "2", "origin", commit).returncode != 0:
-        _git(repo, "fetch", "origin")
-        _git(repo, "fetch", "--tags", "origin")
+    # Blobless tiered fetch (shared with the exporter): shallow sha-want when the
+    # server allows it, else a complete blobless all-branches+tags fetch. Resolves
+    # abbreviated + unadvertised-want shas without a slow full-history transfer.
+    # `commit` is feed-sourced (upstream-ref.json); blobless_fetch_commit validates
+    # it hex-only before any `git fetch`, so a `--upload-pack=...` value can't
+    # option-inject — it returns False here and we skip the bundle.
+    if not bp.blobless_fetch_commit(lambda *a: _git(repo, *a), commit):
+        return None
     parent = _git(repo, "rev-parse", "-q", "--verify", f"{commit}^").stdout.strip()
     if not parent:
         return None
