@@ -119,15 +119,32 @@ def _upstream_changed(bundle_dir: Path) -> tuple[set[str], set[str], str, tuple[
 
 
 def eval_bundle(bundle_dir: Path) -> dict:
-    ur = json.loads((bundle_dir / "upstream-ref.json").read_text())
     finding = json.loads((bundle_dir / "finding.json").read_text())
     cve = finding["cve_id"]
-    commit = ur["upstream_fix_commits"][0]
-    up_minus, up_plus, fpath, span = _upstream_changed(bundle_dir)
-    summary = _strip_remediation(finding.get("summary", ""))
 
-    with tempfile.TemporaryDirectory() as td:
-        src = _prefix_source(commit["repo_url"], commit["commit_sha"], fpath, span, Path(td))
+    # Offline path: reuse the export's cached pre_fix_source + fix_diff instead of
+    # re-fetching the upstream tree. `trace export authoring` already fetched these
+    # (leakage-scrubbed) and pinned them in authoring-example.json, so this
+    # eliminates the "could not fetch pre-fix source" skips on large/cold upstream
+    # repos AND makes the blind input IDENTICAL to the training input (codex slice B).
+    cache_path = bundle_dir / "authoring-example.json"
+    if cache_path.is_file():
+        from tools.trace_cli.export import _scrub_summary
+        c = json.loads(cache_path.read_text())
+        src = c.get("pre_fix_source") or ""
+        fpath = c.get("file") or ""
+        fix_diff = c.get("fix_diff") or ""
+        up_minus, up_plus = _changed_lines(fix_diff)
+        summary = _scrub_summary(c.get("vuln_raw") or finding.get("summary", ""), fix_diff)
+        src_origin = "cache"
+    else:
+        ur = json.loads((bundle_dir / "upstream-ref.json").read_text())
+        commit = ur["upstream_fix_commits"][0]
+        up_minus, up_plus, fpath, span = _upstream_changed(bundle_dir)
+        summary = _strip_remediation(finding.get("summary", ""))
+        with tempfile.TemporaryDirectory() as td:
+            src = _prefix_source(commit["repo_url"], commit["commit_sha"], fpath, span, Path(td))
+        src_origin = "fetch"
     if not src:
         return {"cve": cve, "status": "skip", "reason": "could not fetch pre-fix source"}
 
@@ -151,7 +168,11 @@ def eval_bundle(bundle_dir: Path) -> dict:
         # decide if it works / closes every path (peer: the libxmp-partial risk)
     else:
         verdict = "no-attempt"     # didn't author a change
-    return {"cve": cve, "file": fpath, "verdict": verdict,
+    return {"cve": cve, "file": fpath, "verdict": verdict, "src_origin": src_origin,
+            # `authored_diff` is the model candidate — fed to the Tier 2 red→green
+            # gate + judge by expand_screen.py. It is NEVER a training label
+            # (codex guardrail: labels stay the curated upstream fix).
+            "authored_diff": authored,
             "upstream_removed": sorted(up_minus), "upstream_added": sorted(up_plus),
             "authored_removed": sorted(au_minus), "authored_added": sorted(au_plus)}
 
