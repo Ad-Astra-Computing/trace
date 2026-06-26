@@ -224,15 +224,17 @@ jobs:
                     f"{a.get('patch-applies')} | {a.get('unpatched-reproducer-fires')} | "
                     f"{a.get('backported-reproducer-clean')} |")
           PY
-          # Fail the cert if any canary could not be behaviorally MEASURED (status
-          # != "ran"). A measured candidate that fails (behavioral_pass=false) is a
-          # valid result and keeps the run green; an unmeasurable canary
-          # (precondition_failed / harness_error / missing / ...) is a red cert.
+          # Fail the cert if any canary could not be behaviorally MEASURED. A measured
+          # candidate that fails (behavioral_pass=false, status=ran) is a valid result
+          # and keeps the run green; an EXEMPT proxy-reproducer canary is excluded by
+          # design (not a real behavioral oracle) and also stays green; only genuine
+          # unmeasurables (precondition_failed / harness_error / missing / ...) red it.
           python3 - <<'PY'
           import json, os, sys
+          OK = {"ran", "exempt_proxy_reproducer"}
           r = json.load(open(os.environ["RUNNER_TEMP"] + "/authoring-behavioral.json"))
           bad = {c: b.get("behavioral_status") for c, b in r["per_canary"].items()
-                 if b.get("behavioral_status") != "ran"}
+                 if b.get("behavioral_status") not in OK}
           if bad:
               for c, s in bad.items():
                   print(f"::error::{c}: behavioral not measured (status={s})")
