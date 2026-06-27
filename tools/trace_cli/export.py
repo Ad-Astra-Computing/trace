@@ -917,6 +917,23 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
     return pair
 
 
+# The authoring TIER-B behavioral gate (codex peer <redacted-session-id>, 2026-06-27). An
+# authoring pair is corpus-eligible when its source-backport behaviorally
+# validates: patch applies, the unpatched reproducer fires, the backported
+# reproducer is clean, no version/hash bump, and the reproducer is a real
+# discriminator (not a proxy that only emits the patched signal). The label's
+# upstream fidelity is already enforced by _authoring_pair's byte-grounding, so —
+# unlike the cert-green Tier-A path — Reviewer-accept ("semantic-match-upstream-fix")
+# is NOT required here. Cert-green Tier-A bundles also pass this subset.
+_AUTHORING_BEHAVIORAL_CHECKS = (
+    "patch-applies",
+    "unpatched-reproducer-fires",
+    "backported-reproducer-clean",
+    "no-version-bump",
+    "no-proxy-signal",
+)
+
+
 def _run_authoring(args: argparse.Namespace) -> int:
     traces_root: Path = args.traces_root
     out_dir: Path = args.out
@@ -965,10 +982,32 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # A fix with 0 extractable symbols (e.g. whitespace-/comment-only, or a
         # leak class the heuristic can't name) passes the gate silently — flag it
         # so "nothing to scrub" is visibly distinct from "scrubbed clean".
+        # Behavioral gate (Tier-B contract, codex peer <redacted-session-id> 2026-06-27): the
+        # source-backport must demonstrably close the bug — unpatched fires,
+        # backported clean, patch applies, no bump, real discriminator. A pair
+        # without this evidence (e.g. a reproducer whose unpatched run fires no
+        # signal) is excluded rather than shipped as an unvalidated label.
+        from eval.backport_validation import validate_backport
+        bv = validate_backport(bd)
+        bv_by_name = {a.name: a.passed for a in bv.assertions}
+        behavioral_fail = [c for c in _AUTHORING_BEHAVIORAL_CHECKS
+                           if not bv_by_name.get(c, False)]
+        if behavioral_fail:
+            excluded.append({"bundle": bd.name,
+                             "reason": f"authoring behavioral gate fails: {behavioral_fail}"})
+            continue
         diagnostics.append({"bundle": bd.name, "cve_id": pair["cve_id"],
                             "fix_symbols": len(fix_syms), "low_signal": not fix_syms,
                             "label_source": pair.get("label_source")})
         bundle = _load_json(bd / "bundle.json") or {}
+        # Tier tag: cert-green (Tier A — also a Reviewer/Builder corpus member) when
+        # the bundle is signed AND fully validated (incl. Reviewer accept); else
+        # behavioral-only (Tier B). Recorded in provenance so the distinction is
+        # auditable and the integrity claim stays honest.
+        signed = (bd / "bundle.sig").is_file() or bool(
+            (bundle.get("signed_manifest") or {}).get("rekor_log_index"))
+        cert_green = bool(signed and bv.validated)
+        tier = "cert-green" if cert_green else "behavioral-only"
         attr = pair["attr_path"] or bd.name
         family = _normalize_attr(attr)
         # A manifest override (incl. `canary`) takes precedence over the hash split.
@@ -990,6 +1029,9 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 "fix_commit": pair["fix_commit"]["commit_sha"],
                 "steward_signed": bool((bundle.get("signed_manifest") or {}).get("rekor_log_index")),
                 "kind": bundle.get("kind"),
+                "authoring_validation_tier": tier,
+                "cert_green": cert_green,
+                "backport_validated": True,
             },
         }
         # Canary families are held out of the training JSONL (gate-pilot only).
@@ -1012,6 +1054,12 @@ def _run_authoring(args: argparse.Namespace) -> int:
     manifest = {
         "scope": "authoring", "schema_version": "1.0.0",
         "eligible_examples": len(examples), "splits": splits,
+        "tiers": {
+            "cert-green": sum(1 for e in examples + canaries
+                              if e["provenance"]["authoring_validation_tier"] == "cert-green"),
+            "behavioral-only": sum(1 for e in examples + canaries
+                                   if e["provenance"]["authoring_validation_tier"] == "behavioral-only"),
+        },
         "families": sorted({e["provenance"]["split_family"] for e in examples}),
         "canary_examples": len(canaries),
         "canary_families": sorted({e["provenance"]["split_family"] for e in canaries}),
@@ -1023,6 +1071,9 @@ def _run_authoring(args: argparse.Namespace) -> int:
         "git_show_fallback_bundles": [d["bundle"] for d in diagnostics
                                       if d.get("label_source") == "git-show-fallback"],
         "note": "label = validated upstream source fix; input = CVE (vuln-only) + pre-fix source. "
+                "Eligibility = behavioral gate (unpatched fires, backported clean, real "
+                "discriminator) + upstream-grounded label + leak scrub; cert-green is NOT required "
+                "(provenance.authoring_validation_tier records cert-green vs behavioral-only). "
                 "Leakage-partitioned: these CVEs are the author-from-vuln task; exclude them from "
                 "any transcription/backport-package export to avoid answer-key leakage. "
                 "low_signal_bundles produced 0 scrub symbols — review their inputs by hand.",
