@@ -30,9 +30,26 @@ _FIX_DIFF = (
 )
 
 
+# A source patch.diff matching the fix shape (source file, no version/hash bump),
+# so the Tier-B behavioral gate's no-version-bump check has real evidence.
+_PATCH_DIFF = (
+    "diff --git a/src/libproxychains.c b/src/libproxychains.c\n"
+    "--- a/src/libproxychains.c\n"
+    "+++ b/src/libproxychains.c\n"
+    "@@ -241,7 +241,7 @@\n"
+    "-\t\tif(proxytype == RS_PT_SOCKS5 && (ul > 255 || pl > 255))\n"
+    "+\t\tif(ul > 255 || pl > 255)\n"
+)
+
+
 def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
                    fix_diff: str = _FIX_DIFF, kind: str = "human-review-required",
-                   rekor: int | None = 1796253004) -> Path:
+                   rekor: int | None = 1796253004,
+                   behavioral: bool = True, cert_green: bool = False) -> Path:
+    """Write a behaviorally-complete source-backport fixture. `behavioral=False`
+    makes the unpatched reproducer fire no signal (the Tier-B gate must exclude
+    it). `cert_green=True` adds the signature + accepting review so the bundle is
+    fully validated (Tier A)."""
     bd = root / name
     bd.mkdir(parents=True)
     bundle = {"bundle_id": "deadbeef", "cve_id": cve, "kind": kind}
@@ -41,7 +58,8 @@ def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
     (bd / "bundle.json").write_text(json.dumps(bundle))
     (bd / "finding.json").write_text(json.dumps(
         {"cve_id": cve, "summary": summary, "affected": [{"attr_path": attr}]}))
-    (bd / "upstream-ref.json").write_text(json.dumps({"cve_id": cve}))
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"cve_id": cve, "eligibility": {"patch_strategy": "source-backport"}}))
     # Pre-built cache so _authoring_pair returns offline.
     (bd / "authoring-example.json").write_text(json.dumps({
         "cve_id": cve, "attr_path": attr, "vuln_raw": summary,
@@ -51,6 +69,20 @@ def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
         "fix_commit": {"repo_url": "https://github.com/rofl0r/proxychains-ng",
                        "commit_sha": "cc005b713281"},
     }))
+    # Behavioral-gate evidence: a real discriminator + a build record.
+    (bd / "patch.diff").write_text(_PATCH_DIFF)
+    (bd / "reproducer.nix").write_text(
+        '# echo "SIGNAL_UNPATCHED" when vuln fires; "SIGNAL_PATCHED" when fixed\n')
+    (bd / "build.json").write_text(json.dumps({
+        "patch_apply": {"applied": True, "files_changed": ["src/libproxychains.c"]},
+        "unpatched": {"outcome": "succeeded",
+                      "stdout_stderr": "SIGNAL_UNPATCHED" if behavioral else "no signal"},
+        "patched": {"outcome": "succeeded", "stdout_stderr": "SIGNAL_PATCHED"},
+    }))
+    if cert_green:
+        (bd / "bundle.sig").write_text("sig")
+        (bd / "upstream-fix.patch").write_text(fix_diff)
+        (bd / "review.md").write_text("## Verdict\naccept\n")
     return bd
 
 
@@ -135,6 +167,42 @@ def test_authoring_export_builds_clean_pair(tmp_path, capsys):
     assert ex_rec["task"] == "author-from-vuln"
     assert ex_rec["provenance"]["cve_id"] == "CVE-2025-34451"
     assert ex_rec["provenance"]["steward_signed"] is True
+    # Behaviorally validated but not signed+Reviewer-accepted -> Tier B.
+    assert ex_rec["provenance"]["authoring_validation_tier"] == "behavioral-only"
+    assert ex_rec["provenance"]["cert_green"] is False
+    assert ex_rec["provenance"]["backport_validated"] is True
+
+
+def test_authoring_tier_cert_green(tmp_path):
+    """A signed + Reviewer-accepted source-backport tags as cert-green (Tier A)."""
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
+                   cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   cert_green=True)
+    ex.run(_args(tmp_path / "out", root))
+    rec = json.loads((tmp_path / "out" / "authoring.jsonl").read_text().splitlines()[0])
+    assert rec["provenance"]["authoring_validation_tier"] == "cert-green"
+    assert rec["provenance"]["cert_green"] is True
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert manifest["tiers"]["cert-green"] == 1
+    assert manifest["tiers"]["behavioral-only"] == 0
+
+
+def test_authoring_excludes_behavioral_gate_failure(tmp_path):
+    """A pair whose unpatched reproducer fires no signal has no behavioral evidence
+    the bug exists; the Tier-B gate excludes it rather than ship an unvalidated label."""
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2025-34451--unfired-backport",
+                   cve="CVE-2025-34451", attr="unfired",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   behavioral=False)
+    ex.run(_args(tmp_path / "out", root))
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert manifest["eligible_examples"] == 0
+    assert manifest["excluded"]
+    reason = manifest["excluded"][0]["reason"]
+    assert "behavioral gate" in reason and "unpatched-reproducer-fires" in reason
 
 
 def test_authoring_export_excludes_unscrubbable_summary(tmp_path):
