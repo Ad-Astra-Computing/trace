@@ -812,6 +812,67 @@ def _file_diff_starts(fix_diff: str, fpath: str) -> list[int]:
     return starts
 
 
+# --- multi-file authoring input window (codex <redacted-session-id> 2026-06-29) --------------
+# When a label's source fix spans 2-3 files, the single-file input window leaves
+# part of the label unauthorable from the shown input (a "degraded" pair: the
+# model is asked to edit a file it cannot see). The multi-file window includes
+# EVERY changed source file so the whole label is grounded in the input.
+# Guardrails (codex): cap at 3 files for v1; total rendered window bounded by the
+# existing single-example budget with per-file truncation recorded; source files
+# only; per-file removed-line grounding preserved; reject (skip) rather than mint
+# if any required file cannot be resolved/grounded or the window cannot fit —
+# never mint a degraded multi-file label. Existing >3-file labels (libwebp) stay
+# on the single-file path (grandfathered, still flagged) until a v2 raises the cap.
+_MAX_MULTI_SOURCE_FILES = 3
+_INPUT_WINDOW_BUDGET_LINES = 320  # the observed single-example max (relaxng ~294)
+_MULTI_WINDOW_RADII = (20, 14, 10, 8, 6)  # shrink uniformly to fit the budget; 6
+#                                           still keeps every removed line (which
+#                                           sits at the hunk centre) in the window.
+
+
+def _multi_file_window(fix_diff, files, blob_reader):
+    """Build a bounded multi-file pre-fix input window for a label spanning
+    `files` (a churn-ordered list of changed SOURCE paths, len 2-3).
+    `blob_reader(fp) -> (lines, exact) | None` reads the parent-tree blob.
+
+    Returns `{"window", "included", "truncated", "primary"}` or None when the
+    label cannot be FULLY and faithfully grounded — any file unresolved, any
+    file's removed/context lines absent from its window, a non-exact path with no
+    removed line to vouch for it, or the combined window exceeding the budget even
+    at the minimum radius. The caller skips rather than mint a degraded label."""
+    if not (2 <= len(files) <= _MAX_MULTI_SOURCE_FILES):
+        return None
+    blobs: dict[str, tuple[list[str], bool]] = {}
+    for fp in files:
+        b = blob_reader(fp)
+        if b is None:
+            return None  # a required label file has no readable parent blob
+        blobs[fp] = b
+    for radius in _MULTI_WINDOW_RADII:
+        sections: list[tuple[str, str]] = []
+        ok = True
+        for fp in files:
+            blob_lines, exact = blobs[fp]
+            win = _hunk_windows(blob_lines, _file_diff_starts(fix_diff, fp) or [1], radius=radius)
+            if not win.strip() or not _patch_grounded(fix_diff, fp, win):
+                ok = False
+                break
+            # A suffix-resolved (non-exact) path must be vouched for by its OWN
+            # removed line, never another file's deletions (codex 2026-06-25).
+            if not (exact or _label_file_has_removed(fix_diff, fp)):
+                ok = False
+                break
+            sections.append((fp, win))
+        if not ok:
+            return None  # grounding failed independent of radius -> unfixable
+        total = sum(len(w.splitlines()) for _, w in sections) + len(sections)  # +headers
+        if total <= _INPUT_WINDOW_BUDGET_LINES:
+            rendered = "\n\n".join(f"/* ==== file: {fp} ==== */\n{w}" for fp, w in sections)
+            return {"window": rendered, "included": list(files),
+                    "truncated": radius != _MULTI_WINDOW_RADII[0], "primary": files[0]}
+    return None  # cannot fit the budget even at the minimum radius
+
+
 # --- upstream-release-tarball grounding (CPAN / no-public-git fallback) ---------
 # Some genuine nixpkgs source-backports patch an upstream that has NO public git
 # repo to fetch a fix COMMIT from (CPAN modules such as JSON::XS — empty META
@@ -975,6 +1036,10 @@ def _authoring_pair_from_tarballs(
         "attr_path": (finding.get("affected") or [{}])[0].get("attr_path"),
         "vuln_raw": finding.get("summary", ""),
         "file": file,
+        # Tarball grounding requires a single-file label by contract, so the input
+        # window already shows the whole label (no multi-file expansion needed).
+        "included_source_files": [file],
+        "input_window_truncated": False,
         "pre_fix_source": pre_window,
         "fix_diff": fix_diff.strip(),
         "label_source": "upstream-fix.patch",
@@ -1139,6 +1204,7 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
         # the parent tree (`_patch_grounded`); a patch authored against a divergent
         # base (procps-ng) falls back to git-show so the pair stays consistent.
         fix_diff = fpath = pre_fix = label_source = None
+        label_churn: dict[str, int] | None = None
         ufp = bundle_dir / "upstream-fix.patch"
         label_src = _authoring_label_from_patch(ufp.read_text()) if ufp.is_file() else None
         if label_src is not None:
@@ -1151,6 +1217,7 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
                 fp, pf, exact = w
                 if exact or _label_file_has_removed(label_src["fix_diff"], fp):
                     fix_diff, fpath, pre_fix, label_source = label_src["fix_diff"], fp, pf, "upstream-fix.patch"
+                    label_churn = label_src["churn"]
         if fix_diff is None:
             gs = _git_show_label()
             if gs is None:
@@ -1164,12 +1231,36 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
                 return None
             fix_diff, (fpath, pre_fix, _exact) = gs[0], w
             label_source = "git-show" if label_src is None else "git-show-fallback"
+            label_churn = gs[1]
+
+        # Multi-file input window: when the label spans 2-3 source files, replace
+        # the single-file window with one covering EVERY changed file so the whole
+        # label is authorable from the input. Reject (skip) rather than mint a
+        # degraded 2-3-file pair if any file cannot be grounded or the window won't
+        # fit the budget. Labels with >3 source files (e.g. libwebp's 4-file
+        # redesign) stay on the single-file path — grandfathered, still flagged via
+        # label_file_count — until a v2 raises the cap. (codex <redacted-session-id> 2026-06-29)
+        src_files = sorted(label_churn or {}, key=lambda p: (-(label_churn or {})[p], p))
+        included_source_files = [fpath]
+        input_window_truncated = False
+        if 2 <= len(src_files) <= _MAX_MULTI_SOURCE_FILES:
+            mw = _multi_file_window(fix_diff, src_files, _tree_blob)
+            if mw is None:
+                _skip(f"multi-file label ({len(src_files)} files) for commit "
+                      f"{sha[:12]} could not be fully grounded within the input "
+                      "budget — not minting a degraded pair")
+                return None
+            fpath, pre_fix = mw["primary"], mw["window"]
+            included_source_files = mw["included"]
+            input_window_truncated = mw["truncated"]
 
     pair = {
         "cve_id": finding.get("cve_id"),
         "attr_path": (finding.get("affected") or [{}])[0].get("attr_path"),
         "vuln_raw": finding.get("summary", ""),  # scrubbed against fix_diff at export time
         "file": fpath,
+        "included_source_files": included_source_files,
+        "input_window_truncated": input_window_truncated,
         "pre_fix_source": pre_fix,
         "fix_diff": fix_diff.strip(),
         "label_source": label_source,
@@ -1274,14 +1365,31 @@ def _run_authoring(args: argparse.Namespace) -> int:
         family = _normalize_attr(attr)
         # A manifest override (incl. `canary`) takes precedence over the hash split.
         split = split_overrides.get(family) or _split_for(attr)
+        # included_source_files names every file present in the input window (the
+        # pre_fix_source already carries per-file `/* ==== file: ... ==== */`
+        # boundaries for a multi-file window). Cached single-file pairs predating
+        # the multi-file path default to [file].
+        included = pair.get("included_source_files") or [pair["file"]]
+        src_header = ", ".join(included)
         user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
-                f"# Vulnerable source ({pair['file']})\n```c\n{pair['pre_fix_source']}\n```")
-        # How many files the LABEL changes vs the single input file: a multi-file
-        # fix (e.g. libwebp's 4-file API redesign) is a harder, auditable pair —
-        # the input shows only `pair['file']`, so a label_file_count > 1 is the
-        # signal that part of the label is not authorable from the shown input.
+                f"# Vulnerable source ({src_header})\n```c\n{pair['pre_fix_source']}\n```")
+        # How many files the LABEL changes: a multi-file fix is a harder, auditable
+        # pair. label_file_count > len(included) means part of the label edits a
+        # file NOT shown in the input (a >3-file label grandfathered onto the
+        # single-file path); included == label means the whole label is authorable.
         label_file_count = sum(
             1 for ln in pair["fix_diff"].splitlines() if ln.startswith("+++ "))
+        # fix_diff already carries source files only (both the curated-patch and
+        # git-show label paths drop tests/docs/generated), so every `+++ ` path not
+        # in the input window is a genuine omitted source file. Normalize the diff
+        # path with the SAME _strip_ab_prefix that built `included` (the churn keys)
+        # so the two sides compare consistently regardless of a/ b/ (or bare,
+        # --no-prefix) header spelling — never hardcode the `b/` width.
+        included_set = set(included)
+        omitted_source_files = sorted(
+            {p for ln in pair["fix_diff"].splitlines() if ln.startswith("+++ ")
+             for p in [_strip_ab_prefix(ln[4:])]
+             if p and p != "/dev/null" and p not in included_set})
         record = {
             "messages": [
                 {"role": "system", "content": _redact(_AUTHORING_SYSTEM)},
@@ -1301,6 +1409,26 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 "cert_green": cert_green,
                 "backport_validated": True,
                 "label_file_count": label_file_count,
+                # Multi-file input-window provenance (codex <redacted-session-id> 2026-06-29):
+                # which source files the input actually shows, which label files it
+                # omits (empty unless a >3-file label is grandfathered onto the
+                # single-file path), and whether the window was radius-truncated to
+                # fit the budget. authorable == (omitted_source_files == []).
+                "included_source_files": included,
+                "omitted_source_files": omitted_source_files,
+                "input_window_truncated": bool(pair.get("input_window_truncated", False)),
+                # Multi-file v1 status (codex <redacted-session-id> 2026-06-29): a pair is
+                # eligible_under_multifile_v1 when its whole label is authorable from
+                # the input (no omitted source file, label <= 3 files). A >3-file
+                # label (libwebp) is grandfathered on the single-file input path and
+                # flagged grandfathered_degraded_input until a v2 raises the cap.
+                "authoring_multifile_status": (
+                    "single-file" if label_file_count <= 1
+                    else "multifile-v1" if label_file_count <= _MAX_MULTI_SOURCE_FILES
+                    and not omitted_source_files
+                    else "grandfathered_degraded_input"),
+                "eligible_under_multifile_v1": (
+                    label_file_count <= _MAX_MULTI_SOURCE_FILES and not omitted_source_files),
                 "label_grounding_source": pair.get("label_grounding_source", "upstream-commit"),
             },
         }
@@ -1340,11 +1468,16 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # failures on a real source-backport) — these would otherwise vanish
         # silently; each is usually a 2-minute upstream-ref.json data fix.
         "fetch_skips": fetch_skips,
-        # Pairs whose LABEL spans >1 file (input shows one file): auditable so
-        # curation can weigh the harder multi-file authoring shape.
+        # Pairs whose LABEL spans >1 file: auditable so curation can weigh the
+        # harder multi-file authoring shape. Under multi-file v1 a 2-3-file label is
+        # fully shown in the input (multifile-v1); a >3-file label is grandfathered
+        # with a degraded single-file input until v2 (grandfathered_degraded_input).
         "multi_file_label_bundles": sorted(
             e["provenance"]["cve_id"] for e in examples + canaries
             if e["provenance"].get("label_file_count", 1) > 1),
+        "grandfathered_degraded_bundles": sorted(
+            e["provenance"]["cve_id"] for e in examples + canaries
+            if e["provenance"].get("authoring_multifile_status") == "grandfathered_degraded_input"),
         "diagnostics": diagnostics,
         "low_signal_bundles": [d["bundle"] for d in diagnostics if d["low_signal"]],
         "git_show_fallback_bundles": [d["bundle"] for d in diagnostics

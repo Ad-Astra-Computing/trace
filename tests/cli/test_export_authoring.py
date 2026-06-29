@@ -845,3 +845,99 @@ def test_authoring_pair_from_tarballs_rejects_ungrounded_added_line(tmp_path, mo
     skips = []
     assert ex._authoring_pair(bd, skips=skips) is None
     assert any("added-lines not all present" in s["reason"] for s in skips)
+
+
+# --- multi-file authoring input window (codex <redacted-session-id> 2026-06-29) --------------
+
+def _mk_blob(marker, at_line, n=40):
+    """A blob of `n` ctx lines with `marker` placed at 1-based `at_line`."""
+    lines = [f"ctx line {i}" for i in range(1, n + 1)]
+    lines[at_line - 1] = marker
+    return lines
+
+
+_TWO_FILE_DIFF = (
+    "diff --git a/foo.c b/foo.c\n--- a/foo.c\n+++ b/foo.c\n"
+    "@@ -10,2 +10,2 @@\n-    int bad_foo = 1;\n+    int good_foo = 1;\n"
+    "diff --git a/bar.c b/bar.c\n--- a/bar.c\n+++ b/bar.c\n"
+    "@@ -12,2 +12,2 @@\n-    int bad_bar = 2;\n+    int good_bar = 2;\n"
+)
+
+
+def test_multi_file_window_grounds_every_file():
+    blobs = {
+        "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
+        "bar.c": (_mk_blob("    int bad_bar = 2;", 12), True),
+    }
+    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    assert out is not None
+    assert out["included"] == ["foo.c", "bar.c"]
+    assert out["primary"] == "foo.c"
+    assert out["truncated"] is False
+    # Both files present with clear boundaries, and each removed line is grounded.
+    assert "/* ==== file: foo.c ==== */" in out["window"]
+    assert "/* ==== file: bar.c ==== */" in out["window"]
+    assert "int bad_foo = 1;" in out["window"] and "int bad_bar = 2;" in out["window"]
+
+
+def test_multi_file_window_rejects_unresolved_file():
+    blobs = {"foo.c": (_mk_blob("    int bad_foo = 1;", 10), True)}  # bar.c missing
+    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    assert out is None
+
+
+def test_multi_file_window_rejects_ungrounded_removed_line():
+    # bar.c's blob lacks the removed line -> _patch_grounded fails -> reject (no
+    # degraded mint), independent of radius.
+    blobs = {
+        "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
+        "bar.c": (_mk_blob("    something else;", 12), True),
+    }
+    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    assert out is None
+
+
+def test_multi_file_window_rejects_more_than_cap():
+    out = ex._multi_file_window(_TWO_FILE_DIFF, ["a.c", "b.c", "c.c", "d.c"],
+                                lambda fp: ([], True))
+    assert out is None
+
+
+def test_multi_file_window_rejects_nonexact_without_removed():
+    # foo.c is suffix-resolved (non-exact) AND pure-addition for its section, so no
+    # removed line vouches for it -> reject (another file's deletions must not).
+    add_diff = (
+        "diff --git a/foo.c b/foo.c\n--- a/foo.c\n+++ b/foo.c\n"
+        "@@ -10,1 +10,2 @@\n ctx line 10\n+    added_foo;\n"
+        "diff --git a/bar.c b/bar.c\n--- a/bar.c\n+++ b/bar.c\n"
+        "@@ -12,2 +12,2 @@\n-    int bad_bar = 2;\n+    int good_bar = 2;\n"
+    )
+    blobs = {
+        "foo.c": (_mk_blob("ctx line 10", 10), False),  # non-exact, pure addition
+        "bar.c": (_mk_blob("    int bad_bar = 2;", 12), True),
+    }
+    out = ex._multi_file_window(add_diff, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    assert out is None
+
+
+def test_multi_file_window_truncates_to_fit_budget(monkeypatch):
+    monkeypatch.setattr(ex, "_INPUT_WINDOW_BUDGET_LINES", 30)
+    blobs = {
+        "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
+        "bar.c": (_mk_blob("    int bad_bar = 2;", 12), True),
+    }
+    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    assert out is not None
+    assert out["truncated"] is True
+    # Truncation shrinks the radius but every removed line (hunk-centred) survives.
+    assert "int bad_foo = 1;" in out["window"] and "int bad_bar = 2;" in out["window"]
+
+
+def test_multi_file_window_rejects_when_budget_too_small(monkeypatch):
+    monkeypatch.setattr(ex, "_INPUT_WINDOW_BUDGET_LINES", 5)  # below even min-radius
+    blobs = {
+        "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
+        "bar.c": (_mk_blob("    int bad_bar = 2;", 12), True),
+    }
+    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    assert out is None
