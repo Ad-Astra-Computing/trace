@@ -40,9 +40,3 @@ exports/
 
 # local bundle-bootstrap scratch staging (never part of the corpus)
 /tmp/
-
-# CVE-2026-0989 relaxng authoring cache: `trace export authoring` regenerates it
-# every run, but the bundle is excluded (its finding.json summary names fix symbols,
-# so _scrub_summary empties it). Ignored until the summary is de-leaked + bundle
-# re-finalized (deferred); committing it would be a leaky do-nothing artifact.
-/traces/example/CVE-2026-0989--libxml2-relaxng-limit/authoring-example.json
