@@ -812,11 +812,193 @@ def _file_diff_starts(fix_diff: str, fpath: str) -> list[int]:
     return starts
 
 
+# --- upstream-release-tarball grounding (CPAN / no-public-git fallback) ---------
+# Some genuine nixpkgs source-backports patch an upstream that has NO public git
+# repo to fetch a fix COMMIT from (CPAN modules such as JSON::XS — empty META
+# resources, no github mirror). For these the upstream SOURCE truth is the
+# sha-pinned RELEASE TARBALL, not a git tree. This fallback grounds the curated
+# label against the authentic pre-fix + fixed release archives. (codex <redacted-session-id>
+# 2026-06-29 concurred; bounds: git-absent only, sha-pinned archives fetched by
+# fixed URL+hash, hash-verified BEFORE use, source-file diff only, curated patch
+# grounded against the real tarball bytes, behavioral validation still mandatory.)
+_ARCHIVE_HOST_ALLOW = (
+    "cpan.metacpan.org", "cpan.org", "backpan.perl.org",
+    "github.com", "codeload.github.com", "ftp.gnu.org", "gitlab.gnome.org",
+)
+
+
+def _archive_url_ok(url: object) -> bool:
+    """HTTPS-only, host on the release-archive allowlist (exact or sub-domain).
+    Non-string / non-https / off-list URLs are refused — the sha256 verify is the
+    integrity backstop, the allowlist limits where export-time fetches can reach."""
+    from urllib.parse import urlparse
+    if not isinstance(url, str):
+        return False
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return False
+    if p.scheme != "https" or not p.hostname:
+        return False
+    h = p.hostname.lower()
+    return any(h == d or h.endswith("." + d) for d in _ARCHIVE_HOST_ALLOW)
+
+
+def _fetch_verified(url: str, sha256: str, *, max_bytes: int = 64 * 1024 * 1024) -> bytes:
+    """Fetch `url` and return its bytes IFF the sha256 matches — verified before any
+    caller extracts. HTTPS + host-allowlisted (incl. redirect targets) + read-capped
+    so a hostile/huge/redirecting response cannot reach internal hosts or exhaust
+    memory; the sha256 pin is the content-integrity backstop."""
+    import hashlib
+    import urllib.request
+
+    class _AllowlistRedirect(urllib.request.HTTPRedirectHandler):
+        # Re-apply the host allowlist to every redirect target — a 3xx from an
+        # allowlisted release host must not bounce the fetch to an arbitrary
+        # (e.g. internal) host.
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            if not _archive_url_ok(newurl):
+                raise ValueError(f"archive redirect to non-allowlisted host: {newurl}")
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+    if not _archive_url_ok(url):
+        raise ValueError(f"archive url not https-allowlisted: {url}")
+    opener = urllib.request.build_opener(_AllowlistRedirect())
+    req = urllib.request.Request(url, headers={"User-Agent": "trace-authoring-export"})
+    with opener.open(req, timeout=60) as resp:  # nosec B310 - https + host-allowlisted (incl redirects) + sha256-verified
+        data = resp.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"archive exceeds {max_bytes} byte cap: {url}")
+    got = hashlib.sha256(data).hexdigest()
+    if got != sha256:
+        raise ValueError(f"archive sha256 mismatch for {url}: got {got}, want {sha256}")
+    return data
+
+
+def _tar_member_text(data: bytes, member: str, *, max_member_bytes: int = 16 * 1024 * 1024) -> str:
+    """Read ONE declared regular-file member from an in-memory tar archive as text.
+    The member name is an EXACT lookup (never a glob/extraction to disk), so there
+    is no path-traversal or symlink-write surface; the size cap bounds a zip-bomb
+    member. Raises on absent / non-regular / oversize members."""
+    import io
+    import tarfile
+    norm = os.path.normpath(member)
+    if os.path.isabs(member) or norm.startswith(".."):
+        raise ValueError(f"unsafe tar member path: {member!r}")
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
+        ti = tf.getmember(member)
+        if not ti.isfile():
+            raise ValueError(f"tar member is not a regular file: {member!r}")
+        if ti.size > max_member_bytes:
+            raise ValueError(f"tar member too large: {member!r} ({ti.size} bytes)")
+        f = tf.extractfile(ti)
+        if f is None:
+            raise ValueError(f"tar member not extractable: {member!r}")
+        raw = f.read(max_member_bytes + 1)
+    if len(raw) > max_member_bytes:
+        raise ValueError(f"tar member exceeds cap during read: {member!r}")
+    return raw.decode("utf-8", errors="replace")
+
+
+def _authoring_pair_from_tarballs(
+    bundle_dir: Path, finding: dict, *, skips: list[dict] | None = None
+) -> dict[str, Any] | None:
+    """Tarball-grounded authoring pair: window the pre-fix RELEASE source (input)
+    and use the curated `upstream-fix.patch` as the label, grounding both sides
+    against the authentic sha-pinned archives. Single-source-file only (the input
+    shows one file). Caches to authoring-example.json exactly like the git path."""
+    def _skip(reason: str) -> None:
+        if skips is not None:
+            skips.append({"bundle": bundle_dir.name, "reason": reason})
+
+    spec = _load_json(bundle_dir / "source-archives.json") or {}
+    if spec.get("label_grounding_source") != "upstream-release-tarball":
+        _skip("source-archives.json present but label_grounding_source != upstream-release-tarball")
+        return None
+    file = spec.get("file")
+    pre, fixed = spec.get("pre_fix") or {}, spec.get("fixed") or {}
+    if not isinstance(file, str) or not file:
+        _skip("source-archives.json missing 'file'")
+        return None
+    for tag, a in (("pre_fix", pre), ("fixed", fixed)):
+        if not (_archive_url_ok(a.get("url"))
+                and isinstance(a.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", a.get("sha256", ""))
+                and isinstance(a.get("member"), str)):
+            _skip(f"{tag} archive: url not https-allowlisted, or sha256 not 64-hex, or member missing")
+            return None
+
+    ufp = bundle_dir / "upstream-fix.patch"
+    label_src = _authoring_label_from_patch(ufp.read_text()) if ufp.is_file() else None
+    if label_src is None:
+        _skip("no curated upstream-fix.patch to ground")
+        return None
+    # Single-file authoring contract: the label must edit exactly the shown file.
+    if list(label_src["churn"]) != [file]:
+        _skip(f"curated patch edits {list(label_src['churn'])} != declared file [{file}]")
+        return None
+    fix_diff = label_src["fix_diff"]
+
+    try:
+        pre_text = _tar_member_text(_fetch_verified(pre["url"], pre["sha256"]), pre["member"])
+        fixed_text = _tar_member_text(_fetch_verified(fixed["url"], fixed["sha256"]), fixed["member"])
+    except (OSError, ValueError, KeyError) as e:
+        _skip(f"tarball fetch/extract failed: {e}")
+        return None
+
+    # Ground BOTH sides against the authentic release bytes: every removed line
+    # must exist in the PRE-fix member, every added line in the FIXED member. This
+    # ties the curated label to the real upstream (vuln -> fix) source — the
+    # tarball-diff analogue of the git path's parent-tree grounding.
+    pre_pool = {l.strip() for l in pre_text.splitlines() if l.strip()}
+    fixed_pool = {l.strip() for l in fixed_text.splitlines() if l.strip()}
+    removed = [l[1:].strip() for l in fix_diff.splitlines()
+               if l.startswith("-") and not l.startswith("---") and l[1:].strip()]
+    added = [l[1:].strip() for l in fix_diff.splitlines()
+             if l.startswith("+") and not l.startswith("+++") and l[1:].strip()]
+    if not removed and not added:
+        _skip("curated patch has no +/- lines to ground")
+        return None
+    if not all(r in pre_pool for r in removed):
+        _skip("curated patch removed-lines not all present in the pre-fix tarball member")
+        return None
+    if not all(a in fixed_pool for a in added):
+        _skip("curated patch added-lines not all present in the fixed tarball member")
+        return None
+
+    pre_window = _hunk_windows(pre_text.splitlines(), _file_diff_starts(fix_diff, file) or [1], radius=20)
+    if not pre_window.strip():
+        _skip("empty pre-fix window from tarball member")
+        return None
+
+    pair = {
+        "cve_id": finding.get("cve_id"),
+        "attr_path": (finding.get("affected") or [{}])[0].get("attr_path"),
+        "vuln_raw": finding.get("summary", ""),
+        "file": file,
+        "pre_fix_source": pre_window,
+        "fix_diff": fix_diff.strip(),
+        "label_source": "upstream-fix.patch",
+        "label_grounding_source": "upstream-release-tarball",
+        "source_archive_hashes": {
+            "pre_fix": {"url": pre["url"], "sha256": pre["sha256"], "member": pre["member"]},
+            "fixed": {"url": fixed["url"], "sha256": fixed["sha256"], "member": fixed["member"]},
+        },
+        # No git commit for a CPAN release — record the release URL for provenance.
+        "fix_commit": {"repo_url": spec.get("release_url", fixed["url"]), "commit_sha": ""},
+    }
+    (bundle_dir / "authoring-example.json").write_text(json.dumps(pair, indent=2) + "\n")
+    return pair
+
+
 def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dict[str, Any] | None:
     """Build (or load cached) the authoring training pair for a source-backport
     bundle: pre-fix source window (input) + the upstream commit's source diff
     (label). Cached to <bundle>/authoring-example.json for deterministic, offline
     re-export (the git blobs are sha-pinned, so the content is reproducible).
+
+    A bundle carrying `source-archives.json` (CPAN / no-public-git upstream) is
+    grounded against sha-pinned release tarballs instead of a git fix-commit —
+    see `_authoring_pair_from_tarballs`.
 
     `skips` (when given) collects `{bundle, reason}` for SURPRISING None returns
     (fetch/parent/grounding failures on a real source-backport) so the export
@@ -836,11 +1018,15 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
             return None
         return cached
 
+    ur = _load_json(bundle_dir / "upstream-ref.json") or {}
+    finding = _load_json(bundle_dir / "finding.json") or {}
+    # CPAN / no-public-git fallback: ground against sha-pinned release tarballs.
+    if (bundle_dir / "source-archives.json").is_file():
+        return _authoring_pair_from_tarballs(bundle_dir, finding, skips=skips)
+
     import subprocess, tempfile
     from tools.trace_cli import backport_patch as bp
 
-    ur = _load_json(bundle_dir / "upstream-ref.json") or {}
-    finding = _load_json(bundle_dir / "finding.json") or {}
     commits = ur.get("upstream_fix_commits") or []
     if not commits or ur.get("eligibility", {}).get("patch_strategy") != "source-backport":
         return None
@@ -1115,6 +1301,7 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 "cert_green": cert_green,
                 "backport_validated": True,
                 "label_file_count": label_file_count,
+                "label_grounding_source": pair.get("label_grounding_source", "upstream-commit"),
             },
         }
         # Canary families are held out of the training JSONL (gate-pilot only).
