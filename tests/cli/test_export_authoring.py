@@ -100,6 +100,65 @@ def test_fix_symbols_only_from_changed_lines():
     assert "proxy_from_string" not in syms  # only in the @@ hunk header (context)
 
 
+def test_fix_symbols_skips_string_literal_words():
+    """Words that live only inside an error-message string are prose, not a tell
+    of where the fix lands — they must not become fix-symbols (the ffmpeg av_log
+    over-scrub class). Genuine code identifiers on the same line are still kept."""
+    diff = ("--- a/x.c\n+++ b/x.c\n@@ -1 +1 @@\n"
+            '-  log_message("too few columns");\n'
+            '+  emit_warning("too few columns or planes here");\n')
+    syms = ex._fix_symbols(diff)
+    assert "log_message" in syms and "emit_warning" in syms   # code idents kept
+    assert "columns" not in syms and "planes" not in syms     # string-only prose dropped
+
+
+def test_fix_symbols_skips_comment_words():
+    """`//` and block-comment prose must not become fix-symbols (the libwebp /
+    relaxng comment over-scrub class); a real identifier on a code line is kept."""
+    line_comment = ("--- a/x.c\n+++ b/x.c\n@@ -1 +2 @@\n"
+                    "+  // Contiguous memory segment of decoded entries\n"
+                    "+  HuffmanTables tables;\n")
+    syms = ex._fix_symbols(line_comment)
+    assert "HuffmanTables" in syms                                   # code ident kept
+    assert "Contiguous" not in syms and "segment" not in syms        # comment prose dropped
+    block = ("--- a/y.c\n+++ b/y.c\n@@ -1 +3 @@\n"
+             "+/*\n"
+             "+ * Default include limit to avoid runaway recursion\n"
+             "+ */\n"
+             "+  static const int kIncludeMax = 1000;\n")
+    bsyms = ex._fix_symbols(block)
+    assert "kIncludeMax" in bsyms and "1000" in bsyms               # code kept
+    assert "include" not in bsyms and "recursion" not in bsyms      # block-comment prose dropped
+
+
+def test_fix_symbols_skips_blockcomment_without_star_prefix():
+    """A multi-line block comment whose continuation lines have NO leading `*`
+    (`/*\\n  prose\\n*/`) must still be fully dropped — the comment-open state is
+    threaded across lines (codex review 2026-06-29)."""
+    diff = ("--- a/z.c\n+++ b/z.c\n@@ -1 +4 @@\n"
+            "+/*\n"
+            "+   runaway recursion overflow when parsing nested includes\n"
+            "+   keeps growing the working buffer\n"
+            "+*/\n"
+            "+  parse_nested(node);\n")
+    syms = ex._fix_symbols(diff)
+    assert "parse_nested" in syms                                   # code kept
+    for prose in ("runaway", "recursion", "overflow", "parsing", "includes",
+                  "growing", "working", "buffer"):
+        assert prose not in syms                                    # no-star continuation dropped
+
+
+def test_code_only_keeps_deref_and_preprocessor():
+    # `*ptr` deref and `#define` (preprocessor, not a comment) are CODE and must
+    # survive _code_only; it returns (stripped_body, block_open_state).
+    assert "ptr_value" in ex._code_only("  *ptr_value = 5;")[0]
+    assert "MY_MACRO" in ex._code_only("#define MY_MACRO 1")[0]
+    assert ex._code_only("foo();  // trailing comment words")[0].strip() == "foo();"
+    # an unterminated block opener leaves the state open for the next line
+    _, still_open = ex._code_only("x = 1; /* opens a block")
+    assert still_open is True
+
+
 def test_fix_symbols_skips_generic_short_tokens():
     syms = ex._fix_symbols("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-if (a > b)\n+if (a >= b)\n")
     assert "if" not in syms  # too short / generic
@@ -616,3 +675,56 @@ def test_authoring_v1_manifest_is_valid_and_clean():
     assert m["name"] == "authoring-v1"
     assert all(v["split"] == "canary" for v in m["overrides"].values())
     assert all("reason" in v for v in m["overrides"].values())
+
+
+# --- B: fetch-skip observability + C: multi-file label auditability ----------
+
+def test_authoring_pair_records_unsafe_sha_skip(tmp_path):
+    """A real source-backport whose upstream sha is not resolvable must not vanish
+    silently: _authoring_pair appends a {bundle, reason} to `skips`. (The non-hex
+    sha is rejected offline, before any fetch.)"""
+    bd = tmp_path / "CVE-2024-0001--demo"
+    bd.mkdir(parents=True)
+    (bd / "upstream-ref.json").write_text(json.dumps({
+        "cve_id": "CVE-2024-0001",
+        "eligibility": {"patch_strategy": "source-backport"},
+        "upstream_fix_commits": [
+            {"repo_url": "https://github.com/demo/proj", "commit_sha": "NOTHEXSHA"}],
+    }))
+    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2024-0001", "summary": "x"}))
+    skips: list[dict] = []
+    pair = ex._authoring_pair(bd, skips=skips)
+    assert pair is None
+    assert skips and skips[0]["bundle"] == bd.name
+    assert "unsafe" in skips[0]["reason"] and "commit_sha" in skips[0]["reason"]
+
+
+def test_authoring_pair_expected_skip_not_recorded(tmp_path):
+    """A non-source-backport (routine skip) must NOT be recorded — `skips` is for
+    anomalies, not every bundle the exporter passes over."""
+    bd = tmp_path / "CVE-2024-0002--demo"
+    bd.mkdir(parents=True)
+    (bd / "upstream-ref.json").write_text(json.dumps({"cve_id": "CVE-2024-0002"}))  # no source-backport
+    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2024-0002", "summary": "x"}))
+    skips: list[dict] = []
+    assert ex._authoring_pair(bd, skips=skips) is None
+    assert skips == []
+
+
+def test_authoring_manifest_records_multi_file_label(tmp_path):
+    """A pair whose LABEL spans >1 file records label_file_count and is listed in
+    manifest.multi_file_label_bundles; the fetch_skips field is always present."""
+    root = tmp_path / "traces"
+    multi = (_FIX_DIFF +
+             "diff --git a/src/other.c b/src/other.c\n"
+             "--- a/src/other.c\n+++ b/src/other.c\n@@ -1 +1 @@\n-old_line\n+new_line\n")
+    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
+                   cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   fix_diff=multi)
+    ex.run(_args(tmp_path / "out", root))
+    rec = json.loads((tmp_path / "out" / "authoring.jsonl").read_text().splitlines()[0])
+    assert rec["provenance"]["label_file_count"] == 2
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert "CVE-2025-34451" in m["multi_file_label_bundles"]
+    assert "fetch_skips" in m

@@ -469,6 +469,46 @@ _REMEDIATION_RE = re.compile(
 _SAFE_REV_RE = re.compile(r"[0-9a-f]{7,40}\Z")
 
 
+def _code_only(body: str, in_block: bool = False) -> tuple[str, bool]:
+    """Return (`body` with string-literal CONTENTS and comments removed, whether a
+    `/* ... */` block comment is still OPEN after this line). `_fix_symbols`
+    threads the open-state across diff lines so EVERY continuation line of a
+    multi-line block comment is dropped — including the common style with no
+    leading `*` (`/*\\n  prose\\n*/`). Words inside an error-message string
+    (av_log's "Video with planes ...") or a comment are natural language, not a
+    tell of where the fix lands; extracting them as fix-symbols over-scrubs any
+    vuln summary that shares that vocabulary (the relaxng / ffmpeg / libwebp
+    classes). A real new identifier the fix introduces still lives in CODE, so it
+    is still extracted from the remainder. `#` is a C preprocessor directive
+    (code), NOT a comment."""
+    out: list[str] = []
+    i, n = 0, len(body)
+    while i < n:
+        if in_block:                         # inside a /* ... */ — drop until */
+            end = body.find("*/", i)
+            if end == -1:
+                return "".join(out), True
+            i, in_block = end + 2, False
+            continue
+        two = body[i:i + 2]
+        if two == "/*":
+            in_block = True
+            i += 2
+            continue
+        if two == "//":                      # line comment -> EOL
+            break
+        ch = body[i]
+        if ch in ('"', "'"):                 # skip a string literal (honor escapes)
+            j = i + 1
+            while j < n and body[j] != ch:
+                j += 2 if body[j] == "\\" else 1
+            i = j + 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out), in_block
+
+
 def _fix_symbols(fix_diff: str) -> set[str]:
     """Symbols a CVE summary must NOT name, or it leaks where/how the fix lands:
 
@@ -479,15 +519,32 @@ def _fix_symbols(fix_diff: str) -> set[str]:
       * numeric literals that CHANGED between the removed and added lines (a moved
         bound, e.g. `> 10` -> `> 8`). Symmetric difference, not union: a constant
         present on both sides (an unchanged buffer size the vuln legitimately
-        names, e.g. proxychains's 255) is a vulnerability fact, not a fix tell."""
+        names, e.g. proxychains's 255) is a vulnerability fact, not a fix tell.
+
+    Extraction reads CODE only (`_code_only`, with block-comment state threaded
+    per side): tokens living exclusively inside a string literal or comment are
+    prose, not fix-location tells. Context lines advance the comment state of BOTH
+    sides without being tokenized; hunk/file headers reset it (comments do not
+    span hunks)."""
     syms: set[str] = set()
     minus_nums: set[str] = set()
     plus_nums: set[str] = set()
+    new_blk = old_blk = False
     for ln in fix_diff.splitlines():
-        side = ln[:1]
-        if side not in ("+", "-") or ln.startswith(("+++", "---")):
+        if ln.startswith(("diff ", "@@", "+++", "---")):
+            new_blk = old_blk = False
             continue
-        body = ln[1:]
+        side = ln[:1]
+        if side == " ":                      # context: advances both sides' state
+            _, new_blk = _code_only(ln[1:], new_blk)
+            _, old_blk = _code_only(ln[1:], old_blk)
+            continue
+        if side == "+":
+            body, new_blk = _code_only(ln[1:], new_blk)
+        elif side == "-":
+            body, old_blk = _code_only(ln[1:], old_blk)
+        else:
+            continue
         for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", body):
             if "_" in tok or tok.isupper() or tok != tok.lower() or len(tok) >= 6:
                 syms.add(tok)
@@ -755,11 +812,21 @@ def _file_diff_starts(fix_diff: str, fpath: str) -> list[int]:
     return starts
 
 
-def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
+def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dict[str, Any] | None:
     """Build (or load cached) the authoring training pair for a source-backport
     bundle: pre-fix source window (input) + the upstream commit's source diff
     (label). Cached to <bundle>/authoring-example.json for deterministic, offline
-    re-export (the git blobs are sha-pinned, so the content is reproducible)."""
+    re-export (the git blobs are sha-pinned, so the content is reproducible).
+
+    `skips` (when given) collects `{bundle, reason}` for SURPRISING None returns
+    (fetch/parent/grounding failures on a real source-backport) so the export
+    manifest can report why a bundle silently vanished, instead of leaving the
+    data-fix invisible. EXPECTED skips (not a source-backport, nixpkgs packaging
+    commit) are not recorded — they are routine, not anomalies."""
+    def _skip(reason: str) -> None:
+        if skips is not None:
+            skips.append({"bundle": bundle_dir.name, "reason": reason})
+
     cache = bundle_dir / "authoring-example.json"
     if cache.is_file():
         cached = json.loads(cache.read_text())
@@ -789,6 +856,7 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
     try:
         repo_url = bp.clone_url(repo_url)  # validate + map cgit browse URL -> clone endpoint
     except bp.BackportError:
+        _skip(f"upstream repo url rejected: {repo_url!r}")
         return None
     # sha is feed-sourced (upstream-ref.json); it reaches `git fetch origin <sha>`
     # as a bare arg, where a value like `--upload-pack=...` would be option
@@ -798,6 +866,7 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
     # isn't pure hex. (backport_patch's _SAFE_REV_RE is 40-only because its revs
     # come from a full-sha resolver path; authoring reads hand-authored bundles.)
     if not _SAFE_REV_RE.match(sha):
+        _skip(f"unsafe upstream commit_sha {sha!r} (not hex [0-9a-f]{{7,40}})")
         return None
 
     with tempfile.TemporaryDirectory(prefix="trace-author-export-") as td:
@@ -814,9 +883,12 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
         # shas and shas the server refuses as a direct want (cgit/savannah) without
         # a slow full-history transfer — the file blob is pulled lazily below.
         if not bp.blobless_fetch_commit(git, sha):
+            _skip(f"could not fetch upstream commit {sha[:12]} from {repo_url} "
+                  f"(sha not on this repo? try the github-mirror commit)")
             return None
         parent = git("rev-parse", "-q", "--verify", f"{sha}^").stdout.strip()
         if not parent:
+            _skip(f"upstream commit {sha[:12]} has no resolvable parent")
             return None
         def _tree_blob(fp: str) -> tuple[list[str], bool] | None:
             """Read fp's parent-tree blob as (lines, exact). `exact` is False when
@@ -896,9 +968,13 @@ def _authoring_pair(bundle_dir: Path) -> dict[str, Any] | None:
         if fix_diff is None:
             gs = _git_show_label()
             if gs is None:
+                _skip(f"upstream commit {sha[:12]} has no source diff to label "
+                      "(tests/docs only, or empty)")
                 return None
             w = _windowed(*gs)
             if w is None:
+                _skip(f"could not window the input file from commit {sha[:12]} "
+                      "(changed file absent from the parent tree)")
                 return None
             fix_diff, (fpath, pre_fix, _exact) = gs[0], w
             label_source = "git-show" if label_src is None else "git-show-fallback"
@@ -957,11 +1033,11 @@ def _run_authoring(args: argparse.Namespace) -> int:
         split_manifest_meta = {"name": sm.get("name"), "path": str(manifest_path),
                                "overrides": list(split_overrides.keys())}
 
-    examples, canaries, excluded, diagnostics = [], [], [], []
+    examples, canaries, excluded, diagnostics, fetch_skips = [], [], [], [], []
     for bd in sorted(traces_root.glob("CVE-*")):
         if not (bd / "upstream-ref.json").is_file():
             continue
-        pair = _authoring_pair(bd)
+        pair = _authoring_pair(bd, skips=fetch_skips)
         if pair is None:
             continue
         if not (pair["vuln_raw"] and pair["pre_fix_source"] and pair["fix_diff"]):
@@ -1014,6 +1090,12 @@ def _run_authoring(args: argparse.Namespace) -> int:
         split = split_overrides.get(family) or _split_for(attr)
         user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
                 f"# Vulnerable source ({pair['file']})\n```c\n{pair['pre_fix_source']}\n```")
+        # How many files the LABEL changes vs the single input file: a multi-file
+        # fix (e.g. libwebp's 4-file API redesign) is a harder, auditable pair —
+        # the input shows only `pair['file']`, so a label_file_count > 1 is the
+        # signal that part of the label is not authorable from the shown input.
+        label_file_count = sum(
+            1 for ln in pair["fix_diff"].splitlines() if ln.startswith("+++ "))
         record = {
             "messages": [
                 {"role": "system", "content": _redact(_AUTHORING_SYSTEM)},
@@ -1032,6 +1114,7 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 "authoring_validation_tier": tier,
                 "cert_green": cert_green,
                 "backport_validated": True,
+                "label_file_count": label_file_count,
             },
         }
         # Canary families are held out of the training JSONL (gate-pilot only).
@@ -1066,6 +1149,15 @@ def _run_authoring(args: argparse.Namespace) -> int:
         "canary_cves": [e["provenance"]["cve_id"] for e in canaries],
         "split_manifest": split_manifest_meta,
         "excluded": excluded,
+        # SURPRISING None returns from _authoring_pair (fetch/parent/grounding
+        # failures on a real source-backport) — these would otherwise vanish
+        # silently; each is usually a 2-minute upstream-ref.json data fix.
+        "fetch_skips": fetch_skips,
+        # Pairs whose LABEL spans >1 file (input shows one file): auditable so
+        # curation can weigh the harder multi-file authoring shape.
+        "multi_file_label_bundles": sorted(
+            e["provenance"]["cve_id"] for e in examples + canaries
+            if e["provenance"].get("label_file_count", 1) > 1),
         "diagnostics": diagnostics,
         "low_signal_bundles": [d["bundle"] for d in diagnostics if d["low_signal"]],
         "git_show_fallback_bundles": [d["bundle"] for d in diagnostics
