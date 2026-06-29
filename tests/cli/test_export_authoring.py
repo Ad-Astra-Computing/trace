@@ -728,3 +728,120 @@ def test_authoring_manifest_records_multi_file_label(tmp_path):
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert "CVE-2025-34451" in m["multi_file_label_bundles"]
     assert "fetch_skips" in m
+
+
+# --- upstream-release-tarball grounding (CPAN / no-public-git fallback) ---------
+import io
+import tarfile
+
+
+def _make_targz(members: dict[str, str]) -> bytes:
+    """An in-memory .tar.gz of {member_path: text}."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for name, text in members.items():
+            data = text.encode()
+            ti = tarfile.TarInfo(name)
+            ti.size = len(data)
+            tf.addfile(ti, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def test_archive_url_ok_allowlist():
+    assert ex._archive_url_ok("https://cpan.metacpan.org/authors/id/M/ML/MLEHMANN/JSON-XS-4.03.tar.gz")
+    assert ex._archive_url_ok("https://ftp.example.cpan.org/x.tar.gz")  # sub-domain of cpan.org
+    # rejected: wrong scheme, off-list host, non-string
+    assert not ex._archive_url_ok("http://cpan.metacpan.org/x.tar.gz")
+    assert not ex._archive_url_ok("https://evil.example.com/x.tar.gz")
+    assert not ex._archive_url_ok("ftp://cpan.org/x.tar.gz")
+    assert not ex._archive_url_ok(None)
+
+
+def test_tar_member_text_reads_exact_member():
+    data = _make_targz({"JSON-XS-4.03/XS.xs": "line1\nline2\n", "JSON-XS-4.03/README": "x"})
+    assert ex._tar_member_text(data, "JSON-XS-4.03/XS.xs") == "line1\nline2\n"
+
+
+def test_tar_member_text_rejects_traversal_and_absolute():
+    data = _make_targz({"ok": "x"})
+    import pytest
+    for bad in ("../etc/passwd", "/etc/passwd"):
+        with pytest.raises(ValueError):
+            ex._tar_member_text(data, bad)
+
+
+def test_tar_member_text_size_cap():
+    data = _make_targz({"big": "A" * 100})
+    import pytest
+    with pytest.raises(ValueError):
+        ex._tar_member_text(data, "big", max_member_bytes=10)
+
+
+def test_authoring_pair_from_tarballs_grounds_and_caches(tmp_path, monkeypatch):
+    # pre-fix member contains the line the patch REMOVES; fixed member contains the
+    # line it ADDS. Grounding must pass and the pair must cache offline.
+    pre = "ctx a\nbad_old_line;\nctx b\n" + "\n".join(f"f{i}" for i in range(40)) + "\n"
+    fixed = "ctx a\ngood_new_line;\nctx b\n" + "\n".join(f"f{i}" for i in range(40)) + "\n"
+    patch = (
+        "--- a/Mod.pm\n"
+        "+++ b/Mod.pm\n"
+        "@@ -1,3 +1,3 @@\n"
+        " ctx a\n"
+        "-bad_old_line;\n"
+        "+good_new_line;\n"
+        " ctx b\n"
+    )
+    bd = tmp_path / "CVE-2099-0001--mod-backport"
+    bd.mkdir()
+    (bd / "upstream-fix.patch").write_text(patch)
+    (bd / "finding.json").write_text(json.dumps({
+        "cve_id": "CVE-2099-0001",
+        "summary": "A flaw in Mod.pm.",
+        "affected": [{"attr_path": "perlPackages.Mod"}],
+    }))
+    (bd / "source-archives.json").write_text(json.dumps({
+        "label_grounding_source": "upstream-release-tarball",
+        "file": "Mod.pm",
+        "release_url": "https://cpan.metacpan.org/release/Mod-2.0",
+        "pre_fix": {"url": "https://cpan.metacpan.org/Mod-1.0.tar.gz", "sha256": "a" * 64, "member": "Mod-1.0/Mod.pm"},
+        "fixed": {"url": "https://cpan.metacpan.org/Mod-2.0.tar.gz", "sha256": "b" * 64, "member": "Mod-2.0/Mod.pm"},
+    }))
+    pre_tgz = _make_targz({"Mod-1.0/Mod.pm": pre})
+    fixed_tgz = _make_targz({"Mod-2.0/Mod.pm": fixed})
+    def fake_fetch(url, sha256, **kw):
+        return pre_tgz if "1.0" in url else fixed_tgz
+    monkeypatch.setattr(ex, "_fetch_verified", fake_fetch)
+
+    skips = []
+    pair = ex._authoring_pair(bd, skips=skips)
+    assert pair is not None, skips
+    assert pair["file"] == "Mod.pm"
+    assert pair["label_grounding_source"] == "upstream-release-tarball"
+    assert "bad_old_line;" in pair["pre_fix_source"]
+    assert pair["fix_commit"]["commit_sha"] == ""
+    # cached offline: a second call returns without re-fetching
+    monkeypatch.setattr(ex, "_fetch_verified", lambda *a, **k: (_ for _ in ()).throw(AssertionError("refetched")))
+    assert ex._authoring_pair(bd)["file"] == "Mod.pm"
+
+
+def test_authoring_pair_from_tarballs_rejects_ungrounded_added_line(tmp_path, monkeypatch):
+    # fixed member does NOT contain the added line -> grounding must fail (None+skip)
+    pre = "ctx a\nbad_old_line;\nctx b\n"
+    fixed = "ctx a\nSOMETHING_ELSE;\nctx b\n"
+    patch = ("--- a/Mod.pm\n+++ b/Mod.pm\n@@ -1,3 +1,3 @@\n ctx a\n-bad_old_line;\n+good_new_line;\n ctx b\n")
+    bd = tmp_path / "CVE-2099-0002--mod-backport"
+    bd.mkdir()
+    (bd / "upstream-fix.patch").write_text(patch)
+    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2099-0002", "summary": "x",
+                                                 "affected": [{"attr_path": "perlPackages.Mod"}]}))
+    (bd / "source-archives.json").write_text(json.dumps({
+        "label_grounding_source": "upstream-release-tarball", "file": "Mod.pm",
+        "pre_fix": {"url": "https://cpan.metacpan.org/Mod-1.0.tar.gz", "sha256": "a" * 64, "member": "Mod-1.0/Mod.pm"},
+        "fixed": {"url": "https://cpan.metacpan.org/Mod-2.0.tar.gz", "sha256": "b" * 64, "member": "Mod-2.0/Mod.pm"},
+    }))
+    monkeypatch.setattr(ex, "_fetch_verified",
+                        lambda url, *a, **k: _make_targz({"Mod-1.0/Mod.pm": pre}) if "1.0" in url
+                        else _make_targz({"Mod-2.0/Mod.pm": fixed}))
+    skips = []
+    assert ex._authoring_pair(bd, skips=skips) is None
+    assert any("added-lines not all present" in s["reason"] for s in skips)
