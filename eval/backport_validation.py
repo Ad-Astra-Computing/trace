@@ -129,19 +129,70 @@ def _reviewer_accepted(bundle_dir: Path) -> bool:
     return "accept" in head.split("## verdict", 1)[1][:40]
 
 
+_FETCHPATCH_OPEN_RE = re.compile(r"\(fetchpatch\s*\{")
+
+
+def _fetchpatch_scoped_offenders(text: str) -> list[str]:
+    """Return added lines that look like version/hash bumps but are OUTSIDE any
+    fetchpatch { ... } block.  Lines inside a fetchpatch block are exempt because
+    they are content-hashes of the fetched patch, not package-source version bumps.
+    Tracks brace depth across the added-line window to determine block membership."""
+    outside_offenders: list[str] = []
+    depth = 0          # brace nesting inside the innermost fetchpatch block
+    in_fetchpatch = False
+    for ln in text.splitlines():
+        # Only care about added lines (not file headers, context, removals)
+        if not ln.startswith("+") or ln.startswith("+++"):
+            continue
+        body = ln[1:]  # strip leading "+"
+        if _FETCHPATCH_OPEN_RE.search(body):
+            in_fetchpatch = True
+            depth = 1  # count the opening brace in this line
+            # also count any additional { or } on this same line after the open
+            depth += body.count("{", body.index("{") + 1) - body.count("}")
+            continue
+        if in_fetchpatch:
+            depth += body.count("{") - body.count("}")
+            if depth <= 0:
+                in_fetchpatch = False
+                depth = 0
+            continue
+        # Not inside a fetchpatch block — apply the normal bump check
+        if _VERSION_BUMP_RE.match(ln):
+            outside_offenders.append(ln)
+    return outside_offenders
+
+
 def _no_version_bump(bundle_dir: Path) -> tuple[bool, str]:
     """A source-backport must change source, not the version/hash. Fails if any
     added line looks like a version/rev/hash assignment; also requires positive
     evidence of a source change (a new `.patch` file added, or a non-.nix file
-    touched) so an empty/degenerate diff cannot pass by absence."""
+    touched) so an empty/degenerate diff cannot pass by absence.
+
+    Fetchpatch overlay exception: a `patch.diff` that only modifies .nix files by
+    adding a `fetchpatch { ... }` block legitimately contains added `hash = ...`
+    lines (these are content-hashes of the fetched patch, NOT source version bumps).
+    When the bundle also carries `upstream-fix.patch`, that IS the source-change
+    evidence.  Only hash/sha256 assignments INSIDE the fetchpatch block are exempted;
+    version/rev bumps anywhere, and hash bumps OUTSIDE the block, are still rejected
+    (codex peer <redacted-session-id> P2 fix 2026-07-01)."""
     patch = bundle_dir / "patch.diff"
     if not patch.is_file():
         return False, "patch.diff missing"
     text = patch.read_text()
+
     offenders = [
         ln for ln in text.splitlines() if _VERSION_BUMP_RE.match(ln)
     ]
     if offenders:
+        # Fetchpatch overlay: hash = lines inside `fetchpatch { }` blocks are
+        # patch content-hashes, not source-version bumps.  Re-check excluding
+        # those in-block lines; any remaining offender is a real version bump.
+        if "fetchpatch {" in text and (bundle_dir / "upstream-fix.patch").is_file():
+            outside = _fetchpatch_scoped_offenders(text)
+            if not outside:
+                return True, "fetchpatch overlay with upstream-fix.patch (source change, no version/hash bump)"
+            return False, f"version/hash change outside fetchpatch block: {outside[0].strip()[:60]!r}"
         return False, f"version/hash change in patch.diff: {offenders[0].strip()[:60]!r}"
 
     # Positive source-change evidence: prefer the Builder's own record of which

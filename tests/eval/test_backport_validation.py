@@ -156,6 +156,101 @@ def test_no_version_bump_accepts_added_patch_file(tmp_path):
     assert nb.passed, nb.detail
 
 
+def test_no_version_bump_accepts_fetchpatch_overlay(tmp_path):
+    """fetchpatch overlay: patch.diff only touches .nix but carries a fetchpatch
+    block, and the bundle has upstream-fix.patch — this is a valid source fix."""
+    bd = tmp_path / "CVE-2099-0004--fake-backport"
+    bd.mkdir()
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "patch.diff").write_text(
+        "--- a/pkgs/by-name/fa/fake/package.nix\n"
+        "+++ b/pkgs/by-name/fa/fake/package.nix\n"
+        "@@ -1 +1 @@\n"
+        "+  patches = [\n"
+        "+    (fetchpatch {\n"
+        '+      url = "https://github.com/example/pkg/commit/abc123.patch";\n'
+        '+      hash = "sha256-AAAA";\n'
+        "+    })\n"
+        "+  ];\n"
+    )
+    (bd / "upstream-fix.patch").write_text("diff --git a/src/foo.c b/src/foo.c\n+fix here\n")
+    (bd / "build.json").write_text(json.dumps({"patch_apply": {
+        "applied": True, "files_changed": ["pkgs/by-name/fa/fake/package.nix"]}}))
+    v = validate_backport(bd)
+    nb = next(a for a in v.assertions if a.name == "no-version-bump")
+    assert nb.passed, nb.detail
+    assert "fetchpatch" in nb.detail
+
+
+def test_no_version_bump_rejects_fetchpatch_with_version_bump(tmp_path):
+    """A fetchpatch block that also changes `version =` is still a version bump."""
+    bd = tmp_path / "CVE-2099-0006--fake-backport"
+    bd.mkdir()
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "patch.diff").write_text(
+        "--- a/pkgs/by-name/fa/fake/package.nix\n"
+        "+++ b/pkgs/by-name/fa/fake/package.nix\n"
+        "@@ -1 +1 @@\n"
+        '+  version = "1.1";\n'
+        "+  patches = [\n"
+        "+    (fetchpatch {\n"
+        '+      url = "https://github.com/example/pkg/commit/abc123.patch";\n'
+        '+      hash = "sha256-AAAA";\n'
+        "+    })\n"
+        "+  ];\n"
+    )
+    (bd / "upstream-fix.patch").write_text("diff --git a/src/foo.c b/src/foo.c\n+fix here\n")
+    v = validate_backport(bd)
+    nb = next(a for a in v.assertions if a.name == "no-version-bump")
+    assert not nb.passed
+
+
+def test_no_version_bump_rejects_hash_bump_outside_fetchpatch_block(tmp_path):
+    """A hash change OUTSIDE the fetchpatch block is still a source-hash version bump."""
+    bd = tmp_path / "CVE-2099-0007--fake-backport"
+    bd.mkdir()
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "patch.diff").write_text(
+        "--- a/pkgs/by-name/fa/fake/package.nix\n"
+        "+++ b/pkgs/by-name/fa/fake/package.nix\n"
+        "@@ -1 +1 @@\n"
+        # hash outside fetchpatch block = source-hash change (disallowed)
+        '+  hash = "sha256-NEW";\n'
+        "+  patches = [\n"
+        "+    (fetchpatch {\n"
+        '+      url = "https://github.com/example/pkg/commit/abc123.patch";\n'
+        '+      hash = "sha256-PATCH";\n'
+        "+    })\n"
+        "+  ];\n"
+    )
+    (bd / "upstream-fix.patch").write_text("diff --git a/src/foo.c b/src/foo.c\n+fix here\n")
+    v = validate_backport(bd)
+    nb = next(a for a in v.assertions if a.name == "no-version-bump")
+    assert not nb.passed
+
+
+def test_no_version_bump_rejects_nix_only_without_fetchpatch(tmp_path):
+    """A patch.diff that only touches .nix files and has no fetchpatch block
+    and no upstream-fix.patch must still fail (degenerate diff guard)."""
+    bd = tmp_path / "CVE-2099-0005--fake-backport"
+    bd.mkdir()
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "patch.diff").write_text(
+        "--- a/pkgs/by-name/fa/fake/package.nix\n"
+        "+++ b/pkgs/by-name/fa/fake/package.nix\n"
+        "@@ -1 +1 @@\n+  meta.maintainers = [];\n"
+    )
+    (bd / "build.json").write_text(json.dumps({"patch_apply": {
+        "applied": True, "files_changed": ["pkgs/by-name/fa/fake/package.nix"]}}))
+    v = validate_backport(bd)
+    nb = next(a for a in v.assertions if a.name == "no-version-bump")
+    assert not nb.passed
+
+
 # ─── scan over the corpus ─────────────────────────────────────────────────────
 
 
