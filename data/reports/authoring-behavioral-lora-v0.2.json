@@ -1,0 +1,71 @@
+{
+  "scope": "authoring-behavioral-pregenerated",
+  "label": "lora-v0.2",
+  "format_pass_rate": 1.0,
+  "structural_pass_rate": 0.75,
+  "behavioral_attempted_n": 4,
+  "behavioral_pass_rate": 0.25,
+  "behavioral_pass_n": 1,
+  "per_canary": {
+    "CVE-2022-37434": {
+      "cve_id": "CVE-2022-37434",
+      "behavioral_status": "ran",
+      "behavioral_pass": false,
+      "candidate_sha256": "aff003403cebfcc3",
+      "rewritten_patch_sha256": "4cc8ac2277e6bf68",
+      "assertions": {
+        "patch-applies": true,
+        "unpatched-reproducer-fires": true,
+        "backported-reproducer-clean": false,
+        "no-version-bump": true,
+        "semantic-match-upstream-fix": true,
+        "no-proxy-signal": true
+      }
+    },
+    "CVE-2024-47081": {
+      "cve_id": "CVE-2024-47081",
+      "behavioral_status": "ran",
+      "behavioral_pass": true,
+      "candidate_sha256": "0dfb518f0ec00704",
+      "rewritten_patch_sha256": "a5f44cbc57c87f01",
+      "assertions": {
+        "patch-applies": true,
+        "unpatched-reproducer-fires": true,
+        "backported-reproducer-clean": true,
+        "no-version-bump": true,
+        "semantic-match-upstream-fix": true,
+        "no-proxy-signal": true
+      }
+    },
+    "CVE-2026-42250": {
+      "cve_id": "CVE-2026-42250",
+      "behavioral_status": "ran",
+      "behavioral_pass": false,
+      "candidate_sha256": "06a443ae701402a9",
+      "rewritten_patch_sha256": "9f05c8262776ac22",
+      "assertions": {
+        "patch-applies": true,
+        "unpatched-reproducer-fires": true,
+        "backported-reproducer-clean": false,
+        "no-version-bump": true,
+        "semantic-match-upstream-fix": true,
+        "no-proxy-signal": true
+      }
+    },
+    "CVE-2026-48526": {
+      "cve_id": "CVE-2026-48526",
+      "behavioral_status": "ran",
+      "behavioral_pass": false,
+      "candidate_sha256": "ad7d41ec1033b6ba",
+      "rewritten_patch_sha256": "366350d347fe1870",
+      "assertions": {
+        "patch-applies": true,
+        "unpatched-reproducer-fires": true,
+        "backported-reproducer-clean": false,
+        "no-version-bump": true,
+        "semantic-match-upstream-fix": false,
+        "no-proxy-signal": true
+      }
+    }
+  }
+}
