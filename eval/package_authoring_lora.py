@@ -28,7 +28,7 @@ SRC = REPO / "exports" / "authoring" / "authoring.jsonl"
 OUT = REPO / "exports" / "authoring-lora"
 BASE_MODEL = "Qwen2.5-Coder-14B"
 _CHARS_PER_TOK = 4
-SPLITS = ("train", "dev")
+SPLITS = ("train", "dev", "test")
 
 
 def _est_tokens(record: dict) -> int:

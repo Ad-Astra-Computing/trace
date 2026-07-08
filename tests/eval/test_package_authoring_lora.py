@@ -44,7 +44,7 @@ def test_packages_messages_only_per_split(monkeypatch, tmp_path):
         _rec("train"), _rec("train", tier="cert-green"), _rec("dev"),
     ])
     m = pal.package(seq_len=16384)
-    assert m["splits"] == {"train": 2, "dev": 1}
+    assert m["splits"] == {"train": 2, "dev": 1, "test": 0}
     assert m["tiers"] == {"behavioral-only": 2, "cert-green": 1}
     # training lines carry ONLY messages
     line = json.loads(
