@@ -383,6 +383,60 @@ MIT krb5 1.22.2 CWE-476 null pointer dereference in `parse_nego_message()` (`src
 * **Provenance-family coverage** spans deterministic-no-model (libtiff, mruby) and model-attested (the rest). Every model-attested bundle's Patcher is `claude-opus-4-7`; cross-family pairs are landed where Reviewer / Reproducer participate, satisfying the cross-family rule mechanically.
 * **One signed real-CVE bundle** exists today: uriparser, run 25075869027, rekor_log_index 1397922891. The auto-merge real-CVE-signed milestone remains gated on (a) sandbox-positive reproducer corpus extension AND (b) v1 Hydra / large-runner / pre-warmed-cache infrastructure to clear Builder's saturation point.
 
+## Authoring-only (Tier-B lite) bundles
+
+The bundles below are authoring-corpus-only: they contain `authoring-example.json` for Authoring-LoRA training but have no cert run, no Patcher/Reviewer/Reproducer model spend, and no `replay.json`. They do not participate in the Steward / eval pipeline. Directory names are listed for index completeness.
+
+- `CVE-2014-9913--unzip-methbuf-overflow-backport` — unzip `list.c` 4-byte methbuf integer overflow (CWE-190)
+- `CVE-2015-1419--vsftpd-deny-file-symlink-backport` — vsftpd `ls.c` deny_file symlink bypass via `normalize_filename_str`
+- `CVE-2016-9844--unzip-zipinfo-methbuf-backport` — unzip `zipinfo.c` methbuf bounds check (same class as CVE-2014-9913)
+- `CVE-2018-18384--unzip-cfactorstr-snprintf-backport` — unzip `list.c` stack overflow via ratio string; `sprintf`→`snprintf`
+- `CVE-2019-5544--openslp-remaining-buffer-backport` — openslp `common/slp_buffer.c` heap overflow; `RemainingBufferSpace` function added
+- `CVE-2021-40633--giflib-screenbuffer-row-leak-backport` — giflib `gif2rgb.c` ScreenBuffer row-free loop
+- `CVE-2021-4217--unzip-bytes-read-check-backport` — unzip `fileio.c` uninitialized heap on partial read; `bytes_read` check added
+- `CVE-2022-28805--lua524-singlevar-anyregup-backport` — lua 5.2.4 `src/lparser.c` `luaK_exp2anyregup` singlevar fix
+- `CVE-2024-41671--twisted-chunked-trailer-backport` — twisted `src/twisted/web/http.py` chunked trailer handling
+- `CVE-2024-45780--grub2-tar-integer-overflow-backport` — grub2 `grub-core/fs/tar.c` `grub_safemath_add` overflow guard
+- `CVE-2024-45781--grub2-ufs-symlink-strlcpy-backport` — grub2 `grub-core/fs/ufs.c` symlink OOB write; `grub_strcpy`→`grub_strlcpy`
+- `CVE-2024-45782--grub2-hfs-strcpy-overflow-backport` — grub2 `grub-core/fs/hfs.c` strcpy OOB write; `grub_strlcpy` adoption
+- `CVE-2024-5535--openssl-ssl-select-next-proto-backport` — openssl `ssl/ssl_lib.c` `SSL_select_next_proto` OOB read
+- `CVE-2024-8096--curl-gtls-ocsp-backport` — curl `lib/vtls/gtls.c` GnuTLS OCSP stapling handling
+- `CVE-2025-0622--grub2-strlcpy-overflow-backport` — grub2 `include/grub/misc.h` `grub_strlcpy` inline definition added
+- `CVE-2025-10911--libxslt-rvtlist-uaf-backport` — libxslt `libxslt/xsltInternals.h` RVT list use-after-free
+- `CVE-2025-14905--389ds-schema-overflow-backport` — 389-ds-base `ldap/servers/slapd/schema.c` schema overflow
+- `CVE-2025-31162--fig2dev-style-val-max-backport` — fig2dev `fig2dev/object.h` `STYLE_VAL_MAX` bounds check
+- `CVE-2025-31163--fig2dev-coincident-arc-backport` — fig2dev `fig2dev/object.h` `COINCIDENT` arc vertex macro
+- `CVE-2025-31344--giflib-colorcount-bounds-backport` — giflib `gif2rgb.c` ColorCount palette bounds check
+- `CVE-2025-40909--perl-dirp-dup-fdopendir-backport` — perl `sv.c` `DirP` dup `fdopendir` fix
+- `CVE-2025-4382--grub2-rescue-cli-auth-bypass-backport` — grub2 `grub-core/kern/rescue_reader.c` `grub_is_cli_need_auth` auth bypass guard
+- `CVE-2025-46836--corosync-orf-token-overflow-backport` — corosync `exec/totemsrp.c` `orf_token` integer overflow
+- `CVE-2025-49466--aerc-attachment-path-traversal-backport` — aerc `commands/msgview/open.go` attachment path traversal
+- `CVE-2025-55763--civetweb-buffer-overflow-backport` — civetweb `src/civetweb.c` buffer overflow
+- `CVE-2025-57812--libcupsfilters-tiff-planar-backport` — libcupsfilters `cupsfilters/image-tiff.c` planar TIFF config guard
+- `CVE-2025-7207--mruby-nregs-init-backport` — mruby `mrbgems/mruby-compiler/core/codegen.c` nregs initialization
+- `CVE-2025-7424--libxslt-psvi-type-confusion-backport` — libxslt `libxslt/xsltutils.h` PSVI type confusion
+- `CVE-2026-1144--quickjs-ng-atomics-get-buf-backport` — quickjs-ng `quickjs.c` atomics get buffer bounds
+- `CVE-2026-11625--bytes-random-secure-fork-pid-backport` — Bytes::Random::Secure `lib/Bytes/Random/Secure.pm` fork PID reseeding
+- `CVE-2026-2245--ccextractor-pmt-heap-overflow-backport` — ccextractor `src/lib_ccx/ts_tables.c` PMT heap overflow
+- `CVE-2026-24061--inetutils-telnetd-metachar-injection-backport` — inetutils `telnetd/utility.c` `sanitize` metachar injection (alt description)
+- `CVE-2026-24061--inetutils-telnetd-sanitize-backport` — inetutils `telnetd/utility.c` `sanitize` metachar injection
+- `CVE-2026-32316--jq-heap-overflow-backport` — jq `src/jv.c` heap overflow (alt description)
+- `CVE-2026-32316--jq-jvstring-intoverflow-backport` — jq `src/jv.c` `jvp_string` integer overflow
+- `CVE-2026-32746--inetutils-telnetd-credentials-dir-backport` — inetutils `telnetd/pty.c` credentials dir handling
+- `CVE-2026-33947--jq-maxpathdepth-backport` — jq `src/jv_aux.c` `MAX_PATH_DEPTH` path depth limit (variant 1)
+- `CVE-2026-33947--jq-path-depth-backport` — jq `src/jv_aux.c` path depth limit (variant 2)
+- `CVE-2026-33947--jq-path-depth-dos-backport` — jq `src/jv_aux.c` path depth DoS (variant 3, alt description)
+- `CVE-2026-39979--jq-jvparse-oob-backport` — jq `src/jv_parse.c` format-specifier OOB fix (`%.*s`)
+- `CVE-2026-40164--jq-hash-collision-dos-backport` — jq `src/jv.c` hash-seed collision DoS (alt description)
+- `CVE-2026-40164--jq-hash-seed-backport` — jq `src/jv.c` hash-seed bounds check
+- `CVE-2026-42046--libcaca-canvas-intmax-overflow-backport` — libcaca `caca/canvas.c` canvas intmax overflow
+- `CVE-2026-44331--proftpd-sql-injection-backport` — proftpd `contrib/mod_wrap2_sql.c` SQL injection
+- `CVE-2026-45186--expat-attr-collision-dos-backport` — expat `lib/xmlparse.c` default attribute collision DoS (variant 1)
+- `CVE-2026-45186--expat-default-atts-quadratic-backport` — expat `lib/xmlparse.c` `defaultAttsNames` quadratic DoS (variant 2)
+- `CVE-2026-7598--libssh2-uint32-overflow-backport` — libssh2 `src/userauth.c` uint32 overflow (variant 1)
+- `CVE-2026-7598--libssh2-userauth-int-overflow-backport` — libssh2 `src/userauth.c` userauth integer overflow (variant 2)
+- `CVE-2026-7598--libssh2-userauth-intoverflow-backport` — libssh2 `src/userauth.c` userauth integer overflow (variant 3)
+
 ## How to verify any claim in this index
 
 Each bundle's `README.md` and `expect.json:notes` carry the public-source citation table for every load-bearing claim. The signed bundles' Rekor log indices in [`DECISIONS.md`](DECISIONS.md) (search for "v0 ledger" + "Signing row") are checkable via `cosign verify-blob` against the locked workflow identity in [`policy/signing-identity.json`](../policy/signing-identity.json). If anything in this index is found to be inaccurate, the bundle is wrong; open an issue.
