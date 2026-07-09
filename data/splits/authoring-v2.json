@@ -22,7 +22,11 @@
     "pythonPackages.nltk": {
       "split": "train",
       "reason": "CVE-2026-33236: Python path-traversal via malicious catalog. Fix adds `if os.path.isabs(subdir) or '..' in ...: raise ValueError` at function entry (detect-and-reject shape). Forced to train (was dev in v1) to teach the inline-guard pattern that the pyjwt canary requires."
+    },
+    "pythonPackages.python-jose": {
+      "split": "train",
+      "reason": "CVE-2024-33664: Python JWE unbounded input — fix adds `if len(jwe_str) > 250 * 1024: raise JWEError(...)` at decrypt() function entry. Second detect-and-reject-at-entry Python example alongside NLTK (CVE-2026-33236). Forced to train to reinforce the inline-guard pattern required for the pyjwt canary (CVE-2026-48526)."
     }
   },
-  "note": "v2 adds pythonPackages.nltk override (train). Canary families are identical to v1 (zlib, bzip, pythonPackages.requests, pythonPackages.pyjwt). Canary CVEs must NEVER appear in any authoring training corpus. Use this manifest for v0.5 training onward; retain v1 manifest for v0.3/v0.4 score comparisons."
+  "note": "v2 adds pythonPackages.nltk override (train) and python3Packages.python-jose override (train). Canary families are identical to v1 (zlib, bzip, pythonPackages.requests, pythonPackages.pyjwt). Canary CVEs must NEVER appear in any authoring training corpus. Use this manifest for v0.5 training onward; retain v1 manifest for v0.3/v0.4 score comparisons."
 }
