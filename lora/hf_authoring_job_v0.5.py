@@ -133,6 +133,15 @@ def main():
         )
     print("v0.5 corpus check: NLTK inline-guard example present in training set", flush=True)
 
+    # Verify python-jose is present (second detect-and-reject-at-entry example)
+    if "CVE-2024-33664" not in train_text and "python-jose" not in train_text.lower():
+        raise RuntimeError(
+            "ABORT: python-jose (CVE-2024-33664) not found in training data. "
+            "v0.5 requires the python-jose JWE-size-limit example (authoring-v2 manifest). "
+            "Re-export with data/splits/authoring-v2.json and re-upload dataset."
+        )
+    print("v0.5 corpus check: python-jose inline-guard example present in training set", flush=True)
+
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
