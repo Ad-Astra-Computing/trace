@@ -50,12 +50,14 @@ def _validate(record: dict) -> list[str]:
     return errs
 
 
-def package(seq_len: int) -> dict:
-    if not SRC.is_file():
+def package(seq_len: int, src: Path | None = None, out: Path | None = None) -> dict:
+    src = src or SRC
+    out = out or OUT
+    if not src.is_file():
         raise FileNotFoundError(
-            f"run `python3 -m tools.trace_cli export authoring` first; missing {SRC}"
+            f"run `python3 -m tools.trace_cli export authoring` first; missing {src}"
         )
-    rows = [json.loads(l) for l in SRC.read_text().splitlines() if l.strip()]
+    rows = [json.loads(l) for l in src.read_text().splitlines() if l.strip()]
 
     errors: list[str] = []
     for i, r in enumerate(rows):
@@ -64,7 +66,7 @@ def package(seq_len: int) -> dict:
             for e in _validate(r)
         ]
 
-    OUT.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     per_split: dict[str, list[dict]] = {s: [] for s in SPLITS}
     for r in rows:
         s = r.get("split")
@@ -73,7 +75,7 @@ def package(seq_len: int) -> dict:
 
     over_len = []
     for s, recs in per_split.items():
-        path = OUT / f"authoring.{s}.jsonl"
+        path = out / f"authoring.{s}.jsonl"
         with path.open("w") as fh:
             for r in recs:
                 fh.write(json.dumps({"messages": r["messages"]}, sort_keys=True) + "\n")
@@ -111,7 +113,7 @@ def package(seq_len: int) -> dict:
         "validation_errors": errors,
         "files": [f"authoring.{s}.jsonl" for s in SPLITS],
     }
-    (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
 
 
@@ -119,13 +121,19 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="Package Authoring LoRA train/dev JSONL")
     ap.add_argument("--seq-len", type=int, default=16384,
                     help="token budget to flag over-length records (default 16384)")
+    ap.add_argument("--export-dir", type=Path, default=None,
+                    help="path to authoring.jsonl export dir (default: exports/authoring/)")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="output directory for packaged JSONL (default: exports/authoring-lora/)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    m = package(args.seq_len)
+    src = (args.export_dir / "authoring.jsonl") if args.export_dir else None
+    m = package(args.seq_len, src=src, out=args.out_dir)
+    out_dir = args.out_dir or OUT
     if args.json:
         print(json.dumps(m, indent=2, sort_keys=True))
     else:
-        print(f"Authoring LoRA package -> {OUT}/authoring.{{train,dev}}.jsonl  (base {m['base_model']})")
+        print(f"Authoring LoRA package -> {out_dir}/authoring.{{train,dev}}.jsonl  (base {m['base_model']})")
         print(f"  total {m['total']}  splits {m['splits']}")
         print(f"  tiers: {m['tiers']}")
         print(f"  est tokens: max {m['est_token_stats']['max']} mean {m['est_token_stats']['mean']}"
