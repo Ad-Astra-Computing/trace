@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Submit the Authoring-LoRA v0.5 training run as an HF Job.
 #
-# v0.5 purpose: inline-guard detect-and-reject training
-#   - Uses authoring-v2 manifest: NLTK CVE-2026-33236 forced to train (was dev in v1)
-#   - 84 train rows (vs 83 for v0.4; NLTK adds inline-guard detect-and-reject)
-#   - 550 steps (vs 500 for v0.4 — +10% budget for extra example)
-#   - Tests pyjwt canary generalization with NLTK inline-guard signal
+# v0.5 purpose: inline-guard detect-and-reject training (2 examples: NLTK + python-jose)
+#   - Uses authoring-v2 manifest: NLTK (CVE-2026-33236) + python-jose (CVE-2024-33664) → train
+#   - 85 train rows (vs 83 for v0.4; 2 detect-and-reject Python examples added)
+#   - 550 steps (vs 500 for v0.4 — +10% budget for extra examples)
+#   - Tests pyjwt canary generalization with 2 inline-guard detect-and-reject examples
 #
 # Prereqs:
 #   HF_TOKEN in .env (write scope, member of adastracomputing org)
 #   Dataset uploaded to adastracomputing/authoring-lora-data with
-#   authoring.train.jsonl = 84 rows (NLTK + aiohttp included, pyjwt excluded).
+#   authoring.train.jsonl = 85 rows (NLTK + python-jose + aiohttp included, pyjwt excluded).
 #   Use: python3 -m tools.trace_cli export authoring \
 #          --split-manifest data/splits/authoring-v2.json --out exports/authoring/
 #       python3 eval/package_authoring_lora.py

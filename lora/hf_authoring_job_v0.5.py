@@ -17,14 +17,15 @@ Authoring-LoRA v0.5 — HF Jobs UV-script (inline-guard detect-and-reject)
 Self-contained PEP 723 script run via `hf jobs uv run` on HF GPU infrastructure.
 Trains Qwen2.5-Coder-14B-Instruct on the author-from-vuln task.
 
-v0.5 vs v0.5:
-  - Dataset: 84 train / 7 dev (authoring-v2 manifest: NLTK CVE-2026-33236 → train)
-  - max_steps: 550 (+10% budget for extra training example)
+v0.5 vs v0.4:
+  - Dataset: 85 train / 7 dev (authoring-v2 manifest: NLTK + python-jose → train)
+  - max_steps: 550 (+10% budget for extra training examples)
   - warmup_steps: 55 (10% of 550)
-  - Purpose: add NLTK path-traversal (inline guard at function entry) to teach the
-    detect-and-reject-at-function-entry shape required for the pyjwt canary.
-    NLTK adds `if os.path.isabs(subdir) or '..' in ...: raise ValueError` — the exact
-    inline-guard shape pyjwt needs (vs aiohttp which restructures existing logic).
+  - Purpose: add two detect-and-reject-at-entry Python examples to teach the inline-guard
+    pattern required for the pyjwt canary (CVE-2026-48526):
+    1. NLTK (CVE-2026-33236): `if os.path.isabs(subdir) or '..' in ...: raise ValueError`
+    2. python-jose (CVE-2024-33664): `if len(jwe_str) > 250 * 1024: raise JWEError(...)`
+    Both add a new guard BEFORE existing function body — the exact pyjwt shape.
 
 Eval canaries: same 4 families (zlib, requests, bzip2, pyjwt) under authoring-v1.
 
@@ -66,7 +67,7 @@ LORA_TARGET_MODULES = [
     "gate_proj", "up_proj", "down_proj",
 ]
 
-# v0.5: 550 steps × grad_accum 4 = 2200 effective steps ≈ 26 passes over 84 train examples
+# v0.5: 550 steps × grad_accum 4 = 2200 effective steps ≈ 26 passes over 85 train examples
 MAX_STEPS = int(os.environ.get("MAX_STEPS", "550"))
 GRAD_ACCUM = 4
 MAX_SEQ_LEN = 16384
