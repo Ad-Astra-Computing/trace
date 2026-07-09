@@ -14,10 +14,10 @@
 
 Loaded as an HF Job (hf jobs uv run) on A100-large.
 
-v0.5 vs v0.3:
+v0.5 vs v0.4:
   - Adapter: adastracomputing/authoring-lora-v0.5
   - Output file: authoring-lora-v0.5-responses.jsonl
-  - 83 train rows (aiohttp detect-and-reject added)
+  - 85 train rows (NLTK + python-jose detect-and-reject added)
 """
 import json
 import os
