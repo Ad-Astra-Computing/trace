@@ -395,6 +395,7 @@ The bundles below are authoring-corpus-only: they contain `authoring-example.jso
 - `CVE-2021-40633--giflib-screenbuffer-row-leak-backport` — giflib `gif2rgb.c` ScreenBuffer row-free loop
 - `CVE-2021-4217--unzip-bytes-read-check-backport` — unzip `fileio.c` uninitialized heap on partial read; `bytes_read` check added
 - `CVE-2022-28805--lua524-singlevar-anyregup-backport` — lua 5.2.4 `src/lparser.c` `luaK_exp2anyregup` singlevar fix
+- `CVE-2024-23334--aiohttp-path-traversal-backport` — aiohttp `aiohttp/web_urldispatcher.py` path traversal via symlinks; `os.path.normpath` boundary fix
 - `CVE-2024-41671--twisted-chunked-trailer-backport` — twisted `src/twisted/web/http.py` chunked trailer handling
 - `CVE-2024-45780--grub2-tar-integer-overflow-backport` — grub2 `grub-core/fs/tar.c` `grub_safemath_add` overflow guard
 - `CVE-2024-45781--grub2-ufs-symlink-strlcpy-backport` — grub2 `grub-core/fs/ufs.c` symlink OOB write; `grub_strcpy`→`grub_strlcpy`
