@@ -498,7 +498,13 @@ _AUTHORING_SYSTEM = (
     "do not invent or substitute file paths.\n"
     "2. Modify ONLY code visible in the shown source window.\n"
     "3. Change as few lines as possible; do not rewrite surrounding logic.\n"
-    "4. Output only the unified diff with no other text."
+    "4. Output only the unified diff with no other text.\n"
+    "5. Prefer the minimal structural change: if an existing condition is missing "
+    "a check, add it inline to that condition rather than inserting a new code "
+    "block. If existing code is redundant or overcomplicated, replace it — do not "
+    "add more code around it.\n"
+    "6. Edit the most specific method or class that directly handles the vulnerable "
+    "operation — not a base class, interface, or Protocol definition."
 )
 _REMEDIATION_RE = re.compile(
     r"\b(fixed (in|by|upstream)|the fix|patched? (in|by)|adds? a (bounds|null|length) check|"
