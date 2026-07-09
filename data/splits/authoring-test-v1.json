@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "name": "authoring-test-v1",
+  "description": "Held-out test-split families for the authoring LoRA evaluation. These four bundles were held out of LoRA training (split=test in authoring.jsonl) and evaluated using authoring-lora-v0.2 responses. Marked as 'canary' here so the behavioral workflow processes them via authoring-canary.jsonl. NOT the same as the canary split in authoring-v1.json (zlib/bzip2/requests/pyjwt).",
+  "overrides": {
+    "openslp": {
+      "split": "canary",
+      "reason": "CVE-2019-5544: openslp buffer under-alloc. Held out of LoRA training as test-split; evaluated post-training to measure in-domain generalization."
+    },
+    "civetweb": {
+      "split": "canary",
+      "reason": "CVE-2025-55763: civetweb unchecked buffer concatenation. Held out of LoRA training as test-split."
+    },
+    "expat": {
+      "split": "canary",
+      "reason": "CVE-2026-45186: expat quadratic-complexity (two bundles: attr-collision-dos + default-atts-quadratic). Both share the expat family key; held out of LoRA training as test-split."
+    }
+  },
+  "note": "Use with --split-manifest data/splits/authoring-test-v1.json and --responses data/reports/authoring-lora-v0.2-test-split-responses.jsonl. These families overlap with the LoRA training set's held-out test split — they verify in-distribution generalization, not OOD generalization (that is what authoring-v1.json canaries measure)."
+}
