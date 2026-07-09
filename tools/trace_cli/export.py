@@ -152,6 +152,40 @@ def _redact(text: str) -> str:
     return text
 
 
+_EXT_TO_FENCE_LANG: dict[str, str] = {
+    ".py": "python",
+    ".rb": "ruby",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".ts": "typescript",
+    ".pl": "perl",
+    ".pm": "perl",
+    ".php": "php",
+    ".lua": "lua",
+    ".sh": "sh",
+    ".bash": "sh",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".cxx": "cpp",
+    ".cc": "cpp",
+    ".hpp": "cpp",
+}
+
+
+def _fence_lang_for(files: list[str]) -> str:
+    """Infer a markdown code-fence language tag from a list of source file paths.
+    Uses the first file's extension. Defaults to 'c' for unknown extensions so
+    existing export behaviour is preserved for C-heavy bundles."""
+    if not files:
+        return "c"
+    ext = Path(files[0]).suffix.lower()
+    return _EXT_TO_FENCE_LANG.get(ext, "c")
+
+
 def _normalize_attr(attr: str) -> str:
     """Family key for splitting: strip version digits from EVERY dot-component so
     versioned variants collapse to one family, whether the version is in the
@@ -1371,8 +1405,9 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # the multi-file path default to [file].
         included = pair.get("included_source_files") or [pair["file"]]
         src_header = ", ".join(included)
+        fence_lang = _fence_lang_for(included)
         user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
-                f"# Vulnerable source ({src_header})\n```c\n{pair['pre_fix_source']}\n```")
+                f"# Vulnerable source ({src_header})\n```{fence_lang}\n{pair['pre_fix_source']}\n```")
         # How many files the LABEL changes: a multi-file fix is a harder, auditable
         # pair. label_file_count > len(included) means part of the label edits a
         # file NOT shown in the input (a >3-file label grandfathered onto the
