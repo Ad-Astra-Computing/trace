@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0.0",
+  "name": "authoring-v3",
+  "description": "Adds 2 Python examples to the dev set (python-multipart + pygments) to give the trainer mixed-language eval signal alongside the existing 7 C dev examples. Without Python dev examples, eval_loss tracks only C-task performance and the best checkpoint is blind to Python generalization — causing overfitting after ~3.5 epochs. This is the first manifest change that directly addresses the eval set composition problem. System prompt also changed in this cycle: language-agnostic wording + explicit file-grounding rules (target ONLY the named file; modify ONLY the shown window). All v2 canary and train overrides preserved.",
+  "overrides": {
+    "zlib": {
+      "split": "canary",
+      "reason": "CVE-2022-37434: classic C heap over-read (gzip header state). Single-hunk inflate.c guard; the canonical source-backport shape."
+    },
+    "bzip": {
+      "split": "canary",
+      "reason": "CVE-2026-42250: C bounds fix in bzip2recover.c. Tight single-file change; tests the model on a minimal off-by-one-class guard."
+    },
+    "pythonPackages.requests": {
+      "split": "canary",
+      "reason": "CVE-2024-47081: Python credential-leak fix (netrc host matching). Tests authoring on a non-memory-safety logic bug in a different language."
+    },
+    "pythonPackages.pyjwt": {
+      "split": "canary",
+      "reason": "CVE-2026-48526: Python algorithm-confusion fix (reject JWK-as-HMAC-secret in prepare_key). The label-source fix validated this bundle; held out so the pilot cannot just echo it."
+    },
+    "pythonPackages.nltk": {
+      "split": "train",
+      "reason": "CVE-2026-33236: Python path-traversal via malicious catalog. Fix adds `if os.path.isabs(subdir) or '..' in ...: raise ValueError` at function entry (detect-and-reject shape). Forced to train (was dev in v1) to teach the inline-guard pattern that the pyjwt canary requires."
+    },
+    "pythonPackages.python-jose": {
+      "split": "train",
+      "reason": "CVE-2024-33664: Python JWE unbounded input — fix adds `if len(jwe_str) > 250 * 1024: raise JWEError(...)` at decrypt() function entry. Second detect-and-reject-at-entry Python example alongside NLTK (CVE-2026-33236). Forced to train to reinforce the inline-guard pattern required for the pyjwt canary (CVE-2026-48526)."
+    },
+    "pythonPackages.python-multipart": {
+      "split": "dev",
+      "reason": "CVE-2026-40347: Python HTTP multipart header parsing fix. Forced to dev to add Python-language signal to the eval set. Without at least one Python dev example, eval_loss is 100% C-task and the best checkpoint can diverge from optimal Python generalization."
+    },
+    "pythonPackages.pygments": {
+      "split": "dev",
+      "reason": "CVE-2026-4539: Python lexer-safe regex (pygments ReDoS backport). Second Python dev example to diversify eval signal beyond a single library. Both python-multipart and pygments are stable, independent libraries that don't overlap with the detect-and-reject patterns in the train overrides."
+    }
+  },
+  "note": "v3 adds pythonPackages.python-multipart (dev) and pythonPackages.pygments (dev) overrides to give the trainer mixed-language eval signal. v2 overrides preserved. Use this manifest for v0.6 training onward. Expect: train=83, dev=9 (7 C + 2 Python), test unchanged, canary 4."
+}
