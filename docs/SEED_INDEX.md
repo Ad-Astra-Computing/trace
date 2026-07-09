@@ -424,6 +424,7 @@ The bundles below are authoring-corpus-only: they contain `authoring-example.jso
 - `CVE-2026-32316--jq-heap-overflow-backport` — jq `src/jv.c` heap overflow (alt description)
 - `CVE-2026-32316--jq-jvstring-intoverflow-backport` — jq `src/jv.c` `jvp_string` integer overflow
 - `CVE-2026-32746--inetutils-telnetd-credentials-dir-backport` — inetutils `telnetd/pty.c` credentials dir handling
+- `CVE-2026-33236--nltk-downloader-path-traversal-backport` — nltk `nltk/downloader.py` CWE-22 path traversal via malicious XML catalog; `Package.__init__` + `_download_package` guards added
 - `CVE-2026-33947--jq-maxpathdepth-backport` — jq `src/jv_aux.c` `MAX_PATH_DEPTH` path depth limit (variant 1)
 - `CVE-2026-33947--jq-path-depth-backport` — jq `src/jv_aux.c` path depth limit (variant 2)
 - `CVE-2026-33947--jq-path-depth-dos-backport` — jq `src/jv_aux.c` path depth DoS (variant 3, alt description)
