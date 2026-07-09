@@ -1,0 +1,160 @@
+{
+  "scope": "authoring-pilot",
+  "schema_version": "1.0.0",
+  "model_id": null,
+  "n": 4,
+  "format_pass_rate": 1.0,
+  "structural_pass_rate": 0.25,
+  "behavioral_pass_rate": null,
+  "behavioral_attempted_n": 0,
+  "behavioral_pass_n": 0,
+  "proxy_exempt_n": 0,
+  "precondition_failed_n": 0,
+  "behavioral_statuses": null,
+  "tier0_check_rates": {
+    "parses": 1.0,
+    "no_version_bump": 1.0,
+    "no_test_or_doc_files": 1.0
+  },
+  "tier1_check_rates": {
+    "same_impl_file": 0.75,
+    "grounds_in_prefix": 0.25,
+    "hits_reference_region": 0.75,
+    "fix_symbols_present": 0.5,
+    "covers_all_reference_hunks": 0.75
+  },
+  "per_candidate": [
+    {
+      "cve_id": "CVE-2022-37434",
+      "split_family": "zlib",
+      "tier0": {
+        "parses": true,
+        "no_version_bump": true,
+        "no_test_or_doc_files": true
+      },
+      "tier1": {
+        "same_impl_file": true,
+        "grounds_in_prefix": true,
+        "hits_reference_region": true,
+        "fix_symbols_present": true,
+        "covers_all_reference_hunks": true
+      },
+      "format_pass": true,
+      "structural_pass": true,
+      "detail": {
+        "gen_files": [
+          "inflate.c"
+        ],
+        "ref_files": [
+          "inflate.c"
+        ],
+        "primary_file": "inflate.c",
+        "fix_symbols_total": 4,
+        "fix_symbols_hit": 3,
+        "fix_symbol_fraction": 0.75,
+        "region_anchors": 2,
+        "ref_hunks": 1,
+        "gen_hunks": 2
+      }
+    },
+    {
+      "cve_id": "CVE-2024-47081",
+      "split_family": "pythonPackages.requests",
+      "tier0": {
+        "parses": true,
+        "no_version_bump": true,
+        "no_test_or_doc_files": true
+      },
+      "tier1": {
+        "same_impl_file": true,
+        "grounds_in_prefix": false,
+        "hits_reference_region": true,
+        "fix_symbols_present": false,
+        "covers_all_reference_hunks": true
+      },
+      "format_pass": true,
+      "structural_pass": false,
+      "detail": {
+        "gen_files": [
+          "src/requests/utils.py"
+        ],
+        "ref_files": [
+          "src/requests/utils.py"
+        ],
+        "primary_file": "src/requests/utils.py",
+        "fix_symbols_total": 10,
+        "fix_symbols_hit": 0,
+        "fix_symbol_fraction": 0.0,
+        "region_anchors": 2,
+        "ref_hunks": 1,
+        "gen_hunks": 1
+      }
+    },
+    {
+      "cve_id": "CVE-2026-42250",
+      "split_family": "bzip",
+      "tier0": {
+        "parses": true,
+        "no_version_bump": true,
+        "no_test_or_doc_files": true
+      },
+      "tier1": {
+        "same_impl_file": true,
+        "grounds_in_prefix": false,
+        "hits_reference_region": true,
+        "fix_symbols_present": true,
+        "covers_all_reference_hunks": true
+      },
+      "format_pass": true,
+      "structural_pass": false,
+      "detail": {
+        "gen_files": [
+          "bzip2recover.c"
+        ],
+        "ref_files": [
+          "bzip2recover.c"
+        ],
+        "primary_file": "bzip2recover.c",
+        "fix_symbols_total": 2,
+        "fix_symbols_hit": 1,
+        "fix_symbol_fraction": 0.5,
+        "region_anchors": 4,
+        "ref_hunks": 1,
+        "gen_hunks": 7
+      }
+    },
+    {
+      "cve_id": "CVE-2026-48526",
+      "split_family": "pythonPackages.pyjwt",
+      "tier0": {
+        "parses": true,
+        "no_version_bump": true,
+        "no_test_or_doc_files": true
+      },
+      "tier1": {
+        "same_impl_file": false,
+        "grounds_in_prefix": false,
+        "hits_reference_region": false,
+        "fix_symbols_present": false,
+        "covers_all_reference_hunks": false
+      },
+      "format_pass": true,
+      "structural_pass": false,
+      "detail": {
+        "gen_files": [
+          "jwt/algos/hmac.py"
+        ],
+        "ref_files": [
+          "jwt/algorithms.py"
+        ],
+        "primary_file": "jwt/algos/hmac.py",
+        "fix_symbols_total": 39,
+        "fix_symbols_hit": 6,
+        "fix_symbol_fraction": 0.154,
+        "region_anchors": 0,
+        "ref_hunks": 1,
+        "gen_hunks": 0
+      }
+    }
+  ]
+}
