@@ -199,6 +199,37 @@ def test_rewrite_embedded_patch_single():
     assert "./CVE.patch" in out and "default.nix" in out   # default.nix hunk preserved
 
 
+def test_rewrite_embedded_patch_strip_level_0():
+    # strip_level=0: a/ and b/ prefixes removed from --- and +++ lines; diff --git header kept
+    cand = "diff --git a/impl.c b/impl.c\n--- a/impl.c\n+++ b/impl.c\n@@ -1 +1 @@\n-a\n+b\n"
+    out = sp._rewrite_embedded_patch(_TREE_DIFF, cand, strip_level=0)
+    assert out is not None
+    assert "+--- impl.c" in out      # a/ stripped
+    assert "+++ impl.c" in out       # b/ stripped (embedded, so the +++ line becomes a context line)
+    assert "+diff --git a/impl.c b/impl.c" in out  # diff --git header untouched
+
+
+def test_bundle_strip_level(tmp_path):
+    # No files -> default 1
+    assert sp._bundle_strip_level(tmp_path) == 1
+    # reproducer.nix without -p0 mention -> 1
+    (tmp_path / "reproducer.nix").write_text("patch -p1 < ${p}\n")
+    assert sp._bundle_strip_level(tmp_path) == 1
+    # reproducer.nix with 'patch -p0' -> 0
+    (tmp_path / "reproducer.nix").write_text("patch -p0 < ${p}\n")
+    assert sp._bundle_strip_level(tmp_path) == 0
+    # patchFlags variant in reproducer.nix -> 0
+    (tmp_path / "reproducer.nix").write_text('patchFlags = [ "-p0" ];\n')
+    assert sp._bundle_strip_level(tmp_path) == 0
+    # patchFlags only in package.nix (reproducer.nix has -p1) -> 0
+    (tmp_path / "reproducer.nix").write_text("patch -p1 < ${p}\n")
+    (tmp_path / "package.nix").write_text('patchFlags = [ "-p0" ];\n')
+    assert sp._bundle_strip_level(tmp_path) == 0
+    # package.nix without -p0 and reproducer.nix without -p0 -> 1
+    (tmp_path / "package.nix").write_text("patchFlags = [ \"-p1\" ];\n")
+    assert sp._bundle_strip_level(tmp_path) == 1
+
+
 def test_rewrite_embedded_patch_requires_exactly_one():
     # zero embedded .patch files -> None
     no_patch = ("diff --git a/pkgs/demo/default.nix b/pkgs/demo/default.nix\n"
