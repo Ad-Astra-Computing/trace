@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "name": "authoring-v2",
+  "description": "v1 canary set preserved; NLTK forced to train to teach the detect-and-reject-at-function-entry pattern (CVE-2026-33236: `if os.path.isabs(subdir) or '..' in subdir: raise ValueError`). The pyjwt canary (CVE-2026-48526) requires this exact shape: add a new inline guard before existing code. aiohttp (CVE-2024-23334) teaches normpath-restructure, not inline-guard; NLTK adds the missing inline-guard signal. All v1 canary families preserved unchanged.",
+  "overrides": {
+    "zlib": {
+      "split": "canary",
+      "reason": "CVE-2022-37434: classic C heap over-read (gzip header state). Single-hunk inflate.c guard; the canonical source-backport shape."
+    },
+    "bzip": {
+      "split": "canary",
+      "reason": "CVE-2026-42250: C bounds fix in bzip2recover.c. Tight single-file change; tests the model on a minimal off-by-one-class guard."
+    },
+    "pythonPackages.requests": {
+      "split": "canary",
+      "reason": "CVE-2024-47081: Python credential-leak fix (netrc host matching). Tests authoring on a non-memory-safety logic bug in a different language."
+    },
+    "pythonPackages.pyjwt": {
+      "split": "canary",
+      "reason": "CVE-2026-48526: Python algorithm-confusion fix (reject JWK-as-HMAC-secret in prepare_key). The label-source fix validated this bundle; held out so the pilot cannot just echo it."
+    },
+    "pythonPackages.nltk": {
+      "split": "train",
+      "reason": "CVE-2026-33236: Python path-traversal via malicious catalog. Fix adds `if os.path.isabs(subdir) or '..' in ...: raise ValueError` at function entry (detect-and-reject shape). Forced to train (was dev in v1) to teach the inline-guard pattern that the pyjwt canary requires."
+    }
+  },
+  "note": "v2 adds pythonPackages.nltk override (train). Canary families are identical to v1 (zlib, bzip, pythonPackages.requests, pythonPackages.pyjwt). Canary CVEs must NEVER appear in any authoring training corpus. Use this manifest for v0.5 training onward; retain v1 manifest for v0.3/v0.4 score comparisons."
+}
