@@ -491,10 +491,14 @@ def _example_for_bundle(
 # upstream source fix. Leakage scrubbed per docs/AUTHORING_TRAINING.md.
 
 _AUTHORING_SYSTEM = (
-    "You are a security engineer fixing a CVE in C/C++. You are given the "
-    "vulnerability (symptom only) and the current vulnerable source. Author the "
-    "MINIMAL fix as a unified diff against the shown file. Change as few lines as "
-    "possible; do not rewrite. Output only the diff."
+    "You are a security engineer fixing a CVE. You are given the vulnerability "
+    "description (symptom only) and the vulnerable source window. Author the "
+    "MINIMAL fix as a unified diff. Follow these rules exactly:\n"
+    "1. Target ONLY the file named in the `# Vulnerable source (...)` header — "
+    "do not invent or substitute file paths.\n"
+    "2. Modify ONLY code visible in the shown source window.\n"
+    "3. Change as few lines as possible; do not rewrite surrounding logic.\n"
+    "4. Output only the unified diff with no other text."
 )
 _REMEDIATION_RE = re.compile(
     r"\b(fixed (in|by|upstream)|the fix|patched? (in|by)|adds? a (bounds|null|length) check|"
