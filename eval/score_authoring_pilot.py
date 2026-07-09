@@ -235,12 +235,51 @@ _PRECONDITION = "unpatched-reproducer-fires"
 _EMBEDDED_PATCH_HDR = re.compile(r"^diff --git a/(\S+\.patch) b/\1$")
 
 
-def _rewrite_embedded_patch(patch_diff: str, candidate: str) -> str | None:
+def _strip_git_path_prefixes(candidate: str) -> str:
+    """Strip a/ and b/ path prefixes from --- and +++ lines of a git-format diff.
+    Used when the target package applies patches with -p0 (no prefix stripping by
+    patch(1)), so the embedded patch body must use bare filenames. Leaves all other
+    lines (diff --git headers, hunk headers, context lines) untouched."""
+    out = []
+    for ln in candidate.split("\n"):
+        if ln.startswith("--- a/"):
+            ln = "--- " + ln[6:]
+        elif ln.startswith("+++ b/"):
+            ln = "+++ " + ln[6:]
+        out.append(ln)
+    return "\n".join(out)
+
+
+def _bundle_strip_level(bundle_dir: Path) -> int:
+    """Infer the patch strip level for the bundle.
+    Returns 0 for -p0 packages, 1 (the nixpkgs default) otherwise.
+
+    Checks both reproducer.nix and package.nix so that packages whose
+    patchFlags live only in the derivation (not echoed in the reproducer)
+    are still detected correctly."""
+    _P0_PATTERNS = ("patch -p0", 'patchFlags = [ "-p0"', 'patchFlags = ["-p0"')
+    for fname in ("reproducer.nix", "package.nix"):
+        f = bundle_dir / fname
+        if f.is_file():
+            t = f.read_text()
+            if any(pat in t for pat in _P0_PATTERNS):
+                return 0
+    return 1
+
+
+def _rewrite_embedded_patch(patch_diff: str, candidate: str, *,
+                             strip_level: int = 1) -> str | None:
     """Replace the embedded source-patch body (the `+`-prefixed hunk of the
     `new file mode ... CVE-*.patch` section) inside a source-backport `patch.diff`
     with the generated candidate diff. Returns the rewritten tree-diff, or None
     when `patch.diff` does not create EXACTLY ONE `.patch` file (the v1 contract —
-    a multi-patch bundle is ambiguous and refused rather than guessed)."""
+    a multi-patch bundle is ambiguous and refused rather than guessed).
+
+    strip_level=0: strip a/b/ prefixes from ---/+++ lines before embedding (for
+    packages whose patchFlags include -p0, e.g. bzip2). strip_level=1 (default):
+    leave the candidate diff as-is."""
+    if strip_level == 0:
+        candidate = _strip_git_path_prefixes(candidate)
     lines = patch_diff.splitlines()
     starts = [i for i, ln in enumerate(lines) if _EMBEDDED_PATCH_HDR.match(ln)
               and i + 1 < len(lines) and lines[i + 1].startswith("new file")]
@@ -327,7 +366,8 @@ def score_behavioral(generated: str, record: dict, *, traces_root: Path, build_f
     if not pd.is_file():
         out["behavioral_status"] = "no_patch_diff"
         return out
-    rewritten = _rewrite_embedded_patch(pd.read_text(), generated)
+    strip_level = _bundle_strip_level(bundle)
+    rewritten = _rewrite_embedded_patch(pd.read_text(), generated, strip_level=strip_level)
     if rewritten is None:
         out["behavioral_status"] = "no_unique_embedded_patch"
         return out
