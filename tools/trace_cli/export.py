@@ -504,11 +504,7 @@ _AUTHORING_SYSTEM = (
     "block. If existing code is redundant or overcomplicated, replace it — do not "
     "add more code around it.\n"
     "6. Edit the most specific method or class that directly handles the vulnerable "
-    "operation — not a base class, interface, or Protocol definition.\n"
-    "7. Never introduce a recursive self-call: if you are editing a method named "
-    "`foo`, do not call `self.foo(...)` inside it. Add guard logic as new statements "
-    "at the top of the existing method body — never by delegating through a renamed "
-    "copy of the method or calling the method from within itself."
+    "operation — not a base class, interface, or Protocol definition."
 )
 _REMEDIATION_RE = re.compile(
     r"\b(fixed (in|by|upstream)|the fix|patched? (in|by)|adds? a (bounds|null|length) check|"

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "name": "authoring-v6",
+  "description": "v0.9 controlled rerun: same corpus and split assignments as v5; rule 7 (no recursive self-call) REVERTED to isolate whether it caused the zlib regression in v0.8. MAX_STEPS reduced to 250 (from 375) to target the ~3.4-epoch optimal range. If zlib recovers, rule 7 was the culprit. Expect: train=88, dev=6, canary=4 (same as v4/v5).",
+  "overrides": {
+    "zlib": {
+      "split": "canary",
+      "reason": "CVE-2022-37434: classic C heap over-read (gzip header state). Single-hunk inflate.c guard; the canonical source-backport shape. Tests condition-refine pattern."
+    },
+    "bzip": {
+      "split": "canary",
+      "reason": "CVE-2026-42250: C bounds fix in bzip2recover.c. Tight single-file change; tests the model on a minimal off-by-one-class guard (1-line-tweak pattern)."
+    },
+    "pythonPackages.requests": {
+      "split": "canary",
+      "reason": "CVE-2024-47081: Python credential-leak fix (netrc host matching). Tests simplify/replace pattern (replace ri.netloc.split with ri.hostname)."
+    },
+    "pythonPackages.pyjwt": {
+      "split": "canary",
+      "reason": "CVE-2026-48526: Python algorithm-confusion fix (reject JWK-as-HMAC-secret in prepare_key). Tests add-guard-block in specific subclass method plus rule 7 (no recursive self-call)."
+    },
+    "pythonPackages.nltk": {
+      "split": "train",
+      "reason": "CVE-2026-33236: Python path-traversal via malicious catalog. Fix adds inline path guard (detect-and-reject shape). Forced to train to teach inline-guard pattern."
+    },
+    "pythonPackages.python-jose": {
+      "split": "train",
+      "reason": "CVE-2024-33664: Python JWE unbounded input \u2014 fix adds size check at decrypt() entry. Second detect-and-reject Python example. Forced to train to reinforce pyjwt canary pattern."
+    },
+    "pythonPackages.python-multipart": {
+      "split": "dev",
+      "reason": "CVE-2026-40347: Python HTTP multipart header parsing fix. Dev example for mixed-language eval signal. Preserved from v4."
+    },
+    "pythonPackages.pygments": {
+      "split": "dev",
+      "reason": "CVE-2026-4539: Python lexer-safe regex (pygments ReDoS backport). Second Python dev example. Preserved from v4."
+    },
+    "grub": {
+      "split": "train",
+      "reason": "CVE-2024-45781 + CVE-2024-45782: two grub2 simplify/replace examples (grub_strcpy -> grub_strlcpy). grub naturally hashes to dev; forced to train to add simplify/replace fix-pattern examples."
+    }
+  },
+  "note": "v6 = v5 split assignments with rule 7 reverted. v0.9 tests two variables simultaneously: (1) rule 7 removal, (2) shorter step budget. Control: bzip2 must hold PASS. Test: zlib recovery. Baseline: requests/pyjwt expected FAIL."
+}
