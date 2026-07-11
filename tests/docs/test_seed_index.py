@@ -26,10 +26,29 @@ SEED_INDEX = REPO_ROOT / "docs" / "SEED_INDEX.md"
 FIXTURE_ROOT = REPO_ROOT / "traces" / "example"
 
 
+def _is_authoring_supplement(fixture_dir: Path) -> bool:
+    """Authoring-LoRA training-example dirs are not evidence bundles and are not
+    catalogued in the seed index. See tests/schema/test_authoring_examples.py, which
+    validates them instead. A supplement carries authoring-example.json but has
+    NEITHER bundle.json NOR expect.json; keying on the absence of both markers means
+    a real bundle can never be dropped from the index by adding an authoring-example
+    beside it (many real bundles ship one), and behavioral fixtures with an expect.json
+    stay in the catalogue.
+    """
+    return (
+        (fixture_dir / "authoring-example.json").exists()
+        and not (fixture_dir / "bundle.json").exists()
+        and not (fixture_dir / "expect.json").exists()
+    )
+
+
 def _real_cve_bundle_dirs() -> list[str]:
     return sorted(
         p.name for p in FIXTURE_ROOT.iterdir()
-        if p.is_dir() and p.name.startswith("CVE-") and not p.name.startswith("CVE-0000-")
+        if p.is_dir()
+        and p.name.startswith("CVE-")
+        and not p.name.startswith("CVE-0000-")
+        and not _is_authoring_supplement(p)
     )
 
 
