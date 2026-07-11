@@ -4,6 +4,8 @@ The twenty real-CVE bundles under `traces/example/CVE-*/` each demonstrate a dis
 
 The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exercise specific Steward rules and per-document schema edges, and are read against `expect.json` notes individually.
 
+Authoring-LoRA training supplements are not catalogued here either. These are `traces/example/CVE-*/` dirs that carry only an `authoring-example.json` and `upstream-ref.json` (no `bundle.json`, no `expect.json`); they hold a (vulnerability -> upstream-fix) training pair, not an evidence bundle. They are validated by `tests/schema/test_authoring_examples.py`, not by the bundle expect.json / SEED_INDEX contract.
+
 ## At a glance
 
 | bundle | kind | provenance family | what it demonstrates |

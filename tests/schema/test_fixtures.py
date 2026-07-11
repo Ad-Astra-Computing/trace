@@ -24,8 +24,33 @@ from tests.schema.validate import REPO_ROOT, FixtureResult, validate_fixture
 FIXTURE_ROOT = REPO_ROOT / "traces" / "example"
 
 
+def _is_authoring_supplement(fixture_dir: Path) -> bool:
+    """An authoring-supplement dir holds an Authoring-LoRA training example, not a
+    trace evidence bundle: it carries `authoring-example.json` but has NEITHER a
+    `bundle.json` NOR an `expect.json`. Such dirs are validated by
+    tests/schema/test_authoring_examples.py, not by the bundle expect.json contract.
+
+    The exemption keys on the ABSENCE of BOTH bundle markers deliberately, so nothing
+    the bundle contract already covers can be silenced: a full bundle has bundle.json,
+    a behavioral / reviewer-attested fixture has expect.json, and many real bundles
+    ALSO ship an authoring-example.json — so requiring the absence of both markers is
+    what isolates the thin training-only supplements. A dir with neither marker AND no
+    authoring-example.json stays in the enumeration and fails loudly for a missing
+    expect.json rather than being silently skipped.
+    """
+    return (
+        (fixture_dir / "authoring-example.json").exists()
+        and not (fixture_dir / "bundle.json").exists()
+        and not (fixture_dir / "expect.json").exists()
+    )
+
+
 def _fixture_dirs() -> list[Path]:
-    return sorted(p for p in FIXTURE_ROOT.iterdir() if p.is_dir())
+    return sorted(
+        p
+        for p in FIXTURE_ROOT.iterdir()
+        if p.is_dir() and not _is_authoring_supplement(p)
+    )
 
 
 @pytest.mark.parametrize("fixture_dir", _fixture_dirs(), ids=lambda p: p.name)
