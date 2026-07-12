@@ -422,25 +422,16 @@ The bundles below are authoring-corpus-only: they contain `authoring-example.jso
 - `CVE-2026-1144--quickjs-ng-atomics-get-buf-backport` — quickjs-ng `quickjs.c` atomics get buffer bounds
 - `CVE-2026-11625--bytes-random-secure-fork-pid-backport` — Bytes::Random::Secure `lib/Bytes/Random/Secure.pm` fork PID reseeding
 - `CVE-2026-2245--ccextractor-pmt-heap-overflow-backport` — ccextractor `src/lib_ccx/ts_tables.c` PMT heap overflow
-- `CVE-2026-24061--inetutils-telnetd-metachar-injection-backport` — inetutils `telnetd/utility.c` `sanitize` metachar injection (alt description)
-- `CVE-2026-24061--inetutils-telnetd-sanitize-backport` — inetutils `telnetd/utility.c` `sanitize` metachar injection
-- `CVE-2026-32316--jq-heap-overflow-backport` — jq `src/jv.c` heap overflow (alt description)
+- `CVE-2026-24061--inetutils-telnetd-metachar-injection-backport` — inetutils `telnetd/utility.c` `sanitize` metachar injection
 - `CVE-2026-32316--jq-jvstring-intoverflow-backport` — jq `src/jv.c` `jvp_string` integer overflow
 - `CVE-2026-32746--inetutils-telnetd-credentials-dir-backport` — inetutils `telnetd/pty.c` credentials dir handling
 - `CVE-2026-33236--nltk-downloader-path-traversal-backport` — nltk `nltk/downloader.py` CWE-22 path traversal via malicious XML catalog; `Package.__init__` + `_download_package` guards added
-- `CVE-2026-33947--jq-maxpathdepth-backport` — jq `src/jv_aux.c` `MAX_PATH_DEPTH` path depth limit (variant 1)
-- `CVE-2026-33947--jq-path-depth-backport` — jq `src/jv_aux.c` path depth limit (variant 2)
-- `CVE-2026-33947--jq-path-depth-dos-backport` — jq `src/jv_aux.c` path depth DoS (variant 3, alt description)
+- `CVE-2026-33947--jq-path-depth-dos-backport` — jq `src/jv_aux.c` `MAX_PATH_DEPTH` path depth DoS limit
 - `CVE-2026-39979--jq-jvparse-oob-backport` — jq `src/jv_parse.c` format-specifier OOB fix (`%.*s`)
-- `CVE-2026-40164--jq-hash-collision-dos-backport` — jq `src/jv.c` hash-seed collision DoS (alt description)
-- `CVE-2026-40164--jq-hash-seed-backport` — jq `src/jv.c` hash-seed bounds check
+- `CVE-2026-40164--jq-hash-collision-dos-backport` — jq `src/jv.c` hash-seed collision DoS
 - `CVE-2026-42046--libcaca-canvas-intmax-overflow-backport` — libcaca `caca/canvas.c` canvas intmax overflow
 - `CVE-2026-44331--proftpd-sql-injection-backport` — proftpd `contrib/mod_wrap2_sql.c` SQL injection
-- `CVE-2026-45186--expat-attr-collision-dos-backport` — expat `lib/xmlparse.c` default attribute collision DoS (variant 1)
-- `CVE-2026-45186--expat-default-atts-quadratic-backport` — expat `lib/xmlparse.c` `defaultAttsNames` quadratic DoS (variant 2)
-- `CVE-2026-7598--libssh2-uint32-overflow-backport` — libssh2 `src/userauth.c` uint32 overflow (variant 1)
-- `CVE-2026-7598--libssh2-userauth-int-overflow-backport` — libssh2 `src/userauth.c` userauth integer overflow (variant 2)
-- `CVE-2026-7598--libssh2-userauth-intoverflow-backport` — libssh2 `src/userauth.c` userauth integer overflow (variant 3)
+- `CVE-2026-45186--expat-attr-collision-dos-backport` — expat `lib/xmlparse.c` `defaultAttsNames` collision quadratic DoS
 
 ## How to verify any claim in this index
 

@@ -110,6 +110,85 @@ def test_authoring_supplements_are_discovered():
     )
 
 
+def _authoring_pair_dirs() -> list[Path]:
+    """Every dir carrying an authoring-example.json, supplement or full bundle.
+
+    The base authoring exporter (`export.py:_run_authoring`) globs `CVE-*` and emits
+    ONE training row per dir with NO cve_id dedup (unlike the reviewer exporter, which
+    keys a `seen` set). So two dirs whose scrubbed (vuln -> fix) pair is byte-identical
+    ship the SAME training example twice, silently inflating the authoring corpus.
+    """
+    return sorted(
+        p for p in FIXTURE_ROOT.iterdir()
+        if p.is_dir() and (p / "authoring-example.json").exists()
+    )
+
+
+def _index_header_re() -> "re.Pattern[str]":
+    import re
+    return re.compile(r"^index [0-9a-f]+\.\.[0-9a-f]+.*$", re.MULTILINE)
+
+
+def _pair_identity(fixture_dir: Path) -> tuple:
+    """Content identity of the training pair a dir emits: same cve, same upstream
+    fix commit, same input window, and same fix diff modulo the git `index <a>..<b>`
+    header line (a byte-level artifact that carries no training signal). Two dirs with
+    the same identity emit the SAME row and are redundant; two dirs that differ in the
+    fix commit (giflib's two hunks) or the input window (jq jv_parse two windows) are
+    legitimately distinct harder pairs and must NOT be flagged.
+    """
+    import hashlib
+    ex = json.loads((fixture_dir / "authoring-example.json").read_text())
+    fc = ex.get("fix_commit") or {}
+    sha = fc.get("commit_sha") if isinstance(fc, dict) else fc
+    norm_diff = _index_header_re().sub("", ex["fix_diff"]).strip()
+    return (
+        ex.get("cve_id"),
+        sha,
+        hashlib.sha1(ex["pre_fix_source"].encode()).hexdigest(),
+        hashlib.sha1(norm_diff.encode()).hexdigest(),
+    )
+
+
+# Two full-bundle pairs whose siblings emit a byte-identical authoring row but whose
+# de-duplication is entangled with other corpus provenance: each `--<pkg>-backport`
+# dir is the recorded `base_bundle_dir` of Reviewer negatives under traces/negatives/,
+# while its sibling carries either the signed bundle (busybox-wget-header-injection,
+# Rekor 1878268175) or the SEED_INDEX table row (jq-jvp-string-empty-sbo). Retiring
+# either side moves a signing/negative-mining anchor and so is a peer-reviewed
+# retirement slice, not a mechanical dedup. Allowlisted here so the guard stays green
+# while still flagging any NEW identical-pair duplicate. Remove an entry when its pair
+# is resolved.
+_KNOWN_ENTANGLED_DUP_CVES = {
+    "CVE-2025-48060",  # jq-backport (negative anchor) vs jq-jvp-string-empty-sbo (index row)
+    "CVE-2025-60876",  # busybox-backport (negative anchor) vs busybox-wget-header-injection (signed)
+}
+
+
+def test_authoring_examples_have_no_duplicate_pairs():
+    """No two authoring dirs may emit a byte-identical training pair.
+
+    Keys on the pair's content identity (cve + fix commit + input window + normalized
+    fix diff), so genuinely distinct same-CVE pairs (different commit or different
+    input window) are allowed while true duplicates fail loudly. Guards against the
+    base exporter's lack of cve_id dedup re-introducing redundant rows.
+    """
+    by_identity: dict[tuple, list[str]] = {}
+    for d in _authoring_pair_dirs():
+        by_identity.setdefault(_pair_identity(d), []).append(d.name)
+    dupes = {
+        ident: sorted(dirs)
+        for ident, dirs in by_identity.items()
+        if len(dirs) > 1 and ident[0] not in _KNOWN_ENTANGLED_DUP_CVES
+    }
+    assert not dupes, (
+        "duplicate authoring training pairs (byte-identical after normalizing the git "
+        "index header); keep exactly one dir per identical pair and prune the sibling "
+        "+ its SEED_INDEX row:\n  "
+        + "\n  ".join(f"{ident[0]}: {dirs}" for ident, dirs in sorted(dupes.items()))
+    )
+
+
 @pytest.mark.parametrize(
     "fixture_dir", _authoring_supplement_dirs(), ids=lambda p: p.name
 )
