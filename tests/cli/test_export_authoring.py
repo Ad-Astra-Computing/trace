@@ -278,6 +278,62 @@ def test_authoring_export_excludes_unscrubbable_summary(tmp_path):
     assert "scrub" in manifest["excluded"][0]["reason"]
 
 
+def test_authoring_export_dedups_identical_pair(tmp_path):
+    """Two DISTINCT bundle dirs carrying a byte-identical (vuln -> fix) pair emit ONE
+    training row, not two. Both dirs stay on disk; only the redundant row is dropped,
+    the manifest records the skip + which dir was kept.
+
+    Keep policy (codex peer <redacted-session-id> Q2): the canonical row is the one with the RICHER
+    vuln_raw, NOT the sorted-first dir. Here `-a-terse` sorts first but `-b-richer` has
+    the longer summary, so the tiebreak keeps `-b-richer` — proving rule 1 beats sort
+    order (the final lexicographic fallback would have kept `-a-terse`)."""
+    root = tmp_path / "traces"
+    # Same cve, same fix_commit sha, same fix_diff (the cache fixes pre_fix_source
+    # too) -> identical pair identity. Only the vuln summary length differs.
+    _cached_bundle(root, "CVE-2025-34451--a-terse", cve="CVE-2025-34451",
+                   attr="proxychains-ng", summary="Stack overflow in proxy handling.")
+    _cached_bundle(root, "CVE-2025-34451--b-richer", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary=("Stack overflow in proxy_from_string when parsing a proxy "
+                            "entry whose credentials exceed the fixed-size on-stack "
+                            "buffer, letting a crafted config corrupt the stack."))
+    ex.run(_args(tmp_path / "out", root))
+    rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
+    assert len(rows) == 1                          # the duplicate row is deduped
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    skips = m["authoring_dedup_skips"]
+    assert len(skips) == 1
+    assert skips[0]["bundle"] == "CVE-2025-34451--a-terse"      # terser sibling dropped
+    assert skips[0]["kept"] == "CVE-2025-34451--b-richer"       # richer vuln_raw kept
+    assert "duplicate authoring pair" in skips[0]["reason"]
+
+
+def test_authoring_export_keeps_distinct_same_cve_pairs(tmp_path):
+    """Pair-identity dedup (NOT cve_id dedup): two dirs with the SAME cve but a
+    genuinely-different fix (distinct fix_diff here) are distinct harder examples and
+    both emit. A naive cve_id-level dedup would wrongly collapse these to one row."""
+    root = tmp_path / "traces"
+    other_diff = (
+        "diff --git a/src/libproxychains.c b/src/libproxychains.c\n"
+        "--- a/src/libproxychains.c\n+++ b/src/libproxychains.c\n"
+        "@@ -300,3 +300,3 @@ static int other_path(void)\n"
+        " \tint len = get_len();\n"
+        "-\tif(len > 512) overflow();\n"
+        "+\tif(len > 256) overflow();\n")
+    _cached_bundle(root, "CVE-2025-34451--hunk-a", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.")
+    _cached_bundle(root, "CVE-2025-34451--hunk-b", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="A crafted input triggers memory corruption when the request field is too long.",
+                   fix_diff=other_diff)
+    ex.run(_args(tmp_path / "out", root))
+    rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
+    assert len(rows) == 2                          # distinct pairs both survive
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert m["authoring_dedup_skips"] == []        # nothing deduped
+
+
 def test_authoring_manifest_records_leakage_partition(tmp_path):
     root = tmp_path / "traces"
     _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",

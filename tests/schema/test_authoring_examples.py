@@ -17,6 +17,7 @@ the pair would teach the model a hallucinated edit.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -124,11 +125,6 @@ def _authoring_pair_dirs() -> list[Path]:
     )
 
 
-def _index_header_re() -> "re.Pattern[str]":
-    import re
-    return re.compile(r"^index [0-9a-f]+\.\.[0-9a-f]+.*$", re.MULTILINE)
-
-
 def _pair_identity(fixture_dir: Path) -> tuple:
     """Content identity of the training pair a dir emits: same cve, same upstream
     fix commit, same input window, and same fix diff modulo the git `index <a>..<b>`
@@ -136,18 +132,14 @@ def _pair_identity(fixture_dir: Path) -> tuple:
     the same identity emit the SAME row and are redundant; two dirs that differ in the
     fix commit (giflib's two hunks) or the input window (jq jv_parse two windows) are
     legitimately distinct harder pairs and must NOT be flagged.
+
+    Delegates to the exporter's `_authoring_pair_identity` so this on-disk duplicate
+    guard and the exporter's row-level dedup normalize the pair the same way (single
+    source of truth for the `index` header strip + hashing).
     """
-    import hashlib
+    from tools.trace_cli.export import _authoring_pair_identity
     ex = json.loads((fixture_dir / "authoring-example.json").read_text())
-    fc = ex.get("fix_commit") or {}
-    sha = fc.get("commit_sha") if isinstance(fc, dict) else fc
-    norm_diff = _index_header_re().sub("", ex["fix_diff"]).strip()
-    return (
-        ex.get("cve_id"),
-        sha,
-        hashlib.sha1(ex["pre_fix_source"].encode()).hexdigest(),
-        hashlib.sha1(norm_diff.encode()).hexdigest(),
-    )
+    return _authoring_pair_identity(ex)
 
 
 # Two full-bundle pairs whose siblings emit a byte-identical authoring row but whose
@@ -186,6 +178,76 @@ def test_authoring_examples_have_no_duplicate_pairs():
         "index header); keep exactly one dir per identical pair and prune the sibling "
         "+ its SEED_INDEX row:\n  "
         + "\n  ".join(f"{ident[0]}: {dirs}" for ident, dirs in sorted(dupes.items()))
+    )
+
+
+# CVE ids that legitimately emit >1 authoring row from the real corpus: genuinely
+# distinct examples (different fix commit and/or different fix diff) under one CVE.
+# A future naive switch to cve_id-level dedup would drop one row from each of these
+# and break this expectation — that's the guard.
+_DISTINCT_MULTI_ROW_CVES = {
+    "CVE-2025-31344",   # giflib: two distinct hunks
+    "CVE-2026-39979",   # jq: two distinct examples
+    "CVE-2026-44331",   # proftpd: two distinct examples
+}
+
+
+def test_authoring_export_emits_no_duplicate_pair_rows(tmp_path):
+    """Running the real authoring export, no two EMITTED rows share a pair identity.
+
+    This is the exporter-side counterpart to the on-disk `_KNOWN_ENTANGLED_DUP_CVES`
+    allowlist: the two entangled dirs (jq / busybox) coexist on disk (both are
+    load-bearing anchors) but the exporter's pair-identity dedup guarantees each
+    identical pair emits exactly ONE training row. Genuinely-distinct same-CVE
+    examples (giflib, jq CVE-2026-39979, proftpd) still emit both rows, so a naive
+    cve_id-level dedup would break the second half of this test.
+    """
+    from tools.trace_cli import export as ex
+
+    out = tmp_path / "out"
+    args = argparse.Namespace(
+        export_scope="authoring", out=out,
+        traces_root=FIXTURE_ROOT, format="human", split_manifest=None,
+    )
+    assert ex.run(args) == 0
+
+    rows = [json.loads(l) for l in (out / "authoring.jsonl").read_text().splitlines()]
+    canary = [json.loads(l) for l in (out / "authoring-canary.jsonl").read_text().splitlines()]
+    emitted = rows + canary
+
+    # Pair identity of an emitted row: (cve, fix commit, hashed window, hashed diff).
+    # Reuse the exporter's helper so the row-level and dir-level guards agree.
+    def _row_identity(rec: dict) -> tuple:
+        pv = rec["provenance"]
+        window = rec["messages"][1]["content"]      # user turn carries the pre-fix source
+        label = rec["messages"][2]["content"]        # assistant turn IS the fix_diff
+        return ex._authoring_pair_identity({
+            "cve_id": pv["cve_id"], "fix_commit": {"commit_sha": pv["fix_commit"]},
+            "pre_fix_source": window, "fix_diff": label,
+        })
+
+    from collections import Counter
+    ident_counts = Counter(_row_identity(r) for r in emitted)
+    dupes = {i: n for i, n in ident_counts.items() if n > 1}
+    assert not dupes, f"emitted authoring rows share a pair identity: {dupes}"
+
+    # Genuinely-distinct same-CVE examples must survive dedup (guards against a naive
+    # cve_id-level dedup that would collapse them to one row each).
+    per_cve = Counter(r["provenance"]["cve_id"] for r in emitted)
+    for cve in _DISTINCT_MULTI_ROW_CVES:
+        assert per_cve[cve] == 2, (
+            f"{cve} should emit 2 distinct rows, got {per_cve[cve]} "
+            "(pair-identity dedup must not collapse genuinely-distinct examples)"
+        )
+
+    # The two entangled dirs collapse to exactly one emitted row each, and the drop
+    # is recorded in the manifest.
+    for cve in _KNOWN_ENTANGLED_DUP_CVES:
+        assert per_cve[cve] == 1, f"{cve} entangled pair should emit exactly 1 row"
+    m = json.loads((out / "manifest.json").read_text())
+    skipped_cves = {s["cve_id"] for s in m["authoring_dedup_skips"]}
+    assert _KNOWN_ENTANGLED_DUP_CVES <= skipped_cves, (
+        f"manifest must log the deduped entangled pairs; got {skipped_cves}"
     )
 
 
