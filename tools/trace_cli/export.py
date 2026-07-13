@@ -650,6 +650,35 @@ def _strip_ab_prefix(path: str) -> str:
     return path
 
 
+# A curated upstream-fix.patch produced by `git format-patch` (or GitLab/cgit
+# export) ends with a signature trailer: a `--` / `-- ` separator line followed by
+# a single signature token (`2.41.0`, `GitLab`, ...). It is email/format metadata,
+# never fix content: left in the label it (a) trains the model to emit the trailer
+# and (b) — because the parser appends it to the LAST file's hunks, where `-- `
+# even reads as a removed line — breaks that file's byte-grounding. Grounding and
+# the authoring label are defined over the normalized source-diff body, excluding
+# this trailer. (codex <redacted-session-id> 2026-07-13)
+#
+# Anchored to end-of-string. The signature line has NO unified-diff prefix
+# (space/`+`/`-`) — valid diff body ALWAYS carries one — so a prefix-less final
+# line after a `--`/`-- ` separator is unambiguously the trailer, never a
+# `--`-content line inside a hunk. This single invariant covers every observed
+# generator: git format-patch (`-- \n2.41.0`), GitLab (`-- \nGitLab`), cgit
+# (`-- \ncgit v1.3`), and the no-trailing-space `--\n<sig>` variant.
+# Lookbehind on the separator's leading newline so the last real diff line keeps
+# its terminator (strip removes only `-- \n<sig>`, not the `\n` that ends the body).
+_FORMAT_PATCH_TRAILER_RE = re.compile(
+    r"(?<=\n)-- ?\n(?![ +\-])[^\n]{1,30}\s*\Z")
+
+
+def _strip_format_patch_trailer(diff_body: str) -> str:
+    """Remove a trailing format-patch / GitLab signature trailer from a diff body.
+    Only the trailing block is removed — a `--` inside a hunk is never touched,
+    since the pattern is anchored to end-of-string and requires a prefix-less
+    signature line (which valid diff body never has)."""
+    return _FORMAT_PATCH_TRAILER_RE.sub("", diff_body)
+
+
 def _authoring_label_from_patch(patch_text: str) -> dict[str, Any] | None:
     """Parse a curated `upstream-fix.patch` into the authoring LABEL: a canonical
     source-only unified diff plus per-file churn. Returns
@@ -674,6 +703,9 @@ def _authoring_label_from_patch(patch_text: str) -> dict[str, Any] | None:
     from tools.trace_cli import backport_patch as bp
 
     body = bp._extract_diff(patch_text) if "diff --git" in patch_text else patch_text
+    # Drop a trailing `git format-patch` signature before parsing, so it never
+    # attaches to the last file's hunks (where it would break grounding).
+    body = _strip_format_patch_trailer(body)
     lines = body.splitlines()
     sections: list[dict[str, Any]] = []
     cur: dict[str, Any] | None = None
@@ -865,10 +897,17 @@ def _file_diff_starts(fix_diff: str, fpath: str) -> list[int]:
 # existing single-example budget with per-file truncation recorded; source files
 # only; per-file removed-line grounding preserved; reject (skip) rather than mint
 # if any required file cannot be resolved/grounded or the window cannot fit —
-# never mint a degraded multi-file label. Existing >3-file labels (libwebp) stay
-# on the single-file path (grandfathered, still flagged) until a v2 raises the cap.
-_MAX_MULTI_SOURCE_FILES = 3
-_INPUT_WINDOW_BUDGET_LINES = 320  # the observed single-example max (relaxng ~294)
+# never mint a degraded multi-file label. The rule is budget-based, not a hard
+# file count: include EVERY touched source file if they all ground and the window
+# fits, else exclude (codex <redacted-session-id> 2026-07-13). The cap below is a sanity bound
+# against pathological labels, not the fit decision — the char budget is.
+_MAX_MULTI_SOURCE_FILES = 8
+_INPUT_WINDOW_BUDGET_LINES = 700  # multi-file only; single-file path unaffected.
+# Hard char ceiling on the rendered input window, tied to the 16384-token training
+# max_seq_len. ~40000 chars ≈ 10000 tokens leaves ample margin for the system+user
+# prompt wrapper and the label under max_seq_len; a test asserts every exported
+# example stays under the training max. (codex <redacted-session-id> 2026-07-13)
+_INPUT_WINDOW_BUDGET_CHARS = 40000
 _MULTI_WINDOW_RADII = (20, 14, 10, 8, 6)  # shrink uniformly to fit the budget; 6
 #                                           still keeps every removed line (which
 #                                           sits at the hunk centre) in the window.
@@ -910,8 +949,11 @@ def _multi_file_window(fix_diff, files, blob_reader):
         if not ok:
             return None  # grounding failed independent of radius -> unfixable
         total = sum(len(w.splitlines()) for _, w in sections) + len(sections)  # +headers
-        if total <= _INPUT_WINDOW_BUDGET_LINES:
-            rendered = "\n\n".join(f"/* ==== file: {fp} ==== */\n{w}" for fp, w in sections)
+        rendered = "\n\n".join(f"/* ==== file: {fp} ==== */\n{w}" for fp, w in sections)
+        # Both budgets must hold: the line budget bounds the shrink loop, the char
+        # ceiling keeps the rendered window under the training max_seq_len regardless
+        # of line width (C vs generated code vary badly per line).
+        if total <= _INPUT_WINDOW_BUDGET_LINES and len(rendered) <= _INPUT_WINDOW_BUDGET_CHARS:
             return {"window": rendered, "included": list(files),
                     "truncated": radius != _MULTI_WINDOW_RADII[0], "primary": files[0]}
     return None  # cannot fit the budget even at the minimum radius
@@ -1277,22 +1319,24 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
             label_source = "git-show" if label_src is None else "git-show-fallback"
             label_churn = gs[1]
 
-        # Multi-file input window: when the label spans 2-3 source files, replace
-        # the single-file window with one covering EVERY changed file so the whole
-        # label is authorable from the input. Reject (skip) rather than mint a
-        # degraded 2-3-file pair if any file cannot be grounded or the window won't
-        # fit the budget. Labels with >3 source files (e.g. libwebp's 4-file
-        # redesign) stay on the single-file path — grandfathered, still flagged via
-        # label_file_count — until a v2 raises the cap. (codex <redacted-session-id> 2026-06-29)
+        # Multi-file input window: ANY label spanning >= 2 source files must
+        # replace the single-file window with one covering EVERY changed file so the
+        # whole label is authorable from the input. Enforce window-or-exclude: reject
+        # (skip) rather than mint a degraded pair if any file cannot be grounded, the
+        # window won't fit the budget, OR the label exceeds the sanity cap
+        # (_multi_file_window returns None past the cap). A multi-file label never
+        # silently falls back to the single-file path. (codex <redacted-session-id> 2026-06-29,
+        # cap raised to budget-based + >cap exclusion 2026-07-13)
         src_files = sorted(label_churn or {}, key=lambda p: (-(label_churn or {})[p], p))
         included_source_files = [fpath]
         input_window_truncated = False
-        if 2 <= len(src_files) <= _MAX_MULTI_SOURCE_FILES:
+        if len(src_files) >= 2:
             mw = _multi_file_window(fix_diff, src_files, _tree_blob)
             if mw is None:
                 _skip(f"multi-file label ({len(src_files)} files) for commit "
                       f"{sha[:12]} could not be fully grounded within the input "
-                      "budget — not minting a degraded pair")
+                      "budget or exceeds the source-file cap — not minting a "
+                      "degraded single-file pair")
                 return None
             fpath, pre_fix = mw["primary"], mw["window"]
             included_source_files = mw["included"]
@@ -1542,19 +1586,23 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 "cert_green": cert_green,
                 "backport_validated": True,
                 "label_file_count": label_file_count,
-                # Multi-file input-window provenance (codex <redacted-session-id> 2026-06-29):
-                # which source files the input actually shows, which label files it
-                # omits (empty unless a >3-file label is grandfathered onto the
-                # single-file path), and whether the window was radius-truncated to
-                # fit the budget. authorable == (omitted_source_files == []).
+                # Multi-file input-window provenance (codex <redacted-session-id> 2026-06-29,
+                # cap raised to budget-based 2026-07-13): which source files the
+                # input actually shows, which label files it omits (empty unless a
+                # label could not be fully windowed within budget), and whether the
+                # window was radius-truncated. authorable == (omitted_source_files
+                # == []). input_window_chars records the rendered window size so its
+                # stay-under-max_seq_len budget is auditable.
                 "included_source_files": included,
                 "omitted_source_files": omitted_source_files,
                 "input_window_truncated": bool(pair.get("input_window_truncated", False)),
-                # Multi-file v1 status (codex <redacted-session-id> 2026-06-29): a pair is
-                # eligible_under_multifile_v1 when its whole label is authorable from
-                # the input (no omitted source file, label <= 3 files). A >3-file
-                # label (libwebp) is grandfathered on the single-file input path and
-                # flagged grandfathered_degraded_input until a v2 raises the cap.
+                "input_window_chars": len(pair["pre_fix_source"]),
+                # Multi-file status: a pair is eligible when its whole label is
+                # authorable from the input (no omitted source file, label within the
+                # sanity cap). A label that could not be fully windowed within budget
+                # is flagged grandfathered_degraded_input; the exporter now EXCLUDES
+                # such labels at mint (multi-file grounding returns None), so this
+                # flag only marks pre-existing degraded caches not yet re-minted.
                 "authoring_multifile_status": (
                     "single-file" if label_file_count <= 1
                     else "multifile-v1" if label_file_count <= _MAX_MULTI_SOURCE_FILES
