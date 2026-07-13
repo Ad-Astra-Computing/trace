@@ -1,0 +1,97 @@
+# trace — LoRA training-corpus findings
+
+**Status:** running record, updated 2026-07-13. Companion to [`FINDINGS_v0.md`](FINDINGS_v0.md) (the certification-pipeline result); this doc covers the fine-tuning arc built on top of it.
+**Companion docs:** [`CONCEPTS.md`](CONCEPTS.md) (pipeline orientation), [`REVIEWER_LORA_PILOT.md`](REVIEWER_LORA_PILOT.md), [`AUTHORING_TRAINING.md`](AUTHORING_TRAINING.md), [`DECISIONS.md`](DECISIONS.md) (running log).
+
+This is the presentation source of truth for the fine-tuning work. Every headline below is stated with its real evidence and confidence, so no claim leaves this file stronger than the data supports.
+
+---
+
+## The two tracks in one paragraph
+
+trace's certification pipeline (v0) uses frontier models (opus/sonnet) for the two model-backed roles, Patcher and Reviewer. The fine-tuning arc asks whether an **open-weight 14B model, fine-tuned on trace's own certified corpus, can take those roles** — so production needs neither a frontier API nor, for authoring, the upstream fix commit. There are two independent tracks. The **Reviewer track** (easier: a binary accept/reject on a proposed patch) is the pipeline dry-run. The **Authoring track** (harder: write the source fix from the vulnerability description alone) is the one that answers the "it's just a version-bump bot" critique, because the label is a real code fix and the fix symbols are scrubbed from what the model sees.
+
+---
+
+## Glossary (read this before the findings)
+
+- **version-bump vs source-backport.** A *version-bump* fix just raises a package to a release that already contains the upstream fix. A *source-backport* fix applies the actual code change to the pinned source. The Authoring corpus is entirely source-backports: there is no version number to bump, the model must author the code.
+- **Reviewer-LoRA vs Authoring-LoRA.** Two separately fine-tuned adapters on the same base (Qwen2.5-Coder-14B). Reviewer-LoRA judges a patch (accept/reject). Authoring-LoRA writes a patch.
+- **authoring pair.** One training example: input = CVE description (vulnerability only, fix symbols scrubbed) + pre-fix source window; label = the curated upstream fix as a unified diff.
+- **leak scrub / grounding.** Two integrity gates on an authoring pair. *Leak scrub* removes the fix's giveaway symbols from the description so the model is not handed the answer. *Grounding* requires the label to edit only code the model was actually shown.
+- **cert-green vs behavioral-only (Tier A / Tier B).** A *cert-green* pair carries a full signed evidence bundle (Patcher + Reviewer + Builder + signature). A *behavioral-only* pair is validated by build behaviour alone (unpatched fires the bug, patched is clean) without the full ceremony. Both are honest training labels; the tier is recorded in provenance.
+- **canary.** A held-out CVE never seen in training, used to measure generalization (zlib, bzip2recover, requests, pyjwt).
+- **localization vs edit-precision.** Two independent authoring skills. *Localization* = find the right line/block to change. *Edit-precision* = make the exactly-correct edit at that site. A model can have one without the other.
+- **cohort / fold.** A frozen evaluation set. A *held-out fold* must be disjoint from training for its numbers to mean anything.
+
+---
+
+## Reviewer track — the honest result
+
+**Claim, stated honestly: Reviewer-LoRA matches frontier sonnet on verdict substance (both scored every held-out example correctly, zero false accepts or rejects) and is more reliable at producing well-formed output. It has not been shown to beat frontier as a capability, and it has not passed a fresh-data gate.**
+
+What the numbers actually are:
+
+- On an 11-example held-out fold, Reviewer-LoRA scored 11/11 and frontier sonnet scored 10/11 (reported elsewhere as 100% vs 90.9%).
+- The single-example gap is **a formatting artifact, not a judgement difference**: sonnet's one miss wrote a "reject" header then reasoned its way to "accept", and the parser rejected the contradiction. On verdict *substance* both models were 11/11 with zero false accepts and zero false rejects.
+- **n = 11** (7 distinct CVEs). A one-example difference has no statistical weight.
+- The fold has since been reused as a release gate across 11 adapter versions, so it is saturated and no longer a fresh measurement.
+- 5 of the 7 positive labels in the fold derive from the frontier reviewer's own accepts, which is mildly circular for a frontier-vs-LoRA comparison.
+- The only **out-of-fold** measurement to date (a shadow pilot on fresh positives) scored 87.5% and did not pass its gate.
+
+**Confidence: the fold is clean (genuinely disjoint, no leakage or duplication). The "matched on verdicts, better format reliability" statement is well-supported. Any stronger "beats frontier" framing is retired.** The next real evidence is a larger fresh-data eval.
+
+---
+
+## Authoring track — the honest result
+
+**Claim, stated honestly: data scale and diversity is the lever that moves localization; edit-precision remains the open gap. The fine-tuned 14B locates the right fix site but does not yet reliably produce the exact edit.**
+
+- Across four training runs (v1.0 to v1.3) scored on the 4 held-out canaries, byte-exact match stayed at 0/4.
+- The signal is in *where the model looks*: single-example additions moved canary localization zero, while a 15-example stratified batch (v1.3) recovered zlib localization to the true fix site on both the full and the distractor-narrowed window. That is the first movement in four runs and it tracks data scale, not prompt tweaks.
+- The residual gap is edit-precision (guard-clip vs the upstream condition-fold at a correct site) and uneven transfer (the gain concentrated on one canary, not all four).
+- For reference, frontier sonnet zero-shot scores ~2/4 structural on the same canaries, so the task is hard even for a frontier model authoring from the vulnerability alone. That difficulty is itself the corpus-value evidence: this is not fix-copying.
+
+**Confidence: the localization-lever claim is validated. The path forward is more clean data, then re-baseline, then decide on a stronger base.** Note the important caveat below: the v1.0-v1.3 canary results predate a corpus-integrity fix, so some of the 0/4 may be corpus noise rather than a model ceiling. The current 14B should be re-baselined on the cleaned corpus before that ceiling is trusted.
+
+---
+
+## Corpus integrity (2026-07-13) — the load-bearing gate
+
+An adversarial review of the authoring corpus (independently verified against the artifacts) found **~12 of 91 exported training rows were compromised**:
+
+- **8 pairs** whose label edited code absent from the shown window (the model was asked to author a change to code it never saw),
+- **1 answer-key leak** (a "vulnerable" window cut from a half-patched tree, with the fix already present),
+- **3 redundant duplicates** that escaped dedup.
+
+Root cause: the grounding and dedup gates ran only when a pair was first minted, so a cached pair written by an older exporter bypassed them at export. The fix moves the gates to export time, over every emittable pair, cached or fresh:
+
+1. **Per-file grounding** — every file the label edits must be shown, and each file's removed lines must appear in that file's own window section (not merely somewhere in the combined input).
+2. **Self-leak guard** — a pure-addition fix whose block already sits contiguously in the window (a half-patched tree) is excluded.
+3. **Edit-based dedup** — pairs are keyed on the edit (per-file paths, hunk positions, changed lines), not the window, so a redundant re-window collapses while genuinely distinct edits stay separate.
+
+All three run over one correct unified-diff parser. **Export is now 91 → 79 honest rows**: every pair edits only shown code, no pair hands over the fix, no duplicates. This is the corpus the next training run should use.
+
+---
+
+## Honest claim ledger
+
+| Claim | Evidence | Confidence |
+|---|---|---|
+| The pipeline certifies simple-trigger memory-safety CVEs and honestly refuses the rest | 8 cert-green + 8 retired, [`FINDINGS_v0.md`](FINDINGS_v0.md) | High |
+| The authoring task is real fix-authoring, not version-bumping or fix-copying | 79 grounded, leak-scrubbed source-backport pairs; frontier scores only ~2/4 zero-shot | High |
+| The authoring training corpus is honest (no answer-key, no ungrounded labels) | export-time integrity gates, 91→79 rows, 2026-07-13 | High |
+| Data scale + diversity moves authoring localization | v1.3 zlib localization recovery vs zero movement from single-example runs | Medium |
+| The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact; localization only | Not yet supported |
+| Reviewer-LoRA matches frontier on verdicts, better format reliability | 11/11 vs 10/11 fold, both 0 false accept/reject | Medium (n=11) |
+| Reviewer-LoRA beats frontier as a capability | one-example parse artifact; shadow pilot failed | Not supported — retired |
+
+---
+
+## What's open
+
+- **Re-baseline the current 14B** authoring adapter on the clean 79-row corpus, to separate corpus noise from the real edit-precision ceiling.
+- **Fresh-data Reviewer eval** larger than n=11, to replace the saturated fold.
+- **Base-model probe** (GLM-5.2 / Qwen3-Coder) only after the re-baseline, and only for the Authoring track — the Reviewer track keeps the small-model thesis. Probe before any swap; the bar is a stronger base changing the canary failure profile.
+- **Corpus hygiene** — physically retire the redundant double-bootstrap dirs and giflib's half-patched dir (the exporter already excludes them; this is cleanup, not correctness).
+- **Grow the clean corpus** toward the next training milestone via the behavioral-only Tier-B path (no frontier model spend).
