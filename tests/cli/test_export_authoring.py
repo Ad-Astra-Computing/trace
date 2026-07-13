@@ -997,3 +997,78 @@ def test_multi_file_window_rejects_when_budget_too_small(monkeypatch):
     }
     out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
     assert out is None
+
+
+# --- format-patch trailer normalization + multi-file window budget (2026-07-13) ---
+
+def test_strip_format_patch_trailer_all_generator_variants():
+    """git format-patch / GitLab / cgit all append a `--`/`-- ` separator + a
+    prefix-less signature line. The trailer is metadata, never fix content, and
+    must be stripped from the label (it trains a spurious trailer + breaks the
+    last file's grounding)."""
+    body = "diff\n@@ -1 +1 @@\n ctx\n-old\n+new\n"
+    for sig in ("-- \n2.41.0\n", "--\n2.20.1\n", "-- \nGitLab\n", "-- \ncgit v1.3\n"):
+        assert ex._strip_format_patch_trailer(body + sig) == body, sig
+
+
+def test_strip_format_patch_trailer_leaves_diff_body_untouched():
+    """A `--`-content line INSIDE a hunk (a removed line whose content starts
+    with a dash) is valid diff body — it has a diff prefix — so it is never
+    mistaken for the trailer."""
+    body = "diff\n@@ -1 +1 @@\n a\n--- removed content with dashes\n+new code\n b\n"
+    assert ex._strip_format_patch_trailer(body) == body
+
+
+def test_no_exported_authoring_label_carries_a_format_patch_trailer():
+    """Corpus invariant: no cached authoring label ships a format-patch trailer.
+    Scans the on-disk caches (no network) so a re-introduced trailer fails here."""
+    import glob
+    offenders = []
+    for ae in glob.glob("traces/example/*/authoring-example.json"):
+        fd = json.load(open(ae)).get("fix_diff", "")
+        if any(ln.rstrip() == "--" for ln in fd.splitlines()):
+            offenders.append(ae)
+    assert not offenders, f"format-patch trailer left in: {offenders}"
+
+
+def _mk_two_file_label():
+    diff = (
+        "diff --git a/f1.c b/f1.c\n--- a/f1.c\n+++ b/f1.c\n"
+        "@@ -3,3 +3,3 @@\n ctxA\n-old1\n+new1\n ctxB\n"
+        "diff --git a/f2.c b/f2.c\n--- a/f2.c\n+++ b/f2.c\n"
+        "@@ -3,3 +3,3 @@\n ctxC\n-old2\n+new2\n ctxD\n"
+    )
+    blobs = {
+        "f1.c": (["h1", "h2", "ctxA", "old1", "ctxB", "t1", "t2"], True),
+        "f2.c": (["h1", "h2", "ctxC", "old2", "ctxD", "t1"], True),
+    }
+    return diff, ["f1.c", "f2.c"], (lambda fp: blobs.get(fp))
+
+
+def test_multi_file_window_includes_every_touched_file():
+    diff, files, blob = _mk_two_file_label()
+    mw = ex._multi_file_window(diff, files, blob)
+    assert mw is not None
+    assert mw["included"] == ["f1.c", "f2.c"]
+    # both files' removed lines are present in the rendered window (authorable)
+    assert "old1" in mw["window"] and "old2" in mw["window"]
+
+
+def test_multi_file_window_excludes_over_char_ceiling(monkeypatch):
+    """Budget is char-based, tied to max_seq_len: a window over the ceiling is
+    EXCLUDED (None), never minted as a degraded/oversized pair."""
+    diff, files, blob = _mk_two_file_label()
+    monkeypatch.setattr(ex, "_INPUT_WINDOW_BUDGET_CHARS", 10)  # force over-ceiling
+    assert ex._multi_file_window(diff, files, blob) is None
+
+
+def test_multi_file_window_excludes_above_cap():
+    """A label touching more than the sanity cap is EXCLUDED (None), never minted
+    as a degraded single-file pair (codex <redacted-session-id> 2026-07-13)."""
+    n = ex._MAX_MULTI_SOURCE_FILES + 1
+    files = [f"f{i}.c" for i in range(n)]
+    diff = "".join(
+        f"diff --git a/{f} b/{f}\n--- a/{f}\n+++ b/{f}\n@@ -1,1 +1,1 @@\n-old{i}\n+new{i}\n"
+        for i, f in enumerate(files))
+    blob = lambda fp: ([f"old{files.index(fp)}"], True) if fp in files else None
+    assert ex._multi_file_window(diff, files, blob) is None
