@@ -6,7 +6,7 @@
 # commit 2b74487) to separate corpus noise from the model's edit-precision ceiling.
 # v1.3's 0/4 canary results predate the cleanup.
 #
-# COMPARABILITY (codex <redacted-session-id>, 2026-07-13): reuses lora/hf_authoring_job_v1.3.py
+# COMPARABILITY (codex <redacted-session-id>, 2026-07-13): reuses lora/hf_authoring_job_v10_clean.py
 # BYTE-IDENTICAL, so the ONLY difference vs v1.3 is the dataset content. Everything
 # else is held fixed by that script: base Qwen2.5-Coder-14B @ aedcc2d4, prompt text,
 # MAX_SEQ_LEN 16384, LoRA rank/alpha 16 dropout 0.05, nf4 QLoRA, 375 steps,
@@ -45,4 +45,4 @@ $HF jobs uv run \
   -e "ADAPTER_DIR=/tmp/authoring-lora-v10-clean" \
   -e "HUB_MODEL_ID=adastracomputing/authoring-lora-v10-clean" \
   -e "CORPUS_FREEZE_SHA=$TRACE_COMMIT" \
-  lora/hf_authoring_job_v1.3.py
+  lora/hf_authoring_job_v10_clean.py
