@@ -1330,6 +1330,70 @@ _AUTHORING_BEHAVIORAL_CHECKS = (
     "no-proxy-signal",
 )
 
+# The git `index <a>..<b>` header line is the only byte-volatile part of a fix_diff
+# (it names blob object hashes, not content). Two dirs whose (vuln -> fix) pair is
+# otherwise identical still differ here, so it must be stripped before comparing
+# pair identity. Shared with tests/schema/test_authoring_examples.py so the
+# exporter dedup and the on-disk duplicate guard normalize the diff the same way.
+_INDEX_HEADER_RE = re.compile(r"^index [0-9a-f]+\.\.[0-9a-f]+.*$", re.MULTILINE)
+
+
+def _authoring_pair_identity(pair: dict[str, Any]) -> tuple:
+    """Content identity of the training row a pair emits: (cve, upstream fix commit,
+    hashed input window, hashed fix diff modulo the `index <a>..<b>` header). Two
+    pairs with equal identity emit a byte-identical training row and are redundant;
+    pairs differing in the fix commit (giflib's two hunks) or the input window (jq's
+    two jv_parse windows) are legitimately distinct harder examples and stay distinct.
+    """
+    fc = pair.get("fix_commit") or {}
+    sha = fc.get("commit_sha") if isinstance(fc, dict) else fc
+    norm_diff = _INDEX_HEADER_RE.sub("", pair.get("fix_diff") or "").strip()
+    return (
+        pair.get("cve_id"),
+        sha,
+        hashlib.sha1((pair.get("pre_fix_source") or "").encode()).hexdigest(),
+        hashlib.sha1(norm_diff.encode()).hexdigest(),
+    )
+
+
+def _negative_anchor_base_dirs(negatives_root: Path) -> set[str]:
+    """Set of positive bundle dir NAMES referenced as the `base_bundle_dir` by any
+    reviewer-negative mutation under `negatives_root`. Used only as tiebreak rule 3
+    (prefer the anchor a negative mutates from), so a bundle in this set is worth
+    keeping as canonical when vuln_raw length and cert-green status don't decide.
+    """
+    bases: set[str] = set()
+    if not negatives_root.is_dir():
+        return bases
+    for md in sorted(negatives_root.glob("CVE-*/mutation.json")):
+        m = _load_json(md) or {}
+        base = m.get("base_bundle_dir")
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _authoring_keep_rank(item: dict, negative_anchor_dirs: set[str]) -> tuple:
+    """Deterministic canonical-row rank among dirs that share a pair identity
+    (codex peer <redacted-session-id> Q2). Higher tuple sorts first. Rules, most→least significant:
+      1. Longer non-empty vuln_raw — the more informative authoring prompt.
+      2. Cert-green / signed bundle — prefer the attested evidence bundle.
+      3. Reviewer-negative anchor — prefer a dir a negative mutates from.
+      4. Lexicographic dir name — final deterministic fallback. Reversed so that
+         under the outer `reverse=True` sort the LEXICOGRAPHICALLY-FIRST name wins.
+    Rules 2-4 only break ties when vuln_raw lengths are equal, so they are rarely
+    exercised; they exist to keep selection stable and auditable.
+    """
+    name = item["bd"].name
+    # Negate the name for rule 4 so higher-rank (reverse=True) picks the smaller name.
+    reversed_name = tuple(-ord(c) for c in name)
+    return (
+        item["vuln_len"],
+        1 if (item["cert_green"] or item["signed"]) else 0,
+        1 if name in negative_anchor_dirs else 0,
+        reversed_name,
+    )
+
 
 def _run_authoring(args: argparse.Namespace) -> int:
     traces_root: Path = args.traces_root
@@ -1355,6 +1419,26 @@ def _run_authoring(args: argparse.Namespace) -> int:
                                "overrides": list(split_overrides.keys())}
 
     examples, canaries, excluded, diagnostics, fetch_skips = [], [], [], [], []
+    # Pair-identity dedup (codex peer <redacted-session-id>). The base exporter emits one row per
+    # CVE-* dir; two DISTINCT evidence bundles can carry a byte-identical (vuln -> fix)
+    # authoring pair (e.g. a reviewer-negative anchor and its signed cert-green
+    # sibling), which would ship the same training row twice. Key on pair identity —
+    # NOT cve_id — so genuinely-distinct same-CVE examples (different fix commit or
+    # input window: giflib, jq CVE-2026-39979, proftpd) keep both rows. Both bundle
+    # dirs stay on disk; only the redundant emitted ROW is dropped.
+    #
+    # KEEP POLICY (codex peer <redacted-session-id> Q2): among dirs that share a pair identity the
+    # canonical (kept) row is chosen by _authoring_keep_rank below — richer vuln_raw
+    # first, then cert-green/signed, then reviewer-negative anchor, then lexicographic
+    # dir name. This is a two-phase dedup: the loop below builds a full record for
+    # EVERY emittable dir into `emittable`, then after the loop we group by identity,
+    # keep the highest-ranked record per group, and record the losers. Building the
+    # record for a loser is cheap and lets the winner be selected by richness — which
+    # can't be known until every sibling has been seen.
+    negatives_root_for_dedup = traces_root.parent / "negatives"
+    negative_anchor_dirs = _negative_anchor_base_dirs(negatives_root_for_dedup)
+    emittable: list[dict] = []  # {identity, bd, pair, record, split, diagnostic}
+    authoring_dedup_skips: list[dict] = []
     for bd in sorted(traces_root.glob("CVE-*")):
         if not (bd / "upstream-ref.json").is_file():
             continue
@@ -1393,9 +1477,13 @@ def _run_authoring(args: argparse.Namespace) -> int:
             excluded.append({"bundle": bd.name,
                              "reason": f"authoring behavioral gate fails: {behavioral_fail}"})
             continue
-        diagnostics.append({"bundle": bd.name, "cve_id": pair["cve_id"],
-                            "fix_symbols": len(fix_syms), "low_signal": not fix_syms,
-                            "label_source": pair.get("label_source")})
+        # Pair-identity dedup key, computed after every eligibility gate so only
+        # EMITTABLE dirs contend (a sibling that failed a gate never wins). Winner
+        # selection is deferred to after the loop; here we only build the record.
+        identity = _authoring_pair_identity(pair)
+        diagnostic = {"bundle": bd.name, "cve_id": pair["cve_id"],
+                      "fix_symbols": len(fix_syms), "low_signal": not fix_syms,
+                      "label_source": pair.get("label_source")}
         bundle = _load_json(bd / "bundle.json") or {}
         # Tier tag: cert-green (Tier A — also a Reviewer/Builder corpus member) when
         # the bundle is signed AND fully validated (incl. Reviewer accept); else
@@ -1477,8 +1565,37 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 "label_grounding_source": pair.get("label_grounding_source", "upstream-commit"),
             },
         }
+        emittable.append({"identity": identity, "bd": bd, "pair": pair,
+                          "record": record, "split": split, "diagnostic": diagnostic,
+                          "signed": signed, "cert_green": cert_green,
+                          "vuln_len": len(vuln)})
+
+    # Phase 2 — canonical selection per pair identity (codex peer <redacted-session-id> Q2).
+    # Group the emittable records by identity; within each group keep the one the
+    # tiebreak ranks highest (richer vuln_raw > cert-green/signed > negative anchor >
+    # lexicographic dir name) and record every other as a dedup skip. `by_identity`
+    # preserves sorted-dir insertion order (Python dict); we sort each group's members
+    # by the rank key so selection is fully deterministic regardless of that order.
+    by_identity: dict[tuple, list[dict]] = {}
+    for item in emittable:
+        by_identity.setdefault(item["identity"], []).append(item)
+    for group in by_identity.values():
+        ranked = sorted(
+            group,
+            key=lambda it: _authoring_keep_rank(it, negative_anchor_dirs),
+            reverse=True,
+        )
+        winner = ranked[0]
+        for loser in ranked[1:]:
+            kept = winner["bd"].name
+            authoring_dedup_skips.append(
+                {"bundle": loser["bd"].name, "cve_id": loser["pair"]["cve_id"],
+                 "kept": kept, "reason": f"duplicate authoring pair; kept {kept}"})
+            excluded.append({"bundle": loser["bd"].name,
+                             "reason": f"duplicate authoring pair; kept {kept}"})
+        diagnostics.append(winner["diagnostic"])
         # Canary families are held out of the training JSONL (gate-pilot only).
-        (canaries if split == "canary" else examples).append(record)
+        (canaries if winner["split"] == "canary" else examples).append(winner["record"])
 
     examples.sort(key=lambda e: (e["split"], e["provenance"]["cve_id"] or ""))
     canaries.sort(key=lambda e: e["provenance"]["cve_id"] or "")
@@ -1509,6 +1626,12 @@ def _run_authoring(args: argparse.Namespace) -> int:
         "canary_cves": [e["provenance"]["cve_id"] for e in canaries],
         "split_manifest": split_manifest_meta,
         "excluded": excluded,
+        # Rows dropped because another dir carries a byte-identical (vuln -> fix) pair
+        # and outranked this one under _authoring_keep_rank (richer vuln_raw >
+        # cert-green/signed > negative anchor > dir name). Both bundle dirs remain on
+        # disk; this records the redundant sibling + the kept dir so the drop is
+        # auditable.
+        "authoring_dedup_skips": authoring_dedup_skips,
         # SURPRISING None returns from _authoring_pair (fetch/parent/grounding
         # failures on a real source-backport) — these would otherwise vanish
         # silently; each is usually a 2-minute upstream-ref.json data fix.
