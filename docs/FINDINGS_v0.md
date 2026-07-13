@@ -1,7 +1,7 @@
 # trace v0 — findings
 
 **Status:** v0 result, 2026-06-09. Synthesizes the corpus built 2026-04 → 2026-06.
-**Companion docs:** [`SPEC.md`](SPEC.md) (design), [`CORPUS.md`](CORPUS.md) (per-bundle taxonomy), [`DECISIONS.md`](DECISIONS.md) (running log), [`COST_REPORT_v0.5.0.md`](COST_REPORT_v0.5.0.md) (spend).
+**Companion docs:** [`SPEC.md`](SPEC.md) (design), [`CORPUS.md`](CORPUS.md) (per-bundle taxonomy), [`DECISIONS.md`](DECISIONS.md) (running log), [`COST_REPORT_v0.5.0.md`](COST_REPORT_v0.5.0.md) (spend), [`FINDINGS_LORA.md`](FINDINGS_LORA.md) (the fine-tuning arc built on this corpus).
 
 ---
 
