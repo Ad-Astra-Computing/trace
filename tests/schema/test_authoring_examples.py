@@ -142,18 +142,28 @@ def _pair_identity(fixture_dir: Path) -> tuple:
     return _authoring_pair_identity(ex)
 
 
-# Two full-bundle pairs whose siblings emit a byte-identical authoring row but whose
-# de-duplication is entangled with other corpus provenance: each `--<pkg>-backport`
-# dir is the recorded `base_bundle_dir` of Reviewer negatives under traces/negatives/,
-# while its sibling carries either the signed bundle (busybox-wget-header-injection,
-# Rekor 1878268175) or the SEED_INDEX table row (jq-jvp-string-empty-sbo). Retiring
-# either side moves a signing/negative-mining anchor and so is a peer-reviewed
-# retirement slice, not a mechanical dedup. Allowlisted here so the guard stays green
-# while still flagging any NEW identical-pair duplicate. Remove an entry when its pair
-# is resolved.
+# CVE ids whose sibling dirs emit the SAME pair identity (identical edit) and are
+# collapsed by the exporter's pair-identity dedup, so their on-disk coexistence is
+# intentional — not a NEW redundant pair. The guard still fails loudly for any
+# unlisted same-identity pair. Two provenance classes:
+#  - Entangled anchors (retiring a dir moves a signing / negative-mining anchor, a
+#    peer-reviewed retirement slice, not a mechanical dedup): each `--<pkg>-backport`
+#    dir is the recorded `base_bundle_dir` of a Reviewer negative under
+#    traces/negatives/, while its sibling carries the signed bundle
+#    (busybox-wget-header-injection, Rekor 1878268175) or the SEED_INDEX row
+#    (jq-jvp-string-empty-sbo).
+#  - Redundant double-bootstraps (an original + a `-backport` dir with a byte-identical
+#    edit under a wider/narrower window): jq CVE-2026-39979, proftpd CVE-2026-44331.
+#    The exporter keeps the richer window; pruning the sibling dir is a follow-up.
+#  - giflib CVE-2025-31344: identical 5-line guard edit in two dirs; one window is
+#    half-patched (self-leak-excluded at export), the other is the clean pair.
+#    Retiring the half-patched dir is a follow-up.
 _KNOWN_ENTANGLED_DUP_CVES = {
     "CVE-2025-48060",  # jq-backport (negative anchor) vs jq-jvp-string-empty-sbo (index row)
     "CVE-2025-60876",  # busybox-backport (negative anchor) vs busybox-wget-header-injection (signed)
+    "CVE-2026-39979",  # jq: redundant window-only double-bootstrap
+    "CVE-2026-44331",  # proftpd: redundant window-only double-bootstrap
+    "CVE-2025-31344",  # giflib: clean pair + half-patched self-leak sibling
 }
 
 
@@ -181,26 +191,15 @@ def test_authoring_examples_have_no_duplicate_pairs():
     )
 
 
-# CVE ids that legitimately emit >1 authoring row from the real corpus: genuinely
-# distinct examples (different fix commit and/or different fix diff) under one CVE.
-# A future naive switch to cve_id-level dedup would drop one row from each of these
-# and break this expectation — that's the guard.
-_DISTINCT_MULTI_ROW_CVES = {
-    "CVE-2025-31344",   # giflib: two distinct hunks
-    "CVE-2026-39979",   # jq: two distinct examples
-    "CVE-2026-44331",   # proftpd: two distinct examples
-}
-
-
 def test_authoring_export_emits_no_duplicate_pair_rows(tmp_path):
     """Running the real authoring export, no two EMITTED rows share a pair identity.
 
-    This is the exporter-side counterpart to the on-disk `_KNOWN_ENTANGLED_DUP_CVES`
-    allowlist: the two entangled dirs (jq / busybox) coexist on disk (both are
-    load-bearing anchors) but the exporter's pair-identity dedup guarantees each
-    identical pair emits exactly ONE training row. Genuinely-distinct same-CVE
-    examples (giflib, jq CVE-2026-39979, proftpd) still emit both rows, so a naive
-    cve_id-level dedup would break the second half of this test.
+    Pair identity keys on the EDIT (added+removed lines), not the window, so two dirs
+    that captured the same edit under different-sized windows collapse to one row. The
+    corpus has NO genuinely-distinct same-edit multi-row CVE (verified 2026-07-13): the
+    old window-hash identity kept jq CVE-2026-39979 / proftpd CVE-2026-44331 /
+    giflib CVE-2025-31344 as "distinct" but they are redundant window-only
+    double-bootstraps. Every multi-dir CVE now collapses to exactly one row.
     """
     from tools.trace_cli import export as ex
 
@@ -215,15 +214,14 @@ def test_authoring_export_emits_no_duplicate_pair_rows(tmp_path):
     canary = [json.loads(l) for l in (out / "authoring-canary.jsonl").read_text().splitlines()]
     emitted = rows + canary
 
-    # Pair identity of an emitted row: (cve, fix commit, hashed window, hashed diff).
-    # Reuse the exporter's helper so the row-level and dir-level guards agree.
+    # Pair identity of an emitted row: (cve, fix commit, hashed edit). Reuse the
+    # exporter's helper so the row-level and dir-level guards agree.
     def _row_identity(rec: dict) -> tuple:
         pv = rec["provenance"]
-        window = rec["messages"][1]["content"]      # user turn carries the pre-fix source
         label = rec["messages"][2]["content"]        # assistant turn IS the fix_diff
         return ex._authoring_pair_identity({
             "cve_id": pv["cve_id"], "fix_commit": {"commit_sha": pv["fix_commit"]},
-            "pre_fix_source": window, "fix_diff": label,
+            "fix_diff": label,
         })
 
     from collections import Counter
@@ -231,24 +229,22 @@ def test_authoring_export_emits_no_duplicate_pair_rows(tmp_path):
     dupes = {i: n for i, n in ident_counts.items() if n > 1}
     assert not dupes, f"emitted authoring rows share a pair identity: {dupes}"
 
-    # Genuinely-distinct same-CVE examples must survive dedup (guards against a naive
-    # cve_id-level dedup that would collapse them to one row each).
+    # Every multi-dir CVE collapses to exactly one emitted row.
     per_cve = Counter(r["provenance"]["cve_id"] for r in emitted)
-    for cve in _DISTINCT_MULTI_ROW_CVES:
-        assert per_cve[cve] == 2, (
-            f"{cve} should emit 2 distinct rows, got {per_cve[cve]} "
-            "(pair-identity dedup must not collapse genuinely-distinct examples)"
-        )
-
-    # The two entangled dirs collapse to exactly one emitted row each, and the drop
-    # is recorded in the manifest.
     for cve in _KNOWN_ENTANGLED_DUP_CVES:
-        assert per_cve[cve] == 1, f"{cve} entangled pair should emit exactly 1 row"
+        assert per_cve[cve] == 1, (
+            f"{cve} redundant pair should emit exactly 1 row, got {per_cve[cve]}")
     m = json.loads((out / "manifest.json").read_text())
     skipped_cves = {s["cve_id"] for s in m["authoring_dedup_skips"]}
-    assert _KNOWN_ENTANGLED_DUP_CVES <= skipped_cves, (
-        f"manifest must log the deduped entangled pairs; got {skipped_cves}"
-    )
+    # The redundant pairs collapse via the dedup path (logged as a skip)...
+    dedup_expected = _KNOWN_ENTANGLED_DUP_CVES - {"CVE-2025-31344"}
+    assert dedup_expected <= skipped_cves, (
+        f"manifest must log the deduped redundant pairs; got {skipped_cves}")
+    # ...except giflib, whose half-patched sibling is dropped by the self-leak gate
+    # (excluded, not dedup-skipped).
+    assert any(e["bundle"] == "CVE-2025-31344--giflib-colorcount-bounds-backport"
+               and "self-leak" in e["reason"] for e in m["excluded"]), (
+        "giflib half-patched window must be excluded by the self-leak gate")
 
 
 @pytest.mark.parametrize(

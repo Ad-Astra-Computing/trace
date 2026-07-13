@@ -820,6 +820,165 @@ def _patch_grounded(fix_diff: str, fpath: str, pre_fix: str) -> bool:
     return all(c in pool for c in check)
 
 
+_HUNK_COUNT_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
+
+
+def _parse_fix_diff(fix_diff: str) -> dict:
+    """Parse a unified diff into per-file edits, robust to hunk CONTENT lines that
+    themselves start with `---`/`+++` (a removed `-- sql comment` line renders as
+    `--- ...`). A file header is a `--- <a>` line IMMEDIATELY followed by `+++ <b>`;
+    each hunk body is then consumed by its `@@ -_,old +_,new @@` line counts (with a
+    structural break if a new header/hunk appears early, so a wrong count can't run
+    past a file boundary). A `-`/`+`-prefixed content line is therefore never mistaken
+    for a header. Returns ordered edited file paths + hunk spans and per-file
+    removed/added/context line lists (`.strip()`-ed, blanks dropped)."""
+    lines = fix_diff.splitlines()
+    files: list[str] = []
+    spans: list[str] = []
+    file_spans: dict[str, list] = {}          # hunk spans grouped by the file they patch
+    removed: dict[str, list] = {}
+    added: dict[str, list] = {}
+    context: dict[str, list] = {}
+    add_blocks: list[list[str]] = []          # each maximal run of consecutive `+` lines
+    cur = None
+    i, n = 0, len(lines)
+    while i < n:
+        ln = lines[i]
+        if ln.startswith("--- ") and i + 1 < n and lines[i + 1].startswith("+++ "):
+            a = _strip_ab_prefix(ln[4:])
+            b = _strip_ab_prefix(lines[i + 1][4:])
+            cur = a if b == "/dev/null" else b
+            if cur and cur != "/dev/null" and cur not in files:
+                files.append(cur)
+            i += 2
+            continue
+        m = _HUNK_SPAN_RE.match(ln)
+        if not m:
+            i += 1
+            continue
+        spans.append(m.group(1))
+        file_spans.setdefault(cur or "", []).append(m.group(1))
+        cm = _HUNK_COUNT_RE.match(ln)
+        old_n = int(cm.group(1)) if cm and cm.group(1) is not None else 1
+        new_n = int(cm.group(2)) if cm and cm.group(2) is not None else 1
+        i += 1
+        old_seen = new_seen = 0
+        block: list[str] = []                 # current run of consecutive `+` lines
+        while i < n and (old_seen < old_n or new_seen < new_n):
+            bl = lines[i]
+            # The hunk's own `-old,+new` line counts delimit the body, so a content line
+            # that happens to start with `---`/`+++` (a removed `-- comment` -> added
+            # `++ ...`) is consumed by count, never mistaken for a file header (codex P2).
+            # Only an UNAMBIGUOUS next-hunk (`@@`) or next-file (`diff `) header ends the
+            # body early — a guard against a malformed/short count overrunning a boundary.
+            if _HUNK_SPAN_RE.match(bl) or bl.startswith("diff "):
+                break
+            if bl.startswith("-"):
+                if block:
+                    add_blocks.append(block); block = []
+                if cur and bl[1:].strip():
+                    removed.setdefault(cur, []).append(bl[1:].strip())
+                old_seen += 1
+            elif bl.startswith("+"):
+                if cur and bl[1:].strip():
+                    added.setdefault(cur, []).append(bl[1:].strip())
+                    block.append(bl[1:].strip())
+                new_seen += 1
+            elif bl.startswith(" ") or bl == "":
+                if block:
+                    add_blocks.append(block); block = []
+                if cur and bl[1:].strip():
+                    context.setdefault(cur, []).append(bl[1:].strip())
+                old_seen += 1
+                new_seen += 1
+            else:
+                break  # `\ No newline at end of file` or a stray line
+            i += 1
+        if block:
+            add_blocks.append(block)
+    return {"files": files, "spans": spans, "file_spans": file_spans,
+            "removed": removed, "added": added, "context": context,
+            "add_blocks": add_blocks}
+
+
+def _window_sections(pre_fix: str, included_files: list[str] | None) -> dict[str, set]:
+    """Split the input window into per-file line pools. A multi-file window renders
+    each file behind a `/* ==== file: <path> ==== */` boundary (see
+    `_multi_file_window`); a single-file window has no boundary and its whole body is
+    the pool for its one included file. Returns {path: {stripped lines}}."""
+    marker = "/* ==== file: "
+    if marker in pre_fix:
+        sections: dict[str, set] = {}
+        for part in pre_fix.split(marker)[1:]:
+            head, _, body = part.partition(" ==== */\n")
+            sections[head.strip()] = {ln.strip() for ln in body.splitlines() if ln.strip()}
+        return sections
+    pool = {ln.strip() for ln in pre_fix.splitlines() if ln.strip()}
+    key = included_files[0] if included_files and len(included_files) == 1 else "*"
+    return {key: pool}
+
+
+def _label_fully_grounded(fix_diff: str, pre_fix: str,
+                          included_files: list[str] | None = None) -> bool:
+    """Whole-label grounding, applied to EVERY emittable pair at export time.
+
+    `_patch_grounded` checks a single named file at MINT time; a cached
+    `authoring-example.json` written by an older exporter (predating the mint-time
+    grounding + multi-file-window gates) never re-runs it, so a stale cache whose
+    label edits a file — or a region — absent from the shown window sails through.
+    This gate closes that hole with PER-FILE grounding: it groups the label's
+    removed/context lines by the file each hunk patches (tracking the `+++`/`---`
+    headers, so a `+++ /dev/null` deletion is attributed to its `---` path) and checks
+    each file's lines against ONLY that file's window section — never a global pool.
+    A global pool would let a common line (`return 0;`, `break;`) present in a
+    DIFFERENT shown file vouch for a stale/omitted file's hunk (codex <redacted-session-id> P2).
+
+    A file with no shown section fails (the label edits code never shown). Textual
+    semantics mirror `_patch_grounded` (removed-primary, context fallback, `.strip()`
+    compare). Returns True when every edited file grounds (or nothing to check)."""
+    sections = _window_sections(pre_fix, included_files)
+    single = set(sections) == {"*"}          # single-file window with an unknown path
+    p = _parse_fix_diff(fix_diff)
+    edited = p["files"]                        # tracked from headers, incl. pure-addition
+    if single and len(edited) > 1:
+        return False                          # multi-file label, no per-file sections
+    for fp in edited:
+        pool = sections["*"] if single else sections.get(fp)
+        if pool is None:
+            return False                      # STRUCTURAL: this file was never shown
+        check = p["removed"].get(fp) or p["context"].get(fp)
+        if check and not all(c in pool for c in check):
+            return False                      # TEXTUAL: removed/context absent from its section
+    return True
+
+
+def _label_self_leaked(fix_diff: str, pre_fix: str) -> bool:
+    """Answer-key guard: a PURE-ADDITION fix (no `-` lines) whose added block already
+    sits in the shown window AS A CONTIGUOUS RUN means the 'vulnerable' input was cut
+    from a half-patched tree — the model is handed the exact code it is asked to author
+    (giflib CVE-2025-31344: the 5-line `GIF_EXIT(GifErrorString(D_GIF_ERR_IMAGE_DEFECT))`
+    guard was already applied to a sibling loop shown in the window).
+
+    Each added hunk-block must appear as a CONTIGUOUS run in the window (checked
+    PER-BLOCK, so a multi-hunk half-patched fix whose blocks sit at separate sites with
+    unchanged lines between them is still caught — codex <redacted-session-id> P2). Requiring a
+    contiguous match (not merely each line present somewhere) plus >=3 total added
+    lines avoids flagging a valid fix that re-adds a short repeated idiom (`free(buf);`
+    / `return -1;`) at a new site where those lines happen to appear elsewhere."""
+    p = _parse_fix_diff(fix_diff)
+    if any(p["removed"].values()):
+        return False
+    blocks = p["add_blocks"]
+    if sum(len(b) for b in blocks) < 3 or not blocks:
+        return False
+    win = [ln.strip() for ln in pre_fix.splitlines() if ln.strip()]
+
+    def _contiguous(sub: list[str]) -> bool:
+        return any(win[i:i + len(sub)] == sub for i in range(len(win) - len(sub) + 1))
+
+    return all(_contiguous(b) for b in blocks)   # every block already in the window
+
+
 def _pick_authoring_input_file(
     churn: dict[str, int], parent_existing: set[str] | None = None
 ) -> str | None:
@@ -1380,24 +1539,50 @@ _AUTHORING_BEHAVIORAL_CHECKS = (
 # pair identity. Shared with tests/schema/test_authoring_examples.py so the
 # exporter dedup and the on-disk duplicate guard normalize the diff the same way.
 _INDEX_HEADER_RE = re.compile(r"^index [0-9a-f]+\.\.[0-9a-f]+.*$", re.MULTILINE)
+# The line-number span of a hunk header, WITHOUT the trailing function context (which
+# can be truncated/vary): `@@ -A,B +C,D @@`. Used as location signal in the pair
+# identity so two same-file same-text edits at DIFFERENT positions stay distinct.
+_HUNK_SPAN_RE = re.compile(r"^(@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@)")
 
 
 def _authoring_pair_identity(pair: dict[str, Any]) -> tuple:
     """Content identity of the training row a pair emits: (cve, upstream fix commit,
-    hashed input window, hashed fix diff modulo the `index <a>..<b>` header). Two
-    pairs with equal identity emit a byte-identical training row and are redundant;
-    pairs differing in the fix commit (giflib's two hunks) or the input window (jq's
-    two jv_parse windows) are legitimately distinct harder examples and stay distinct.
-    """
+    hashed EDIT). The edit is the fix's added+removed lines only — context and the
+    surrounding input window are deliberately EXCLUDED, so two dirs that captured the
+    SAME edit under different-sized windows collapse to one row (jq CVE-2026-39979 and
+    proftpd CVE-2026-44331 each bootstrapped an original + a `-backport` dir with
+    byte-identical `+`/`-` lines but wider vs narrower context). Pairs whose EDITS
+    differ — a fix's genuinely distinct hunks windowed separately — keep separate
+    identities and stay as distinct harder examples. The canonical row among a
+    collapsed group is chosen by `_authoring_keep_rank`.
+
+    (Supersedes the earlier window-hash + full-diff-hash identity, which treated any
+    context difference as a distinct example and so let window-only redundant pairs
+    escape dedup — codex <redacted-session-id> signoff 2026-07-13.)"""
     fc = pair.get("fix_commit") or {}
     sha = fc.get("commit_sha") if isinstance(fc, dict) else fc
-    norm_diff = _INDEX_HEADER_RE.sub("", pair.get("fix_diff") or "").strip()
-    return (
-        pair.get("cve_id"),
-        sha,
-        hashlib.sha1((pair.get("pre_fix_source") or "").encode()).hexdigest(),
-        hashlib.sha1(norm_diff.encode()).hexdigest(),
-    )
+    # Edit signature = edited FILE paths + hunk line-number SPANS + the `+`/`-` line
+    # text (from the shared unified-diff parser, so a `-- comment` removed line is not
+    # mistaken for a header). Paths keep the SAME textual edit in DIFFERENT files
+    # distinct; the hunk spans keep the same textual edit at DIFFERENT positions of one
+    # file distinct (codex <redacted-session-id> P2). Window size and surrounding context are still
+    # EXCLUDED, so a same-file same-position window-only double-bootstrap collapses (jq
+    # CVE-2026-39979 / proftpd CVE-2026-44331: identical paths, spans and edit lines).
+    p = _parse_fix_diff(pair.get("fix_diff") or "")
+    # Canonical PER-FILE signature: sort by file (so a different file ORDER — curated
+    # patch vs git-show pathname order — still collapses, codex P3) while keeping each
+    # file's hunk spans + edit lines tied to THAT file (so the same text at swapped
+    # line ranges across files stays distinct, codex P2). Window size and surrounding
+    # context are excluded, so a same-file same-position window-only double-bootstrap
+    # collapses.
+    parts: list[str] = []
+    for fp in sorted(p["files"]):
+        parts.append(f"::{fp}")
+        parts.extend(p["file_spans"].get(fp, []))
+        parts.extend(p["removed"].get(fp, []))
+        parts.extend(p["added"].get(fp, []))
+    sig = hashlib.sha1("\n".join(parts).encode()).hexdigest()
+    return (pair.get("cve_id"), sha, sig)
 
 
 def _negative_anchor_base_dirs(negatives_root: Path) -> set[str]:
@@ -1534,6 +1719,25 @@ def _run_authoring(args: argparse.Namespace) -> int:
             excluded.append({"bundle": bd.name,
                              "reason": f"authoring behavioral gate fails: {behavioral_fail}"})
             continue
+        # Integrity gates on the FINAL pair — enforced at export on every emittable
+        # dir, cached or freshly minted, so a stale authoring-example.json written
+        # before the mint-time grounding/multi-file gates cannot leak through.
+        # `included` names the source files the window shows (per-file boundaries live
+        # in pre_fix_source); single-file caches default to [file].
+        included = pair.get("included_source_files") or [pair["file"]]
+        # (1) Whole-label grounding: the label must only edit code the window shows
+        # (both structurally — no omitted edited file — and textually).
+        if not _label_fully_grounded(pair["fix_diff"], pair["pre_fix_source"], included):
+            excluded.append({"bundle": bd.name,
+                             "reason": "label not grounded in window "
+                                       "(removes/edits code absent from the shown source)"})
+            continue
+        # (2) Self-leak: a pure-addition fix already present in the window is an
+        # answer key (window cut from a half-patched tree).
+        if _label_self_leaked(pair["fix_diff"], pair["pre_fix_source"]):
+            excluded.append({"bundle": bd.name,
+                             "reason": "self-leak: fix already present in the shown window"})
+            continue
         # Pair-identity dedup key, computed after every eligibility gate so only
         # EMITTABLE dirs contend (a sibling that failed a gate never wins). Winner
         # selection is deferred to after the loop; here we only build the record.
@@ -1556,9 +1760,8 @@ def _run_authoring(args: argparse.Namespace) -> int:
         split = split_overrides.get(family) or _split_for(attr)
         # included_source_files names every file present in the input window (the
         # pre_fix_source already carries per-file `/* ==== file: ... ==== */`
-        # boundaries for a multi-file window). Cached single-file pairs predating
-        # the multi-file path default to [file].
-        included = pair.get("included_source_files") or [pair["file"]]
+        # boundaries for a multi-file window); `included` was computed above for the
+        # grounding gate.
         src_header = ", ".join(included)
         fence_lang = _fence_lang_for(included)
         user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
@@ -1612,10 +1815,11 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 "input_window_chars": len(pair["pre_fix_source"]),
                 # Multi-file status: a pair is eligible when its whole label is
                 # authorable from the input (no omitted source file, label within the
-                # sanity cap). A label that could not be fully windowed within budget
-                # is flagged grandfathered_degraded_input; the exporter now EXCLUDES
-                # such labels at mint (multi-file grounding returns None), so this
-                # flag only marks pre-existing degraded caches not yet re-minted.
+                # sanity cap). A label with an omitted source file is now caught
+                # UPSTREAM of this record by the export-time `_label_fully_grounded`
+                # gate (its removed/context lines are absent from the window), so a
+                # grandfathered_degraded_input record is never emitted; the branch is
+                # kept only so the status stays computable for any diagnostic caller.
                 "authoring_multifile_status": (
                     "single-file" if label_file_count <= 1
                     else "multifile-v1" if label_file_count <= _MAX_MULTI_SOURCE_FILES

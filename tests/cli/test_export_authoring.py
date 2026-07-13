@@ -42,10 +42,25 @@ _PATCH_DIFF = (
 )
 
 
+# A pre-fix window that CONTAINS _FIX_DIFF's removed + context lines, so the default
+# fixture grounds under the export grounding gate (an ungrounded label is excluded).
+_DEFAULT_PRE_FIX = (
+    "static int proxy_from_string(const char *proxystring)\n"
+    "{\n"
+    "\t\tpl = at-p;\n"
+    "\t\tif(proxytype == RS_PT_SOCKS5 && (ul > 255 || pl > 255))\n"
+    "\t\treturn 0;\n"
+    "}"
+)
+
+
 def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
                    fix_diff: str = _FIX_DIFF, kind: str = "human-review-required",
                    rekor: int | None = 1796253004,
-                   behavioral: bool = True, cert_green: bool = False) -> Path:
+                   behavioral: bool = True, cert_green: bool = False,
+                   pre_fix: str = _DEFAULT_PRE_FIX,
+                   file: str = "src/libproxychains.c",
+                   included: list[str] | None = None) -> Path:
     """Write a behaviorally-complete source-backport fixture. `behavioral=False`
     makes the unpatched reproducer fire no signal (the Tier-B gate must exclude
     it). `cert_green=True` adds the signature + accepting review so the bundle is
@@ -61,14 +76,17 @@ def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
     (bd / "upstream-ref.json").write_text(json.dumps(
         {"cve_id": cve, "eligibility": {"patch_strategy": "source-backport"}}))
     # Pre-built cache so _authoring_pair returns offline.
-    (bd / "authoring-example.json").write_text(json.dumps({
+    cache = {
         "cve_id": cve, "attr_path": attr, "vuln_raw": summary,
-        "file": "src/libproxychains.c",
-        "pre_fix_source": "static int proxy_from_string(...) {\n  /* vulnerable body */\n}",
+        "file": file,
+        "pre_fix_source": pre_fix,
         "fix_diff": fix_diff,
         "fix_commit": {"repo_url": "https://github.com/rofl0r/proxychains-ng",
                        "commit_sha": "cc005b713281"},
-    }))
+    }
+    if included is not None:                    # multi-file window: declare shown files
+        cache["included_source_files"] = included
+    (bd / "authoring-example.json").write_text(json.dumps(cache))
     # Behavioral-gate evidence: a real discriminator + a build record.
     (bd / "patch.diff").write_text(_PATCH_DIFF)
     (bd / "reproducer.nix").write_text(
@@ -220,8 +238,11 @@ def test_authoring_export_builds_clean_pair(tmp_path, capsys):
     roles = [m["role"] for m in ex_rec["messages"]]
     assert roles == ["system", "user", "assistant"]
     user = ex_rec["messages"][1]["content"]
-    assert "RS_PT_SOCKS5" not in user           # fix symbol scrubbed from input
-    assert "buffer overflow" in user            # vuln preserved
+    # The fix symbol is scrubbed from the DESCRIPTION; it legitimately remains in the
+    # shown pre-fix source (RS_PT_SOCKS5 is on the line the model must edit).
+    description = user.split("# Vulnerable source")[0]
+    assert "RS_PT_SOCKS5" not in description     # fix symbol scrubbed from the description
+    assert "buffer overflow" in description      # vuln preserved
     assert ex_rec["messages"][2]["content"].startswith("diff --git")  # label = the fix
     assert ex_rec["task"] == "author-from-vuln"
     assert ex_rec["provenance"]["cve_id"] == "CVE-2025-34451"
@@ -308,6 +329,294 @@ def test_authoring_export_dedups_identical_pair(tmp_path):
     assert "duplicate authoring pair" in skips[0]["reason"]
 
 
+def test_label_fully_grounded_removed_line_absent():
+    """A label that removes a line absent from the window is not grounded."""
+    diff = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,2 @@\n"
+            " int keep;\n-int gone_from_window;\n+int replacement;\n")
+    assert ex._label_fully_grounded(diff, "int keep;\nint gone_from_window;") is True
+    assert ex._label_fully_grounded(diff, "int keep;\nint something_else;") is False
+
+
+def test_label_fully_grounded_pure_addition_falls_back_to_context():
+    """A pure-addition hunk grounds on its context lines when there is nothing to
+    remove — the region it adds into must be visible."""
+    diff = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,3 @@\n"
+            " int a;\n+int added;\n int b;\n")
+    assert ex._label_fully_grounded(diff, "int a;\nint b;") is True
+    assert ex._label_fully_grounded(diff, "int a;\nint z;") is False
+
+
+def test_label_self_leaked_pure_addition_already_present():
+    """A pure-addition fix whose every added line already sits in the window is an
+    answer key (>=2 lines); a lone common statement is not flagged."""
+    pre = "  guard();\n  if (x > n) {\n    fail();\n  }\n  more();"
+    leaked = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,1 +1,4 @@\n"
+              "+  if (x > n) {\n+    fail();\n+  }\n")
+    assert ex._label_self_leaked(leaked, pre) is True
+    # A single common added line present elsewhere is NOT a leak.
+    one = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1 +1,2 @@\n+  more();\n")
+    assert ex._label_self_leaked(one, pre) is False
+    # A fix that also removes a line is not a pure-addition self-leak.
+    withdel = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,4 @@\n"
+               "-  old();\n+  if (x > n) {\n+    fail();\n+  }\n")
+    assert ex._label_self_leaked(withdel, pre) is False
+
+
+def test_authoring_export_excludes_ungrounded_label(tmp_path):
+    """A cached pair whose label edits code absent from the shown window is excluded
+    at export (the stale-cache grounding hole)."""
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2025-34451--ungrounded", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   pre_fix="int unrelated_window_body;")   # lacks _FIX_DIFF's removed line
+    ex.run(_args(tmp_path / "out", root))
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert any("not grounded" in e["reason"] for e in m["excluded"])
+
+
+def test_authoring_export_excludes_self_leaked_label(tmp_path):
+    """A pure-addition fix already present in the window (half-patched tree) is
+    excluded as an answer key."""
+    root = tmp_path / "traces"
+    # >=3 added lines already present in the window AS A CONTIGUOUS BLOCK (half-patched).
+    add_only = ("diff --git a/src/libproxychains.c b/src/libproxychains.c\n"
+                "--- a/src/libproxychains.c\n+++ b/src/libproxychains.c\n"
+                "@@ -0,0 +1,3 @@\n+\tif (len > 255)\n+\t\tabort_now();\n+\t\treturn 0;\n")
+    _cached_bundle(root, "CVE-2025-34451--selfleak", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   fix_diff=add_only,
+                   pre_fix="static int f(void)\n{\n\tif (len > 255)\n\t\tabort_now();\n\t\treturn 0;\n}")
+    ex.run(_args(tmp_path / "out", root))
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert any("self-leak" in e["reason"] for e in m["excluded"])
+
+
+def test_authoring_export_excludes_omitted_edited_file(tmp_path):
+    """A label editing a file NOT shown in the window is excluded even when its
+    removed line coincidentally matches a common line already visible (the STRUCTURAL
+    half of the grounding gate — codex P2). The window shows libproxychains.c and
+    contains `return 0;`; the label edits src/other.c, removing a matching `return 0;`."""
+    root = tmp_path / "traces"
+    other = ("diff --git a/src/other.c b/src/other.c\n--- a/src/other.c\n+++ b/src/other.c\n"
+             "@@ -1,2 +1,2 @@\n int x;\n-\t\treturn 0;\n+\t\treturn 1;\n")
+    _cached_bundle(root, "CVE-2025-34451--omitted", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   fix_diff=other, file="src/libproxychains.c",
+                   pre_fix="static int f(void)\n{\n\tint x;\n\t\treturn 0;\n}")
+    ex.run(_args(tmp_path / "out", root))
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert any("not grounded" in e["reason"] for e in m["excluded"])
+
+
+def test_authoring_export_excludes_omitted_deleted_file(tmp_path):
+    """A label that DELETES a file not shown in the window is excluded — the edited
+    path is read from the `---` side even though `+++` is /dev/null (codex P2)."""
+    root = tmp_path / "traces"
+    deletion = ("diff --git a/src/gone.c b/src/gone.c\n--- a/src/gone.c\n+++ /dev/null\n"
+                "@@ -1,2 +0,0 @@\n-int x;\n-\t\treturn 0;\n")
+    _cached_bundle(root, "CVE-2025-34451--deleted", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   fix_diff=deletion, file="src/libproxychains.c",
+                   pre_fix="static int f(void)\n{\n\tint x;\n\t\treturn 0;\n}")
+    ex.run(_args(tmp_path / "out", root))
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert any("not grounded" in e["reason"] for e in m["excluded"])
+
+
+def test_authoring_export_grounds_per_file_not_global_pool(tmp_path):
+    """A multi-file label's removed line must appear in ITS OWN file's window section,
+    not merely somewhere in the combined window. File b.c removes `return 0;` that is
+    absent from b.c's section but present in a.c's — a global pool would wrongly pass
+    (codex P2)."""
+    root = tmp_path / "traces"
+    multi = ("diff --git a/src/a.c b/src/a.c\n--- a/src/a.c\n+++ b/src/a.c\n"
+             "@@ -1,2 +1,2 @@\n int a;\n-\t\treturn 0;\n+\t\treturn 1;\n"
+             "diff --git a/src/b.c b/src/b.c\n--- a/src/b.c\n+++ b/src/b.c\n"
+             "@@ -1,2 +1,2 @@\n int b;\n-\t\treturn 0;\n+\t\treturn 2;\n")
+    win = ("/* ==== file: src/a.c ==== */\nint a;\n\t\treturn 0;\n\n"
+           "/* ==== file: src/b.c ==== */\nint b;")   # b.c section lacks `return 0;`
+    _cached_bundle(root, "CVE-2025-34451--perfile", cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Overflow across two files with a long input value here.",
+                   fix_diff=multi, file="src/a.c", pre_fix=win,
+                   included=["src/a.c", "src/b.c"])
+    ex.run(_args(tmp_path / "out", root))
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert any("not grounded" in e["reason"] for e in m["excluded"])
+
+
+def test_authoring_export_grounds_sql_comment_removed_line(tmp_path):
+    """A removed line that itself starts with `-- ` (SQL/Lua comment) renders as
+    `--- ...` in the diff but is hunk CONTENT, not a file header — it must still be
+    grounded (codex P2). Here `-- legacy hint` is NOT in the window, so exclude."""
+    root = tmp_path / "traces"
+    diff = ("diff --git a/q.sql b/q.sql\n--- a/q.sql\n+++ b/q.sql\n"
+            "@@ -1,2 +1,1 @@\n--- legacy hint\n-SELECT 1;\n+SELECT 2;\n")
+    _cached_bundle(root, "CVE-2025-34451--sqlcomment", cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Injection via a crafted query value in the handler here.",
+                   fix_diff=diff, file="q.sql",
+                   pre_fix="SELECT 1;\nSELECT 3;")     # window lacks `-- legacy hint`
+    ex.run(_args(tmp_path / "out", root))
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert any("not grounded" in e["reason"] for e in m["excluded"])
+
+
+def test_authoring_export_excludes_pure_addition_to_omitted_file(tmp_path):
+    """A pure-addition label (no removed/context lines) that adds to a NEW file not
+    shown in the window is excluded — edited files are tracked from the diff headers,
+    not just from removed/context lines (codex P2)."""
+    root = tmp_path / "traces"
+    new_file = ("diff --git a/src/new.c b/src/new.c\n--- /dev/null\n+++ b/src/new.c\n"
+                "@@ -0,0 +1,2 @@\n+int brand_new_a;\n+int brand_new_b;\n")
+    _cached_bundle(root, "CVE-2025-34451--newfile", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   fix_diff=new_file, file="src/libproxychains.c",   # window shows a DIFFERENT file
+                   pre_fix="static int f(void)\n{\n\treturn 0;\n}")
+    ex.run(_args(tmp_path / "out", root))
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert any("not grounded" in e["reason"] for e in m["excluded"])
+
+
+def test_authoring_export_keeps_same_edit_different_file(tmp_path):
+    """The SAME textual edit on DIFFERENT files under one CVE stays distinct — the
+    dedup identity includes the edited path, so it is not a window-only duplicate
+    (codex P2)."""
+    root = tmp_path / "traces"
+    hunk = "@@ -1,2 +1,2 @@\n int n;\n-\tif (n > 512) fail();\n+\tif (n > 256) fail();\n"
+    diff_a = f"diff --git a/src/a.c b/src/a.c\n--- a/src/a.c\n+++ b/src/a.c\n{hunk}"
+    diff_b = f"diff --git a/src/b.c b/src/b.c\n--- a/src/b.c\n+++ b/src/b.c\n{hunk}"
+    win = "static void g(void)\n{\n\tint n;\n\tif (n > 512) fail();\n}"
+    _cached_bundle(root, "CVE-2025-34451--file-a", cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Overflow in path A with a long input value here.",
+                   fix_diff=diff_a, file="src/a.c", pre_fix=win)
+    _cached_bundle(root, "CVE-2025-34451--file-b", cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Overflow in path B with a long input value here now.",
+                   fix_diff=diff_b, file="src/b.c", pre_fix=win)
+    ex.run(_args(tmp_path / "out", root))
+    rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
+    assert len(rows) == 2                          # same edit text, different file -> distinct
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert m["authoring_dedup_skips"] == []
+
+
+def test_authoring_export_keeps_same_edit_different_hunk_position(tmp_path):
+    """The SAME textual edit at DIFFERENT positions of the SAME file stays distinct —
+    the identity includes the hunk line-number span, not just the edit text (codex
+    P2). Two bundles edit `if (n > 512)`->`if (n > 256)` at line 10 vs line 200."""
+    root = tmp_path / "traces"
+    def _diff(start):
+        return (f"diff --git a/src/x.c b/src/x.c\n--- a/src/x.c\n+++ b/src/x.c\n"
+                f"@@ -{start},2 +{start},2 @@\n int n;\n-\tif (n > 512) fail();\n"
+                f"+\tif (n > 256) fail();\n")
+    win = "static void g(void)\n{\n\tint n;\n\tif (n > 512) fail();\n}"
+    _cached_bundle(root, "CVE-2025-34451--hunk-lo", cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Overflow at the first guard site with a long value here.",
+                   fix_diff=_diff(10), file="src/x.c", pre_fix=win)
+    _cached_bundle(root, "CVE-2025-34451--hunk-hi", cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Overflow at the second guard site with a long value here.",
+                   fix_diff=_diff(200), file="src/x.c", pre_fix=win)
+    ex.run(_args(tmp_path / "out", root))
+    rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
+    assert len(rows) == 2                          # same edit text, different line -> distinct
+
+
+def test_self_leak_spares_repeated_idiom_at_new_site():
+    """A valid pure-addition fix that re-adds a short idiom (`free(buf);`/`return -1;`)
+    at a NEW site is NOT a self-leak even though those lines appear elsewhere in the
+    window — the added block is not a contiguous run there, and it is under the 3-line
+    bar (codex P2)."""
+    diff = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
+            "@@ -5,2 +5,4 @@\n int n;\n+\tfree(buf);\n+\treturn -1;\n more();\n")
+    # window has free(buf); and return -1; but NON-contiguously (other lines between).
+    win = "int a;\n\tfree(buf);\n\tlog(a);\n\treturn -1;\n\tint n;\n\tmore();"
+    assert ex._label_self_leaked(diff, win) is False
+    # And the giflib-style contiguous >=3 block IS still caught.
+    leak = ("diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n"
+            "@@ -1,0 +1,3 @@\n+\tguard();\n+\tcheck();\n+\tfail();\n")
+    assert ex._label_self_leaked(leak, "pre\n\tguard();\n\tcheck();\n\tfail();\npost") is True
+
+
+def test_self_leak_caught_across_multiple_hunks():
+    """A multi-hunk pure-addition half-patched fix — each block sits contiguously at
+    its OWN site in the window, with unchanged lines between — is still a self-leak
+    (per-block contiguity, codex P2)."""
+    diff = ("diff --git a/z.c b/z.c\n--- a/z.c\n+++ b/z.c\n"
+            "@@ -3,2 +3,4 @@\n int a;\n+\tguard_a();\n+\tcheck_a();\n int b;\n"
+            "@@ -20,1 +22,3 @@\n int c;\n+\tguard_b();\n+\tcheck_b();\n")
+    win = ("int a;\n\tguard_a();\n\tcheck_a();\n int b;\n"
+           "lots of other unchanged lines here\n int c;\n\tguard_b();\n\tcheck_b();")
+    assert ex._label_self_leaked(diff, win) is True
+
+
+def test_parse_diff_handles_dashdash_content_line():
+    """A removed line starting with `-- ` (rendered `--- ` in the diff) and an added
+    line starting with `++ ` (rendered `+++ `) are hunk CONTENT delimited by the hunk
+    counts, never parsed as file headers (codex P2)."""
+    diff = ("diff --git a/m.c b/m.c\n--- a/m.c\n+++ b/m.c\n"
+            "@@ -1,3 +1,3 @@\n keep;\n--- old marker\n+++ new marker\n tail;\n")
+    p = ex._parse_fix_diff(diff)
+    assert p["files"] == ["m.c"]
+    assert p["removed"]["m.c"] == ["-- old marker"]
+    assert p["added"]["m.c"] == ["++ new marker"]
+    # grounding sees the real removed line -> the window must actually contain it.
+    assert ex._label_fully_grounded(diff, "keep;\n-- old marker\ntail;", ["m.c"]) is True
+    assert ex._label_fully_grounded(diff, "keep;\ntail;", ["m.c"]) is False
+
+
+def test_pair_identity_keeps_spans_tied_to_files():
+    """Two multi-file labels with the same text at SWAPPED line ranges across files
+    (a.c@10/b.c@20 vs a.c@20/b.c@10) are distinct — hunk spans stay tied to their
+    file in the identity (codex P2)."""
+    def _pair(a_line, b_line):
+        return {"cve_id": "CVE-2025-1", "fix_commit": {"commit_sha": "deadbeef"},
+                "fix_diff": (f"diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n"
+                             f"@@ -{a_line},1 +{a_line},2 @@\n int x;\n+\tguard();\n"
+                             f"diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n"
+                             f"@@ -{b_line},1 +{b_line},2 @@\n int y;\n+\tcheck();\n")}
+    assert ex._authoring_pair_identity(_pair(10, 20)) != ex._authoring_pair_identity(_pair(20, 10))
+    # But the SAME label under a different FILE ORDER still collapses (P3).
+    same_a = "diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n@@ -1,1 +1,2 @@\n int x;\n+\tg();\n"
+    same_b = "diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n@@ -1,1 +1,2 @@\n int y;\n+\tc();\n"
+    id_ab = ex._authoring_pair_identity({"cve_id": "C", "fix_commit": {"commit_sha": "s"},
+                                         "fix_diff": same_a + same_b})
+    id_ba = ex._authoring_pair_identity({"cve_id": "C", "fix_commit": {"commit_sha": "s"},
+                                         "fix_diff": same_b + same_a})
+    assert id_ab == id_ba
+
+
+def test_authoring_export_collapses_window_only_duplicate(tmp_path):
+    """Two dirs with the SAME edit under different-sized windows collapse to one row
+    (the jq CVE-2026-39979 / proftpd CVE-2026-44331 escape). Identity keys on the
+    edit, not the window."""
+    root = tmp_path / "traces"
+    narrow = _DEFAULT_PRE_FIX
+    wide = "/* leading context */\nint spacer;\n" + _DEFAULT_PRE_FIX + "\n/* trailing */"
+    _cached_bundle(root, "CVE-2025-34451--narrow", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials.",
+                   pre_fix=narrow)
+    _cached_bundle(root, "CVE-2025-34451--wide", cve="CVE-2025-34451",
+                   attr="proxychains-ng",
+                   summary="Stack overflow in proxy_from_string with long credentials here.",
+                   pre_fix=wide)
+    ex.run(_args(tmp_path / "out", root))
+    rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
+    assert len(rows) == 1                          # same edit -> one row despite two windows
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert len(m["authoring_dedup_skips"]) == 1
+
+
 def test_authoring_export_keeps_distinct_same_cve_pairs(tmp_path):
     """Pair-identity dedup (NOT cve_id dedup): two dirs with the SAME cve but a
     genuinely-different fix (distinct fix_diff here) are distinct harder examples and
@@ -326,7 +635,9 @@ def test_authoring_export_keeps_distinct_same_cve_pairs(tmp_path):
     _cached_bundle(root, "CVE-2025-34451--hunk-b", cve="CVE-2025-34451",
                    attr="proxychains-ng",
                    summary="A crafted input triggers memory corruption when the request field is too long.",
-                   fix_diff=other_diff)
+                   fix_diff=other_diff,
+                   pre_fix=("static int other_path(void)\n{\n\tint len = get_len();\n"
+                            "\tif(len > 512) overflow();\n}"))
     ex.run(_args(tmp_path / "out", root))
     rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
     assert len(rows) == 2                          # distinct pairs both survive
@@ -777,7 +1088,13 @@ def test_authoring_manifest_records_multi_file_label(tmp_path):
     _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
                    cve="CVE-2025-34451", attr="proxychains-ng",
                    summary="Stack overflow in proxy_from_string with long credentials.",
-                   fix_diff=multi)
+                   fix_diff=multi,
+                   # A real multi-file window renders each file behind a
+                   # `/* ==== file: X ==== */` boundary; per-file grounding checks each
+                   # file's lines against its OWN section.
+                   pre_fix=(f"/* ==== file: src/libproxychains.c ==== */\n{_DEFAULT_PRE_FIX}"
+                            "\n\n/* ==== file: src/other.c ==== */\nold_line"),
+                   included=["src/libproxychains.c", "src/other.c"])
     ex.run(_args(tmp_path / "out", root))
     rec = json.loads((tmp_path / "out" / "authoring.jsonl").read_text().splitlines()[0])
     assert rec["provenance"]["label_file_count"] == 2
