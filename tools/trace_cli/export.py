@@ -1492,6 +1492,19 @@ def _run_authoring(args: argparse.Namespace) -> int:
         if not (pair["vuln_raw"] and pair["pre_fix_source"] and pair["fix_diff"]):
             excluded.append({"bundle": bd.name, "reason": "incomplete pair"})
             continue
+        # Budget guard on the FINAL input window, single- or multi-file, tied to the
+        # 16384-token training max_seq_len. _multi_file_window enforces this at mint;
+        # the single-file path (`_hunk_windows`, bounded by hunk-count×radius) does
+        # not, and an early exporter left a few contiguous first-hunk-to-last-hunk
+        # windows in cache (expat/libcupsfilters, ~8000 lines). Exclude rather than
+        # emit a pair that would be silently truncated by the tokenizer — consistent
+        # with the multi-file exclude-not-degrade policy. (codex <redacted-session-id> 2026-07-13)
+        if len(pair["pre_fix_source"]) > _INPUT_WINDOW_BUDGET_CHARS:
+            excluded.append({"bundle": bd.name,
+                             "reason": f"input window {len(pair['pre_fix_source'])} chars "
+                                       f"exceeds the {_INPUT_WINDOW_BUDGET_CHARS}-char "
+                                       "budget (max_seq_len) — not minting a truncated pair"})
+            continue
         # Scrub the CVE summary against the ACTUAL fix: drop remediation language AND
         # any sentence naming a symbol the fix changes (else the summary leaks where
         # the fix lands — e.g. proxychains's RS_PT_SOCKS5, graphite2's slotat).

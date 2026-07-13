@@ -1072,3 +1072,41 @@ def test_multi_file_window_excludes_above_cap():
         for i, f in enumerate(files))
     blob = lambda fp: ([f"old{files.index(fp)}"], True) if fp in files else None
     assert ex._multi_file_window(diff, files, blob) is None
+
+
+def test_authoring_export_excludes_oversized_window(tmp_path):
+    """An input window over the char budget (tied to max_seq_len) is EXCLUDED, not
+    emitted as a pair the tokenizer would silently truncate. Mirrors the multi-file
+    exclude-not-degrade policy for the single-file path. (codex <redacted-session-id> 2026-07-13)"""
+    root = tmp_path / "traces"
+    summary = ("Stack-based buffer overflow in proxy_from_string when a username exceeds "
+               "255 bytes. It was gated on proxytype == RS_PT_SOCKS5.")
+    bd = _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
+                        cve="CVE-2025-34451", attr="proxychains-ng", summary=summary)
+    # Overwrite the cached window with one just over the budget (an early exporter
+    # left contiguous first-hunk-to-last-hunk windows this large in cache).
+    cache = json.loads((bd / "authoring-example.json").read_text())
+    cache["pre_fix_source"] = "int x;\n" * (ex._INPUT_WINDOW_BUDGET_CHARS // 6)
+    assert len(cache["pre_fix_source"]) > ex._INPUT_WINDOW_BUDGET_CHARS
+    (bd / "authoring-example.json").write_text(json.dumps(cache))
+
+    rc = ex.run(_args(tmp_path / "out", root))
+    assert rc == 0
+    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""  # not emitted
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    reasons = [e["reason"] for e in manifest.get("excluded", [])
+               if e["bundle"].startswith("CVE-2025-34451")]
+    assert reasons and "budget" in reasons[0], reasons
+
+
+def test_authoring_export_window_within_budget_is_kept(tmp_path):
+    """Control: a normal small window exports fine and records input_window_chars."""
+    root = tmp_path / "traces"
+    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
+                   cve="CVE-2025-34451", attr="proxychains-ng",
+                   summary="Buffer overflow in proxy_from_string over 255 bytes.")
+    rc = ex.run(_args(tmp_path / "out", root))
+    assert rc == 0
+    rec = json.loads((tmp_path / "out" / "authoring.jsonl").read_text().splitlines()[0])
+    chars = rec["provenance"]["input_window_chars"]
+    assert 0 < chars <= ex._INPUT_WINDOW_BUDGET_CHARS
