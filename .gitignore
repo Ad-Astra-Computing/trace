@@ -1,6 +1,10 @@
 # Rust build artifacts
 graph/target/
 
+# Nix build symlinks (host-local, point into /nix/store)
+/result
+/result-*
+
 # Python caches
 __pycache__/
 *.pyc
