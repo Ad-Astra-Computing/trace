@@ -3,7 +3,7 @@
 **Status:** running record, updated 2026-07-13. Companion to [`FINDINGS_v0.md`](FINDINGS_v0.md) (the certification-pipeline result); this doc covers the fine-tuning arc built on top of it.
 **Companion docs:** [`CONCEPTS.md`](CONCEPTS.md) (pipeline orientation), [`REVIEWER_LORA_PILOT.md`](REVIEWER_LORA_PILOT.md), [`AUTHORING_TRAINING.md`](AUTHORING_TRAINING.md), [`DECISIONS.md`](DECISIONS.md) (running log).
 
-This is the presentation source of truth for the fine-tuning work. Every headline below is stated with its real evidence and confidence, so no claim leaves this file stronger than the data supports.
+This is the presentation source of truth for the fine-tuning work. Every headline below is stated with its real evidence and confidence, so no claim leaves this file stronger than the data supports. For the standalone external summary of the authoring edit-precision investigation (result, lever, ceiling, limits), see [`AUTHORING_INVESTIGATION.md`](AUTHORING_INVESTIGATION.md).
 
 ---
 

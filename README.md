@@ -193,6 +193,11 @@ Full v0 non-goal list: [`docs/DECISIONS.md`](docs/DECISIONS.md) section
   `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`).
 * [docs/MODEL_EVAL_PLAN.md](docs/MODEL_EVAL_PLAN.md). Model
   qualification methodology.
+* [docs/AUTHORING_INVESTIGATION.md](docs/AUTHORING_INVESTIGATION.md).
+  Can a small fine-tuned model author CVE fixes? The result, the
+  production lever (verifier-guided sampling), and the ceiling
+  (addition-site edit precision). Running record in
+  [docs/FINDINGS_LORA.md](docs/FINDINGS_LORA.md).
 * [docs/DECISIONS.md](docs/DECISIONS.md). Append-only log of why the
   project looks the way it does.
 * [CHANGELOG.md](CHANGELOG.md). Tagged release notes.
