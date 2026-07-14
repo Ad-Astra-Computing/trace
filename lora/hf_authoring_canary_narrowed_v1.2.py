@@ -43,12 +43,18 @@ Usage (see lora/submit_hf_gen_canaries_v1.2.sh style / the submit wrapper):
   hf jobs uv run --flavor a100-large --namespace odoom --timeout 1h --detach \\
     --secrets HF_TOKEN lora/hf_authoring_canary_narrowed_v1.2.py
 """
+import base64
 import json
 import os
 import re
 from pathlib import Path
 
 import torch
+
+# Optional: override the canary's system turn (e.g. score an adapter trained with a
+# different system prompt, like the search/replace variant). Base64 to survive env.
+_SYS_OVERRIDE_B64 = os.environ.get("SYSTEM_OVERRIDE_B64")
+SYSTEM_OVERRIDE = base64.b64decode(_SYS_OVERRIDE_B64).decode() if _SYS_OVERRIDE_B64 else None
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -292,7 +298,7 @@ def main():
 
     responses = []
     for cve in CVE_ORDER:
-        system = per_cve[cve]["system"]
+        system = SYSTEM_OVERRIDE or per_cve[cve]["system"]
         for variant in ("original", "narrowed"):
             print(f"Generating {cve} / {variant}...", flush=True)
             generated = generate(model, tokenizer, system, per_cve[cve][variant])
