@@ -68,13 +68,20 @@ def _call_api(model_id: str, system: str, user: str) -> tuple[str, dict]:
         raise RuntimeError("anthropic SDK not installed")
 
     client = anthropic.Anthropic()
-    msg = client.messages.create(
+    kwargs = dict(
         model=model_id,
         max_tokens=2048,
-        temperature=0.0,
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user}],
     )
+    try:
+        msg = client.messages.create(temperature=0.0, **kwargs)
+    except anthropic.BadRequestError as e:
+        # Some models (e.g. opus-4-8) deprecate `temperature`; retry without it.
+        if "temperature" in str(e):
+            msg = client.messages.create(**kwargs)
+        else:
+            raise
     text = "".join(
         b.text for b in getattr(msg, "content", []) if getattr(b, "type", None) == "text"
     )
