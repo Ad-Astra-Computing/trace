@@ -89,6 +89,7 @@ All three run over one correct unified-diff parser. **Export is now 91 → 79 ho
 | The byte-exact ceiling is largely a FORMAT artifact; the model has learned the edits | memorization (2026-07-14): v10 reproduces its OWN train labels at 1/10 byte-exact but norm-exact 6/10, add-recall 0.90, rem-recall 0.93 | Medium-High |
 | Verifier-guided sampling (pass@K) is the production lever | pass@16 lifts best-of-K add-recall 0->0.36 (requests 1.0, zlib 0.33); LoRA useful despite non-byte-exact single-shot | Medium |
 | The search/replace FORMAT change alone does not move held-out edit-precision | v10->SR greedy: add-recall 0.00 (= v10), rem 0.25; caveat: no loss-masking, greedy only | Medium |
+| Base-model capacity is not the lever — no base beats the fine-tuned 14B + sampling | 7-model probe (2026-07-14): frontier opus-4-8 0.00 / sonnet-4-6 0.25, and the real candidates via CF Workers AI — GLM-5.2 0.02, Qwen3-30B (bzip2 norm-exact, timeouts), Qwen2.5-Coder-32B 0.25/1-of-4 — none beat the 14B pass@16 add-recall 0.36; all share the concept-right/add-wrong failure | Medium-High |
 | The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact across v1.3/v10/v11; localization only, noise-dominated | Not yet supported |
 | Reviewer-LoRA matches frontier on verdicts, better format reliability | 11/11 vs 10/11 fold, both 0 false accept/reject | Medium (n=11) |
 | Reviewer-LoRA beats frontier as a capability | one-example parse artifact; shadow pilot failed | Not supported — retired |
