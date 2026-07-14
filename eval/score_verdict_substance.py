@@ -45,10 +45,15 @@ def _load_examples(path: str) -> tuple[list[dict], str | None]:
     `examples`) OR a gate-pilot `responses.jsonl` ({cve_id, label, generated} per line),
     for which strict verdict/schema are computed here via the reviewer parser."""
     text = open(path).read().strip()
-    if text.startswith("{"):
+    # A frontier_baseline report is a single JSON object with `examples`.
+    # A gate-pilot responses file is JSONL (each line a JSON object), which also
+    # starts with `{`, so guard the whole-file parse and fall through on failure.
+    try:
         d = json.loads(text)
-        if "examples" in d:
-            return d["examples"], d.get("model") or d.get("model_id")
+    except json.JSONDecodeError:
+        d = None
+    if isinstance(d, dict) and "examples" in d:
+        return d["examples"], d.get("model") or d.get("model_id")
     # JSONL of gate-pilot responses
     import sys as _sys
     _sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
