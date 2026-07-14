@@ -40,9 +40,45 @@ def lenient_verdict(text: str) -> str | None:
     return None
 
 
+def _load_examples(path: str) -> tuple[list[dict], str | None]:
+    """Return (examples, model). Handles a frontier_baseline report JSON (has
+    `examples`) OR a gate-pilot `responses.jsonl` ({cve_id, label, generated} per line),
+    for which strict verdict/schema are computed here via the reviewer parser."""
+    text = open(path).read().strip()
+    if text.startswith("{"):
+        d = json.loads(text)
+        if "examples" in d:
+            return d["examples"], d.get("model") or d.get("model_id")
+    # JSONL of gate-pilot responses
+    import sys as _sys
+    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
+    from agents.reviewer import ReviewerOutputMalformed, parse_reviewer_output  # noqa
+    ex = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        gen = r.get("generated", "")
+        expected = "accept" if r.get("label") == "positive" else "reject"
+        strict_v = None
+        schema_ok = False
+        try:
+            parsed = parse_reviewer_output(gen)
+            strict_v = getattr(parsed, "verdict", None) or (parsed.get("verdict") if isinstance(parsed, dict) else None)
+            schema_ok = True
+        except Exception:
+            pass
+        ex.append({
+            "cve_id": r.get("cve_id"), "label": r.get("label"),
+            "expected_verdict": expected, "actual_verdict": strict_v,
+            "schema_valid": schema_ok, "verdict_correct": (strict_v == expected),
+            "parse_failure": not schema_ok, "response_text": gen,
+        })
+    return ex, "reviewer-lora (gate-pilot responses)"
+
+
 def score_report(path: str) -> dict:
-    d = json.load(open(path))
-    ex = d.get("examples") or []
+    ex, model = _load_examples(path)
     n = len(ex)
     strict_correct = sum(1 for e in ex if e.get("verdict_correct"))
     schema_valid = sum(1 for e in ex if e.get("schema_valid"))
@@ -63,7 +99,7 @@ def score_report(path: str) -> dict:
                 fr += 1
     return {
         "report": path,
-        "model": d.get("model") or d.get("model_id"),
+        "model": model,
         "n": n,
         "strict_verdict_accuracy": round(strict_correct / n, 3) if n else 0,
         "schema_conformance_rate": round(schema_valid / n, 3) if n else 0,
