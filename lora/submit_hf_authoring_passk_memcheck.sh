@@ -20,7 +20,7 @@ hf jobs uv run \
   -e "ADAPTER_REPO=adastracomputing/authoring-lora-v10-clean" \
   -e "DATASET_REPO=adastracomputing/authoring-lora-data-v6" \
   -e "TRAIN_REPO=adastracomputing/authoring-lora-data-v10-clean" \
-  -e "K=${K:-16}" \
+  -e "PASSK=${PASSK:-16}" \
   -e "N_MEM=10" \
   -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
   -e "HF_HOME=/tmp/hf" \
