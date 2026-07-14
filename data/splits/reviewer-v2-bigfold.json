@@ -1,0 +1,287 @@
+{
+  "schema_version": "1.0.0",
+  "name": "reviewer-v2-bigfold",
+  "description": "Fresh larger held-out eval (2026-07-14): ~35-example family-disjoint test fold to replace the saturated n=11 fold reused v1.0-v1.10. Both polarities of a CVE stay in the same split (family-level). Balanced accept/reject.",
+  "overrides": {
+    "adminer": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "assimp": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "bind": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "busybox": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "bzip": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "coreutils": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "curlMinimal": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "dnsmasq": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "dropbear": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "exim": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "expat": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "flatpak": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "freerdp": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "giflib": {
+      "split": "test",
+      "reason": "v2 larger held-out eval fold"
+    },
+    "git-lfs": {
+      "split": "dev",
+      "reason": "v2 dev"
+    },
+    "gnutls": {
+      "split": "dev",
+      "reason": "v2 dev"
+    },
+    "graphite": {
+      "split": "dev",
+      "reason": "v2 dev"
+    },
+    "libpng": {
+      "split": "dev",
+      "reason": "v2 dev"
+    },
+    "libsixel": {
+      "split": "dev",
+      "reason": "v2 dev"
+    },
+    "libssh": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "libtasn": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "libtiff": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "libxml": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "libxmp": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "litestream": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "lrzip": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "mapserver": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "matio": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "mbedtls": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "micropython": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "mruby": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "mupdf": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "neovim-unwrapped": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "nginxMainline": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "opensc": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "openssh_gssapi": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "openssl": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pdns-recursor": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "perlPackages.FileFindRule": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pgbouncer": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "php": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "postgresql": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "procps": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "proftpd": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "proxychains-ng": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "putty": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "python": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.distributed": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.django": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.flask-cors": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.pygments": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.pyjwt": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.python-multipart": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.requests": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.sanic": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "pythonPackages.twisted": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "quickjs-ng": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "redis": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "rubyPackages.sinatra": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "samba": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "sqlite": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "systemd": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "traefik": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "uriparser": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "wget": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "wolfssl": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "xdg-dbus-proxy": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "yelp-xsl": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "zbar": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    },
+    "zookeeper": {
+      "split": "train",
+      "reason": "v2 train (remainder)"
+    }
+  }
+}
