@@ -28,18 +28,24 @@ trace's certification pipeline (v0) uses frontier models (opus/sonnet) for the t
 
 ## Reviewer track — the honest result
 
-**Claim, stated honestly: Reviewer-LoRA matches frontier sonnet on verdict substance (both scored every held-out example correctly, zero false accepts or rejects) and is more reliable at producing well-formed output. It has not been shown to beat frontier as a capability, and it has not passed a fresh-data gate.**
+**Claim, stated honestly: on a fresh, family-disjoint 34-example fold (3x the old one), Reviewer-LoRA does NOT match frontier on verdict substance. It is accept-biased — it waves through ~47% of bad patches — and frontier beats it cleanly. What survives is a narrower, honest win: the LoRA is more reliable at producing well-formed schema output. It is not production-ready as an autonomous accept/reject gate.**
 
-What the numbers actually are:
+The larger fresh-data eval (the gate this section previously flagged as "the next real evidence") is now run, and it overturns the old n=11 headline.
 
-- On an 11-example held-out fold, Reviewer-LoRA scored 11/11 and frontier sonnet scored 10/11 (reported elsewhere as 100% vs 90.9%).
-- The single-example gap is **a formatting artifact, not a judgement difference**: sonnet's one miss wrote a "reject" header then reasoned its way to "accept", and the parser rejected the contradiction. On verdict *substance* both models were 11/11 with zero false accepts and zero false rejects.
-- **n = 11** (7 distinct CVEs). A one-example difference has no statistical weight.
-- The fold has since been reused as a release gate across 11 adapter versions, so it is saturated and no longer a fresh measurement.
-- 5 of the 7 positive labels in the fold derive from the frontier reviewer's own accepts, which is mildly circular for a frontier-vs-LoRA comparison.
-- The only **out-of-fold** measurement to date (a shadow pilot on fresh positives) scored 87.5% and did not pass its gate.
+What the numbers actually are, on the fresh 34-fold (`data/splits/reviewer-v2-bigfold.json`, 19 accept / 15 reject, family-disjoint, retrained on the remaining 92; job `6a568c3885d9643ce16d31b4`):
 
-**Confidence: the fold is clean (genuinely disjoint, no leakage or duplication). The "matched on verdicts, better format reliability" statement is well-supported. Any stronger "beats frontier" framing is retired.** The next real evidence is a larger fresh-data eval.
+| Model | verdict-substance | false-accept | false-reject | schema-conformance |
+|---|---|---|---|---|
+| **Reviewer-LoRA** | **0.794** (27/34) | **7** | 0 | 1.000 |
+| frontier sonnet-4-6 | 0.971 (33/34) | 0 | 0 | 0.65 |
+| frontier opus-4-8 | 0.941 (32/34) | 0 | 0 | 0.56 |
+
+- The LoRA accepts **19/19 positives** but rejects only **8/15 negatives** — a pronounced **accept-bias**, and the misses are in the dangerous direction (false-accept = shipping a bad patch).
+- Frontier (both models) is near-perfect on verdict correctness with **zero false accepts**.
+- The old **n = 11** fold that produced "matched frontier / 11/11 vs 10/11" was **saturated** (reused as a release gate across 11 adapter versions) and had too few hard negatives to expose the accept-bias. That result is retired.
+- The one honest LoRA advantage that survives: **schema-conformance 1.0 vs frontier 0.56-0.65** — the LoRA reliably emits the exact `review.md` schema; frontier writes a correct verdict but often adds prose the strict parser rejects. This is a **format** win, not a judgement win.
+
+**Confidence: the fresh fold is clean (genuinely disjoint, no leakage or duplication). The honest conclusion is that Reviewer-LoRA is NOT an autonomous gate — its verdict substance trails frontier and errs toward accepting bad patches. Its production value is schema-shaped drafting under a frontier or human accept check. The earlier "matches frontier on verdicts" claim is refuted on fresh data.**
 
 ---
 
@@ -91,8 +97,10 @@ All three run over one correct unified-diff parser. **Export is now 91 → 79 ho
 | The search/replace FORMAT change alone does not move held-out edit-precision | v10->SR greedy: add-recall 0.00 (= v10), rem 0.25; caveat: no loss-masking, greedy only | Medium |
 | Base-model capacity is not the lever — no base beats the fine-tuned 14B + sampling | 7-model probe (2026-07-14): frontier opus-4-8 0.00 / sonnet-4-6 0.25, and the real candidates via CF Workers AI — GLM-5.2 0.02, Qwen3-30B (bzip2 norm-exact, timeouts), Qwen2.5-Coder-32B 0.25/1-of-4 — none beat the 14B pass@16 add-recall 0.36; all share the concept-right/add-wrong failure | Medium-High |
 | The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact across v1.3/v10/v11; localization only, noise-dominated | Not yet supported |
-| Reviewer-LoRA matches frontier on verdicts, better format reliability | 11/11 vs 10/11 fold, both 0 false accept/reject | Medium (n=11) |
-| Reviewer-LoRA beats frontier as a capability | one-example parse artifact; shadow pilot failed | Not supported — retired |
+| Reviewer-LoRA matches frontier on verdicts | REFUTED on fresh 34-fold: LoRA 0.794 (7 false-accept) vs sonnet 0.971 / opus 0.941 (0 fa) | Not supported — retired |
+| Reviewer-LoRA is accept-biased (waves through bad patches) | fresh 34-fold: accepts 19/19 positives but only rejects 8/15 negatives | High |
+| Reviewer-LoRA's real win is schema-format reliability, not verdict correctness | fresh 34-fold: LoRA schema-conformance 1.0 vs frontier 0.56-0.65; verdict substance trails | High |
+| Reviewer-LoRA beats frontier as a capability | one-example parse artifact (n=11); refuted on fresh 34-fold | Not supported — retired |
 
 ---
 
@@ -110,5 +118,5 @@ The authoring edit-precision question is answered with a defensible **lever / ce
 - **SR + loss-masking**, and an **SR pass@K** — the untested half of the format intervention.
 - **DPO on the model's own guard-clip failures** — the direct edit-shape lever.
 - **FIM / bigger base** — codex/Fable ranked last; only if the above stall.
-- **Fresh-data Reviewer eval** larger than n=11, to replace the saturated fold.
+- ~~**Fresh-data Reviewer eval** larger than n=11~~ — DONE (2026-07-14, 34-fold): LoRA 0.794 with 7 false-accepts, does not match frontier. Next: close the accept-bias (negative-heavy retraining / calibrated reject threshold) before any "matches frontier" claim is defensible.
 - **Corpus hygiene** — physically retire the redundant double-bootstrap + giflib half-patched dirs (the exporter already excludes them; cleanup, not correctness).
