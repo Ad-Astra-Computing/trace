@@ -85,17 +85,29 @@ All three run over one correct unified-diff parser. **Export is now 91 → 79 ho
 | Core localization survives on a fully behaviorally-validated corpus | v10 clean re-baseline: zlib localizes to the `extra_max` site on the narrowed window (2026-07-14) | Medium |
 | Grafting the (unvalidated) supplements back restores distractor-resistance | v11 supplemented re-baseline: NOT cleanly — full-window recovered the bound but with hallucinated asm, narrowed regressed; byte-exact still 0/4 | Not supported |
 | Edit-precision (byte-exact) is the ceiling and is insensitive to corpus cleanliness AND to +21 stratified examples | 0/4 byte-exact identical across v1.3 (dirty 109), v10 (clean 68), v11 (clean 89) | Medium-High |
-| byte-exact-on-free-form-diff overstated the ceiling — it hides real partial edit-correctness | graded re-score (2026-07-14): pyjwt removed-line recall 1.0 (right deletion, wrong add-shape) across all 3; requests v11-narrowed added-line recall 1.0; zlib = right concept (`extra_max`) different line structure. Residual gap = edit-SHAPE at the addition site (guard-clip vs condition-fold). Next: graded/behavioral metric + pass@K verifier, then relabel to search/replace + loss-masking (Fable brainstorm) | Medium |
+| byte-exact-on-free-form-diff overstated the ceiling — it hides real partial edit-correctness | graded re-score (2026-07-14): pyjwt removed-line recall 1.0 (right deletion, wrong add-shape) across all 3; requests v11-narrowed added-line recall 1.0; zlib = right concept (`extra_max`) different line structure. Residual gap = edit-SHAPE at the addition site (guard-clip vs condition-fold) | Medium |
+| The byte-exact ceiling is largely a FORMAT artifact; the model has learned the edits | memorization (2026-07-14): v10 reproduces its OWN train labels at 1/10 byte-exact but norm-exact 6/10, add-recall 0.90, rem-recall 0.93 | Medium-High |
+| Verifier-guided sampling (pass@K) is the production lever | pass@16 lifts best-of-K add-recall 0->0.36 (requests 1.0, zlib 0.33); LoRA useful despite non-byte-exact single-shot | Medium |
+| The search/replace FORMAT change alone does not move held-out edit-precision | v10->SR greedy: add-recall 0.00 (= v10), rem 0.25; caveat: no loss-masking, greedy only | Medium |
 | The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact across v1.3/v10/v11; localization only, noise-dominated | Not yet supported |
 | Reviewer-LoRA matches frontier on verdicts, better format reliability | 11/11 vs 10/11 fold, both 0 false accept/reject | Medium (n=11) |
 | Reviewer-LoRA beats frontier as a capability | one-example parse artifact; shadow pilot failed | Not supported — retired |
 
 ---
 
-## What's open
+## Edit-precision thread — resolved (2026-07-14)
 
-- **Re-baseline the current 14B** authoring adapter on the clean 79-row corpus, to separate corpus noise from the real edit-precision ceiling.
+The authoring edit-precision question is answered with a defensible **lever / ceiling** result:
+
+- **Lever (production):** verifier-guided sampling — pass@K over the LoRA, filtered by the existing behavioral reproducer. pass@16 lifts best-of-K add-recall from ~0 to 0.36 (requests 1.0). The LoRA is useful despite non-byte-exact single-shot output; the LoRA localizes + hits the fix concept, sampling + a verifier recovers correct edits.
+- **Ceiling:** greedy single-sample edit-shape at the addition site, at this dataset size (~60-89 rows). Insensitive to corpus scale/cleanliness (three flat re-baselines) and to the search/replace format change alone.
+- **Retired:** "more data fixes it", byte-exact-on-free-form-diff as a metric, the bare "beats frontier" framing.
+- **Durable wins:** export-time integrity gates (91->79 honest corpus) + honest measurement (graded ladder, memorization diagnostic, this ledger).
+
+## What's open (lower priority, not required for the result)
+
+- **SR + loss-masking**, and an **SR pass@K** — the untested half of the format intervention.
+- **DPO on the model's own guard-clip failures** — the direct edit-shape lever.
+- **FIM / bigger base** — codex/Fable ranked last; only if the above stall.
 - **Fresh-data Reviewer eval** larger than n=11, to replace the saturated fold.
-- **Base-model probe** (GLM-5.2 / Qwen3-Coder) only after the re-baseline, and only for the Authoring track — the Reviewer track keeps the small-model thesis. Probe before any swap; the bar is a stronger base changing the canary failure profile.
-- **Corpus hygiene** — physically retire the redundant double-bootstrap dirs and giflib's half-patched dir (the exporter already excludes them; this is cleanup, not correctness).
-- **Grow the clean corpus** toward the next training milestone via the behavioral-only Tier-B path (no frontier model spend).
+- **Corpus hygiene** — physically retire the redundant double-bootstrap + giflib half-patched dirs (the exporter already excludes them; cleanup, not correctness).
