@@ -57,7 +57,7 @@ FENCE_RE = re.compile(r"^(?P<head>.*?```)(?P<lang>\w+)\n(?P<code>.*?)\n```(?P<ta
 
 def load_canaries(dataset_repo: str) -> dict:
     from huggingface_hub import hf_hub_download
-    path = hf_hub_download(repo_id=dataset_repo, filename="authoring-canary.jsonl", repo_type="dataset")
+    path = hf_hub_download(repo_id=dataset_repo, filename="authoring.canary.jsonl", repo_type="dataset")
     out = {}
     for line in Path(path).read_text().splitlines():
         if not line.strip():
