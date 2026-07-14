@@ -83,8 +83,9 @@ All three run over one correct unified-diff parser. **Export is now 91 → 79 ho
 | The authoring training corpus is honest (no answer-key, no ungrounded labels) | export-time integrity gates, 91→79 rows, 2026-07-13 | High |
 | Data scale + diversity moves authoring localization | v1.3 zlib localization recovery vs zero movement from single-example runs | Medium |
 | Core localization survives on a fully behaviorally-validated corpus | v10 clean re-baseline: zlib localizes to the `extra_max` site on the narrowed window (2026-07-14) | Medium |
-| Full-window distractor-resistance needs the (unvalidated) stratified supplements | v10 regresses on the full zlib window where v1.3 held; the 21 supplements are behaviorally-unvalidated and excluded | Medium |
-| The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact (v1.3 and v10); localization only | Not yet supported |
+| Grafting the (unvalidated) supplements back restores distractor-resistance | v11 supplemented re-baseline: NOT cleanly — full-window recovered the bound but with hallucinated asm, narrowed regressed; byte-exact still 0/4 | Not supported |
+| Edit-precision (byte-exact) is the ceiling and is insensitive to corpus cleanliness AND to +21 stratified examples | 0/4 byte-exact identical across v1.3 (dirty 109), v10 (clean 68), v11 (clean 89) | Medium-High |
+| The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact across v1.3/v10/v11; localization only, noise-dominated | Not yet supported |
 | Reviewer-LoRA matches frontier on verdicts, better format reliability | 11/11 vs 10/11 fold, both 0 false accept/reject | Medium (n=11) |
 | Reviewer-LoRA beats frontier as a capability | one-example parse artifact; shadow pilot failed | Not supported — retired |
 
