@@ -42,6 +42,23 @@ CANARY_NAMES = {
 }
 
 
+def _sr_to_diff(sr_text: str) -> str:
+    """Convert search/replace blocks -> a pseudo unified diff (+/- lines via ndiff), so
+    the SR-format adapter's output scores on the same graded ladder as diff-format output."""
+    import difflib
+    blocks = re.findall(r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE", sr_text, re.DOTALL)
+    out = ["--- a/f", "+++ b/f", "@@ -1,1 +1,1 @@"]
+    for search, replace in blocks:
+        for line in difflib.ndiff(search.split("\n"), replace.split("\n")):
+            if line.startswith("- "):
+                out.append("-" + line[2:])
+            elif line.startswith("+ "):
+                out.append("+" + line[2:])
+            elif line.startswith("  "):
+                out.append(" " + line[2:])
+    return "\n".join(out)
+
+
 def _norm(line: str) -> str:
     return re.sub(r"\s+", "", line)
 
@@ -54,7 +71,8 @@ def _added_removed(diff: str) -> tuple[set[str], set[str]]:
 
 
 def grade(gen: str, ref: str, ref_syms: set[str]) -> dict:
-    ga, gr = _added_removed(gen)
+    gen_diff = _sr_to_diff(gen) if "<<<<<<< SEARCH" in gen else gen
+    ga, gr = _added_removed(gen_diff)
     ra, rr = _added_removed(ref)
     add_recall = len(ga & ra) / len(ra) if ra else 1.0
     rem_recall = len(gr & rr) / len(rr) if rr else 1.0
