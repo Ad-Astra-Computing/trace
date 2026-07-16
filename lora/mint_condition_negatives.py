@@ -121,6 +121,16 @@ def _base_attr(bundle_dir: Path) -> str:
     return parts[1] if len(parts) > 1 else bundle_dir.name
 
 
+# Files a bundle must carry to be minted into a Reviewer negative that the frontier
+# Reviewer can replay AND the reviewer exporter can turn into a training row.
+_REVIEWER_READY = ("patch.diff", "upstream-fix.patch", "upstream-ref.json",
+                   "patch-rationale.md", "review.md")
+
+
+def _is_reviewer_ready(bundle_dir: Path) -> bool:
+    return all((bundle_dir / f).exists() for f in _REVIEWER_READY)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out-root", type=Path, default=ROOT / "traces" / "negatives-minted")
@@ -141,6 +151,8 @@ def main() -> None:
         attr = _base_attr(d)
         if _is_held_out(attr, held):
             continue  # train families only — never contaminate the test fold
+        if not _is_reviewer_ready(d):
+            continue  # must have the full reviewer context to validate + export
         pick = _pick_guard(pd.read_text())
         if pick:
             candidates.append((d, attr, pick))
