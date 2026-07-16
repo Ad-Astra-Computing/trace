@@ -47,6 +47,26 @@ What the numbers actually are, on the fresh 34-fold (`data/splits/reviewer-v2-bi
 
 **Confidence: the fresh fold is clean (genuinely disjoint, no leakage or duplication). The honest conclusion is that Reviewer-LoRA is NOT an autonomous gate — its verdict substance trails frontier and errs toward accepting bad patches. Its production value is schema-shaped drafting under a frontier or human accept check. The earlier "matches frontier on verdicts" claim is refuted on fresh data.**
 
+### Where the accept-bias comes from (2026-07-15 diagnostic)
+
+A free diagnostic on the LoRA's own output splits the 7 false-accepts into two distinct causes:
+
+- **4 semantic misses** (condition-mutation ×3, misplacement ×1): the LoRA's own `## Patch comparison` transcribes both guards and declares them **"match"**, then accepts — genuine blindness at the char-level comparison step, not a verdict-first miscalibration. This is the 14B-from-~100-examples ceiling. Fix = training (contrastive condition hard-negatives, Fable #1).
+- **3 metadata misses** (version-without-hash, wrong-src-hash, rationale-cites-wrong-version): the model never examines these fields. Fix = the contract layer, not the model.
+
+### The contract-layer gate (shipped)
+
+`agents/reviewer/metadata_lint.py` is a deterministic metadata-consistency gate grounded in `upstream-ref.json` (trusted resolver output). It settles version/hash consistency mechanically, with **zero false-positives across all 31 honest positives**. Shipped as a reject-if-fires gate beside the model:
+
+| Configuration | fresh 34-fold substance | false-accept | false-reject |
+|---|---|---|---|
+| Reviewer-LoRA alone | 0.794 (27/34) | 7 | 0 |
+| **Reviewer-LoRA + deterministic lint** | **0.853 (29/34)** | **5** | 0 |
+| frontier sonnet-4-6 | 0.971 | 0 | 0 |
+| frontier opus-4-8 | 0.941 | 0 | 0 |
+
+The gate removes both metadata false-accepts (adminer, dropbear) at zero compute cost and zero false-reject risk — the architecturally-honest shape (contract layer settles field checks, model handles code semantics). The remaining 5 false-accepts are the char-level guard-comparison misses; closing them is the retrain arc, not another gate.
+
 ---
 
 ## Authoring track — the honest result
