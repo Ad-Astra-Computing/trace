@@ -42,7 +42,9 @@ def _neg_mutation_type(d: Path) -> str | None:
 def _bundle_dir(rec: dict) -> Path | None:
     """Locate the bundle dir for a fold example by cve_id and, for negatives,
     the exact mutation_type (a CVE can have several distinct negatives)."""
-    cve = rec.get("cve_id", "")
+    cve = rec.get("cve_id") or ""
+    if not cve:
+        return None
     if rec.get("label") == "negative":
         cands = [d for d in (ROOT / "traces" / "negatives").glob("*/")
                  if cve in d.name]

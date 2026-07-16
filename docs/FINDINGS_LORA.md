@@ -138,5 +138,6 @@ The authoring edit-precision question is answered with a defensible **lever / ce
 - **SR + loss-masking**, and an **SR pass@K** — the untested half of the format intervention.
 - **DPO on the model's own guard-clip failures** — the direct edit-shape lever.
 - **FIM / bigger base** — codex/Fable ranked last; only if the above stall.
-- ~~**Fresh-data Reviewer eval** larger than n=11~~ — DONE (2026-07-14, 34-fold): LoRA 0.794 with 7 false-accepts, does not match frontier. Next: close the accept-bias (negative-heavy retraining / calibrated reject threshold) before any "matches frontier" claim is defensible.
+- ~~**Fresh-data Reviewer eval** larger than n=11~~ — DONE (2026-07-14, 34-fold): LoRA 0.794 with 7 false-accepts, does not match frontier.
+- ~~**Close the accept-bias via condition hard-negative retrain** (Fable #1)~~ — DONE (2026-07-16), **negative result**: the corpus supported only +5 validated condition negatives (9 minted, 4 were semantic-equivalent flips the frontier correctly accepted), and retraining on them (same seed) **regressed** the reviewer to 0.618 / 10 false-accept / 3 false-reject — worse on both axes. Rolled back. The shippable result stays the baseline adapter + metadata lint (**composite 0.853, 0 false-reject**). The guard-comparison gap needs a larger, natural-guard harvest or DPO on guard-clip failures, not mechanical operator-flip negatives.
 - **Corpus hygiene** — physically retire the redundant double-bootstrap + giflib half-patched dirs (the exporter already excludes them; cleanup, not correctness).
