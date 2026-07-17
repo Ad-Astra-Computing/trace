@@ -63,10 +63,12 @@ def main() -> None:
     ap.add_argument("--traces-root", type=Path, default=ROOT / "traces" / "example")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--out", type=Path, default=ROOT / "data/reports/authoring-passk-pipeline.json")
+    ap.add_argument("--only", help="restrict to a single cve_id (e.g. for a bounded first run)")
     args = ap.parse_args()
 
     records = {r["provenance"]["cve_id"]: r for r in _load_jsonl(args.canaries)
-               if (r.get("provenance") or {}).get("cve_id")}
+               if (r.get("provenance") or {}).get("cve_id")
+               and (not args.only or r["provenance"]["cve_id"] == args.only)}
     cands = _candidates_by_cve(_load_jsonl(args.responses))
 
     build_fn = None
