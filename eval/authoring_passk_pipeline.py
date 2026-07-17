@@ -96,16 +96,30 @@ def main() -> None:
             # pre-filter), then any remaining; stop at the first behavioral pass.
             order = struct_pass_idx + [i for i in range(k) if i not in struct_pass_idx]
             beh_first = None
-            beh_tried = 0
+            n_ran = 0            # candidates whose gate actually executed (status == "ran")
+            statuses = {}        # non-"ran" statuses → why the gate could not measure them
             for i in order:
-                beh_tried += 1
                 bv = score_behavioral(cl[i], rec, traces_root=args.traces_root,
                                       build_fn=build_fn)
-                if bv.get("behavioral_pass"):
-                    beh_first = i
-                    break
-            entry.update(behavioral_pass_at_k=beh_first is not None,
-                         behavioral_first_idx=beh_first, behavioral_candidates_tried=beh_tried)
+                st = bv.get("behavioral_status")
+                if st == "ran":
+                    n_ran += 1
+                    if bv.get("behavioral_pass"):
+                        beh_first = i
+                        break
+                else:
+                    statuses[st] = statuses.get(st, 0) + 1
+            # A gate that never executes (precondition_failed / exempt_proxy_reproducer /
+            # bundle_not_found / no_unique_embedded_patch) is UNMEASURABLE here, not a
+            # behavioral failure — never conflate the two (else 0-ran reads as 0-pass).
+            measurable = n_ran > 0 or beh_first is not None
+            entry.update(
+                behavioral_measurable=measurable,
+                behavioral_ran_count=n_ran,
+                behavioral_pass_at_k=(beh_first is not None),
+                behavioral_first_idx=beh_first,
+                behavioral_unmeasurable=statuses,
+            )
             if beh_first is not None:
                 entry["authored_fix"] = cl[beh_first]
         results.append(entry)
@@ -118,11 +132,17 @@ def main() -> None:
         line = (f"  {r['cve_id']:16} struct_pass@K={r['structural_pass_at_k']} "
                 f"({r['structural_pass_count']}/{r['k']})")
         if args.behavioral:
-            line += f"  behavioral_pass@K={r.get('behavioral_pass_at_k')}"
+            if r.get("behavioral_measurable"):
+                line += (f"  behavioral_pass@K={r.get('behavioral_pass_at_k')} "
+                         f"(ran {r.get('behavioral_ran_count')}/{r['k']})")
+            else:
+                line += f"  behavioral=UNMEASURABLE {r.get('behavioral_unmeasurable')}"
         print(line)
     if args.behavioral:
-        b_pass = sum(1 for r in results if r.get("behavioral_pass_at_k"))
-        print(f"  behavioral pass@K : {b_pass}/{n}  (the authoritative capability number)")
+        measurable = [r for r in results if r.get("behavioral_measurable")]
+        b_pass = sum(1 for r in measurable if r.get("behavioral_pass_at_k"))
+        print(f"  behavioral pass@K : {b_pass}/{len(measurable)} measurable "
+              f"({n - len(measurable)} unmeasurable in this env)")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps({"results": results}, indent=2))
