@@ -37,9 +37,11 @@ ADAPTER_REPO = os.environ.get("ADAPTER_REPO", "adastracomputing/authoring-lora-d
 DATASET_REPO = os.environ.get("DATASET_REPO", "adastracomputing/authoring-lora-data-v6")
 BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
 MODEL_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
-MAX_NEW_TOKENS = 384
+# 1024 to match the archived passk harness (pass@16 samples ramble longer than greedy;
+# 384 truncates them mid-diff and floors add_recall). Keep configurable.
+MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "1024"))
 K = int(os.environ.get("PASSK", "16"))
-TEMP = float(os.environ.get("TEMP", "0.9"))
+TEMP = float(os.environ.get("TEMP", "0.8"))
 TOP_P = float(os.environ.get("TOP_P", "0.95"))
 CVE_ORDER = ["CVE-2022-37434", "CVE-2026-42250", "CVE-2024-47081", "CVE-2026-48526"]
 
