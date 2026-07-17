@@ -79,3 +79,25 @@ construction; recorded below once the peer replies.)*
 3. DPO train from the SFT adapter seed (TRL `DPOTrainer`, same base), detached, `--timeout 3h`.
 4. Greedy canary eval + pass@16 guardrail; score with the graded ladder.
 5. Document result (beat/no-beat vs the preregistered metric) in FINDINGS_LORA + DECISIONS.
+
+---
+
+## Result (2026-07-17) — negative, DPO retired
+
+Validated harness (SFT control reproduces pass@16 add_recall 0.36 exactly at 1024 tokens).
+Greedy / pass@16 canary add_recall:
+
+| adapter | greedy | pass@16 |
+|---|---|---|
+| SFT seed (v10-clean) | 0.00 | **0.36** |
+| DPO β0.1 lr5e-6 2ep | 0.00 | 0.02 |
+| DPO β0.5 lr1e-6 1ep | 0.00 | 0.11 |
+
+- **Primary metric (greedy ≥ 0.20): FAILED** — 0.00 at both settings; DPO learned no fold shape.
+- **Guardrail (pass@16 ≥ 0.36): FAILED** — DPO degraded it in both runs; β only limits the
+  damage. `requests` (SFT 1.0) destroyed both times → DPO mode-collapse.
+
+**Retired.** pass@K sampling on the SFT adapter stays the production lever. The 94-pair dataset
++ minter are kept for reference. Harness confound (384-token truncation faking a both-adapter
+collapse) found and fixed mid-run — see DECISIONS 2026-07-17. Next edit-shape lever is an open
+Fable-directed question (SFT-augment vs KTO vs verifier investment).

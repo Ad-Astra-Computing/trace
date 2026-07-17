@@ -117,6 +117,8 @@ All three run over one correct unified-diff parser. **Export is now 91 → 79 ho
 | The search/replace FORMAT change alone does not move held-out edit-precision | v10->SR greedy: add-recall 0.00 (= v10), rem 0.25; caveat: no loss-masking, greedy only | Medium |
 | Base-model capacity is not the lever — no base beats the fine-tuned 14B + sampling | 7-model probe (2026-07-14): frontier opus-4-8 0.00 / sonnet-4-6 0.25, and the real candidates via CF Workers AI — GLM-5.2 0.02, Qwen3-30B (bzip2 norm-exact, timeouts), Qwen2.5-Coder-32B 0.25/1-of-4 — none beat the 14B pass@16 add-recall 0.36; all share the concept-right/add-wrong failure | Medium-High |
 | The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact across v1.3/v10/v11; localization only, noise-dominated | Not yet supported |
+| DPO on guard-clip preference pairs moves greedy edit-shape toward the fold | REFUTED (2026-07-17, validated harness): greedy add_recall 0.00 at β0.1 and β0.5; pass@16 degraded 0.36→0.02 (β0.1) / 0.11 (β0.5). DPO strictly harmful, no greedy gain | Not supported — retired |
+| pass@K sampling on the SFT adapter is the production edit-precision lever | pass@16 add_recall 0.36 (validated at 1024 tokens); survives as the lever after DPO fails to beat it | High |
 | Reviewer-LoRA matches frontier on verdicts | REFUTED on fresh 34-fold: LoRA 0.794 (7 false-accept) vs sonnet 0.971 / opus 0.941 (0 fa) | Not supported — retired |
 | Reviewer-LoRA is accept-biased (waves through bad patches) | fresh 34-fold: accepts 19/19 positives but only rejects 8/15 negatives | High |
 | Reviewer-LoRA's real win is schema-format reliability, not verdict correctness | fresh 34-fold: LoRA schema-conformance 1.0 vs frontier 0.56-0.65; verdict substance trails | High |
@@ -138,7 +140,23 @@ The authoring edit-precision question is answered with a defensible **lever / ce
 ## What's open (lower priority, not required for the result)
 
 - **SR + loss-masking**, and an **SR pass@K** — the untested half of the format intervention.
-- **DPO on the model's own guard-clip failures** — the direct edit-shape lever.
+- ~~**DPO on the model's own guard-clip failures** — the direct edit-shape lever.~~ — DONE
+  (2026-07-17), **negative result** (validated harness, two hyperparameter points): built 94
+  on-policy DPO pairs (chosen = condition-fold reference, rejected = the model's own guard-clip
+  samples from the SFT seed; 34 distinct train prompts, capped 3/pair) and ran DPO from the
+  v10-clean seed. Greedy / pass@16 canary add_recall — SFT **0.00 / 0.36**; DPO β0.1
+  **0.00 / 0.02**; DPO β0.5 **0.00 / 0.11**. DPO **never moves greedy** (no fold-shape learning)
+  and **always degrades pass@16** (β controls only the amount of damage; `requests`, which SFT
+  nails at add_recall 1.0, is destroyed in both runs). So DPO on self-generated guard-clip pairs
+  is strictly harmful to the production lever with zero greedy benefit — retired for the guard-clip
+  edit-shape. Root cause: DPO sharpens the policy toward a narrow mode, killing the sample
+  diversity that pass@K exploits, without teaching the fold. **pass@K sampling on the SFT adapter
+  remains the production lever.** (Harness note: the first eval falsely showed a 0.36→0.02
+  "collapse" for *both* adapters — a 384-token generation cap truncated the longer pass@16 diffs
+  mid-hunk; the SFT control only reproduces 0.36 at max_new_tokens=1024. Fixed in
+  `lora/hf_authoring_canary_eval.py`.) Next edit-shape lever (SFT-augment with more fold examples
+  vs KTO vs invest in the verifier) is an open Fable-directed question. Artifacts:
+  `docs/DPO_GUARD_CLIP_PLAN.md`, `lora/build_dpo_guard_clip.py`, `lora/hf_authoring_dpo_train.py`.
 - **FIM / bigger base** — codex/Fable ranked last; only if the above stall.
 - ~~**Fresh-data Reviewer eval** larger than n=11~~ — DONE (2026-07-14, 34-fold): LoRA 0.794 with 7 false-accepts, does not match frontier.
 - ~~**Close the accept-bias via condition hard-negative retrain** (Fable #1)~~ — DONE (2026-07-16), **negative result**: the corpus supported only +5 validated condition negatives (9 minted, 4 were semantic-equivalent flips the frontier correctly accepted), and retraining on them (same seed) **regressed** the reviewer to 0.618 / 10 false-accept / 3 false-reject — worse on both axes. Rolled back. The shippable result stays the baseline adapter + metadata lint (**composite 0.853, 0 false-reject**). The guard-comparison gap needs a larger, natural-guard harvest or DPO on guard-clip failures, not mechanical operator-flip negatives.
