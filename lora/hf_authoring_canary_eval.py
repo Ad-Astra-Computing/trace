@@ -96,6 +96,13 @@ def main():
             continue
         system = rec["messages"][0]["content"]
         user = rec["messages"][1]["content"]
+        # locate-then-rewrite arm (Fable): inject an inference-time instruction that
+        # steers the edit SHAPE toward a condition-fold and away from a guard-clip.
+        # Base64 to keep the multi-line instruction out of shell-escaping.
+        import base64
+        suffix_b64 = os.environ.get("USER_SUFFIX_B64", "")
+        if suffix_b64:
+            user = user + "\n\n" + base64.b64decode(suffix_b64).decode()
         g = gen(model, tok, system, user, sample=False)[0]
         greedy.append({"cve_id": cve, "variant": "greedy", "generated": g})
         for s, gg in enumerate(gen(model, tok, system, user, sample=True, k=K)):
@@ -104,8 +111,9 @@ def main():
 
     from huggingface_hub import HfApi
     api = HfApi()
-    for fn, rows in [("canary-greedy-responses.jsonl", greedy),
-                     ("canary-passk-responses.jsonl", passk)]:
+    tag = os.environ.get("OUTPUT_TAG", "")  # e.g. "lr-" to not clobber the baseline run
+    for fn, rows in [(f"{tag}canary-greedy-responses.jsonl", greedy),
+                     (f"{tag}canary-passk-responses.jsonl", passk)]:
         Path(f"/tmp/{fn}").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
         api.upload_file(path_or_fileobj=f"/tmp/{fn}", path_in_repo=fn,
                         repo_id=ADAPTER_REPO, repo_type="model")
