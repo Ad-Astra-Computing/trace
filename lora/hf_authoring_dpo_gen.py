@@ -44,10 +44,11 @@ TRAIN_REPO = os.environ.get("TRAIN_REPO", "adastracomputing/authoring-lora-data-
 UPLOAD_REPO = os.environ.get("UPLOAD_REPO", ADAPTER_REPO)
 BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
 MODEL_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
-MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "640"))
+MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "384"))
 K = int(os.environ.get("GEN_K", "12"))
 TEMP = float(os.environ.get("TEMP", "0.9"))
 TOP_P = float(os.environ.get("TOP_P", "0.95"))
+CHECKPOINT_EVERY = int(os.environ.get("CHECKPOINT_EVERY", "8"))
 
 _CMP = re.compile(r"(<=|>=|==|!=|<|>|&&|\|\|)")
 
@@ -72,14 +73,18 @@ def load_train(train_repo: str) -> list:
     return [json.loads(l) for l in Path(path).read_text().splitlines() if l.strip()]
 
 
-def gen(model, tok, system: str, user: str):
+def gen_k(model, tok, system: str, user: str, k: int):
+    """K sampled continuations in ONE batched generate call (num_return_sequences) —
+    far faster wall-clock than k sequential calls."""
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
     inputs = tok(text, return_tensors="pt").to(model.device)
     with torch.no_grad():
         out = model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS,
-                             do_sample=True, temperature=TEMP, top_p=TOP_P)
-    return tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+                             do_sample=True, temperature=TEMP, top_p=TOP_P,
+                             num_return_sequences=k)
+    plen = inputs["input_ids"].shape[1]
+    return [tok.decode(seq[plen:], skip_special_tokens=True).strip() for seq in out]
 
 
 def main():
@@ -98,34 +103,47 @@ def main():
     model = PeftModel.from_pretrained(base, ADAPTER_REPO)
     model.eval()
 
+    # Only the comparison-bearing prompts carry the fold-vs-clip contrast — generate on
+    # those (skip pure-insertion, which yields no useful preference pair).
+    targets = [(i, r) for i, r in enumerate(train_rows)
+               if _comparison_bearing(r["messages"][2]["content"])]
+    print(f"Generating on {len(targets)} comparison-bearing prompts", flush=True)
+
+    from huggingface_hub import HfApi
+    api = HfApi()
+    out = Path("/tmp/dpo-gen-train-samples.jsonl")
+
+    def checkpoint(samples):
+        out.write_text("\n".join(json.dumps(r) for r in samples) + "\n")
+        api.upload_file(path_or_fileobj=str(out), path_in_repo="dpo-gen-train-samples.jsonl",
+                        repo_id=UPLOAD_REPO, repo_type="model")
+
     samples = []
-    for i, row in enumerate(train_rows):
+    for n, (i, row) in enumerate(targets):
         m = row["messages"]
         system, user, ref = m[0]["content"], m[1]["content"], m[2]["content"]
         prov = row.get("provenance") or {}
-        cb = _comparison_bearing(ref)
-        for s in range(K):
-            g = gen(model, tok, system, user)
+        gens = gen_k(model, tok, system, user, K)
+        for s, g in enumerate(gens):
             samples.append({
                 "train_idx": i,
                 "cve_id": prov.get("cve_id"),
                 "attr_path": prov.get("attr_path"),
-                "comparison_bearing": cb,
+                "comparison_bearing": True,
                 "reference": ref,
                 "sample": s,
                 "generated": g,
             })
-        print(f"  [{i+1}/{len(train_rows)}] {prov.get('attr_path')} cb={cb} "
+        print(f"  [{n+1}/{len(targets)}] idx={i} {prov.get('attr_path')} "
               f"{K} samples done", flush=True)
+        # incremental upload so a wall-clock timeout still yields usable data
+        if (n + 1) % CHECKPOINT_EVERY == 0:
+            checkpoint(samples)
+            print(f"  checkpoint: uploaded {len(samples)} samples", flush=True)
 
-    out = Path("/tmp/dpo-gen-train-samples.jsonl")
-    out.write_text("\n".join(json.dumps(r) for r in samples) + "\n")
-    print(f"Wrote {len(samples)} samples", flush=True)
-
-    from huggingface_hub import HfApi
-    HfApi().upload_file(path_or_fileobj=str(out), path_in_repo="dpo-gen-train-samples.jsonl",
-                        repo_id=UPLOAD_REPO, repo_type="model")
-    print(f"Uploaded {UPLOAD_REPO}/dpo-gen-train-samples.jsonl", flush=True)
+    checkpoint(samples)
+    print(f"Uploaded {len(samples)} samples to "
+          f"{UPLOAD_REPO}/dpo-gen-train-samples.jsonl", flush=True)
 
 
 if __name__ == "__main__":
