@@ -202,15 +202,20 @@ jobs:
               continue
             fi
 
-            if ! nix develop --command python eval/score_authoring_pilot.py \
-              --canary "${RUNNER_TEMP}/canary-${CVE}.jsonl" \
+            # pass@K behavioral: run EVERY candidate for this CVE through the gate
+            # (--audit, no short-circuit) so a behavioral pass on a fold-unreachable
+            # canary is captured as a measured false-accept (the audit number that
+            # gates any auto-merge/corpus claim). Responses file carries K candidates
+            # per cve_id. RESPONSES / CVE / NIXPKGS are trusted (workflow input +
+            # canary-derived), never interpolated into a shell string — passed as argv.
+            if ! nix develop --command python eval/authoring_passk_pipeline.py \
+              --canaries "${RUNNER_TEMP}/canary-${CVE}.jsonl" \
               --responses "${RESPONSES}" \
-              --model "${LABEL}" \
-              --behavioral \
+              --behavioral --audit --only "${CVE}" \
               --nixpkgs "${NIXPKGS}" \
-              --build-timeout "${BUILD_TIMEOUT}" \
+              --timeout "${BUILD_TIMEOUT}" \
               --out "${BEHAV_OUT}"; then
-              echo "::error::scorer crashed for ${CVE}"
+              echo "::error::pass@K pipeline crashed for ${CVE}"
               mark_error "harness_error"
             fi
 
@@ -249,11 +254,16 @@ jobs:
                   per[cve] = {"behavioral_status": "missing", "behavioral_pass": False}
                   continue
               r = json.load(open(f))
-              cands = r.get("per_candidate", [])
-              match = next((c for c in cands if c.get("cve_id") == cve), cands[0] if cands else {})
-              per[cve] = match.get("behavioral", {"behavioral_status": "missing", "behavioral_pass": False})
+              res = next((x for x in r.get("results", []) if x.get("cve_id") == cve), {})
+              per[cve] = {
+                  "behavioral_status": "ran" if res.get("behavioral_measurable") else "unmeasurable",
+                  "behavioral_pass": bool(res.get("behavioral_pass_at_k")),
+                  "behavioral_ran_count": res.get("behavioral_ran_count", 0),
+                  "false_accepts": res.get("false_accepts", []),
+              }
           ran = [b for b in per.values() if b.get("behavioral_status") == "ran"]
           passes = [b for b in ran if b.get("behavioral_pass")]
+          false_accepts = {c: b["false_accepts"] for c, b in per.items() if b.get("false_accepts")}
           out = {
               "scope": "authoring-behavioral-pregenerated",
               "label": label,
@@ -262,6 +272,10 @@ jobs:
               "behavioral_attempted_n": len(ran),
               "behavioral_pass_rate": round(len(passes) / len(ran), 3) if ran else None,
               "behavioral_pass_n": len(passes),
+              # behavioral-pass-but-fold-wrong (add_recall<0.5) candidates — load-bearing
+              # for any auto-merge claim; a non-empty entry on a fold-unreachable canary
+              # is a confirmed verifier false-accept.
+              "false_accepts": false_accepts,
               "per_canary": per,
           }
           print(json.dumps(out, indent=2))
