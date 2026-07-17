@@ -119,6 +119,8 @@ All three run over one correct unified-diff parser. **Export is now 91 → 79 ho
 | The fine-tuned 14B reliably authors correct fixes | 0/4 canary byte-exact across v1.3/v10/v11; localization only, noise-dominated | Not yet supported |
 | DPO on guard-clip preference pairs moves greedy edit-shape toward the fold | REFUTED (2026-07-17, validated harness): greedy add_recall 0.00 at β0.1 and β0.5; pass@16 degraded 0.36→0.02 (β0.1) / 0.11 (β0.5). DPO strictly harmful, no greedy gain | Not supported — retired |
 | pass@K sampling on the SFT adapter is the production edit-precision lever | pass@16 add_recall 0.36 (validated at 1024 tokens); survives as the lever after DPO fails to beat it | High |
+| The greedy residual is edit-SHAPE at a CORRECTLY-localized site, not localization | greedy diagnostic (2026-07-17): SFT localizes to the right file on all 4 canaries and only mis-shapes the edit; DPO instead *broke* localization (zlib/bzip → wrong/no file) | High |
+| Verifier-guided pass@K is operationalizable as an authoring pipeline | `eval/authoring_passk_pipeline.py` (sample K → structural+behavioral verifier → first pass = the fix): structural pass@16 = 3/4 canaries (zlib/requests/bzip2; pyjwt 0/16) | Medium (behavioral gate = CI next step) |
 | Reviewer-LoRA matches frontier on verdicts | REFUTED on fresh 34-fold: LoRA 0.794 (7 false-accept) vs sonnet 0.971 / opus 0.941 (0 fa) | Not supported — retired |
 | Reviewer-LoRA is accept-biased (waves through bad patches) | fresh 34-fold: accepts 19/19 positives but only rejects 8/15 negatives | High |
 | Reviewer-LoRA's real win is schema-format reliability, not verdict correctness | fresh 34-fold: LoRA schema-conformance 1.0 vs frontier 0.56-0.65; verdict substance trails | High |
