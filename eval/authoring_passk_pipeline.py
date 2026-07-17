@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -42,6 +43,26 @@ from eval.score_authoring_pilot import (  # noqa: E402
 
 def _load_jsonl(p: Path) -> list[dict]:
     return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip())
+
+
+def _added(diff: str) -> list[str]:
+    return [_norm(l[1:]) for l in diff.splitlines()
+            if l.startswith("+") and not l.startswith("+++")]
+
+
+def _add_recall(gen: str, ref: str) -> float:
+    """Fraction of the reference's added lines reproduced (whitespace-normalized) —
+    the textual proxy for 'is this the upstream fold'. Used only for the false-accept
+    audit binning; NOT the gate (the behavioral verdict is)."""
+    ra = _added(ref)
+    if not ra:
+        return 1.0
+    ga = set(_added(gen))
+    return sum(1 for x in ra if x in ga) / len(ra)
 
 
 def _candidates_by_cve(responses: list[dict]) -> dict[str, list[str]]:
@@ -64,6 +85,11 @@ def main() -> None:
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--out", type=Path, default=ROOT / "data/reports/authoring-passk-pipeline.json")
     ap.add_argument("--only", help="restrict to a single cve_id (e.g. for a bounded first run)")
+    ap.add_argument("--audit", action="store_true",
+                    help="behavioral: run ALL candidates (no short-circuit) and record every "
+                         "verdict + add_recall — the false-accept audit. A behavioral pass on a "
+                         "candidate with low add_recall (esp. on a fold-unreachable canary) is a "
+                         "measured false-accept, the number that gates any auto-merge claim.")
     args = ap.parse_args()
 
     records = {r["provenance"]["cve_id"]: r for r in _load_jsonl(args.canaries)
@@ -95,18 +121,33 @@ def main() -> None:
             # run the authoritative gate on structurally-viable candidates first (cheap
             # pre-filter), then any remaining; stop at the first behavioral pass.
             order = struct_pass_idx + [i for i in range(k) if i not in struct_pass_idx]
+            ref = rec["messages"][2]["content"]
             beh_first = None
             n_ran = 0            # candidates whose gate actually executed (status == "ran")
             statuses = {}        # non-"ran" statuses → why the gate could not measure them
+            audit = []           # per-candidate audit rows (only populated with --audit)
+            false_accepts = []   # behavioral-pass candidates with low add_recall (fold-wrong)
             for i in order:
                 bv = score_behavioral(cl[i], rec, traces_root=args.traces_root,
                                       build_fn=build_fn)
                 st = bv.get("behavioral_status")
+                passed = bool(bv.get("behavioral_pass"))
+                if args.audit:
+                    ar = round(_add_recall(cl[i], ref), 3)
+                    audit.append({"idx": i, "structural": i in struct_pass_idx,
+                                  "status": st, "behavioral_pass": passed, "add_recall": ar})
+                    if passed and ar < 0.5:
+                        # passed the build gate but does NOT reproduce the upstream fold:
+                        # either an adequate-different-shape fix or a false accept — the
+                        # audit flags it for human adjudication (load-bearing).
+                        false_accepts.append({"idx": i, "add_recall": ar})
                 if st == "ran":
                     n_ran += 1
-                    if bv.get("behavioral_pass"):
-                        beh_first = i
-                        break
+                    if passed:
+                        if beh_first is None:
+                            beh_first = i
+                        if not args.audit:
+                            break       # short-circuit only when NOT auditing
                 else:
                     statuses[st] = statuses.get(st, 0) + 1
             # A gate that never executes (precondition_failed / exempt_proxy_reproducer /
@@ -122,6 +163,9 @@ def main() -> None:
             )
             if beh_first is not None:
                 entry["authored_fix"] = cl[beh_first]
+            if args.audit:
+                entry["audit"] = audit
+                entry["false_accepts"] = false_accepts   # behavioral-pass but fold-wrong
         results.append(entry)
 
     n = len(results)
