@@ -100,6 +100,22 @@ def _prefix_from_diff(fold: str) -> tuple[str | None, list[str]]:
     return ("\n\n".join(blocks) if blocks else None), kept
 
 
+def _jitter(window: str, seed: str) -> str:
+    """Edge-trim jitter (Fable): remove 0-3 lines from ONE deterministically-chosen edge so
+    the fold's position in the thin reconstructed window varies instead of being dead-center
+    — converts 'position perfectly predicts the fix' into a noisy predictor, keeping the
+    SHAPE signal load-bearing. Deterministic by CVE (reproducible), no fetch."""
+    import hashlib
+    lines = window.split("\n")
+    if len(lines) < 10:
+        return window
+    h = int(hashlib.sha256(seed.encode()).hexdigest(), 16)
+    trim = (h >> 1) % 4                                   # 0-3 lines
+    if trim == 0:
+        return window
+    return "\n".join(lines[trim:] if (h & 1) == 0 else lines[:-trim])
+
+
 def _fetch_advisory(cve: str) -> str | None:
     """Real advisory text: NVD (feed_client) → OSV fallback. None if neither."""
     try:
@@ -142,6 +158,7 @@ def mint_one(lead: dict) -> tuple[dict | None, dict]:
     pre, files = _prefix_from_diff(fold)                              # reconstruct pre-fix window
     if not pre or len(pre.strip()) < 40:
         rep["verdict"] = "drop:window"; return None, rep
+    pre = _jitter(pre, cve)                                           # break the centered-position prior
 
     adv = _fetch_advisory(cve)
     if not adv:
