@@ -3,6 +3,13 @@ name: ci
 on:
   push:
     branches: [main]
+    # Docs/data-only commits (DECISIONS/FINDINGS, scout data, example bundles) don't
+    # change tested code — skip the nix CI to save Actions minutes (2026-07-19).
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'traces/**'
+      - 'data/**'
   pull_request:
 
 # Least-privilege baseline. ci.yml runs deterministic test jobs only;
