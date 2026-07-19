@@ -120,6 +120,28 @@ def _fold_subshape(rem: str, add: str) -> str:
 _CMP_TOKENS = {"<", ">", "<=", ">=", "==", "!=", "&&", "||"}
 
 
+def _is_condition_change(rem: str, add: str) -> bool:
+    """A paired (rem, add) line is a CONDITION-FOLD only if the comparison/condition
+    actually CHANGED — not merely that both lines contain a comparison token. Fixes
+    `open $_ or return` → `open '<',$_ or return` (the `or` is unchanged; only a
+    non-condition token was added) and signature/refactor pairings."""
+    r, a = _code(rem), _code(add)
+    r_has = bool(_CMP.search(r) or _CTRL.search(r))
+    a_has = bool(_CMP.search(a) or _CTRL.search(a))
+    if not (r_has and a_has):
+        return False
+    if _CMP.findall(r) != _CMP.findall(a):
+        return True                                   # operators changed (refine)
+    if _CONJ.search(a) and not _CONJ.search(r):
+        return True                                   # a conjunct was added to the condition
+    # same operators: a real fold only if an OPERAND identifier/number changed
+    # (bound-arith `have`→`have - len`; operand-replace `zA1`→`zA2`). A change of only
+    # punctuation/string literals (Perl `open $_ or return` → `open '<',$_ or return`,
+    # where `_code` strips the `'<'`) is NOT a condition change.
+    diff = _tok(r) ^ _tok(a)
+    return any(re.match(r"[A-Za-z_][A-Za-z0-9_]*$|[0-9]", t) for t in diff)
+
+
 def classify_hunk(rem: list[str], add: list[str]) -> tuple[str, str]:
     # 1. condition-fold: a paired (removed, added) conditional line, same condition modified
     sm = difflib.SequenceMatcher(a=[_norm(x) for x in rem], b=[_norm(x) for x in add])
@@ -128,9 +150,8 @@ def classify_hunk(rem: list[str], add: list[str]) -> tuple[str, str]:
             continue
         for ri in range(i1, i2):
             for aj in range(j1, j2):
-                r, a = _code(rem[ri]), _code(add[aj])
-                cond = (_CTRL.search(r) or _CMP.search(r)) and (_CTRL.search(a) or _CMP.search(a))
-                if cond and _jaccard(r, a) >= 0.5:
+                if _jaccard(_code(rem[ri]), _code(add[aj])) >= 0.5 \
+                        and _is_condition_change(rem[ri], add[aj]):
                     return "condition-fold", _fold_subshape(rem[ri], add[aj])
     # 2. net-added guard (no paired removal) — clip vs security-guard-add
     if add and not rem:
