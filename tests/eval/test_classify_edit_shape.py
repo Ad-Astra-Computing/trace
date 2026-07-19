@@ -50,3 +50,22 @@ def test_comment_only_addition_is_other():
 
 def test_empty_diff_is_other():
     assert classify_diff("")["shape"] == "other"
+
+
+def test_same_operator_punctuation_change_is_not_fold():
+    # Perl `open $_ or return` → `open '<', $_ or return`: the `or` is unchanged and the
+    # only added token is a string/char literal — not a condition change.
+    d = _diff("-        open FILE, $_ or return;\n+        open FILE, '<', $_ or return;\n")
+    assert classify_diff(d)["shape"] == "other"
+
+
+def test_operand_identifier_change_is_fold():
+    # sqlite zA1 → zA2: same operator, but a real comparison OPERAND changed.
+    d = _diff("-    if (sqlite3_stricmp(zA1, zB) == 0)\n"
+              "+    if (sqlite3_stricmp(zA2, zB) == 0)\n")
+    assert classify_diff(d)["shape"] == "condition-fold"
+
+
+def test_comparison_inside_string_is_not_fold():
+    d = _diff('-    char prompt[500] = "/ > ";\n+    char prompt[MAX] = "/ > ";\n')
+    assert classify_diff(d)["shape"] == "other"
