@@ -72,19 +72,36 @@ def _target_files(diff: str) -> list[str]:
     return out
 
 
-def _repo_from_pkg(pkgdir: str, fix_commit: str) -> tuple[str | None, str | None]:
-    """(repo_url, version) parsed from package.nix/default.nix beside the patch."""
-    for name in ("package.nix", "default.nix"):
-        src = _show(fix_commit, f"{pkgdir}/{name}")
-        if not src:
-            continue
-        ver = (_VERSION.search(src) or [None, None])[1] if _VERSION.search(src) else None
-        gh = _FETCH_GH.search(src)
-        if gh:
-            return f"https://github.com/{gh.group(1)}/{gh.group(2)}.git", ver
-        git = _FETCH_GIT.search(src)
-        if git:
-            return git.group(1), ver
+def _repo_from_pkg(patch_path: str, fix_commit: str) -> tuple[str | None, str | None]:
+    """(repo_url, version) from the nearest package.nix/default.nix — walking UP from the
+    patch dir, since patches often live in a `patches/` subdir one level below the pkg.
+    Returns ('FETCHURL', ver) when the source is a fetchurl tarball (no git parent)."""
+    d = Path(patch_path).parent
+    for _ in range(4):                                   # walk up a few levels
+        for name in ("package.nix", "default.nix"):
+            src = _show(fix_commit, f"{d.as_posix()}/{name}")
+            if not src:
+                continue
+            vm = _VERSION.search(src)
+            ver = vm.group(1) if vm else None
+            # fetchFromGitHub/GitLab — owner/repo in EITHER order
+            if "fetchFromGitHub" in src or "fetchFromGitLab" in src:
+                owner = re.search(r'owner\s*=\s*"([^"]+)"', src)
+                repo = re.search(r'repo\s*=\s*"([^"]+)"', src)
+                host = "gitlab.com" if "fetchFromGitLab" in src else "github.com"
+                if owner and repo:
+                    return f"https://{host}/{owner.group(1)}/{repo.group(1)}.git", ver
+            git = _FETCH_GIT.search(src)
+            if git:
+                return git.group(1), ver
+            # non-git / indirect sources — report distinctly so the yield picture is honest
+            if "fetchsvn" in src or "fetchhg" in src or "fetchcvs" in src or "fetchbzr" in src:
+                return "NONGIT-VCS", ver
+            if "fetchurl" in src or "fetchzip" in src:   # release tarball — no git parent (v1 skip)
+                return "FETCHURL", ver
+        if d.name in ("", "pkgs") or d.parent == d:
+            break
+        d = d.parent
     return None, None
 
 
@@ -132,10 +149,11 @@ def mint_one(lead: dict, workdir: Path) -> tuple[dict | None, dict]:
     if not cve:
         rep["verdict"] = "drop:no-cve"; return None, rep
 
-    pkgdir = str(Path(lead["patch"]).parent)
-    repo_url, ver = _repo_from_pkg(pkgdir, lead["fix_commit"])
+    repo_url, ver = _repo_from_pkg(lead["patch"], lead["fix_commit"])
     if not repo_url:                                           # gate 3: repo-resolve
         rep["verdict"] = "drop:repo-resolve"; return None, rep
+    if repo_url in ("FETCHURL", "NONGIT-VCS"):                # no git parent to fetch (v1 skip)
+        rep["verdict"] = f"drop:{repo_url.lower()}"; return None, rep
 
     starts = [int(m) for m in re.findall(r"@@ -(\d+)", fold)] or [1]
     span = (min(starts), max(starts))
