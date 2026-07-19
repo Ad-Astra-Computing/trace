@@ -97,12 +97,63 @@ def _repo_from_pkg(patch_path: str, fix_commit: str) -> tuple[str | None, str | 
             # non-git / indirect sources — report distinctly so the yield picture is honest
             if "fetchsvn" in src or "fetchhg" in src or "fetchcvs" in src or "fetchbzr" in src:
                 return "NONGIT-VCS", ver
-            if "fetchurl" in src or "fetchzip" in src:   # release tarball — no git parent (v1 skip)
-                return "FETCHURL", ver
+            if "fetchurl" in src or "fetchzip" in src:   # release tarball — extractable pre-fix tree
+                url = _tarball_url(src, ver)
+                return (f"TARBALL::{url}" if url else "FETCHURL"), ver
         if d.name in ("", "pkgs") or d.parent == d:
             break
         d = d.parent
     return None, None
+
+
+
+_URL_RE = re.compile(r'url\s*=\s*"([^"]+)"')
+
+
+def _interp_version(url: str, ver: str | None) -> str | None:
+    if ver:
+        url = (url.replace("${version}", ver).replace("${finalAttrs.version}", ver)
+                  .replace("${finalAttrs.src.rev or finalAttrs.version}", ver))
+    return url if ("://" in url and "$" not in url) else None
+
+
+def _tarball_url(pkgsrc: str, ver: str | None) -> str | None:
+    m = _URL_RE.search(pkgsrc)
+    return _interp_version(m.group(1), ver) if m else None
+
+
+def _prefix_tarball(url: str, fpath: str, workdir: Path) -> str | None:
+    """fetchurl sources: the release tarball IS the pre-fix tree (nixpkgs applies the CVE
+    patch on top). Download + extract the file whose path ends with the diff target."""
+    import urllib.request, tarfile, zipfile, io
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "trace-mint/1"})
+        with urllib.request.urlopen(req, timeout=60) as fh:
+            blob = fh.read()
+    except Exception:
+        return None
+    want = fpath.split("/")
+    # match the tarball member whose path SUFFIX equals fpath (ignoring the top dir),
+    # trying progressively shorter suffixes (src/foo.c, foo.c)
+    def _pick(names):
+        for depth in range(len(want), 0, -1):
+            suf = "/".join(want[-depth:])
+            for n in names:
+                if n.rstrip("/").endswith("/" + suf) or n == suf:
+                    return n
+        return None
+    try:
+        if url.endswith((".zip",)):
+            zf = zipfile.ZipFile(io.BytesIO(blob))
+            n = _pick(zf.namelist())
+            return zf.read(n).decode("utf-8", "replace") if n else None
+        tf = tarfile.open(fileobj=io.BytesIO(blob))
+        n = _pick([m.name for m in tf.getmembers() if m.isfile()])
+        if not n:
+            return None
+        return tf.extractfile(n).read().decode("utf-8", "replace")
+    except Exception:
+        return None
 
 
 def _fetch_advisory(cve: str) -> str | None:
@@ -155,10 +206,11 @@ def mint_one(lead: dict, workdir: Path) -> tuple[dict | None, dict]:
     if repo_url in ("FETCHURL", "NONGIT-VCS"):                # no git parent to fetch (v1 skip)
         rep["verdict"] = f"drop:{repo_url.lower()}"; return None, rep
 
-    starts = [int(m) for m in re.findall(r"@@ -(\d+)", fold)] or [1]
-    span = (min(starts), max(starts))
     m = _FROM_HDR.search(fold)
-    full = _prefix_full(repo_url, m.group(1) if m else None, ver, fpath, workdir)
+    if repo_url.startswith("TARBALL::"):                      # release tarball = pre-fix tree
+        full = _prefix_tarball(repo_url[len("TARBALL::"):], fpath, workdir)
+    else:                                                     # git: From-header parent or pinned rev
+        full = _prefix_full(repo_url, m.group(1) if m else None, ver, fpath, workdir)
     if full is None:                                          # gate 4: prefix-fetch
         rep["verdict"] = "drop:prefix-fetch"; return None, rep
     # gate 5: fold diff applies to the fetched pre-fix file
