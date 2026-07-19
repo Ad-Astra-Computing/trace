@@ -34,9 +34,20 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip())
 
 
+_IMPORT = re.compile(r"^\s*(import|from|use|require|require_relative|#include|#import|#define|"
+                     r"#if|#ifdef|#ifndef|#endif|#pragma|package|using|typedef)\b")
+
+
 def _is_comment(s: str) -> bool:
     t = s.strip()
-    return t.startswith(("#", "//", "*", "/*", "--")) or t == ""
+    return t.startswith(("#", "//", "*", "/*", "--", '"""', "'''")) or t == ""
+
+
+def _is_noncode(s: str) -> bool:
+    """Comment/blank OR a non-executable line (import/include/preprocessor/decl) — excluded
+    from SHAPE candidacy so a fix that merely adds an `#include`/import doesn't read as a
+    fold/guard. Precision fix for the ≥90%-agreement bar (DECISIONS 2026-07-17)."""
+    return _is_comment(s) or bool(_IMPORT.match(s))
 
 
 def _tok(s: str) -> set[str]:
@@ -70,11 +81,11 @@ def _hunks(diff: str) -> list[tuple[list[str], list[str]]]:
             continue
         if ln.startswith("+") and not ln.startswith("+++"):
             body = ln[1:]
-            if not _is_comment(body):
+            if not _is_noncode(body):
                 add.append(body)
         elif ln.startswith("-") and not ln.startswith("---"):
             body = ln[1:]
-            if not _is_comment(body):
+            if not _is_noncode(body):
                 rem.append(body)
         elif ln and ln[0] not in " ":
             # left the hunk region (e.g. diff --git / index) — flush
@@ -115,15 +126,13 @@ def classify_hunk(rem: list[str], add: list[str]) -> tuple[str, str]:
     # 2. net-added guard (no paired removal) — clip vs security-guard-add
     if add and not rem:
         joined = " ".join(add)
-        has_guard = any(_CTRL.search(a) for a in add)
-        if has_guard and _RAISE.search(joined):
-            return "security-guard-add", "raise-on-predicate"
-        if has_guard and _CLAMP.search(joined):
-            return "guard-clip", "clamp-body"
-        if _RAISE.search(joined):
-            return "security-guard-add", "raise-on-predicate"
-        if any(_ASSIGN.search(a) for a in add):
-            return "guard-clip", "clamp-body"
+        # a guard REQUIRES an added control keyword (if/while/...) — else it is not a guard,
+        # it is an insertion (decl, call, assignment) and classified "other".
+        if any(_CTRL.search(a) for a in add):
+            if _RAISE.search(joined):
+                return "security-guard-add", "raise-on-predicate"
+            if _CLAMP.search(joined):
+                return "guard-clip", "clamp-body"
     return "other", ""
 
 
