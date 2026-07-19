@@ -1,0 +1,17 @@
+{"shape": "security-guard-add", "subshape": "raise-on-predicate", "cve": "CVE-2026-7598", "patch": "pkgs/by-name/li/libssh2/CVE-2026-7598.patch", "fix_commit": "df1eba6695ae", "excluded_dup": true}
+{"shape": "condition-fold", "subshape": "conjunct-add", "cve": "CVE-2025-6021", "patch": "pkgs/development/libraries/libxml2/CVE-2025-6021.patch", "fix_commit": "348be18ac4b4", "excluded_dup": false}
+{"shape": "security-guard-add", "subshape": "raise-on-predicate", "cve": "CVE-2025-6020", "patch": "pkgs/by-name/li/linux-pam/CVE-2025-6020.patch", "fix_commit": "26c092bbc7d8", "excluded_dup": false}
+{"shape": "security-guard-add", "subshape": "raise-on-predicate", "cve": "CVE-2025-4516", "patch": "pkgs/development/interpreters/python/cpython/3.14/CVE-2025-4516.patch", "fix_commit": "eda65094fb6a", "excluded_dup": false}
+{"shape": "condition-fold", "subshape": "operand-replace", "cve": "CVE-2025-3155", "patch": "pkgs/by-name/ye/yelp-xsl/cve-2025-3155.patch", "fix_commit": "6a51c95c3ad4", "excluded_dup": true}
+{"shape": "condition-fold", "subshape": "conjunct-add", "cve": "CVE-2025-31162", "patch": "pkgs/by-name/fi/fig2dev/CVE-2025-31162.patch", "fix_commit": "e77499c7d676", "excluded_dup": true}
+{"shape": "condition-fold", "subshape": "operand-replace", "cve": null, "patch": "pkgs/applications/networking/sync/rsync/CVE-2024-12084/0001-Some-checksum-buffer-fixes.patch", "fix_commit": "edccf51c1cb9", "excluded_dup": false}
+{"shape": "security-guard-add", "subshape": "raise-on-predicate", "cve": "CVE-2020-24292", "patch": "pkgs/development/libraries/freeimage/CVE-2020-24292.patch", "fix_commit": "ae61b4899032", "excluded_dup": false}
+{"shape": "condition-fold", "subshape": "operand-replace", "cve": "CVE-2024-3078", "patch": "pkgs/servers/search/qdrant/1.7.4-CVE-2024-3078.patch", "fix_commit": "2666e17d3ff7", "excluded_dup": false}
+{"shape": "security-guard-add", "subshape": "raise-on-predicate", "cve": "CVE-2023-48795", "patch": "pkgs/development/libraries/libssh2/CVE-2023-48795.patch", "fix_commit": "1bfeb1412bfc", "excluded_dup": false}
+{"shape": "condition-fold", "subshape": "operator-refine", "cve": "CVE-2023-40889", "patch": "pkgs/tools/graphics/zbar/0.23.92-CVE-2023-40889.patch", "fix_commit": "de6c085635fb", "excluded_dup": false}
+{"shape": "security-guard-add", "subshape": "raise-on-predicate", "cve": "CVE-2023-4016", "patch": "pkgs/os-specific/linux/procps-ng/v3-CVE-2023-4016.patch", "fix_commit": "d5938b21cf79", "excluded_dup": true}
+{"shape": "condition-fold", "subshape": "conjunct-add", "cve": "CVE-2023-4863", "patch": "pkgs/development/libraries/libwebp/CVE-2023-4863.patch", "fix_commit": "0f11042876c0", "excluded_dup": true}
+{"shape": "condition-fold", "subshape": "conjunct-add", "cve": "CVE-2023-4807", "patch": "pkgs/development/libraries/openssl/1.1/CVE-2023-4807.patch", "fix_commit": "e3b940ced6de", "excluded_dup": false}
+{"shape": "condition-fold", "subshape": "bound-arith-fold", "cve": "CVE-2021-3500", "patch": "pkgs/applications/misc/djvulibre/CVE-2021-3500+CVE-2021-32490+CVE-2021-32491+CVE-2021-32492+CVE-2021-32493.patch", "fix_commit": "eeb19e9f2524", "excluded_dup": false}
+{"shape": "condition-fold", "subshape": "operand-replace", "cve": "CVE-2013-4184", "patch": "pkgs/development/perl-modules/Data-UUID-CVE-2013-4184.patch", "fix_commit": "a287870f99f0", "excluded_dup": false}
+{"shape": "condition-fold", "subshape": "bound-arith-fold", "cve": "CVE-2022-29360", "patch": "pkgs/servers/rainloop/fix-cve-2022-29360.patch", "fix_commit": "d23282a2f559", "excluded_dup": false}
