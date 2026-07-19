@@ -23,7 +23,16 @@ import re
 from pathlib import Path
 
 _CTRL = re.compile(r"\b(if|elif|while|for|unless)\b|[?]")
+_GUARD = re.compile(r"\b(if|elif|while|unless)\b")  # conditional guards (NOT `for` iteration)
 _CMP = re.compile(r"(<=|>=|==|!=|<|>|&&|\|\||\band\b|\bor\b)")
+_STR = re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'')
+_SHIFT = re.compile(r"<<|>>")
+
+
+def _code(s: str) -> str:
+    """Neutralize string/char literals and shift operators so a `>` inside `"a > b"` or
+    the `<` in `1 << N` is not mistaken for a comparison (precision fix, DECISIONS 2026-07-17)."""
+    return _SHIFT.sub("  ", _STR.sub('""', s))
 _CONJ = re.compile(r"(&&|\|\||\band\b|\bor\b)")
 _RAISE = re.compile(r"\b(raise|throw|abort|panic|BUG|error|err|fatal)\b|return\s+(-?\w*E[A-Z_]+|NULL|false|-1)", re.I)
 _CLAMP = re.compile(r"=\s*[\w\[\]\.\-> ]+;?\s*$|\b(return|goto|break|continue)\b")
@@ -96,7 +105,7 @@ def _hunks(diff: str) -> list[tuple[list[str], list[str]]]:
 
 
 def _fold_subshape(rem: str, add: str) -> str:
-    r, a = _norm(rem), _norm(add)
+    r, a = _norm(_code(rem)), _norm(_code(add))
     if _CONJ.search(a) and not _CONJ.search(r):
         return "conjunct-add"
     r_ops, a_ops = _CMP.findall(r), _CMP.findall(a)
@@ -119,16 +128,16 @@ def classify_hunk(rem: list[str], add: list[str]) -> tuple[str, str]:
             continue
         for ri in range(i1, i2):
             for aj in range(j1, j2):
-                r, a = rem[ri], add[aj]
+                r, a = _code(rem[ri]), _code(add[aj])
                 cond = (_CTRL.search(r) or _CMP.search(r)) and (_CTRL.search(a) or _CMP.search(a))
                 if cond and _jaccard(r, a) >= 0.5:
-                    return "condition-fold", _fold_subshape(r, a)
+                    return "condition-fold", _fold_subshape(rem[ri], add[aj])
     # 2. net-added guard (no paired removal) — clip vs security-guard-add
     if add and not rem:
-        joined = " ".join(add)
-        # a guard REQUIRES an added control keyword (if/while/...) — else it is not a guard,
-        # it is an insertion (decl, call, assignment) and classified "other".
-        if any(_CTRL.search(a) for a in add):
+        joined = _code(" ".join(add))
+        # a guard REQUIRES an added conditional keyword (if/while/unless — NOT `for`
+        # iteration) — else it is an insertion (decl, call, loop) and classified "other".
+        if any(_GUARD.search(_code(a)) for a in add):
             if _RAISE.search(joined):
                 return "security-guard-add", "raise-on-predicate"
             if _CLAMP.search(joined):
