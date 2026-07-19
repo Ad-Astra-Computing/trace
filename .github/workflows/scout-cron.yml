@@ -43,7 +43,7 @@ on:
   schedule:
     # Hourly at :17 (offset from snapshot 06:13 so the early-morning
     # cron has the freshest snapshot available).
-    - cron: "17 * * * *"
+    - cron: "17 */6 * * *"   # every 6h (was hourly) — CVE harvest cost cut, 2026-07-19
 
 permissions:
   contents: write  # commit the longitudinal run record to data/
