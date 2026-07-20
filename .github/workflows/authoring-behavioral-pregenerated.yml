@@ -221,13 +221,13 @@ jobs:
             cat "${BEHAV_OUT}" | python3 -c "
           import json, sys
           r = json.load(sys.stdin)
-          for c in r.get('per_candidate', []):
-              b = c.get('behavioral', {})
-              a = b.get('assertions', {})
-              print(f\"  status={b.get('behavioral_status')}  pass={b.get('behavioral_pass')}\")
-              print(f\"  patch-applies={a.get('patch-applies')}  \",
-                    f\"unpatched-fires={a.get('unpatched-reproducer-fires')}  \",
-                    f\"patched-clean={a.get('backported-reproducer-clean')}\")
+          for res in r.get('results', []):
+              print(f\"  measurable={res.get('behavioral_measurable')}  \",
+                    f\"pass@K={res.get('behavioral_pass_at_k')}  \",
+                    f\"ran={res.get('behavioral_ran_count')}  \",
+                    f\"false_accepts={len(res.get('false_accepts', []))}\")
+              if res.get('bounds_rejected'):
+                  print(f\"  BOUNDS-REJECTED: {res['bounds_rejected']}\")
           "
 
             rm -rf "${NIXPKGS}"   # reclaim disk before the next rev
