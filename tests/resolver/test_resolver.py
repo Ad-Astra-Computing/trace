@@ -94,7 +94,120 @@ def test_resolver_covers_every_verdict_enum_relevant_to_v0(upstream_ref_validato
         # added 2026-06-11: resolver now emits the source-backport contract
         # (fixture 11-source-backport) from an explicit harvest signal.
         "source-backport-experimental",
+        # added 2026-07-20: current or target version not semver-shaped (nixpkgs
+        # git-snapshot / unstable pin); ordering unknowable so never auto-merge.
+        "unparseable-version-comparison",
     }, f"missing human_review_trigger coverage: {triggers_seen}"
+
+
+def test_unstable_pin_routes_to_human_review_not_crash():
+    """A nixpkgs git-snapshot / unstable current version (e.g. '0-unstable-DATE')
+    is not semver-shaped. The resolver must NOT crash (it did — a ValueError from
+    _parse_semver blew up a whole screen run) and must NOT auto-merge; it routes to
+    human review because upgrade ordering cannot be established."""
+    from agents.upstream_ref_resolver import resolve
+
+    out = resolve({
+        "cve_id": "CVE-0000-2100",
+        "current_version": "0-unstable-2026-01-30",
+        "candidate_refs": [{
+            "version": "1.2.3",
+            "release_url": "https://ex.invalid/r/1.2.3",
+            "changelog_url": "https://ex.invalid/c#1.2.3",
+            "advisory_urls": ["https://ex.invalid/a"],
+            "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
+                      "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
+            "tier_hint": "point-release-small-delta",
+        }],
+    })
+    el = out["eligibility"]
+    assert el["verdict"] == "eligible-requires-human-review"
+    assert el["human_review_trigger"] == "unparseable-version-comparison"
+    assert "current_version is" in el["verdict_reason"]
+
+
+def test_unstable_target_does_not_auto_merge():
+    """An unstable/git-snapshot TARGET does not match the pre-release regex, so
+    without the ordering guard it would fall through to auto-merge `eligible`.
+    The guard must dominate and route to human review."""
+    from agents.upstream_ref_resolver import resolve
+
+    out = resolve({
+        "cve_id": "CVE-0000-2101",
+        "current_version": "1.2.3",
+        "candidate_refs": [{
+            "version": "0-unstable-2026-02-01",
+            "release_url": "https://ex.invalid/r/unstable",
+            "changelog_url": "https://ex.invalid/c#unstable",
+            "advisory_urls": ["https://ex.invalid/a"],
+            "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
+                      "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
+            "tier_hint": "point-release-small-delta",
+        }],
+    })
+    el = out["eligibility"]
+    assert el["verdict"] == "eligible-requires-human-review"
+    assert el["human_review_trigger"] == "unparseable-version-comparison"
+    assert "target_version is" in el["verdict_reason"]
+
+
+def test_parseable_upgrade_wins_over_unstable_pin():
+    """When candidates mix a real semver upgrade with an unstable-pin target and
+    current is semver, the resolver picks the real upgrade and auto-merges — the
+    unparseable candidate must not shadow a genuine fixed release."""
+    from agents.upstream_ref_resolver import resolve
+
+    out = resolve({
+        "cve_id": "CVE-0000-2102",
+        "current_version": "1.2.3",
+        "candidate_refs": [
+            {"version": "0-unstable-2026-02-01",
+             "release_url": "https://ex.invalid/r/unstable",
+             "changelog_url": "https://ex.invalid/c#unstable",
+             "advisory_urls": ["https://ex.invalid/a"],
+             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
+                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
+             "tier_hint": "point-release-small-delta"},
+            {"version": "1.2.4",
+             "release_url": "https://ex.invalid/r/1.2.4",
+             "changelog_url": "https://ex.invalid/c#1.2.4",
+             "advisory_urls": ["https://ex.invalid/a"],
+             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
+                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
+             "tier_hint": "point-release-small-delta"},
+        ],
+    })
+    assert out["eligibility"]["verdict"] == "eligible"
+    assert out["target_version"] == "1.2.4"
+
+
+def test_unparseable_candidate_beats_equal_version_placeholder():
+    """An equal-version placeholder (target == current -> no-op, routes to
+    no-target-version-derived) must NOT shadow a real unstable-pin candidate.
+    Equality is a last-resort fallback, ranked BELOW unknowable ordering
+    (codex review 2026-07-20). The real fix candidate wins even at lower
+    caller priority, and the verdict reflects it (unparseable, not no-target)."""
+    from agents.upstream_ref_resolver import resolve
+
+    out = resolve({
+        "cve_id": "CVE-0000-2103",
+        "current_version": "1.2.3",
+        "candidate_refs": [
+            {"version": "1.2.3",  # equal-version placeholder, listed FIRST
+             "release_url": "https://ex.invalid/r/1.2.3",
+             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
+                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"}},
+            {"version": "0-unstable-2026-02-01",  # real unstable-pin fix, listed second
+             "release_url": "https://ex.invalid/r/unstable",
+             "changelog_url": "https://ex.invalid/c#unstable",
+             "advisory_urls": ["https://ex.invalid/a"],
+             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
+                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"}},
+        ],
+    })
+    el = out["eligibility"]
+    assert out["target_version"] == "0-unstable-2026-02-01"
+    assert el["human_review_trigger"] == "unparseable-version-comparison"
 
 
 def test_source_backport_signal_precedence():

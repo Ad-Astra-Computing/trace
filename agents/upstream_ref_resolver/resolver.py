@@ -134,6 +134,37 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
         )
     chosen = _pick_smallest_upgrade(current_version, upgrade_candidates)
 
+    # Dominating guard: if semver ordering between current and the chosen target
+    # cannot be established (either side is a git-snapshot / unstable pin like
+    # `0-unstable-2026-01-30`), we cannot prove this is an upgrade, so auto-merge
+    # is off the table. This MUST precede every _eligible path — an unstable
+    # TARGET does not match the pre-release regex and would otherwise fall through
+    # to auto-merge. `_pick_smallest_upgrade` has already preferred any comparable
+    # real upgrade, so reaching here means no semver-comparable candidate existed.
+    if _semver_distance(current_version, chosen["version"]) is None:
+        current_ok = _try_parse_semver(current_version) is not None
+        target_ok = _try_parse_semver(chosen["version"]) is not None
+        if not current_ok and not target_ok:
+            side = "both current_version and target_version are"
+        elif not current_ok:
+            side = "current_version is"
+        else:
+            side = "target_version is"
+        return _eligible_requires_human_review(
+            cve_id=cve_id,
+            current_version=current_version,
+            chosen=chosen,
+            fix_tier=_classify_tier(current_version, chosen, input_doc),
+            trigger="unparseable-version-comparison",
+            verdict_reason=(
+                f"{side} not semver-shaped (e.g. a git-snapshot / unstable "
+                "nixpkgs pin), so upgrade ordering cannot be established. The "
+                "candidate was chosen by caller priority order, not by upgrade "
+                "distance. Auto-merge is forbidden without a human confirming "
+                "the target is genuinely the fixed release."
+            ),
+        )
+
     if chosen.get("requires_review_reason") == "ambiguous-fixed-version":
         return _eligible_requires_human_review(
             cve_id=cve_id,
@@ -250,20 +281,40 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
 _SEMVER_RE = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?")
 
 
-def _parse_semver(v: str) -> tuple[int, int, int]:
+def _try_parse_semver(v: str) -> tuple[int, int, int] | None:
+    """Parse a semver-ish version, or return None when it is not semver-shaped.
+
+    nixpkgs pins some packages to a git snapshot (`0-unstable-2026-01-30`,
+    `unstable-2026-01-30`, a bare commit date, …) that has no semver triple.
+    Callers that must reason about version ORDERING treat None as "ordering
+    cannot be established" and route to human review rather than crashing or,
+    worse, silently auto-merging.
+    """
     m = _SEMVER_RE.match(v)
     if not m:
-        raise ValueError(f"resolver stub expects semver-ish versions; got {v!r}")
+        return None
     major = int(m.group(1))
     minor = int(m.group(2))
     patch = int(m.group(3)) if m.group(3) else 0
     return major, minor, patch
 
 
+def _parse_semver(v: str) -> tuple[int, int, int]:
+    parsed = _try_parse_semver(v)
+    if parsed is None:
+        raise ValueError(f"resolver stub expects semver-ish versions; got {v!r}")
+    return parsed
+
+
 def _classify_tier(current: str, chosen: dict[str, Any], input_doc: dict[str, Any]) -> str:
-    cur = _parse_semver(current)
-    tgt = _parse_semver(chosen["version"])
-    if tgt[0] > cur[0]:
+    # Tolerant by design: never raises. When either side is not semver-shaped the
+    # resolver has ALREADY committed to human review (the unparseable-version
+    # guard dominates before any auto-merge path), so the tier here is only a
+    # label on a human-review bundle — a major-version jump can't be detected
+    # without a semver triple, so we fall back to the tier_hint / neutral tier.
+    cur = _try_parse_semver(current)
+    tgt = _try_parse_semver(chosen["version"])
+    if cur is not None and tgt is not None and tgt[0] > cur[0]:
         return "major-version-jump"
     # Stub trusts the fixture's tier_hint when the bump is not major.
     hint = chosen.get("tier_hint")
@@ -272,16 +323,34 @@ def _classify_tier(current: str, chosen: dict[str, Any], input_doc: dict[str, An
     return "point-release-small-delta"
 
 
-def _semver_distance(cur: str, tgt: str) -> tuple[int, int, int]:
-    c = _parse_semver(cur)
-    t = _parse_semver(tgt)
+def _semver_distance(cur: str, tgt: str) -> tuple[int, int, int] | None:
+    """Distance between two semver triples, or None when either side is not
+    semver-shaped (ordering is then unknowable, not zero)."""
+    c = _try_parse_semver(cur)
+    t = _try_parse_semver(tgt)
+    if c is None or t is None:
+        return None
     return (t[0] - c[0], t[1] - c[1], t[2] - c[2])
 
 
 def _pick_smallest_upgrade(current: str, candidates: list[dict[str, Any]]) -> dict[str, Any]:
-    # Prefer the candidate whose semver distance from `current` is smallest.
-    # Ties broken by original order, which preserves caller-supplied priority.
-    return min(candidates, key=lambda c: _semver_distance(current, c["version"]))
+    # Rank in three tiers so precedence matches how much a candidate is worth:
+    #   0. a STRICT semver upgrade (distance > 0)  — the real fix, smallest wins;
+    #   1. an UNKNOWABLE-ordering candidate (current or target not semver-shaped)
+    #      — a real candidate ref whose ordering we can't prove (unstable pin);
+    #   2. an EQUAL-version placeholder (distance == 0) — a no-op / no-target-
+    #      derived fallback that must NOT shadow tier 1 (codex review 2026-07-20).
+    # Within a tier, original order breaks ties, preserving caller priority.
+    def _key(item: tuple[int, dict[str, Any]]) -> tuple:
+        idx, c = item
+        dist = _semver_distance(current, c["version"])
+        if dist is None:
+            return (1, (), idx)
+        if dist == (0, 0, 0):
+            return (2, (), idx)
+        return (0, dist, idx)
+
+    return min(enumerate(candidates), key=_key)[1]
 
 
 _PRE_RELEASE_RE = re.compile(r"[-+](?:rc|alpha|beta|dev|pre|preview|nightly|snapshot|m\d|a\d|b\d)", re.IGNORECASE)
