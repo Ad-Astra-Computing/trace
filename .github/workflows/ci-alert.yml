@@ -1,0 +1,96 @@
+name: ci-alert
+
+# Surface a red `main` immediately instead of letting it rot unnoticed for
+# weeks. Fires when the `ci` workflow concludes on a *push to main*; opens (or
+# updates) a single `ci-red` tracking issue when main is red and closes it once
+# main is green again, so it self-clears and never cries wolf.
+#
+# Both jobs re-derive the *current* state of main from the latest completed `ci`
+# run rather than trusting this event alone — an older run finishing late must
+# not open a stale alert nor clear a live failure (CI runs overlap). A
+# repo-scoped concurrency group serialises handling so two failing runs can't
+# race into duplicate issues.
+#
+# Security: no checkout, no external actions, no untrusted interpolation. The
+# only run-inputs are the upstream run URL (a github.com URL) and head SHA (a
+# 40-hex string), both via env — never a commit message or PR title. The
+# `event == 'push'` guard means PR-triggered ci runs never reach here, so
+# fork-PR-controlled data never touches this write-scoped token.
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+# Serialise all alert bookkeeping; never cancel an in-flight one (each must run
+# to completion so the issue state converges deterministically).
+concurrency:
+  group: ci-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    if: >-
+      contains(fromJSON('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion) &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or update the ci-red tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # Re-derive current main state: if a later ci run already went green,
+          # this failure is stale — don't raise a false alarm.
+          latest="$(gh run list --repo "$REPO" --workflow ci --branch main \
+            --json status,conclusion --jq 'map(select(.status=="completed")) | .[0].conclusion // ""')"
+          if [ "$latest" = "success" ]; then
+            echo "latest completed ci on main is green; skipping alert"
+            exit 0
+          fi
+          short="${HEAD_SHA:0:12}"
+          body="$(printf 'ci is red on main.\n\n- commit: %s\n- run: %s\n\nAuto-closes when a later ci run on main goes green.' "$short" "$RUN_URL")"
+          existing="$(gh issue list --repo "$REPO" --state open --label ci-red --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh label create ci-red --repo "$REPO" --color b60205 \
+              --description "main CI is failing" --force >/dev/null 2>&1 || true
+            gh issue create --repo "$REPO" --title "CI red on main" \
+              --label ci-red --body "$body"
+          fi
+
+  clear:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close the ci-red tracking issue once main is green again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          # Only close if the *latest* completed ci run on main is itself green —
+          # an older success must not clear an issue raised by a newer failure.
+          latest="$(gh run list --repo "$REPO" --workflow ci --branch main \
+            --json status,conclusion --jq 'map(select(.status=="completed")) | .[0].conclusion // ""')"
+          if [ "$latest" != "success" ]; then
+            echo "latest completed ci on main is '$latest', not green; leaving issue open"
+            exit 0
+          fi
+          for n in $(gh issue list --repo "$REPO" --state open --label ci-red --json number --jq '.[].number'); do
+            gh issue comment "$n" --repo "$REPO" --body "main is green again: $RUN_URL"
+            gh issue close "$n" --repo "$REPO"
+          done
