@@ -64,7 +64,8 @@
         "large-sbom-delta",
         "reviewer-verdict-escalate",
         "cross-family-pair-unavailable",
-        "source-backport-experimental"
+        "source-backport-experimental",
+        "unparseable-version-comparison"
       ]
     },
     "auto_merge_evidence_path": {

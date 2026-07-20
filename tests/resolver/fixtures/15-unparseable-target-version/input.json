@@ -1,0 +1,17 @@
+{
+  "cve_id": "CVE-0000-1015",
+  "current_version": "1.2.3",
+  "candidate_refs": [
+    {
+      "version": "0-unstable-2026-02-01",
+      "release_url": "https://example.invalid/libexample/tree/0-unstable-2026-02-01",
+      "changelog_url": "https://example.invalid/libexample/CHANGELOG#unstable",
+      "advisory_urls": ["https://example.invalid/advisory/LIBEXAMPLE-2026-0015"],
+      "upstream_fix_commits": [
+        { "repo_url": "https://example.invalid/libexample", "commit_sha": "bbb1015" }
+      ],
+      "delta": { "transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [], "crosses_large_delta_threshold": false, "threshold_policy": "v0-default" },
+      "tier_hint": "point-release-small-delta"
+    }
+  ]
+}

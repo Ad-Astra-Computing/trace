@@ -350,7 +350,8 @@
             "no-target-version-derived",
             "placeholder-target-version",
             "pre-release-target",
-            "source-backport-experimental"
+            "source-backport-experimental",
+            "unparseable-version-comparison"
           ]
         },
         "patch_strategy": {

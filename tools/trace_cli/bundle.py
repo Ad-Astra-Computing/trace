@@ -701,6 +701,8 @@ def finalize_bundle(
             kind_reason = "large-sbom-delta"
         elif trigger == "source-backport-experimental":
             kind_reason = "source-backport-experimental"
+        elif trigger == "unparseable-version-comparison":
+            kind_reason = "unparseable-version-comparison"
         elif verdict.startswith("ineligible-"):
             kind_reason = verdict
         else:
