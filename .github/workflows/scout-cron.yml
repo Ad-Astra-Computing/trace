@@ -40,6 +40,11 @@ on:
         required: false
         type: number
         default: 50
+      include_nix_seed:
+        description: "Also seed from vulnpatch /nix/cves (pre-mapped nixpkgs CVEs)"
+        required: false
+        type: boolean
+        default: true
   schedule:
     # Hourly at :17 (offset from snapshot 06:13 so the early-morning
     # cron has the freshest snapshot available).
@@ -185,6 +190,7 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           LOOKBACK_HOURS: ${{ inputs.lookback_hours || '' }}
           MAX_CVES: ${{ inputs.max_cves || '50' }}
+          INCLUDE_NIX_SEED: ${{ github.event_name == 'schedule' && 'true' || inputs.include_nix_seed }}
         run: |
           set -euo pipefail
           mkdir -p inbox out state
@@ -235,6 +241,28 @@ jobs:
           # whatever) gets dropped before it can corrupt the poll loop.
           grep -E '^CVE-[0-9]{4}-[0-9]{4,19}$' out/cve-ids.raw.txt > out/cve-ids.discovered.txt || true
 
+          # Second discovery source: the vulnpatch /nix/cves snapshot (open
+          # nixpkgs-affecting CVEs, already mapped to an attr). Client-side
+          # windowed to the same [SINCE,UNTIL]. Its ids flow through the SAME
+          # poll -> process path (graph lookup + relevance), so the vulnpatch
+          # mapping is only a seed hint, never a merge decision. Non-fatal:
+          # the NVD walk is authoritative for completeness; nix-seed is an
+          # additive high-precision fast-path, so a feed hiccup never fails
+          # the run or blocks NVD-discovered ids.
+          if [[ "${INCLUDE_NIX_SEED:-true}" == "true" ]]; then
+            if nix develop --command python -m agents.scout.discover_nix_cli \
+                 --since "$SINCE" --until "$UNTIL" \
+                 > out/cve-ids.nixseed.raw.txt 2> out/nixseed.err.txt; then
+              grep -E '^CVE-[0-9]{4}-[0-9]{4,19}$' out/cve-ids.nixseed.raw.txt \
+                > out/cve-ids.nixseed.txt || true
+            else
+              echo "::warning::vulnpatch /nix/cves seed failed; $(head -1 out/nixseed.err.txt || true)"
+              : > out/cve-ids.nixseed.txt
+            fi
+          else
+            : > out/cve-ids.nixseed.txt
+          fi
+
           # Prepend the retry queue (oldest first) so transient failures
           # from prior runs get a chance before they age out, then the
           # newly-discovered window. awk dedupes preserving first-seen
@@ -249,15 +277,20 @@ jobs:
 
           retry_count=$(wc -l < out/cve-ids.retry.txt | tr -d ' ')
           discovered=$(wc -l < out/cve-ids.discovered.txt | tr -d ' ')
-          cat out/cve-ids.retry.txt out/cve-ids.discovered.txt \
+          nix_seed_count=$(wc -l < out/cve-ids.nixseed.txt | tr -d ' ')
+          # Order = retries first (age-out priority), then the NVD window,
+          # then the vulnpatch nix-seed. awk dedupes preserving first-seen,
+          # so a CVE the NVD walk already found is not re-queued by the seed.
+          cat out/cve-ids.retry.txt out/cve-ids.discovered.txt out/cve-ids.nixseed.txt \
             | awk '!seen[$0]++' \
             > out/cve-ids.txt
 
           total=$(wc -l < out/cve-ids.txt | tr -d ' ')
           echo "discovered=$discovered" >> "$GITHUB_OUTPUT"
+          echo "nix_seed=$nix_seed_count" >> "$GITHUB_OUTPUT"
           echo "retry_count=$retry_count" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"
-          echo "Discovered $discovered new CVE ids; queued $retry_count retries; $total to process."
+          echo "Discovered $discovered new CVE ids (+$nix_seed_count nix-seed); queued $retry_count retries; $total to process."
           head -n "$MAX_CVES" out/cve-ids.txt > out/cve-ids.capped.txt
           capped=$(wc -l < out/cve-ids.capped.txt | tr -d ' ')
           echo "capped=$capped" >> "$GITHUB_OUTPUT"
@@ -464,9 +497,20 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Append longitudinal run record
-        # Schedule-only: each scheduled cron contributes one aggregated
-        # row to data/scout-runs.jsonl on main. Manual workflow_dispatch
-        # runs are operational replays and do not pollute the time series.
+        # Schedule-only: each scheduled cron contributes one aggregated row
+        # to data/scout-runs.jsonl. Manual workflow_dispatch runs are
+        # operational replays and do not pollute the time series.
+        #
+        # The row lands on the UNPROTECTED `scout-telemetry` branch, not main.
+        # data/scout-runs.jsonl is append-only run telemetry that is not part
+        # of cert/corpus integrity (its only reader is `trace report`'s
+        # throughput roll-up, which tolerates whatever file the checkout
+        # provides and ignores unknown fields). Keeping it off main preserves
+        # main's required-check gate — github-actions[bot] can't bypass the
+        # ruleset, and a [skip ci] / paths-ignored data commit can never
+        # satisfy the required checks, so a direct push to protected main
+        # would be rejected and the data point silently lost. Each row records
+        # the main SHA the run observed so the series stays correlatable.
         if: steps.snapshot.outputs.ready == 'true' && github.event_name == 'schedule'
         env:
           WINDOW_SINCE: ${{ steps.discover.outputs.since }}
@@ -475,6 +519,7 @@ jobs:
           DISCOVERED: ${{ steps.discover.outputs.total }}
           PROCESSED: ${{ steps.discover.outputs.capped }}
           RUN_ID: ${{ github.run_id }}
+          MAIN_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           mkdir -p data
@@ -490,32 +535,46 @@ jobs:
             --arg since "$WINDOW_SINCE" \
             --arg source "$WINDOW_SOURCE" \
             --arg run_id "$RUN_ID" \
+            --arg main_sha "$MAIN_SHA" \
             --argjson discovered "${DISCOVERED:-0}" \
             --argjson processed "${PROCESSED:-0}" \
             --argjson actions "$actions" \
             --argjson verdicts "$verdicts" \
             '{
-               schema_version: "1.0.0",
+               schema_version: "1.1.0",
                run_at: $run_at,
                window_since: $since,
                window_source: $source,
                run_id: $run_id,
+               main_sha: $main_sha,
                discovered: $discovered,
                processed: $processed,
                actions: $actions,
                resolver_verdicts: $verdicts
              }')
-          echo "$record" >> data/scout-runs.jsonl
-          # Race-tolerant push: if main moved while we ran, rebase our
-          # one-line append on top. The data file is append-only so the
-          # rebase is conflict-free in practice.
           git config user.name "scout-cron[bot]"
           git config user.email "scout-cron[bot]@users.noreply.github.com"
+          # Base the append on scout-telemetry's own history so prior rows
+          # survive; seed from main's current file only if the branch is
+          # truly absent on origin. Fetch with an explicit destination —
+          # `git fetch origin scout-telemetry` alone only writes FETCH_HEAD
+          # and never creates origin/scout-telemetry, which would make every
+          # run reseed from main and clobber the series.
+          git fetch origin "scout-telemetry:refs/remotes/origin/scout-telemetry" || true
+          if git rev-parse --verify origin/scout-telemetry >/dev/null 2>&1; then
+            git checkout -B scout-telemetry origin/scout-telemetry
+          else
+            git checkout -B scout-telemetry
+          fi
+          echo "$record" >> data/scout-runs.jsonl
           git add data/scout-runs.jsonl
           git commit -m "data(scout): cron run ${WINDOW_UNTIL} [skip ci]"
           for attempt in 1 2 3; do
-            if git pull --rebase --autostash origin main && git push origin HEAD:main; then
-              echo "pushed run record on attempt $attempt"
+            # Serialized by the job concurrency group; the rebase covers the
+            # rare cross-run race. Append-only file => conflict-free rebase.
+            git pull --rebase --autostash origin scout-telemetry 2>/dev/null || true
+            if git push origin HEAD:refs/heads/scout-telemetry; then
+              echo "pushed run record to scout-telemetry on attempt $attempt"
               exit 0
             fi
             echo "push attempt $attempt failed; retrying"

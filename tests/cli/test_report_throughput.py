@@ -19,6 +19,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -536,6 +537,74 @@ def test_render_markdown_keeps_three_sections(tmp_path: Path) -> None:
 
 
 # ─── end-to-end run() writes both files ──────────────────────────────────────
+
+
+def test_parse_scout_runs_ignores_unknown_main_sha_field() -> None:
+    # the cron writer added main_sha (schema 1.1.0); the roll-up must ignore
+    # unknown fields, not choke on them.
+    text = json.dumps({
+        "schema_version": "1.1.0", "run_at": "2026-07-20T00:00:00Z",
+        "main_sha": "f8c81895e342", "discovered": 3, "processed": 2,
+        "actions": {"written": 2}, "resolver_verdicts": {"confirmed": 1},
+    }) + "\n"
+    s = report.parse_scout_runs(text)
+    assert s.runs == 1
+    assert s.discovered_total == 3
+    assert s.totals_by_action == {"written": 2}
+
+
+def test_resolve_scout_runs_prefers_telemetry_ref(tmp_path: Path) -> None:
+    # when the scout-telemetry ref resolves, its rows win and the source
+    # label names the ref (never silently the stale working tree).
+    stale = tmp_path / "data" / "scout-runs.jsonl"
+    _seed_scout_runs(stale, [{"run_at": "2026-01-01T00:00:00Z", "discovered": 99}])
+    live = json.dumps({"run_at": "2026-07-20T00:00:00Z", "discovered": 7}) + "\n"
+    args = argparse.Namespace(scout_runs=stale, scout_runs_ref="scout-telemetry")
+    with patch.object(report, "_read_scout_runs_ref", return_value=live) as m:
+        summary, source = report._resolve_scout_runs(args, repo_root=tmp_path)
+    # remote-tracking ref tried first (freshest after `git fetch origin`).
+    assert m.call_args_list[0].args[1] == "origin/scout-telemetry"
+    assert summary.discovered_total == 7            # live, not the stale 99
+    assert source == "origin/scout-telemetry:data/scout-runs.jsonl (as of last fetch)"
+
+
+def test_resolve_scout_runs_tries_remote_tracking_candidate(tmp_path: Path) -> None:
+    # a plain branch name misses on an ordinary checkout (only origin/<name>
+    # exists); the resolver must try the remote-tracking ref before falling back.
+    live = json.dumps({"run_at": "2026-07-20T00:00:00Z", "discovered": 5}) + "\n"
+
+    def _fake(_repo: Path, ref: str) -> str | None:
+        return live if ref == "origin/scout-telemetry" else None
+
+    args = argparse.Namespace(scout_runs=tmp_path / "wt.jsonl", scout_runs_ref="scout-telemetry")
+    with patch.object(report, "_read_scout_runs_ref", side_effect=_fake):
+        summary, source = report._resolve_scout_runs(args, repo_root=tmp_path)
+    assert summary.discovered_total == 5
+    assert source == "origin/scout-telemetry:data/scout-runs.jsonl (as of last fetch)"
+
+
+def test_resolve_scout_runs_falls_back_with_visible_note(tmp_path: Path) -> None:
+    # ref unreachable (branch not fetched) -> read the working tree BUT make
+    # the staleness explicit in the source label (codex P1: never silent).
+    wt = tmp_path / "data" / "scout-runs.jsonl"
+    _seed_scout_runs(wt, [{"run_at": "2026-01-01T00:00:00Z", "discovered": 4}])
+    args = argparse.Namespace(scout_runs=wt, scout_runs_ref="scout-telemetry")
+    with patch.object(report, "_read_scout_runs_ref", return_value=None):
+        summary, source = report._resolve_scout_runs(args, repo_root=tmp_path)
+    assert summary.discovered_total == 4
+    assert "fallback" in source and "unavailable" in source
+
+
+def test_resolve_scout_runs_empty_ref_reads_working_tree(tmp_path: Path) -> None:
+    wt = tmp_path / "data" / "scout-runs.jsonl"
+    _seed_scout_runs(wt, [{"run_at": "2026-01-01T00:00:00Z", "discovered": 1}])
+    args = argparse.Namespace(scout_runs=wt, scout_runs_ref="")
+    # no git call when ref is empty.
+    with patch.object(report, "_read_scout_runs_ref",
+                      side_effect=AssertionError("must not touch git")):
+        summary, source = report._resolve_scout_runs(args, repo_root=tmp_path)
+    assert summary.discovered_total == 1
+    assert "working tree" in source
 
 
 def test_run_writes_md_and_json_pair(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

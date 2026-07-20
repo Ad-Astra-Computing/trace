@@ -96,6 +96,11 @@ class Provenance:
     scout_runs_path: str
     bundles_scanned: int
     scout_runs_scanned: int
+    # Exactly where the telemetry was read from, so a report is never
+    # silently built on stale data. One of: "<ref>:data/scout-runs.jsonl"
+    # (live, from the scout-telemetry branch) or a description of the
+    # working-tree fallback with an explicit staleness note.
+    scout_runs_source: str = "working-tree"
 
 
 @dataclass
@@ -116,6 +121,7 @@ class Report:
                 "git_rev": self.provenance.git_rev,
                 "traces_root": self.provenance.traces_root,
                 "scout_runs_path": self.provenance.scout_runs_path,
+                "scout_runs_source": self.provenance.scout_runs_source,
                 "bundles_scanned": self.provenance.bundles_scanned,
                 "scout_runs_scanned": self.provenance.scout_runs_scanned,
             },
@@ -128,21 +134,31 @@ class Report:
 # ─── loaders ─────────────────────────────────────────────────────────────────
 
 
+def _empty_scout_summary() -> ScoutRunsSummary:
+    return ScoutRunsSummary(
+        runs=0,
+        earliest_run_at=None,
+        latest_run_at=None,
+        totals_by_action={},
+        totals_by_verdict={},
+        discovered_total=0,
+        processed_total=0,
+    )
+
+
 def load_scout_runs(path: Path) -> ScoutRunsSummary:
     """Parse data/scout-runs.jsonl. Missing file is not an error: it
     means the cron never wrote, so all counters are zero and earliest/
     latest are None."""
     if not path.is_file():
-        return ScoutRunsSummary(
-            runs=0,
-            earliest_run_at=None,
-            latest_run_at=None,
-            totals_by_action={},
-            totals_by_verdict={},
-            discovered_total=0,
-            processed_total=0,
-        )
+        return _empty_scout_summary()
+    return parse_scout_runs(path.read_text(encoding="utf-8"))
 
+
+def parse_scout_runs(text: str) -> ScoutRunsSummary:
+    """Roll up the JSONL telemetry text (from the working tree or a git
+    ref). Unknown fields are ignored, so a newer writer schema (e.g. the
+    added `main_sha`) parses fine."""
     runs = 0
     earliest: str | None = None
     latest: str | None = None
@@ -151,7 +167,7 @@ def load_scout_runs(path: Path) -> ScoutRunsSummary:
     discovered_total = 0
     processed_total = 0
 
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -505,6 +521,7 @@ def render_markdown(report: Report) -> str:
         f"bundles scanned: {p.bundles_scanned}  ·  "
         f"scout-runs scanned: {p.scout_runs_scanned}"
     )
+    lines.append(f"scout-runs source: `{p.scout_runs_source}`")
     lines.append("")
     lines.append("## Observed")
     lines.append("")
@@ -692,6 +709,60 @@ def _git_rev_short(repo_root: Path) -> str | None:
     return rev or None
 
 
+def _read_scout_runs_ref(repo_root: Path, ref: str) -> str | None:
+    """Read data/scout-runs.jsonl from a git ref (the scout-telemetry
+    branch, where the cron now appends). Returns None if git is absent,
+    the ref is unresolvable (branch not fetched), or the path is missing
+    on that ref — the caller then falls back to the working tree with a
+    visible staleness note."""
+    try:
+        out = subprocess.run(
+            ["git", "show", f"{ref}:data/scout-runs.jsonl"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout
+
+
+def _resolve_scout_runs(
+    args: argparse.Namespace, *, repo_root: Path
+) -> tuple[ScoutRunsSummary, str]:
+    """Resolve scout telemetry, preferring the scout-telemetry branch (the
+    live source since the cron stopped pushing to protected main). Returns
+    (summary, source_label). The label always states the true source so a
+    report can never silently present stale working-tree data as current."""
+    ref = (getattr(args, "scout_runs_ref", "") or "").strip()
+    if ref:
+        # A plain branch name resolves to the LOCAL ref only in a worktree
+        # that has it checked out; on an ordinary main checkout `git fetch`
+        # updates the remote-tracking `origin/<branch>` instead. Try the
+        # remote-tracking ref FIRST — it's what `git fetch origin` freshens,
+        # whereas a lingering local branch may be stale — then the bare name.
+        candidates = [ref] if "/" in ref else [f"origin/{ref}", ref]
+        for cand in candidates:
+            text = _read_scout_runs_ref(repo_root, cand)
+            if text is not None:
+                # `report` never fetches (no surprise network I/O), so a
+                # remote-tracking ref is only as current as the caller's last
+                # fetch — say so rather than implying a guaranteed-live read.
+                caveat = " (as of last fetch)" if cand.startswith("origin/") else ""
+                return parse_scout_runs(text), f"{cand}:data/scout-runs.jsonl{caveat}"
+        # Branch not reachable in this checkout — fall back, but say so.
+        summary = load_scout_runs(args.scout_runs)
+        return summary, (
+            f"{args.scout_runs} (fallback; ref {ref!r} unavailable — "
+            f"run `git fetch origin` for live telemetry)"
+        )
+    return load_scout_runs(args.scout_runs), f"{args.scout_runs} (working tree)"
+
+
 def add_parser(subs: argparse._SubParsersAction) -> None:
     """Register `trace report throughput` on the report subparser."""
     rep = subs.add_parser(
@@ -712,7 +783,14 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
         "--scout-runs",
         type=Path,
         default=Path("data/scout-runs.jsonl"),
-        help="path to scout-runs.jsonl (default: data/scout-runs.jsonl)",
+        help="working-tree path to scout-runs.jsonl, used when --scout-runs-ref "
+        "is empty or unreachable (default: data/scout-runs.jsonl)",
+    )
+    rep.add_argument(
+        "--scout-runs-ref",
+        default="scout-telemetry",
+        help="git ref to read live scout telemetry from (default: scout-telemetry, "
+        "where the cron appends). Pass empty ('') to read the working-tree file instead.",
     )
     rep.add_argument(
         "--out-dir",
@@ -729,7 +807,7 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
 
 
 def run(args: argparse.Namespace, *, repo_root: Path) -> int:
-    scout = load_scout_runs(args.scout_runs)
+    scout, scout_source = _resolve_scout_runs(args, repo_root=repo_root)
     bundles = scan_bundles(args.traces_root)
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -740,6 +818,7 @@ def run(args: argparse.Namespace, *, repo_root: Path) -> int:
         scout_runs_path=str(args.scout_runs),
         bundles_scanned=len(bundles),
         scout_runs_scanned=scout.runs,
+        scout_runs_source=scout_source,
     )
     report = build_report(scout, bundles, provenance=provenance)
 
