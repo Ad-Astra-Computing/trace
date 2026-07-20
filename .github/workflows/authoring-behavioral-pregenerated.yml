@@ -157,9 +157,8 @@ jobs:
             mark_error() {
               python3 -c "
           import json, sys
-          json.dump({'per_candidate': [{'cve_id': sys.argv[1], 'behavioral': {
-              'behavioral_status': sys.argv[2], 'behavioral_pass': False}}]},
-              open(sys.argv[3], 'w'))
+          json.dump({'results': [{'cve_id': sys.argv[1], 'behavioral_measurable': False,
+              'behavioral_pass_at_k': False, 'mark_status': sys.argv[2]}]}, open(sys.argv[3], 'w'))
           " "$CVE" "$1" "$BEHAV_OUT"
             }
 
@@ -255,8 +254,17 @@ jobs:
                   continue
               r = json.load(open(f))
               res = next((x for x in r.get("results", []) if x.get("cve_id") == cve), {})
+              unmeas = res.get("behavioral_unmeasurable", {}) or {}
+              if res.get("behavioral_measurable"):
+                  status = "ran"
+              elif res.get("mark_status"):
+                  status = res["mark_status"]                       # preserve the specific harness error
+              elif set(unmeas) == {"exempt_proxy_reproducer"}:
+                  status = "exempt_proxy_reproducer"                # keep the gate's exempt status
+              else:
+                  status = "unmeasurable"
               per[cve] = {
-                  "behavioral_status": "ran" if res.get("behavioral_measurable") else "unmeasurable",
+                  "behavioral_status": status,
                   "behavioral_pass": bool(res.get("behavioral_pass_at_k")),
                   "behavioral_ran_count": res.get("behavioral_ran_count", 0),
                   "false_accepts": res.get("false_accepts", []),
@@ -291,13 +299,15 @@ jobs:
           print(f"format **{r['format_pass_rate']}** · structural **{r['structural_pass_rate']}** · "
                 f"behavioral **{r['behavioral_pass_rate']}** (attempted {r['behavioral_attempted_n']})")
           print("")
-          print("| CVE | status | pass | patch-applies | unpatched-fires | patched-clean |")
-          print("|---|---|---|---|---|---|")
+          fa_total = sum(len(b.get("false_accepts", [])) for b in r["per_canary"].values())
+          if fa_total:
+              print(f"⚠️ **{fa_total} verifier false-accept(s)** (behavioral-pass but fold-wrong) — see per-CVE below")
+          print("")
+          print("| CVE | status | pass@K | ran | false-accepts |")
+          print("|---|---|---|---|---|")
           for cve, b in sorted(r["per_canary"].items()):
-              a = b.get("assertions", {})
               print(f"| {cve} | {b.get('behavioral_status')} | {b.get('behavioral_pass')} "
-                    f"| {a.get('patch-applies')} | {a.get('unpatched-reproducer-fires')} "
-                    f"| {a.get('backported-reproducer-clean')} |")
+                    f"| {b.get('behavioral_ran_count', 0)} | {len(b.get('false_accepts', []))} |")
           PY
 
       - name: Fail on unmeasurable canaries
@@ -306,6 +316,12 @@ jobs:
           import json, os, sys
           OK = {"ran", "exempt_proxy_reproducer"}
           r = json.load(open(os.environ["RUNNER_TEMP"] + "/authoring-behavioral.json"))
+          # surface verifier false-accepts (behavioral-pass but fold-wrong) — load-bearing
+          # for any auto-merge claim; a green run must not hide them (Fable review 2026-07-20).
+          for c, b in sorted(r["per_canary"].items()):
+              if b.get("false_accepts"):
+                  print(f"::warning::{c}: {len(b['false_accepts'])} behavioral-pass-but-fold-wrong "
+                        "candidate(s) — verifier false-accept, do NOT auto-merge on this pass alone")
           bad = {c: b.get("behavioral_status") for c, b in r["per_canary"].items()
                  if b.get("behavioral_status") not in OK}
           if bad:
