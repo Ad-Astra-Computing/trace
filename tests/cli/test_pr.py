@@ -597,11 +597,63 @@ def test_derive_plan_by_name(tmp_path: Path) -> None:
     assert plan["patch_path"] == patch  # not remapped
 
 
+_MULTIFILE_DIFF = (
+    "--- a/pkgs/a/default.nix\n+++ b/pkgs/a/default.nix\n@@ -1 +1 @@\n-a\n+b\n"
+    "--- /dev/null\n+++ b/pkgs/b/thing.patch\n@@ -0,0 +1 @@\n+x\n"
+)
+
+
 def test_derive_plan_repo_root_multifile(tmp_path: Path) -> None:
     bj = {"patch_apply": {"files_changed": ["pkgs/a/default.nix", "pkgs/b/thing.patch"]}}
-    patch = tmp_path / "p.diff"; patch.write_text("x")
+    patch = tmp_path / "p.diff"; patch.write_text(_MULTIFILE_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert err is None and plan["mode"] == "repo-root" and plan["package_dir"] == ""
+    # the verified file list rides along so staging is exact, not `git add -- pkgs`
+    assert plan["files_changed"] == ["pkgs/a/default.nix", "pkgs/b/thing.patch"]
+
+
+def test_derive_plan_repo_root_rejects_record_missing_patched_file(tmp_path: Path) -> None:
+    """Fail closed when files_changed omits a path the patch actually modifies —
+    staging only the listed subset would silently ship an incomplete PR (audit
+    2026-07-20). files_changed here lacks pkgs/b/thing.patch."""
+    bj = {"patch_apply": {"files_changed": ["pkgs/a/default.nix"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_MULTIFILE_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert plan is None
+    assert err is not None and "pkgs/b/thing.patch" in err and "inconsistent" in err
+
+
+def test_derive_plan_repo_root_allows_superset_record(tmp_path: Path) -> None:
+    """A files_changed superset (a listed path the patch doesn't touch) is fine —
+    staging an unchanged path is a no-op, not a dropped change."""
+    bj = {"patch_apply": {"files_changed":
+                          ["pkgs/a/default.nix", "pkgs/b/thing.patch", "pkgs/c/extra.nix"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_MULTIFILE_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert err is None and plan["mode"] == "repo-root"
+
+
+def test_git_add_repo_root_stages_only_verified_files(tmp_path):
+    """Repo-root apply must stage exactly the verified files_changed, never a whole
+    subtree — a dirty --nixpkgs-checkout with unrelated WIP under pkgs/ must not leak
+    that WIP into the PR (M2 / audit 2026-07-20)."""
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "pkgs" / "a").mkdir(parents=True)
+    (repo / "pkgs" / "wip").mkdir(parents=True)
+    (repo / "pkgs" / "a" / "default.nix").write_text("{ }: { }\n")
+    for c in (["git", "init", "-q"], ["git", "add", "-A"],
+              ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]):
+        subprocess.run(c, cwd=repo, check=True, capture_output=True)
+    # the patch touched pkgs/a/default.nix; an unrelated dirty file sits under pkgs/wip
+    (repo / "pkgs" / "a" / "default.nix").write_text("{ }: { patched = true; }\n")
+    (repo / "pkgs" / "wip" / "SECRET.nix").write_text("operator WIP, must not ship\n")
+    assert pr_mod._git_add(repo, "", ["pkgs/a/default.nix"]) == 0
+    assert pr_mod._git_commit(repo, "a: fix") == 0
+    files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"],
+                           cwd=repo, capture_output=True, text=True).stdout.split()
+    assert files == ["pkgs/a/default.nix"]           # ONLY the verified file
+    assert "pkgs/wip/SECRET.nix" not in files          # WIP stayed out of the PR
 
 
 def test_derive_plan_rejects_traversal(tmp_path: Path) -> None:
