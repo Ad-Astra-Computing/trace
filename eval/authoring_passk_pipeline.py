@@ -29,12 +29,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from collections import defaultdict
 from pathlib import Path
 
 import sys
 ROOT = Path(__file__).resolve().parents[1]
+
+# Fail-closed execution-fan-out bounds for the behavioral gate (codex review 2026-07-20):
+# --audit builds EVERY candidate in the Nix sandbox; a malformed/oversized responses file
+# could trigger unbounded builds and exhaust the CI runner. Reject (never truncate) an
+# over-K or oversized responses set so the audit denominator stays honest.
+MAX_K = int(os.environ.get("MAX_K", "32"))
+MAX_CANDIDATE_BYTES = int(os.environ.get("MAX_CANDIDATE_BYTES", str(128 * 1024)))
 sys.path.insert(0, str(ROOT))
 from eval.score_authoring_pilot import (  # noqa: E402
     _clean_generated, score_candidate, score_behavioral, _make_build_fn,
@@ -105,8 +113,31 @@ def main() -> None:
 
     results = []
     for cve, rec in records.items():
-        cl = [_clean_generated(g) for g in cands.get(cve, [])]
+        raw = cands.get(cve, [])
+        cl = [_clean_generated(g) for g in raw]
+        # dedup byte-identical normalized candidates (same test → fewer builds)
+        seen_norm, dedup = set(), []
+        for g in cl:
+            key = re.sub(r"\s+", " ", g).strip()
+            if key and key not in seen_norm:
+                seen_norm.add(key)
+                dedup.append(g)
+        cl = dedup
         k = len(cl)
+        # fail-closed bounds — only the behavioral gate does the expensive Nix builds
+        if args.behavioral:
+            oversized = sum(1 for g in raw
+                            if len(g.encode("utf-8", "replace")) > MAX_CANDIDATE_BYTES)
+            if oversized or k > MAX_K:
+                results.append({
+                    "cve_id": cve, "attr_path": rec["provenance"].get("attr_path"), "k": k,
+                    "behavioral_measurable": False, "behavioral_pass_at_k": False,
+                    "behavioral_unmeasurable": {"bounds-exceeded": 1},
+                    "bounds_rejected": {"oversized": oversized, "k": k, "max_k": MAX_K},
+                })
+                print(f"  {cve:16} BOUNDS-REJECTED (k={k} > {MAX_K} or {oversized} oversized) "
+                      "— rejected not truncated, denominator honest")
+                continue
         # structural pre-filter: index of every candidate that passes Tier 0/1
         struct_pass_idx = [i for i, g in enumerate(cl)
                            if score_candidate(g, rec)["structural_pass"]]
