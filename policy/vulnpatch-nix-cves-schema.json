@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ad-Astra-Computing/trace/policy/vulnpatch-nix-cves-schema.json",
+  "title": "Vulnpatch /nix/cves discovery response",
+  "description": "Shape of the GET https://api.vulnpatch.dev/api/v1/nix/cves response: the NixOS security tracker's view of open nixpkgs-affecting CVEs, each already mapped to a nixpkgs attribute with current/fixed version and PR status. A DISCOVERY source only (like the NVD walk) — not authoritative for merge decisions. The endpoint returns a fixed ~100-item snapshot and ignores pagination/filter params (probed 2026-07-20).",
+  "type": "object",
+  "required": ["success", "data"],
+  "additionalProperties": true,
+  "properties": {
+    "success": {"type": "boolean"},
+    "count": {"type": "integer", "minimum": 0},
+    "source": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "stats": {"type": "object"},
+    "data": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/nixCve"}
+    }
+  },
+  "$defs": {
+    "nixCve": {
+      "type": "object",
+      "required": ["nixpkgsId", "cveId", "status", "publishedAt"],
+      "additionalProperties": true,
+      "properties": {
+        "nixpkgsId": {"type": "string"},
+        "cveId": {"type": "string"},
+        "cveIds": {"type": "array", "items": {"type": "string"}},
+        "status": {"type": "string"},
+        "summary": {"type": "string"},
+        "affectedPackages": {"type": "array", "items": {"type": "string"}},
+        "nixpkgsAttribute": {"type": ["string", "null"]},
+        "currentVersion": {"type": ["string", "null"]},
+        "fixedVersion": {"type": ["string", "null"]},
+        "severity": {"type": "string"},
+        "publishedAt": {"type": "string"},
+        "updatedAt": {"type": "string"},
+        "maintainers": {"type": "array"},
+        "assignees": {"type": "array"},
+        "githubIssue": {"type": ["string", "null"]},
+        "githubIssueNumber": {"type": ["integer", "null"]},
+        "linkedPRs": {"type": "array"},
+        "hasPR": {"type": "boolean"},
+        "hasOpenPR": {"type": "boolean"},
+        "hasMergedPR": {"type": "boolean"},
+        "trackerUrl": {"type": ["string", "null"]},
+        "nvdUrl": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

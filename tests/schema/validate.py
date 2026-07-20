@@ -33,6 +33,7 @@ SCHEMA_FILES = {
     "graph_snapshot": POLICY_DIR / "graph-snapshot-schema.json",
     "scout_input": POLICY_DIR / "scout-input-schema.json",
     "vulnpatch_cve_source": POLICY_DIR / "vulnpatch-cve-source-schema.json",
+    "vulnpatch_nix_cves": POLICY_DIR / "vulnpatch-nix-cves-schema.json",
     "ghsa_source": POLICY_DIR / "ghsa-source-schema.json",
     "purl_enrichment": POLICY_DIR / "purl-enrichment-schema.json",
     "eval_candidate": POLICY_DIR / "eval-candidate-schema.json",
