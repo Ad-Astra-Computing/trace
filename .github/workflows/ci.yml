@@ -3,13 +3,14 @@ name: ci
 on:
   push:
     branches: [main]
-    # Docs/data-only commits (DECISIONS/FINDINGS, scout data, example bundles) don't
-    # change tested code — skip the nix CI to save Actions minutes (2026-07-19).
+    # Skip the nix CI only for the scout cron's longitudinal record — the single
+    # inert, high-frequency path no test reads. Broader globs (docs/**, traces/**,
+    # data/**, **.md) are NOT safe to ignore: tests/schema/test_fixtures.py and
+    # tests/docs/test_seed_index.py bind traces/example + docs/SEED_INDEX.md to the
+    # corpus, and tests/cli/test_export_authoring.py reads data/splits/authoring-v1.json,
+    # so a change there can break a test with no failing run for ci-alert to catch.
     paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'traces/**'
-      - 'data/**'
+      - 'data/scout-runs.jsonl'
   pull_request:
 
 # Least-privilege baseline. ci.yml runs deterministic test jobs only;

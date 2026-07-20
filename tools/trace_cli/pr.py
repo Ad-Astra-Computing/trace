@@ -451,7 +451,7 @@ def run(args: argparse.Namespace) -> int:
     # `git commit -a` would silently drop it, shipping a package.nix that
     # references a file not in the PR. Scope to the package dir so nothing else
     # in the tree is swept in.
-    rc = _git_add(nixpkgs_dir, package_dir_rel)
+    rc = _git_add(nixpkgs_dir, package_dir_rel, plan.get("files_changed"))
     if rc != 0:
         print(f"error: git add failed", file=sys.stderr)
         _cleanup(owned_tmp)
@@ -595,6 +595,17 @@ def _valid_pkgs_path(p: str) -> bool:
     return p.startswith("pkgs/")
 
 
+def _diff_effective_paths(patch_text: str) -> set[str]:
+    """Repo-root-relative paths a unified diff touches (add / modify / delete), read
+    from the `--- a/` and `+++ b/` hunk headers. `/dev/null` sides (pure add/delete)
+    carry no path and are skipped; the surviving side names the file."""
+    paths: set[str] = set()
+    for ln in patch_text.splitlines():
+        if ln.startswith(("--- a/", "+++ b/")):
+            paths.add(ln[6:].strip())
+    return paths
+
+
 def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
                        tmpdir: Path) -> tuple[dict | None, str | None]:
     """From the SIGNED build.json apply record, derive the PR apply plan — replaying
@@ -629,8 +640,24 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
     if len(files) == 1 and files[0].endswith("/package.nix"):
         return {"package_dir": posixpath.dirname(files[0]), "patch_path": patch_diff_path,
                 "mode": "by-name"}, None
-    # multi-file / non-package.nix → repo-root apply (paths already pkgs/-contained)
-    return {"package_dir": "", "patch_path": patch_diff_path, "mode": "repo-root"}, None
+    # multi-file / non-package.nix → repo-root apply (paths already pkgs/-contained).
+    # Carry the verified file list so staging is exact — a repo-root `git add` must
+    # not sweep unrelated WIP from a dirty --nixpkgs-checkout into the PR (M2).
+    #
+    # Fail closed if the patch touches a path the signed record doesn't list: `git
+    # apply` would still write it, but staging only files_changed would drop it,
+    # silently shipping an incomplete PR (codex audit 2026-07-20). files_changed may
+    # be a superset (a listed-but-unpatched path stages as a harmless no-op); it must
+    # not be a subset of what the patch actually modifies.
+    unlisted = sorted(_diff_effective_paths(patch_diff_path.read_text()) - set(files))
+    if unlisted:
+        return None, (
+            f"patch.diff modifies paths absent from build.json files_changed: "
+            f"{unlisted!r} — the signed apply record is inconsistent with the patch; "
+            "re-cert to refresh build.json"
+        )
+    return {"package_dir": "", "patch_path": patch_diff_path, "mode": "repo-root",
+            "files_changed": list(files)}, None
 
 
 def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
@@ -810,13 +837,17 @@ def _nixfmt_modified(nixpkgs: Path, package_dir: str, patch_text: str) -> int:
     return 0
 
 
-def _git_add(nixpkgs: Path, package_dir: str) -> int:
-    """Stage all changes (incl. new files) under the package dir. `-A -- <dir>`
-    keeps the staging scoped so an unrelated dirty tree can't leak into the PR."""
-    # Scope staging so a dirty --nixpkgs-checkout can't leak unrelated WIP into the PR
-    # (M2). Empty package_dir → repo-root apply, but the patch is pkgs/-contained by
-    # validation, so staging pkgs/ is sufficient and safe.
-    add_target = ["--", package_dir] if package_dir else ["--", "pkgs"]
+def _git_add(nixpkgs: Path, package_dir: str,
+             files_changed: list[str] | None = None) -> int:
+    """Stage exactly what the signed apply record verified, never more. In repo-root
+    mode the resolved `files_changed` list is staged path-by-path so a dirty
+    --nixpkgs-checkout can't leak unrelated WIP into the PR (M2); those paths are the
+    same ones `git apply` just wrote and are validated pkgs/-contained. Otherwise
+    staging is scoped to the package dir (a small, package-specific subtree)."""
+    if files_changed:
+        add_target = ["--", *files_changed]
+    else:
+        add_target = ["--", package_dir] if package_dir else ["--", "pkgs"]
     r = subprocess.run(
         ["git", "add", "-A", *add_target],
         cwd=str(nixpkgs), check=False, capture_output=True, text=True,
