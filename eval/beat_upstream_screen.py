@@ -15,11 +15,18 @@ is present AND no fixed release version is derivable (placeholder-target-version
 scout's existing encoding of "upstream has a fix, no release carries it yet." A candidate
 survives the screen only if, additionally:
   * it is NOT a linux-kernel CVE (nixpkgs fixes kernels via stable-branch bumps),
+  * no STABLE upstream release tag already contains the fix commit (else nixpkgs fixes it
+    by a version bump — the low-value bot path, not a source-backport),
   * no open/merged NixOS/nixpkgs PR references the CVE id, and
   * (advisory) the fix commit is not already carried by a nixpkgs in-tree patch.
-The last two are network checks (gh); they run only with --check-nixpkgs and never spend
-model tokens. git-tag lag and symbol-reachability gates are surfaced as manual follow-ups
-on survivors (they need the upstream repo + a build), not gates the screen can automate.
+These are network checks (gh); they run only with --check-nixpkgs and never spend model
+tokens. The tag-lag gate is ancestry-based: for each upstream release tag newer than the
+packaged version, `git compare fix...tag` reveals whether the tag contains the fix commit.
+Containment in a STABLE tag is a hard reject (`fixed-release-exists`); containment only in
+a pre-release tag is a flag (`fixed_prerelease_only`), not a reject — nixpkgs won't bump to
+an rc. Known v1 blind spot: a fix cherry-picked onto a release branch has a different SHA,
+so ancestry misses it and such a candidate survives wrongly (wastes a bootstrap, not spend
+on a bad claim). Symbol-reachability stays a manual follow-up (needs a build).
 
 Usage:
   # screen the last 72h (discovers CVE ids from NVD, needs network):
@@ -35,6 +42,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -111,8 +119,123 @@ def _nixpkgs_code_mentions(cve_id: str) -> bool | None:
         return None
 
 
+# --- git-tag-lag gate (ancestry-based): reject when a STABLE upstream release tag ---
+# already contains the fix commit, because nixpkgs then fixes the CVE by bumping to that
+# release (the low-value bot path), not by a model-authored source-backport.
+
+_PRERELEASE_RE = re.compile(r"(?:^|[-._])(rc|beta|alpha|pre|dev|snapshot|nightly|preview|next|canary)", re.I)
+
+
+def _is_prerelease(tag: str) -> bool:
+    return bool(_PRERELEASE_RE.search(tag))
+
+
+def _parse_ver(tag: str) -> tuple[int, ...] | None:
+    """Leading numeric dotted version from a tag (v0.3.1 -> (0,3,1)); None if unparseable."""
+    m = re.match(r"[vV]?(\d+(?:\.\d+)*)", (tag or "").strip())
+    if not m:
+        return None
+    return tuple(int(x) for x in m.group(1).split("."))
+
+
+def _repo_slug(repo_url: str) -> str | None:
+    """github.com/owner/repo URL -> 'owner/repo'; None for non-GitHub (can't gh-ancestry)."""
+    m = re.match(r"https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$", (repo_url or "").strip())
+    return m.group(1) if m else None
+
+
+def _gh_list_tags(slug: str) -> list[str] | None:
+    try:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}/tags", "--paginate", "--jq", ".[].name"],
+            capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def _gh_tag_contains(slug: str, fix_sha: str, tag: str) -> bool | None:
+    """True if `tag` contains `fix_sha` (fix is an ancestor of tag), via compare fix...tag."""
+    try:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}/compare/{fix_sha}...{tag}", "--jq", ".behind_by"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        # behind_by == 0: the fix has no commits absent from `tag` -> tag contains the fix.
+        return int(r.stdout.strip()) == 0
+    except ValueError:
+        return None
+
+
+def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: dict,
+                          list_tags=_gh_list_tags, tag_contains=_gh_tag_contains) -> tuple[str, str | None]:
+    """Classify whether an upstream release already carries the fix commit.
+
+    Returns (status, tag):
+      'reject'     -> a STABLE release tag contains the fix (bump-shaped, not a backport)
+      'prerelease' -> only a pre-release tag contains it (nixpkgs won't bump to an rc; survive+flag)
+      'clear'      -> no release tag contains the fix
+      'incomplete' -> the check could not run (non-GitHub upstream, API/parse failure)
+    Only tags newer than the packaged version are checked (a bump can only go forward);
+    unparseable tags are checked too (can't rule them out). Newest-first, early-exit on the
+    first stable containment. list_tags/tag_contains are injectable for offline tests.
+    """
+    commits = ref.get("upstream_fix_commits") or []
+    if not commits:
+        return ("incomplete", None)
+    slug = _repo_slug(commits[0].get("repo_url", ""))
+    if slug is None:
+        return ("incomplete", None)  # non-GitHub upstream: gh ancestry unavailable
+    fix_sha = commits[0].get("commit_sha", "")
+    if not fix_sha:
+        return ("incomplete", None)
+
+    if slug not in tag_cache:
+        tag_cache[slug] = list_tags(slug)  # one fetch per repo per run
+    tags = tag_cache[slug]
+    if tags is None:
+        return ("incomplete", None)
+
+    pkg_ver = _parse_ver(current_version or "")
+    # candidate tags: newer than the packaged version (semver prefilter), or unparseable.
+    cands = []
+    for t in tags:
+        tv = _parse_ver(t)
+        if tv is not None and pkg_ver is not None and tv <= pkg_ver:
+            continue
+        cands.append((tv or (), t))
+    cands.sort(reverse=True)  # newest-first; the newest stable tag usually carries the fix
+
+    prerelease_hit = None
+    any_failed = False
+    for _tv, tag in cands:
+        contains = tag_contains(slug, fix_sha, tag)
+        if contains is None:
+            any_failed = True
+            continue
+        if contains:
+            if _is_prerelease(tag):
+                prerelease_hit = prerelease_hit or tag
+            else:
+                return ("reject", tag)  # stable release carries the fix
+    if prerelease_hit:
+        return ("prerelease", prerelease_hit)
+    if any_failed:
+        return ("incomplete", None)
+    return ("clear", None)
+
+
 def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
-               nvd_api_key: str | None, check_nixpkgs: bool) -> dict:
+               nvd_api_key: str | None, check_nixpkgs: bool,
+               tag_cache: dict | None = None) -> dict:
     """Run one CVE through poll -> process -> classify. Returns a verdict dict."""
     v: dict = {"cve_id": cve_id, "survives": False, "reject": None}
     outcome = poll_one(cve_id, graph=graph, root=inbox, nvd_api_key=nvd_api_key)
@@ -144,6 +267,20 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
         return v
 
     if check_nixpkgs:
+        # tag-lag gate first: if a stable upstream release already carries the fix, this is
+        # bump-shaped and there is nothing to source-backport — decide it before the id checks.
+        status, tag = _fixed_release_status(
+            ref, v.get("current_version"), tag_cache=tag_cache if tag_cache is not None else {})
+        v["fixed_release_status"] = status
+        if status == "reject":
+            v["fixed_release_tag"] = tag
+            v["reject"] = "fixed-release-exists"
+            return v
+        if status == "prerelease":
+            v["fixed_prerelease_only"] = tag  # survives; nixpkgs won't bump to a pre-release
+        elif status == "incomplete":
+            v["tag_lag_check_incomplete"] = True  # surface, don't silently pass
+
         pr = _nixpkgs_pr_exists(cve_id)
         code = _nixpkgs_code_mentions(cve_id)
         v["nixpkgs_pr_exists"] = pr
@@ -156,9 +293,8 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
             v["nixpkgs_check_incomplete"] = True
 
     v["survives"] = True
-    # manual gates the screen can't automate (need upstream repo + a build):
+    # remaining manual gate the screen can't automate (needs a build):
     v["followups"] = [
-        "git tag --contains <fix-sha> on upstream: confirm no release carries the fix",
         "reachability: confirm the vulnerable symbol exists in the packaged version",
     ]
     return v
@@ -204,11 +340,13 @@ def main(argv: list[str] | None = None) -> int:
     inbox.mkdir(parents=True, exist_ok=True)
 
     verdicts = []
+    tag_cache: dict = {}  # one upstream tag-list fetch per repo, shared across candidates
     try:
         for cid in cve_ids:
             verdicts.append(screen_cve(
                 cid, graph=graph, inbox=inbox,
                 nvd_api_key=nvd_api_key, check_nixpkgs=args.check_nixpkgs,
+                tag_cache=tag_cache,
             ))
     finally:
         if tmp is not None:
