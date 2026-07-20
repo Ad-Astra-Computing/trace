@@ -20,7 +20,18 @@ survives the screen only if, additionally:
   * no open/merged NixOS/nixpkgs PR references the CVE id, and
   * (advisory) the fix commit is not already carried by a nixpkgs in-tree patch.
 These are network checks (gh); they run only with --check-nixpkgs and never spend model
-tokens. The tag-lag gate is ancestry-based: for each upstream release tag newer than the
+tokens. Two further no-spend annotations ride the same fetch:
+  * fix-commit verification — the claimed fix commit must be a real source fix, not a
+    mis-extracted release-prep / mechanical commit (scout surfaced a "Preparing for release"
+    commit as the fix for proftpd CVE-2025-53994). A release-prep message, all-mechanical
+    files, or zero overlap with the advisory's named symbols flags `fix-commit-unverified`
+    and clears `gradeable` — the survivor stays (the CVE may be real) but its ground-truth
+    pointer is suspect, so it is not gradeable same-day.
+  * edit-shape tag — classify_diff labels the fix `canonical` (condition-fold/guard-clip/
+    security-guard-add, ≤2 hunks; grades under pr_accuracy line-recall) vs `design-freedom`
+    (multi-hunk/other; needs the Reviewer functional-equivalence grader). A preference tag
+    for operator sequencing, NEVER a reject — design-freedom source-backports are the
+    high-value thesis cases. The tag-lag gate is ancestry-based: for each upstream release tag newer than the
 packaged version, `git compare fix...tag` reveals whether the tag contains the fix commit.
 Containment in a STABLE tag is a hard reject (`fixed-release-exists`); containment only in
 a pre-release tag is a flag (`fixed_prerelease_only`), not a reject — nixpkgs won't bump to
@@ -58,6 +69,7 @@ from agents.scout.graph_lookup import CannedGraphLookup
 from agents.scout.poller import poll_one
 from agents.scout.processor import process_entry
 from agents.scout.snapshot_builder import snapshot_from_json
+from eval.classify_edit_shape import classify_diff
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -233,9 +245,113 @@ def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: 
     return ("clear", None)
 
 
+# --- fix-commit-verification gate: is scout's claimed fix commit a real fix, or did it ---
+# mis-extract a release-prep / mechanical commit as the fix? A bogus ground-truth pointer
+# makes a survivor ungradeable (proftpd CVE-2025-53994: scout surfaced a "Preparing for
+# release" commit as the fix). This is a deterministic no-spend correctness check on scout's
+# extraction, in the same class as the tag-lag gate.
+
+_RELEASE_PREP_RE = re.compile(
+    r"\b(prepar\w*\s+(?:for\s+)?(?:the\s+)?(?:next\s+)?release|"
+    r"bump\w*\s+version|version\s+bump|back\s+to\s+\S*-?dev|post-?release|"
+    r"begin\s+\S*\s*dev|release\s+v?\d)", re.I)
+# files that carry no vulnerable code — a fix that touches ONLY these is not a source fix.
+_MECHANICAL_FILE_RE = re.compile(
+    r"(^|/)(ChangeLog\w*|NEWS|AUTHORS|COPYING|LICENSE\w*|VERSION|"
+    r"configure\.ac|configure\.in|config\.h\.in|Makefile\.am|Makefile\.in|"
+    r"\.github/|debian/changelog|[^/]+\.spec|version\.(h|c|py|go|rb|txt)|"
+    r"__version__\.py|package\.json|Cargo\.toml)$", re.I)
+# advisory-symbol extraction: function calls `foo_bar(` and source-file paths from the summary.
+_FUNC_RE = re.compile(r"\b([a-z_][a-z0-9_]{3,})\s*\(")
+_SRCFILE_RE = re.compile(r"\b([\w./-]+\.(?:c|h|cc|cpp|hpp|go|py|rb|rs|js|ts|php|java|pl))\b", re.I)
+_STOPWORDS = frozenset({"this", "that", "when", "then", "with", "from", "into", "func",
+                        "function", "call", "calls", "size", "used", "null", "true", "false"})
+_CANONICAL_SHAPES = frozenset({"condition-fold", "guard-clip", "security-guard-add"})
+
+
+def _gh_commit(slug: str, sha: str) -> dict | None:
+    """Fetch a commit's message + changed files (filename, patch) via the GitHub API.
+
+    Returns {"message": str, "files": [{"filename","patch"}]} or None on any failure.
+    """
+    try:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}/commits/{sha}",
+             "--jq", "{message: .commit.message, files: [.files[] | {filename, patch}]}"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def _advisory_symbols(summary: str) -> set[str]:
+    """Vulnerable-symbol / source-file tokens named in the advisory summary (lowercased)."""
+    toks: set[str] = set()
+    for m in _FUNC_RE.finditer(summary or ""):
+        t = m.group(1).lower()
+        if t not in _STOPWORDS:
+            toks.add(t)
+    for m in _SRCFILE_RE.finditer(summary or ""):
+        path = m.group(1).lower()
+        toks.add(path)
+        toks.add(path.rsplit("/", 1)[-1])  # basename too
+    return toks
+
+
+def _verify_fix_commit(commit: dict, advisory_tokens: set[str]) -> tuple[str, str | None]:
+    """Is the claimed fix commit a plausible source fix? (status, reason).
+
+      'verified'   -> touches code and (if we have advisory symbols) overlaps them
+      'unverified' -> release-prep message / only-mechanical files / no advisory overlap
+    A release-prep or purely-mechanical commit is a mis-extraction; an advisory that names
+    a symbol none of the commit's files/patch mention is a wrong-commit pointer. Either way
+    the survivor is not gradeable same-day against this commit as ground truth.
+    """
+    msg = commit.get("message", "") or ""
+    if _RELEASE_PREP_RE.search(msg):
+        return ("unverified", "release-prep-message")
+    files = commit.get("files") or []
+    filenames = [f.get("filename", "") for f in files]
+    code_files = [fn for fn in filenames if fn and not _MECHANICAL_FILE_RE.search(fn)]
+    if filenames and not code_files:
+        return ("unverified", "only-mechanical-files")
+    if advisory_tokens:
+        blob = (" ".join(filenames) + " "
+                + " ".join(f.get("patch", "") or "" for f in files)).lower()
+        if not any(tok in blob for tok in advisory_tokens):
+            return ("unverified", "no-advisory-symbol-overlap")
+    return ("verified", None)
+
+
+def _fix_shape_class(commit: dict) -> dict:
+    """Tag the fix's edit shape (via classify_diff) as canonical vs design-freedom.
+
+    canonical fixes (condition-fold / guard-clip / security-guard-add, ≤2 hunks) grade well
+    under pr_accuracy line-recall; design-freedom fixes (multi-hunk / other) do NOT — they
+    need the Reviewer functional-equivalence grader. A preference tag for operator sequencing,
+    NEVER a reject: design-freedom source-backports are the high-value thesis cases.
+    """
+    files = commit.get("files") or []
+    patch = "\n".join(
+        f"diff --git a/{f['filename']} b/{f['filename']}\n{f.get('patch','')}"
+        for f in files if f.get("filename") and f.get("patch"))
+    c = classify_diff(patch)
+    c["fix_shape_class"] = (
+        "canonical" if c["shape"] in _CANONICAL_SHAPES and c.get("n_hunks", 0) <= 2
+        else "design-freedom")
+    return c
+
+
 def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
                nvd_api_key: str | None, check_nixpkgs: bool,
-               tag_cache: dict | None = None) -> dict:
+               tag_cache: dict | None = None,
+               fetch_commit=_gh_commit) -> dict:
     """Run one CVE through poll -> process -> classify. Returns a verdict dict."""
     v: dict = {"cve_id": cve_id, "survives": False, "reject": None}
     outcome = poll_one(cve_id, graph=graph, root=inbox, nvd_api_key=nvd_api_key)
@@ -291,6 +407,32 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
         # pr/code None means the check couldn't run — surface, don't silently pass.
         if pr is None or code is None:
             v["nixpkgs_check_incomplete"] = True
+
+        # fix-commit-verification + edit-shape: fetch the claimed fix commit once and
+        # (a) verify it is a real source fix (not a mis-extracted release-prep commit) and
+        # (b) tag its edit shape so the operator can prefer canonical (pr_accuracy-gradeable)
+        # targets for a metric-validation run. Both need the upstream commit diff (gh).
+        commits = ref.get("upstream_fix_commits") or []
+        slug = _repo_slug(commits[0].get("repo_url", "")) if commits else None
+        sha = commits[0].get("commit_sha", "") if commits else ""
+        commit = fetch_commit(slug, sha) if (slug and sha) else None
+        if commit is None:
+            v["fix_commit_status"] = "incomplete"  # couldn't fetch — can't verify or shape
+            v["gradeable"] = None
+        else:
+            summary = ""
+            finding_path = inbox / cve_id / "finding.json"
+            if finding_path.is_file():
+                try:
+                    summary = json.loads(finding_path.read_text()).get("summary", "") or ""
+                except (json.JSONDecodeError, OSError):
+                    summary = ""
+            status, reason = _verify_fix_commit(commit, _advisory_symbols(summary))
+            v["fix_commit_status"] = status
+            if status == "unverified":
+                v["fix_commit_unverified"] = reason  # ground truth suspect: not gradeable
+            v["gradeable"] = status == "verified"
+            v["fix_shape"] = _fix_shape_class(commit)
 
     v["survives"] = True
     # remaining manual gate the screen can't automate (needs a build):
