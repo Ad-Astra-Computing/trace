@@ -1,0 +1,27 @@
+{
+  "scope": "source-comparison",
+  "since": "2026-06-20T00:00:00+00:00",
+  "until": "2026-07-20T00:00:00+00:00",
+  "nvd_window_count": 8103,
+  "vulnpatch_total": 239,
+  "overlap_in_nvd_window": 231,
+  "vulnpatch_outside_nvd_window": 8,
+  "vulnpatch_prejoined_nixpkgs": 100,
+  "vulnpatch_open_no_pr": 92,
+  "vulnpatch_fixed_version_present": 22,
+  "vulnpatch_snapshot_capped": true,
+  "vulnpatch_published_range": [
+    "2026-06-27T08:26:23Z",
+    "2026-07-20T08:29:21Z"
+  ],
+  "vulnpatch_outside_sample": [
+    "CVE-2026-33217",
+    "CVE-2026-33249",
+    "CVE-2026-48129",
+    "CVE-2026-49370",
+    "CVE-2026-5090",
+    "CVE-2026-5663",
+    "CVE-2026-8631",
+    "CVE-2026-9503"
+  ]
+}
