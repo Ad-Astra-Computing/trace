@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from eval.beat_upstream_screen import (
+    _advisory_symbols,
+    _fix_shape_class,
     _fixed_release_status,
     _is_kernel,
     _is_prerelease,
     _parse_ver,
     _repo_slug,
     _source_backport_ref,
+    _verify_fix_commit,
 )
 
 
@@ -147,3 +150,91 @@ def test_fixed_release_incomplete_when_all_compares_fail_no_containment():
         tag_contains=lambda slug, sha, t: None,  # compare call failed
     )
     assert status == "incomplete"
+
+
+# --- fix-commit-verification gate ---
+
+def test_advisory_symbols_extracts_functions_and_files():
+    toks = _advisory_symbols(
+        "Integer overflow in userauth_list() (src/userauth.c) via _libssh2_store_str().")
+    assert "userauth_list" in toks
+    assert "_libssh2_store_str" in toks
+    assert "src/userauth.c" in toks
+    assert "userauth.c" in toks  # basename too
+    # short/stopword tokens are dropped
+    assert "this" not in toks
+
+
+def _commit(message, files):
+    return {"message": message, "files": files}
+
+
+def test_verify_flags_release_prep_message():
+    # proftpd CVE-2025-53994 failure mode: scout extracted a release-prep commit.
+    status, reason = _verify_fix_commit(
+        _commit("Preparing for release of ProFTPD 1.3.9",
+                [{"filename": "src/mod_sftp/packet.c", "patch": "@@ -1 +1 @@\n-a\n+b"}]),
+        set())
+    assert status == "unverified"
+    assert reason == "release-prep-message"
+
+
+def test_verify_flags_only_mechanical_files():
+    status, reason = _verify_fix_commit(
+        _commit("Update for 1.3.9", [
+            {"filename": "ChangeLog", "patch": "@@ -1 +1 @@\n-x\n+y"},
+            {"filename": "configure.ac", "patch": "@@ -1 +1 @@\n-1.3.8\n+1.3.9"},
+        ]), set())
+    assert status == "unverified"
+    assert reason == "only-mechanical-files"
+
+
+def test_verify_flags_no_advisory_symbol_overlap():
+    # commit touches code, but not the file/symbol the advisory names -> wrong commit.
+    status, reason = _verify_fix_commit(
+        _commit("Fix unrelated thing",
+                [{"filename": "src/other.c", "patch": "@@ -1 +1 @@\n-a\n+b"}]),
+        {"userauth_list", "userauth.c"})
+    assert status == "unverified"
+    assert reason == "no-advisory-symbol-overlap"
+
+
+def test_verify_passes_real_fix_touching_named_symbol():
+    status, reason = _verify_fix_commit(
+        _commit("Add bounds check in userauth_list",
+                [{"filename": "src/userauth.c",
+                  "patch": "@@ -1 +2 @@\n if (username_len > UINT32_MAX - 27)\n"}]),
+        {"userauth_list", "src/userauth.c", "userauth.c"})
+    assert status == "verified"
+    assert reason is None
+
+
+def test_verify_passes_when_no_advisory_symbols_and_code_touched():
+    # no extractable advisory symbols -> fall back to "touches code, not release-prep".
+    status, reason = _verify_fix_commit(
+        _commit("Fix heap overflow", [{"filename": "auth.go", "patch": "@@ -1 +1 @@\n-a\n+b"}]),
+        set())
+    assert status == "verified"
+    assert reason is None
+
+
+# --- edit-shape tag ---
+
+def test_fix_shape_class_canonical_for_condition_fold():
+    commit = _commit("bounds fix", [{
+        "filename": "src/foo.c",
+        "patch": "@@ -1,3 +1,3 @@\n a\n-  if (n > MAX)\n+  if (n >= MAX)\n b",
+    }])
+    c = _fix_shape_class(commit)
+    assert c["shape"] == "condition-fold"
+    assert c["fix_shape_class"] == "canonical"
+
+
+def test_fix_shape_class_design_freedom_for_multi_hunk():
+    # picoclaw CSRF shape: several net-new function hunks -> design-freedom.
+    patch = "\n".join(
+        f"@@ -{i},0 +{i},3 @@\n+func helper{i}() bool {{\n+  return true\n+}}"
+        for i in range(1, 4))
+    c = _fix_shape_class(_commit("add CSRF defense", [{"filename": "auth.go", "patch": patch}]))
+    assert c["n_hunks"] >= 3
+    assert c["fix_shape_class"] == "design-freedom"
