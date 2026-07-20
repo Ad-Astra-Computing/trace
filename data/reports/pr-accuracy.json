@@ -1,0 +1,721 @@
+{
+  "scored": 89,
+  "exact": 84,
+  "full_added_recall": 87,
+  "mean_added_recall": 0.9884,
+  "mean_removed_recall": 0.9809,
+  "results": [
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2011-10007--FileFindRule-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 12,
+      "bundle": "CVE-2014-9913--unzip-methbuf-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 31,
+      "bundle": "CVE-2015-1419--vsftpd-deny-file-symlink-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 12,
+      "bundle": "CVE-2016-9844--unzip-zipinfo-methbuf-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 5,
+      "upstream_added": 5,
+      "bundle": "CVE-2018-18384--unzip-cfactorstr-snprintf-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 21,
+      "bundle": "CVE-2019-5544--openslp-remaining-buffer-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2021-28918--netcidrlite-octet-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 3,
+      "bundle": "CVE-2021-40633--giflib-screenbuffer-row-leak-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 4,
+      "upstream_added": 8,
+      "bundle": "CVE-2021-41581--libressl-x509-mailbox-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 4,
+      "bundle": "CVE-2021-4217--unzip-bytes-read-check-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 1,
+      "bundle": "CVE-2021-45340--libsixel-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 1,
+      "bundle": "CVE-2022-28805--lua524-singlevar-anyregup-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 15,
+      "upstream_added": 12,
+      "bundle": "CVE-2022-35920--sanic-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 3,
+      "bundle": "CVE-2022-37434--zlib-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 2,
+      "bundle": "CVE-2022-46908--sqlite-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 10,
+      "bundle": "CVE-2022-47016--tmux-bufferevent-null-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2023-28484--libxml2-schema-nullderef"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 4,
+      "upstream_added": 11,
+      "bundle": "CVE-2023-4016--procps-ng-xxcalloc"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 6,
+      "bundle": "CVE-2023-40890--zbar-databar-bounds"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 44,
+      "upstream_added": 122,
+      "bundle": "CVE-2023-4863--libwebp-huffman-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 4,
+      "upstream_added": 4,
+      "bundle": "CVE-2023-49502--ffmpeg-bwdif-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": false,
+      "upstream_removed": 0,
+      "upstream_added": 1,
+      "bundle": "CVE-2024-12254--cpython-asyncio-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 4,
+      "upstream_added": 14,
+      "bundle": "CVE-2024-23334--aiohttp-path-traversal-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 3,
+      "upstream_added": 18,
+      "bundle": "CVE-2024-41254--litestream-sftp-hostkey"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 6,
+      "upstream_added": 14,
+      "bundle": "CVE-2024-41671--twisted-chunked-trailer-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2024-41810--twisted-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 6,
+      "upstream_added": 13,
+      "bundle": "CVE-2024-45780--grub2-tar-integer-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 1,
+      "bundle": "CVE-2024-45781--grub2-ufs-symlink-strlcpy-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 1,
+      "bundle": "CVE-2024-45782--grub2-hfs-strcpy-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 6,
+      "upstream_added": 1,
+      "bundle": "CVE-2024-47081--requests-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 22,
+      "upstream_added": 38,
+      "bundle": "CVE-2024-5535--openssl-ssl-select-next-proto-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 69,
+      "upstream_added": 71,
+      "bundle": "CVE-2024-8096--curl-gtls-ocsp-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 33,
+      "bundle": "CVE-2025-0622--grub2-strlcpy-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 17,
+      "bundle": "CVE-2025-0938--cpython-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 7,
+      "upstream_added": 15,
+      "bundle": "CVE-2025-10911--libxslt-rvtlist-uaf-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 9,
+      "upstream_added": 36,
+      "bundle": "CVE-2025-14905--389ds-schema-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 11,
+      "upstream_added": 10,
+      "bundle": "CVE-2025-24928--libxml2-xmlsnprintf-sbo"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 2,
+      "bundle": "CVE-2025-31162--fig2dev-style-val-max-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 6,
+      "upstream_added": 10,
+      "bundle": "CVE-2025-31163--fig2dev-coincident-arc-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 5,
+      "bundle": "CVE-2025-31344--giflib-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 5,
+      "bundle": "CVE-2025-31344--giflib-colorcount-bounds-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 37,
+      "bundle": "CVE-2025-3155--yelp-xsl-csp-nonce"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2025-34451--proxychains-ng-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 80,
+      "upstream_added": 3,
+      "bundle": "CVE-2025-40909--perl-dirp-dup-fdopendir-backport"
+    },
+    {
+      "removed_recall": 0.8,
+      "added_recall": 0.4,
+      "exact": false,
+      "upstream_removed": 5,
+      "upstream_added": 5,
+      "bundle": "CVE-2025-40928--jsonxs-numparse-oob-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 1,
+      "bundle": "CVE-2025-4382--grub2-rescue-cli-auth-bypass-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 13,
+      "bundle": "CVE-2025-46836--corosync-orf-token-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 2,
+      "bundle": "CVE-2025-47256--libxmp-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 1,
+      "bundle": "CVE-2025-48060--jq-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 1,
+      "bundle": "CVE-2025-48060--jq-jvp-string-empty-sbo"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 2,
+      "bundle": "CVE-2025-49466--aerc-attachment-path-traversal-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 10,
+      "bundle": "CVE-2025-5278--coreutils-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 4,
+      "upstream_added": 14,
+      "bundle": "CVE-2025-55763--civetweb-buffer-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 40,
+      "bundle": "CVE-2025-57812--libcupsfilters-tiff-planar-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 8,
+      "bundle": "CVE-2025-60876--busybox-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 8,
+      "bundle": "CVE-2025-60876--busybox-wget-header-injection"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 7,
+      "upstream_added": 12,
+      "bundle": "CVE-2025-6170--libxml2-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2025-7207--mruby-nregs-init-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 8,
+      "bundle": "CVE-2025-7424--libxslt-psvi-type-confusion-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 4,
+      "upstream_added": 57,
+      "bundle": "CVE-2026-0989--libxml2-relaxng-limit"
+    },
+    {
+      "removed_recall": 0.0,
+      "added_recall": 1.0,
+      "exact": false,
+      "upstream_removed": 1,
+      "upstream_added": 17,
+      "bundle": "CVE-2026-0992--libxml2-catalog-dedup"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 6,
+      "bundle": "CVE-2026-10275--opensc-pkcs11-overflow"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 39,
+      "upstream_added": 51,
+      "bundle": "CVE-2026-1144--quickjs-ng-atomics-get-buf-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 3,
+      "upstream_added": 5,
+      "bundle": "CVE-2026-11625--bytes-random-secure-fork-pid-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 19,
+      "bundle": "CVE-2026-2245--ccextractor-pmt-heap-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 14,
+      "upstream_added": 17,
+      "bundle": "CVE-2026-24061--inetutils-telnetd-metachar-injection-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 9,
+      "bundle": "CVE-2026-32316--jq-jvstring-intoverflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 11,
+      "bundle": "CVE-2026-32746--inetutils-telnetd-credentials-dir-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 21,
+      "bundle": "CVE-2026-33236--nltk-downloader-path-traversal-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 20,
+      "bundle": "CVE-2026-33947--jq-path-depth-dos-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 7,
+      "upstream_added": 1,
+      "bundle": "CVE-2026-33948--jq-nul-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 2,
+      "bundle": "CVE-2026-39979--jq-jvparse-oob-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 2,
+      "bundle": "CVE-2026-39979--jq-oob-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 32,
+      "bundle": "CVE-2026-40164--jq-hash-collision-dos-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 0,
+      "upstream_added": 1,
+      "bundle": "CVE-2026-40198--netcidrlite-uncompressed-ipv6-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2026-40199--netcidrlite-ipv4mapped-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 7,
+      "upstream_added": 7,
+      "bundle": "CVE-2026-40347--python-multipart-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 2,
+      "upstream_added": 3,
+      "bundle": "CVE-2026-42046--libcaca-canvas-intmax-overflow-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 1,
+      "bundle": "CVE-2026-42250--bzip2-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 3,
+      "upstream_added": 8,
+      "bundle": "CVE-2026-44331--proftpd-sql-injection"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 3,
+      "upstream_added": 8,
+      "bundle": "CVE-2026-44331--proftpd-sql-injection-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 5,
+      "upstream_added": 24,
+      "bundle": "CVE-2026-45186--expat-attr-collision-dos-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 6,
+      "upstream_added": 6,
+      "bundle": "CVE-2026-45190--netcidrlite-unicode-newline-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 3,
+      "bundle": "CVE-2026-45191--netcidrlite-cidrmask-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 3,
+      "upstream_added": 3,
+      "bundle": "CVE-2026-4539--pygments-redos-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 0.5714,
+      "exact": false,
+      "upstream_removed": 0,
+      "upstream_added": 21,
+      "bundle": "CVE-2026-48526--pyjwt-backport"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 2,
+      "bundle": "CVE-2026-50593--graphite2-backport"
+    },
+    {
+      "removed_recall": 0.5,
+      "added_recall": 1.0,
+      "exact": false,
+      "upstream_removed": 2,
+      "upstream_added": 1,
+      "bundle": "CVE-2026-6507--dnsmasq-dhcp-overflow"
+    },
+    {
+      "removed_recall": 1.0,
+      "added_recall": 1.0,
+      "exact": true,
+      "upstream_removed": 1,
+      "upstream_added": 10,
+      "bundle": "CVE-2026-7598--libssh2-backport"
+    }
+  ]
+}
