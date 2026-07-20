@@ -1,0 +1,262 @@
+[
+  {
+    "cve": "CVE-2025-6021",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2025-6020",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2025-4516",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": null,
+    "subshape": "operand-replace",
+    "verdict": "drop:no-cve"
+  },
+  {
+    "cve": "CVE-2020-24292",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2024-3078",
+    "subshape": "operand-replace",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2023-48795",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2023-40889",
+    "subshape": "operator-refine",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2023-4807",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2021-3500",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2013-4184",
+    "subshape": "operand-replace",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2022-29360",
+    "subshape": "bound-arith-fold",
+    "verdict": "drop:scrub-collapse"
+  },
+  {
+    "cve": "CVE-2022-34903",
+    "subshape": "operand-replace",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2018-25032",
+    "subshape": "bound-arith-fold",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2018-25032",
+    "subshape": "bound-arith-fold",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2022-23990",
+    "subshape": "bound-arith-fold",
+    "verdict": "drop:scrub-collapse"
+  },
+  {
+    "cve": "CVE-2022-23852",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2021-45078",
+    "subshape": "operator-refine",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2020-14315",
+    "subshape": "operand-replace",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2021-22897",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2020-17525",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2021-3177",
+    "subshape": "bound-arith-fold",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2019-20907",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2019-19126",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2019-15678",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2019-6706",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2019-9959",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2016-10396",
+    "subshape": "bound-arith-fold",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2019-5786",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2019-11471",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2018-3836",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2019-5786",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2018-6951",
+    "subshape": "operator-refine",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2017-15953",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2017-10140",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2017-1000366",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": null,
+    "subshape": "conjunct-add",
+    "verdict": "drop:no-cve"
+  },
+  {
+    "cve": "CVE-2012-0804",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": null,
+    "subshape": "operand-replace",
+    "verdict": "drop:no-cve"
+  },
+  {
+    "cve": "CVE-2016-6321",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2016-1234",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2015-8325",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2015-7547",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2015-1197",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2015-3239",
+    "subshape": "operator-refine",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2015-3228",
+    "subshape": "conjunct-add",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2015-1283",
+    "subshape": "raise-on-predicate",
+    "verdict": "drop:size"
+  },
+  {
+    "cve": "CVE-2006-3376",
+    "subshape": "raise-on-predicate",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2012-3368",
+    "subshape": "operand-replace",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2014-3618",
+    "subshape": "operand-replace",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2014-0004",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  },
+  {
+    "cve": "CVE-2013-6393",
+    "subshape": "bound-arith-fold",
+    "verdict": "MINTED"
+  }
+]
