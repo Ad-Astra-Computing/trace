@@ -28,8 +28,25 @@ POLICY_FILE = REPO_ROOT / "policy" / "steward.rego"
 FIXTURE_ROOT = REPO_ROOT / "traces" / "example"
 
 
+def _is_authoring_supplement(fixture_dir: Path) -> bool:
+    """An authoring-supplement dir holds an Authoring-LoRA training example, not a
+    trace evidence bundle: it carries `authoring-example.json` but has NEITHER a
+    `bundle.json` NOR an `expect.json`, so the Steward contract does not reach it.
+    Mirrors tests/schema/test_fixtures.py so both enumerations exempt the same dirs.
+    """
+    return (
+        (fixture_dir / "authoring-example.json").exists()
+        and not (fixture_dir / "bundle.json").exists()
+        and not (fixture_dir / "expect.json").exists()
+    )
+
+
 def _fixture_dirs() -> list[Path]:
-    return sorted(p for p in FIXTURE_ROOT.iterdir() if p.is_dir())
+    return sorted(
+        p
+        for p in FIXTURE_ROOT.iterdir()
+        if p.is_dir() and not _is_authoring_supplement(p)
+    )
 
 
 def _build_opa_input(fixture_dir: Path) -> dict:
@@ -128,7 +145,28 @@ def test_steward_decision(fixture_dir, opa_available):
 
     steward_expected = expect.get("steward_expected", "valid")
 
-    if steward_expected == "valid":
+    # steward_expected is a strict three-value contract describing the OPA outcome:
+    #   "valid" / absent  -> Steward must allow (deny set empty).
+    #   "invalid"         -> Steward must deny; steward_rule_id names the rule.
+    #   "escalate"        -> human-review-required bundle: the auto-merge deny rules
+    #                        (all gated on bundle.kind=="auto-merge") do not apply,
+    #                        so it passes the gate (allow) and is routed to human
+    #                        review by policy/route (tests/steward/test_route.py).
+    # Reviewer acceptance / authoring tier are separate contracts recorded in other
+    # expect.json fields; steward_expected describes ONLY the allow/deny outcome.
+    assert steward_expected in ("valid", "invalid", "escalate"), (
+        f"{fixture_dir.name}: steward_expected must be valid|invalid|escalate, "
+        f"got {steward_expected!r}"
+    )
+
+    if steward_expected == "escalate":
+        bundle_kind = json.loads((fixture_dir / "bundle.json").read_text()).get("kind")
+        assert bundle_kind == "human-review-required", (
+            f"{fixture_dir.name}: steward_expected=escalate requires "
+            f"bundle.kind=human-review-required, got {bundle_kind!r}"
+        )
+
+    if steward_expected in ("valid", "escalate"):
         assert allow is True, (
             f"{fixture_dir.name}: expected Steward allow but got deny. "
             f"Deny set: {deny}"
