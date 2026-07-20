@@ -45,6 +45,12 @@ def _bundle_dir(
             "rekor_uuid": "aabbcc",
         },
     }
+    import hashlib
+    patch_text = ("--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n"
+                  "-version = \"4.7.0\";\n+version = \"4.7.1\";\n")
+    if with_patch_diff:
+        # a finalized bundle lists patch.diff in the signed manifest (trace pr verifies it)
+        bundle["files"] = {"patch.diff": {"sha256": hashlib.sha256(patch_text.encode()).hexdigest()}}
     (d / "bundle.json").write_text(json.dumps(bundle))
     (d / "resolver-input.json").write_text(
         json.dumps({"cve_id": "CVE-2025-8176", "attr_path": "libtiff", "current_version": "4.7.0", "candidate_refs": []})
@@ -53,9 +59,7 @@ def _bundle_dir(
         json.dumps({"schema_version": "1.0.0", "cve_id": "CVE-2025-8176", "current_version": "4.7.0", "target_version": "4.7.1", "delta": {}, "tag": None, "release_url": None, "advisory_urls": [], "upstream_fix_commits": [], "eligibility": {}, "prefetch_hashes": [], "fix_tier": "patch", "replay_critical": True})
     )
     if with_patch_diff:
-        (d / "patch.diff").write_text(
-            "--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n-version = \"4.7.0\";\n+version = \"4.7.1\";\n"
-        )
+        (d / "patch.diff").write_text(patch_text)
     return d
 
 
@@ -550,3 +554,90 @@ def test_nixfmt_missing_warns_not_fails(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(pr_mod, "_find_nixfmt", lambda: None)
     assert pr_mod._nixfmt_modified(tmp_path, "p", "+++ b/x.nix\n") == 0
     assert "nixfmt not found" in capsys.readouterr().err
+
+
+# ── apply-plan from the signed build.json (by-name / remap / repo-root) ──────
+
+def _bundle_with_build(tmp_path: Path, build_json: dict) -> tuple[Path, dict]:
+    import hashlib
+    bd = tmp_path / "bundle"
+    bd.mkdir()
+    bj_bytes = json.dumps(build_json).encode()
+    (bd / "build.json").write_bytes(bj_bytes)
+    manifest = {"files": {"build.json": {"sha256": hashlib.sha256(bj_bytes).hexdigest()}}}
+    return bd, manifest
+
+
+def test_verify_build_json_rejects_tampered(tmp_path: Path) -> None:
+    bd, manifest = _bundle_with_build(tmp_path, {"patch_apply": {"files_changed": ["pkgs/x/package.nix"]}})
+    (bd / "build.json").write_text('{"patch_apply": {"files_changed": ["pkgs/EVIL/package.nix"]}}')
+    bj, err = pr_mod._verify_build_json(bd, manifest)
+    assert bj is None and "does not match the signed manifest" in err
+
+
+def test_derive_plan_canonical_remap(tmp_path: Path) -> None:
+    bj = {"patch_apply": {"files_changed": ["pkgs/applications/x/putty/default.nix"],
+                          "package_file_remap": "package.nix -> .../default.nix (content-match)"}}
+    patch = tmp_path / "p.diff"
+    patch.write_text("diff --git a/package.nix b/package.nix\n--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n-a\n+b\n")
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert err is None and plan["mode"] == "canonical-package-remap"
+    assert plan["package_dir"] == "pkgs/applications/x/putty"
+    remapped = plan["patch_path"].read_text()
+    assert "b/default.nix" in remapped and "package.nix" not in remapped
+    assert "-a\n+b" in remapped  # hunk body untouched
+
+
+def test_derive_plan_by_name(tmp_path: Path) -> None:
+    bj = {"patch_apply": {"files_changed": ["pkgs/by-name/ex/example/package.nix"]}}
+    patch = tmp_path / "p.diff"; patch.write_text("x")
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert err is None and plan["mode"] == "by-name"
+    assert plan["package_dir"] == "pkgs/by-name/ex/example"
+    assert plan["patch_path"] == patch  # not remapped
+
+
+def test_derive_plan_repo_root_multifile(tmp_path: Path) -> None:
+    bj = {"patch_apply": {"files_changed": ["pkgs/a/default.nix", "pkgs/b/thing.patch"]}}
+    patch = tmp_path / "p.diff"; patch.write_text("x")
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert err is None and plan["mode"] == "repo-root" and plan["package_dir"] == ""
+
+
+def test_derive_plan_rejects_traversal(tmp_path: Path) -> None:
+    for bad in ["../etc/passwd.nix", "/abs/package.nix", "pkgs/../x.nix", "notpkgs/x.nix", "pkgs/a/..\\b.nix"]:
+        bj = {"patch_apply": {"files_changed": [bad]}}
+        patch = tmp_path / "p.diff"; patch.write_text("x")
+        plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+        assert plan is None and err is not None, bad
+
+
+def test_derive_plan_no_record_falls_back(tmp_path: Path) -> None:
+    plan, err = pr_mod._derive_apply_plan({}, tmp_path / "p.diff", tmp_path)
+    assert plan is None and err is None  # → caller uses attr resolution
+
+
+def test_verify_manifest_missing_on_disk_is_error(tmp_path: Path) -> None:
+    # M1: a file listed in the signed manifest but absent on disk must ERROR,
+    # never silently fall back (that would re-enable attr-steering by deletion).
+    bd = tmp_path / "b"; bd.mkdir()
+    manifest = {"files": {"build.json": {"sha256": "a" * 64}}}  # listed, but no file written
+    bj, err = pr_mod._verify_build_json(bd, manifest)
+    assert bj is None and "missing on disk" in err
+
+
+def test_verify_manifest_absent_and_unlisted_falls_back(tmp_path: Path) -> None:
+    bd = tmp_path / "b"; bd.mkdir()
+    bj, err = pr_mod._verify_build_json(bd, {"files": {}})  # legacy: not listed, not present
+    assert bj is None and err is None
+
+
+def test_verify_manifest_hashes_and_parses_same_bytes(tmp_path: Path) -> None:
+    # M3: no TOCTOU — verified bytes are the parsed bytes.
+    import hashlib
+    bd = tmp_path / "b"; bd.mkdir()
+    raw = b'{"patch_apply": {"files_changed": ["pkgs/x/package.nix"]}}'
+    (bd / "build.json").write_bytes(raw)
+    manifest = {"files": {"build.json": {"sha256": hashlib.sha256(raw).hexdigest()}}}
+    bj, err = pr_mod._verify_build_json(bd, manifest)
+    assert err is None and bj["patch_apply"]["files_changed"] == ["pkgs/x/package.nix"]

@@ -24,8 +24,10 @@ Phase 4 hardening (deferred):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -33,6 +35,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+# Reuse the Builder's path-header remap so trace pr applies exactly what the cert
+# proved (header-only rewrite; hunk bodies provably untouched). Same-repo import
+# convention as cli.py / execute.py.
+from agents.builder.runner import _remap_diff_basename  # noqa: E402
+
+_NIX_BASENAME_RE = re.compile(r"^[A-Za-z0-9._+-]+\.nix$")
 
 
 POLICY_PATH_DEFAULT = "policy/nixpkgs-fork.json"
@@ -338,20 +347,52 @@ def run(args: argparse.Namespace) -> int:
             _cleanup(owned_tmp)
             return EXIT_GIT_FAIL
 
-    # ── 7. resolve attr package directory ──────────────────────────────────
-    package_dir_rel = _resolve_attr_package_dir(nixpkgs_dir, attr_path)
-    if package_dir_rel is None:
-        print(
-            f"error: could not resolve package directory for attr={attr_path!r} "
-            f"inside nixpkgs checkout {nixpkgs_dir}. Expected "
-            f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix",
-            file=sys.stderr,
-        )
+    # ── 7. resolve the apply plan ──────────────────────────────────────────
+    # Prefer the SIGNED build.json apply record (replays what the cert proved:
+    # by-name / canonical-package-remap / repo-root); fall back to attr resolution
+    # only for bundles that predate apply recording.
+    # H1: verify the PAYLOAD actually applied (patch.diff) against the signed manifest —
+    # the build.json gate alone left the patch itself unverified, so a swapped patch (e.g.
+    # one carrying a .github/workflows edit) could ride through in repo-root mode.
+    _, pd_err = _verify_manifest_bytes(bundle_dir, bundle, "patch.diff")
+    if pd_err:
+        print(f"error: {pd_err}", file=sys.stderr)
         _cleanup(owned_tmp)
         return EXIT_INVALID
+    bj, bj_err = _verify_build_json(bundle_dir, bundle)
+    if bj_err:
+        print(f"error: {bj_err}", file=sys.stderr)
+        _cleanup(owned_tmp)
+        return EXIT_INVALID
+    plan = None
+    if bj is not None:
+        plan, plan_err = _derive_apply_plan(
+            bj, patch_diff_path,
+            Path(owned_tmp) if owned_tmp else Path(tempfile.gettempdir()))
+        if plan_err:
+            print(f"error: {plan_err}", file=sys.stderr)
+            _cleanup(owned_tmp)
+            return EXIT_INVALID
+    if plan is None:
+        package_dir_rel = _resolve_attr_package_dir(nixpkgs_dir, attr_path)
+        if package_dir_rel is None:
+            print(
+                f"error: could not resolve package directory for attr={attr_path!r} "
+                f"inside nixpkgs checkout {nixpkgs_dir}. Expected "
+                f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix, or a "
+                "build.json apply record (re-cert to refresh build.json).",
+                file=sys.stderr,
+            )
+            _cleanup(owned_tmp)
+            return EXIT_INVALID
+        plan = {"package_dir": package_dir_rel, "patch_path": patch_diff_path,
+                "mode": "attr-fallback"}
+    package_dir_rel = plan["package_dir"]
+    apply_patch_path = plan["patch_path"]
+    print(f"  apply plan: mode={plan['mode']} dir={package_dir_rel or '<repo-root>'}")
 
     # ── 8. validate patch (git apply --check) ──────────────────────────────
-    check_rc = _git_apply_check(nixpkgs_dir, package_dir_rel, patch_diff_path)
+    check_rc = _git_apply_check(nixpkgs_dir, package_dir_rel, apply_patch_path)
     if check_rc != 0:
         print(
             f"error: git apply --check failed (exit {check_rc}). "
@@ -393,7 +434,7 @@ def run(args: argparse.Namespace) -> int:
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
-    rc = _git_apply(nixpkgs_dir, package_dir_rel, patch_diff_path)
+    rc = _git_apply(nixpkgs_dir, package_dir_rel, apply_patch_path)
     if rc != 0:
         print(f"error: git apply failed after --check passed", file=sys.stderr)
         _cleanup(owned_tmp)
@@ -403,7 +444,7 @@ def run(args: argparse.Namespace) -> int:
     # unformatted edit gets bounced. The base files are nixfmt-clean, so this only
     # touches our edit's region (a clean, minimal diff). Best-effort: warns + proceeds
     # if nixfmt is unavailable (the PR would then fail treefmt CI, surfacing it).
-    _nixfmt_modified(nixpkgs_dir, package_dir_rel, patch_diff_path.read_text())
+    _nixfmt_modified(nixpkgs_dir, package_dir_rel, apply_patch_path.read_text())
 
     # Stage ALL changes in the package dir — INCLUDING new untracked files.
     # Source-backports add a new <CVE>.patch file (git apply leaves it untracked);
@@ -503,6 +544,93 @@ def _load_policy(args: argparse.Namespace) -> tuple[dict[str, Any] | None, str |
 
 
 _ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$")
+
+
+def _verify_manifest_bytes(bundle_dir: Path, bundle: dict,
+                           name: str) -> tuple[bytes | None, str | None]:
+    """Return the bytes of bundle_dir/<name> AFTER verifying their sha256 against the
+    signed bundle.json manifest — so neither a tampered nor a DELETED file (which would
+    silently downgrade to a weaker path) can steer the apply. Returns (bytes | None,
+    error | None); (None, None) means the file is genuinely not in the manifest AND not
+    on disk (a legacy bundle → caller may fall back)."""
+    entry = (bundle.get("files") or {}).get(name)
+    p = bundle_dir / name
+    if not p.is_file():
+        # manifest lists it but it is gone on disk → tamper / downgrade attempt (M1)
+        return (None, f"{name} is in the signed manifest but missing on disk") if entry \
+            else (None, None)
+    if not isinstance(entry, dict) or not entry.get("sha256"):
+        return None, f"{name} present on disk but absent from the signed manifest"
+    raw = p.read_bytes()                                   # hash and parse the SAME bytes (M3)
+    got = hashlib.sha256(raw).hexdigest()
+    if got != entry["sha256"]:
+        return None, (f"{name} does not match the signed manifest "
+                      f"(got {got[:12]}, want {entry['sha256'][:12]}) — "
+                      "bundle tampered or stale-finalized")
+    return raw, None
+
+
+def _verify_build_json(bundle_dir: Path, bundle: dict) -> tuple[dict | None, str | None]:
+    """The manifest-verified build.json dict (or None to fall back on a legacy bundle)."""
+    raw, err = _verify_manifest_bytes(bundle_dir, bundle, "build.json")
+    if err or raw is None:
+        return None, err
+    try:
+        return json.loads(raw), None
+    except json.JSONDecodeError as exc:
+        return None, f"build.json is not valid JSON: {exc}"
+
+
+def _valid_pkgs_path(p: str) -> bool:
+    """Untrusted-string guard on a build.json files_changed entry: relative,
+    normalized, under pkgs/, no traversal/backslash. Extension is not constrained
+    (a source-backport legitimately adds a .patch payload); `git apply --check` at
+    the pinned rev is the final gate, and a canonical remap target is separately
+    required to be a .nix basename."""
+    if not p or p.startswith("/") or "\\" in p:
+        return False
+    parts = p.split("/")
+    if ".." in parts or "." in parts or "" in parts:
+        return False
+    return p.startswith("pkgs/")
+
+
+def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
+                       tmpdir: Path) -> tuple[dict | None, str | None]:
+    """From the SIGNED build.json apply record, derive the PR apply plan — replaying
+    what the cert proved instead of re-resolving. Returns (plan | None, error | None);
+    (None, None) means no apply record → caller falls back. plan['package_dir'] is ''
+    for a repo-root apply (no --directory)."""
+    pa = build_json.get("patch_apply") or {}
+    files = pa.get("files_changed")
+    if not files:
+        return None, None
+    if not all(isinstance(f, str) and _valid_pkgs_path(f) for f in files):
+        return None, f"build.json files_changed carries an unsafe path: {files!r}"
+    remap = pa.get("package_file_remap")
+    # canonical-package-remap: the patch names package.nix but the real file differs
+    if remap and len(files) == 1:
+        target = files[0]
+        pkg_dir, base = posixpath.dirname(target), posixpath.basename(target)
+        if not _NIX_BASENAME_RE.match(base) or not pkg_dir.startswith("pkgs/"):
+            return None, f"build.json remap target is unsafe: {target!r}"
+        if base == "package.nix":                       # no real remap needed
+            return {"package_dir": pkg_dir, "patch_path": patch_diff_path,
+                    "mode": "by-name"}, None
+        remapped = _remap_diff_basename(patch_diff_path.read_text(), "package.nix", base)
+        # a dedicated temp file (not the checkout tree) — no clobber, no PR leak (M4)
+        tf = tempfile.NamedTemporaryFile(mode="w", suffix=".remapped.diff",
+                                         dir=str(tmpdir), delete=False)
+        tf.write(remapped)
+        tf.close()
+        return {"package_dir": pkg_dir, "patch_path": Path(tf.name),
+                "mode": "canonical-package-remap"}, None
+    # single package.nix, no remap → by-name (unchanged behaviour)
+    if len(files) == 1 and files[0].endswith("/package.nix"):
+        return {"package_dir": posixpath.dirname(files[0]), "patch_path": patch_diff_path,
+                "mode": "by-name"}, None
+    # multi-file / non-package.nix → repo-root apply (paths already pkgs/-contained)
+    return {"package_dir": "", "patch_path": patch_diff_path, "mode": "repo-root"}, None
 
 
 def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
@@ -618,10 +746,10 @@ def _git_apply_check(nixpkgs: Path, package_dir: str, patch: Path) -> int:
     # upstream diff — can carry an off-by-one `@@` line count while the +/-
     # content + context are correct. The Builder certs the patch with --recount,
     # so trace pr MUST apply it the same way or a cert-green bundle fails here.
-    r = subprocess.run(
-        ["git", "apply", "--recount", f"--directory={package_dir}", "--check", str(patch)],
-        cwd=str(nixpkgs), check=False, capture_output=True, text=True,
-    )
+    # An empty package_dir means a repo-root apply (paths already pkgs/-contained).
+    cmd = ["git", "apply", "--recount"] + (
+        [f"--directory={package_dir}"] if package_dir else []) + ["--check", str(patch)]
+    r = subprocess.run(cmd, cwd=str(nixpkgs), check=False, capture_output=True, text=True)
     if r.returncode != 0:
         print(
             f"  git apply --check stderr:\n  {r.stderr[:800]}",
@@ -639,10 +767,9 @@ def _create_branch(nixpkgs: Path, branch: str) -> int:
 
 
 def _git_apply(nixpkgs: Path, package_dir: str, patch: Path) -> int:
-    r = subprocess.run(
-        ["git", "apply", "--recount", f"--directory={package_dir}", str(patch)],
-        cwd=str(nixpkgs), check=False, capture_output=True, text=True,
-    )
+    cmd = ["git", "apply", "--recount"] + (
+        [f"--directory={package_dir}"] if package_dir else []) + [str(patch)]
+    r = subprocess.run(cmd, cwd=str(nixpkgs), check=False, capture_output=True, text=True)
     if r.returncode != 0:
         print(f"  git apply stderr:\n  {r.stderr[:800]}", file=sys.stderr)
     return r.returncode
@@ -686,8 +813,12 @@ def _nixfmt_modified(nixpkgs: Path, package_dir: str, patch_text: str) -> int:
 def _git_add(nixpkgs: Path, package_dir: str) -> int:
     """Stage all changes (incl. new files) under the package dir. `-A -- <dir>`
     keeps the staging scoped so an unrelated dirty tree can't leak into the PR."""
+    # Scope staging so a dirty --nixpkgs-checkout can't leak unrelated WIP into the PR
+    # (M2). Empty package_dir → repo-root apply, but the patch is pkgs/-contained by
+    # validation, so staging pkgs/ is sufficient and safe.
+    add_target = ["--", package_dir] if package_dir else ["--", "pkgs"]
     r = subprocess.run(
-        ["git", "add", "-A", "--", package_dir],
+        ["git", "add", "-A", *add_target],
         cwd=str(nixpkgs), check=False, capture_output=True, text=True,
     )
     if r.returncode != 0:
