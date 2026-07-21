@@ -23,6 +23,7 @@ import pytest
 from agents.scout.retry_queue import (
     RetryEntry,
     cve_ids_for_retry,
+    enqueue_ids,
     read_queue,
     update_queue,
     write_queue,
@@ -51,6 +52,45 @@ def test_write_then_read_roundtrip(tmp_path: Path) -> None:
     entries = [_entry("CVE-2024-1"), _entry("CVE-2024-2", attempts=2)]
     write_queue(path, entries)
     assert read_queue(path) == entries
+
+
+def test_enqueue_ids_adds_new_at_zero_attempts() -> None:
+    out = enqueue_ids([], ["CVE-2026-1", "CVE-2026-2"], run_at="2026-07-21T12:00:00Z")
+    by_id = {e.cve_id: e for e in out}
+    assert set(by_id) == {"CVE-2026-1", "CVE-2026-2"}
+    # A displacement is not a failure — enters at 0 so it keeps its full budget.
+    assert by_id["CVE-2026-1"].attempts == 0
+    assert by_id["CVE-2026-1"].first_seen == "2026-07-21T12:00:00Z"
+    assert by_id["CVE-2026-1"].last_error == "displaced-by-cap"
+
+
+def test_enqueue_ids_preserves_existing_entries() -> None:
+    existing = [_entry("CVE-2026-1", attempts=2, last_error="503")]
+    out = enqueue_ids(existing, ["CVE-2026-1", "CVE-2026-9"], run_at="2026-07-21T12:00:00Z")
+    by_id = {e.cve_id: e for e in out}
+    # An already-queued id is untouched (attempts/first_seen preserved), not reset.
+    assert by_id["CVE-2026-1"].attempts == 2
+    assert by_id["CVE-2026-1"].first_seen == "2026-04-29T15:00:00Z"
+    assert by_id["CVE-2026-1"].last_error == "503"
+    assert by_id["CVE-2026-9"].attempts == 0
+
+
+def test_enqueue_ids_skips_blank_and_dedupes() -> None:
+    out = enqueue_ids([], ["CVE-2026-1", "", "  ", "CVE-2026-1"], run_at="2026-07-21T12:00:00Z")
+    assert [e.cve_id for e in out] == ["CVE-2026-1"]
+
+
+def test_enqueued_displaced_id_gets_full_budget_on_later_failure() -> None:
+    # A displaced id (attempts=0) that then fails processing starts its retry
+    # count at 1, i.e. it is NOT penalised for having been displaced.
+    q = enqueue_ids([], ["CVE-2026-1"], run_at="2026-07-21T12:00:00Z")
+    q2 = update_queue(
+        existing=q,
+        run_summary=[{"cve_id": "CVE-2026-1", "action": "fetch-failed"}],
+        run_at="2026-07-21T18:00:00Z",
+        max_attempts=3,
+    )
+    assert {e.cve_id: e.attempts for e in q2}["CVE-2026-1"] == 1
 
 
 def test_unparseable_line_skipped_with_warning(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

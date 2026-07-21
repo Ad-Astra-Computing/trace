@@ -81,6 +81,34 @@ def cve_ids_for_retry(queue: list[RetryEntry]) -> list[str]:
     return [e.cve_id for e in sorted(queue, key=lambda e: e.first_seen)]
 
 
+def enqueue_ids(
+    queue: list[RetryEntry],
+    cve_ids: Iterable[str],
+    *,
+    run_at: str,
+    reason: str = "displaced-by-cap",
+) -> list[RetryEntry]:
+    """Add carry-over ids that were DISCOVERED but not processed this run (e.g.
+    displaced past the per-run cap) so the next run picks them up instead of
+    losing them — the discovery cursor advances past the window regardless.
+    Entries enter at attempts=0 (a displacement is not a failure), so they still
+    get the full max_attempts once actually processed. Ids already in the queue
+    are left untouched (their attempts/first_seen are preserved)."""
+    by_id = {e.cve_id: e for e in queue}
+    for raw in cve_ids:
+        cve_id = raw.strip() if isinstance(raw, str) else ""
+        if not cve_id or cve_id in by_id:
+            continue
+        by_id[cve_id] = RetryEntry(
+            cve_id=cve_id,
+            attempts=0,
+            first_seen=run_at,
+            last_seen=run_at,
+            last_error=reason,
+        )
+    return list(by_id.values())
+
+
 def update_queue(
     *,
     existing: list[RetryEntry],

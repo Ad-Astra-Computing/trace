@@ -285,23 +285,66 @@ jobs:
           retry_count=$(wc -l < out/cve-ids.retry.txt | tr -d ' ')
           discovered=$(wc -l < out/cve-ids.discovered.txt | tr -d ' ')
           nix_seed_count=$(wc -l < out/cve-ids.nixseed.txt | tr -d ' ')
-          # Order = retries first (age-out priority), then the NVD window,
-          # then the vulnpatch nix-seed. awk dedupes preserving first-seen,
-          # so a CVE the NVD walk already found is not re-queued by the seed.
+          # Full (uncapped) queue, first-seen dedup — retries, then the NVD
+          # window, then the vulnpatch nix-seed. Recorded for the totals line;
+          # the processed set is the two capped lanes below.
           cat out/cve-ids.retry.txt out/cve-ids.discovered.txt out/cve-ids.nixseed.txt \
             | awk '!seen[$0]++' \
             > out/cve-ids.txt
 
           total=$(wc -l < out/cve-ids.txt | tr -d ' ')
+
+          # Two-lane cap so the nix-seed backlog ALWAYS gets processing slots.
+          # Without it, NVD's ~75 fresh ids/run fill the whole head-cap and the
+          # ~235-entry backlog discover emits is never processed → the drain-once
+          # ledger never marks anything terminal → it re-emits the whole backlog
+          # every run and never converges (found on scheduled run 29799319551,
+          # ledger 0 entries; codex 2026-07-21).
+          #
+          # Two candidate lanes (uncapped, deduped, cross-lane-exclusive):
+          #   fresh   = retry + NVD window (retries first)
+          #   backlog = nix-seed ids NOT already in the fresh candidates
+          # Reserve NIX_SEED_SLOTS for the backlog, give the rest to fresh, then
+          # backfill each lane's unused share from the other so the cap is never
+          # wasted. The backfill is load-bearing: a dropped fresh CVE is LOST
+          # because the schedule advances the discovery cursor past it, so an
+          # under-filled backlog must not starve fresh (codex P1 2026-07-21).
+          # The ledger leaves emitted-but-capped ids re-emittable (same path as
+          # crash-before-outcome), so the backlog shrinks by up to its lane size
+          # per run until drained (~ceil(235/slots) runs).
+          NIX_SEED_SLOTS=${NIX_SEED_SLOTS:-20}
+          if (( NIX_SEED_SLOTS > MAX_CVES )); then NIX_SEED_SLOTS=$MAX_CVES; fi
+          cat out/cve-ids.retry.txt out/cve-ids.discovered.txt \
+            | awk '!seen[$0]++' > out/cve-ids.fresh-all.txt
+          awk 'NR==FNR{f[$0]=1; next} !($0 in f) && !seen[$0]++' \
+              out/cve-ids.fresh-all.txt out/cve-ids.nixseed.txt \
+            > out/cve-ids.backlog-all.txt
+          fresh_avail=$(wc -l < out/cve-ids.fresh-all.txt | tr -d ' ')
+          backlog_avail=$(wc -l < out/cve-ids.backlog-all.txt | tr -d ' ')
+          # reserve → fresh-rest → backfill fresh's slack into backlog.
+          backlog_take=$(( backlog_avail < NIX_SEED_SLOTS ? backlog_avail : NIX_SEED_SLOTS ))
+          fresh_cap=$(( MAX_CVES - backlog_take ))
+          fresh_take=$(( fresh_avail < fresh_cap ? fresh_avail : fresh_cap ))
+          backlog_cap=$(( MAX_CVES - fresh_take ))
+          backlog_take=$(( backlog_avail < backlog_cap ? backlog_avail : backlog_cap ))
+          head -n "$fresh_take" out/cve-ids.fresh-all.txt > out/cve-ids.fresh.txt
+          head -n "$backlog_take" out/cve-ids.backlog-all.txt > out/cve-ids.backlog.txt
+          cat out/cve-ids.fresh.txt out/cve-ids.backlog.txt > out/cve-ids.capped.txt
+          # Fresh (retry+NVD) ids that overflowed the cap this run. The schedule
+          # advances the discovery cursor past this window, so these must carry
+          # over via the retry queue or they are lost (codex P1 2026-07-21). The
+          # nix-seed backlog does NOT carry over here — its ledger re-emits it.
+          tail -n +"$(( fresh_take + 1 ))" out/cve-ids.fresh-all.txt > out/cve-ids.displaced.txt || : > out/cve-ids.displaced.txt
+
           echo "discovered=$discovered" >> "$GITHUB_OUTPUT"
           echo "nix_seed=$nix_seed_count" >> "$GITHUB_OUTPUT"
           echo "retry_count=$retry_count" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"
           echo "Discovered $discovered new CVE ids (+$nix_seed_count nix-seed); queued $retry_count retries; $total to process."
-          head -n "$MAX_CVES" out/cve-ids.txt > out/cve-ids.capped.txt
           capped=$(wc -l < out/cve-ids.capped.txt | tr -d ' ')
+          backlog_slots=$(wc -l < out/cve-ids.backlog.txt | tr -d ' ')
           echo "capped=$capped" >> "$GITHUB_OUTPUT"
-          echo "Processing $capped (cap=$MAX_CVES)."
+          echo "Processing $capped (cap=$MAX_CVES; $backlog_slots nix-seed backlog slots)."
 
       - name: Resolve nixpkgs checkout for auto-prefetch
         # batch_cli's --nixpkgs-root needs a real nixpkgs tree to read
@@ -382,12 +425,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p state
-          : > state/scout-retry.jsonl  # ensure file exists for first-run case
+          # Create only if absent — NEVER truncate: the cache-restored queue is
+          # the `existing` that update reads, so truncating it would drop every
+          # pending retry + carried-over displaced id and reset the attempts
+          # counter each run (so max-attempts never fires). codex P1 2026-07-21.
+          [[ -f state/scout-retry.jsonl ]] || : > state/scout-retry.jsonl
           nix develop --command python -m agents.scout.retry_cli update \
             --queue state/scout-retry.jsonl \
             --run-summary out/run-summary.jsonl \
             --run-at "$UNTIL" \
-            --max-attempts 3
+            --max-attempts 3 \
+            --also-enqueue out/cve-ids.displaced.txt
           echo "Retry queue size: $(wc -l < state/scout-retry.jsonl | tr -d ' ')"
 
       - name: Update nix-seed ledger

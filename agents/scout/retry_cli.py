@@ -26,6 +26,7 @@ from pathlib import Path
 
 from agents.scout.retry_queue import (
     cve_ids_for_retry,
+    enqueue_ids,
     read_queue,
     update_queue,
     write_queue,
@@ -48,6 +49,15 @@ def main(argv: list[str] | None = None) -> int:
     upd.add_argument("--run-summary", required=True, type=Path)
     upd.add_argument("--run-at", required=True, help="ISO-8601 UTC timestamp for this run")
     upd.add_argument("--max-attempts", type=int, default=3)
+    upd.add_argument(
+        "--also-enqueue",
+        type=Path,
+        default=None,
+        help="Optional file of CVE ids (one per line) that were discovered but "
+        "not processed this run (displaced past the cap). They are added to the "
+        "queue at attempts=0 so the next run picks them up instead of losing "
+        "them to the advancing discovery cursor. Missing file is a no-op.",
+    )
 
     args = parser.parse_args(argv)
 
@@ -76,6 +86,13 @@ def main(argv: list[str] | None = None) -> int:
             run_at=args.run_at,
             max_attempts=args.max_attempts,
         )
+        if args.also_enqueue is not None and args.also_enqueue.is_file():
+            displaced = [
+                ln.strip()
+                for ln in args.also_enqueue.read_text().splitlines()
+                if ln.strip()
+            ]
+            new_q = enqueue_ids(new_q, displaced, run_at=args.run_at)
         write_queue(args.queue, new_q)
         print(
             f"queue updated: {len(existing)} → {len(new_q)} entries",
