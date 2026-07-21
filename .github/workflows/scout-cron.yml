@@ -102,10 +102,11 @@ jobs:
         id: state-restore
         uses: actions/cache/restore@v5
         with:
-          # state/ holds two files written by this workflow:
-          #   scout-cursor.json   discovery watermark (last_run_utc)
-          #   scout-retry.jsonl   transient-failure retry queue
-          # Both persist across runs via this single cache.
+          # state/ holds three files written by this workflow:
+          #   scout-cursor.json    discovery watermark (last_run_utc)
+          #   scout-retry.jsonl    transient-failure retry queue
+          #   nix-seed-seen.jsonl  vulnpatch /nix/cves evaluation ledger
+          # All persist across runs via this single cache.
           path: state
           # Cache keys are immutable; each successful run writes a new
           # scout-state-v1-<run_id> key and we pull the freshest match
@@ -242,16 +243,22 @@ jobs:
           grep -E '^CVE-[0-9]{4}-[0-9]{4,19}$' out/cve-ids.raw.txt > out/cve-ids.discovered.txt || true
 
           # Second discovery source: the vulnpatch /nix/cves snapshot (open
-          # nixpkgs-affecting CVEs, already mapped to an attr). Client-side
-          # windowed to the same [SINCE,UNTIL]. Its ids flow through the SAME
-          # poll -> process path (graph lookup + relevance), so the vulnpatch
-          # mapping is only a seed hint, never a merge decision. Non-fatal:
-          # the NVD walk is authoritative for completeness; nix-seed is an
-          # additive high-precision fast-path, so a feed hiccup never fails
-          # the run or blocks NVD-discovered ids.
+          # nixpkgs-affecting CVEs, already mapped to an attr). This is a
+          # CURATED BACKLOG (~235 currently-open CVEs), not a fresh-publish
+          # feed, so it is NOT windowed to [SINCE,UNTIL] (that emitted ~1/run).
+          # Instead the cross-run ledger (state/nix-seed-seen.jsonl) drains the
+          # backlog once, then emits only new / changed / TTL-expired entries;
+          # the emit sidecar records the fingerprint each id was evaluated at so
+          # the post-run "Update nix-seed ledger" step can mark terminal
+          # outcomes. Every id still flows through the SAME poll -> process path
+          # (graph lookup + relevance), so the vulnpatch mapping is only a seed
+          # hint, never a merge decision. Non-fatal: the NVD walk is
+          # authoritative for completeness; a feed hiccup never fails the run or
+          # blocks NVD-discovered ids.
           if [[ "${INCLUDE_NIX_SEED:-true}" == "true" ]]; then
             if nix develop --command python -m agents.scout.discover_nix_cli \
-                 --since "$SINCE" --until "$UNTIL" \
+                 --seen-ledger state/nix-seed-seen.jsonl \
+                 --emit-sidecar out/nixseed-emitted.jsonl \
                  > out/cve-ids.nixseed.raw.txt 2> out/nixseed.err.txt; then
               grep -E '^CVE-[0-9]{4}-[0-9]{4,19}$' out/cve-ids.nixseed.raw.txt \
                 > out/cve-ids.nixseed.txt || true
@@ -382,6 +389,25 @@ jobs:
             --run-at "$UNTIL" \
             --max-attempts 3
           echo "Retry queue size: $(wc -l < state/scout-retry.jsonl | tr -d ' ')"
+
+      - name: Update nix-seed ledger
+        # Mark this run's nix-seed CVEs terminal ONLY after processing (single
+        # ledger writer). No-op when the seed emitted nothing (sidecar absent).
+        if: always() && steps.snapshot.outputs.ready == 'true' && hashFiles('out/run-summary.jsonl') != ''
+        env:
+          UNTIL: ${{ steps.discover.outputs.until }}
+        run: |
+          set -euo pipefail
+          mkdir -p state
+          if [[ -f out/nixseed-emitted.jsonl ]]; then
+            nix develop --command python -m agents.scout.nix_seed_ledger_cli update \
+              --ledger state/nix-seed-seen.jsonl \
+              --sidecar out/nixseed-emitted.jsonl \
+              --run-summary out/run-summary.jsonl \
+              --run-at "$UNTIL"
+          else
+            echo "no nix-seed emit sidecar; ledger unchanged"
+          fi
 
       - name: Advance discovery cursor
         # Only advance on the schedule path. workflow_dispatch with an

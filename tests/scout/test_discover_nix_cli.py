@@ -115,3 +115,65 @@ def test_transient_error_exits_ten() -> None:
     with patch.object(discover_nix_cli, "list_nixpkgs_cves", side_effect=FeedTransientError("nope")):
         rc = discover_nix_cli.main([])
     assert rc == 10
+
+
+def _write_ledger(path, rows):
+    import json
+    path.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+
+
+def test_ledger_skips_terminally_seen_unchanged(tmp_path, capsys):
+    # A CVE terminally evaluated at the same fingerprint, within TTL, is not re-emitted.
+    ledger = tmp_path / "seen.jsonl"
+    fp = "h:" + "0" * 16  # matches an all-default entry only if state matches; use updated_at instead
+    _write_ledger(ledger, [{
+        "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
+        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "skipped-irrelevant",
+        "fingerprint": "u:2026-07-19T00:00:00Z",
+    }])
+    entry = NixpkgsCve(
+        nixpkgs_id="N", cve_id="CVE-2026-1001", cve_ids=["CVE-2026-1001"],
+        status="open", published_at="2026-07-19T00:00:00Z",
+        updated_at="2026-07-19T00:00:00Z",
+    )
+    new = NixpkgsCve(
+        nixpkgs_id="N2", cve_id="CVE-2026-1002", cve_ids=["CVE-2026-1002"],
+        status="open", published_at="2026-07-19T00:00:00Z",
+        updated_at="2026-07-19T00:00:00Z",
+    )
+    with patch.object(discover_nix_cli, "list_nixpkgs_cves", return_value=_snap([entry, new])):
+        rc = discover_nix_cli.main(["--seen-ledger", str(ledger)])
+    assert rc == 0
+    # 1001 skipped (seen, unchanged), 1002 emitted (new)
+    assert capsys.readouterr().out.strip().splitlines() == ["CVE-2026-1002"]
+
+
+def test_ledger_re_emits_on_fingerprint_change(tmp_path, capsys):
+    ledger = tmp_path / "seen.jsonl"
+    _write_ledger(ledger, [{
+        "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
+        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "written",
+        "fingerprint": "u:OLD",
+    }])
+    entry = NixpkgsCve(
+        nixpkgs_id="N", cve_id="CVE-2026-1001", cve_ids=["CVE-2026-1001"],
+        status="open", published_at="2026-07-19T00:00:00Z", updated_at="NEW",
+    )
+    with patch.object(discover_nix_cli, "list_nixpkgs_cves", return_value=_snap([entry])):
+        rc = discover_nix_cli.main(["--seen-ledger", str(ledger)])
+    assert rc == 0
+    assert capsys.readouterr().out.strip().splitlines() == ["CVE-2026-1001"]
+
+
+def test_emit_sidecar_records_fingerprints(tmp_path, capsys):
+    import json
+    sidecar = tmp_path / "emitted.jsonl"
+    entry = NixpkgsCve(
+        nixpkgs_id="N", cve_id="CVE-2026-1001", cve_ids=["CVE-2026-1001"],
+        status="open", published_at="2026-07-19T00:00:00Z", updated_at="2026-07-19T00:00:00Z",
+    )
+    with patch.object(discover_nix_cli, "list_nixpkgs_cves", return_value=_snap([entry])):
+        rc = discover_nix_cli.main(["--emit-sidecar", str(sidecar)])
+    assert rc == 0
+    rows = [json.loads(x) for x in sidecar.read_text().splitlines() if x.strip()]
+    assert rows == [{"cve_id": "CVE-2026-1001", "fingerprint": "u:2026-07-19T00:00:00Z"}]

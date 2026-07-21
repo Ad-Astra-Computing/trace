@@ -28,9 +28,11 @@ Exit codes (mirror discover_cli so the workflow treats both sources alike):
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from agents.scout.feed_client import (
     FeedDecodeError,
@@ -39,6 +41,11 @@ from agents.scout.feed_client import (
     FeedTransientError,
 )
 from agents.scout.nix_discovery import list_nixpkgs_cves
+from agents.scout.nix_seed_ledger import (
+    fingerprint_fields,
+    read_ledger,
+    should_emit,
+)
 
 
 _EXIT_OK = 0
@@ -66,6 +73,29 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Convenience: keep entries published in the last N hours. "
         "Mutually exclusive with --since.",
+    )
+    parser.add_argument(
+        "--seen-ledger",
+        default=None,
+        help="Path to the cross-run evaluation ledger (state/nix-seed-seen.jsonl). "
+        "When set, a snapshot CVE is emitted only if it is new, previously "
+        "retryable, its upstream record changed, or its last terminal outcome is "
+        "older than --ttl-days. This is the intended cron mode (no window flag): "
+        "drains the backlog once, then emits deltas.",
+    )
+    parser.add_argument(
+        "--emit-sidecar",
+        default=None,
+        help="Path to write an ephemeral {cve_id, fingerprint} JSONL for each "
+        "emitted id, so the post-run ledger update knows what fingerprint each "
+        "id was evaluated at. Only meaningful with --seen-ledger.",
+    )
+    parser.add_argument(
+        "--ttl-days",
+        type=int,
+        default=30,
+        help="Re-emit a terminally-evaluated CVE after this many days even if "
+        "unchanged (default 30). Only meaningful with --seen-ledger.",
     )
     args = parser.parse_args(argv)
 
@@ -96,15 +126,46 @@ def main(argv: list[str] | None = None) -> int:
         print(f"nix discovery failed: {e}", file=sys.stderr)
         return _EXIT_FETCH_FAILED
 
+    ledger = read_ledger(Path(args.seen_ledger)) if args.seen_ledger else {}
+    now = datetime.now(timezone.utc)
+    sidecar_lines: list[str] = []
+
     seen: set[str] = set()
     for entry in snapshot.entries:
         if not _in_window(entry.published_at, since, until):
             continue
+        # All cve_ids grouped under one snapshot entry share its upstream state,
+        # so they share one change fingerprint.
+        fp = fingerprint_fields(
+            status=entry.status,
+            fixed_version=entry.fixed_version,
+            updated_at=entry.updated_at,
+            has_pr=entry.has_pr,
+            has_open_pr=entry.has_open_pr,
+            has_merged_pr=entry.has_merged_pr,
+        )
         # An entry's primary cve_id first, then any additional ids it groups.
         for cid in (entry.cve_id, *entry.cve_ids):
-            if _CVE_RE.match(cid) and cid not in seen:
-                seen.add(cid)
-                print(cid)
+            if not _CVE_RE.match(cid) or cid in seen:
+                continue
+            seen.add(cid)
+            if args.seen_ledger and not should_emit(
+                ledger.get(cid),
+                current_fingerprint=fp,
+                now=now,
+                ttl_days=args.ttl_days,
+            ):
+                continue
+            print(cid)
+            if args.emit_sidecar:
+                sidecar_lines.append(
+                    json.dumps({"cve_id": cid, "fingerprint": fp}, sort_keys=True)
+                )
+
+    if args.emit_sidecar:
+        sidecar = Path(args.emit_sidecar)
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        sidecar.write_text("".join(s + "\n" for s in sidecar_lines))
     return _EXIT_OK
 
 
