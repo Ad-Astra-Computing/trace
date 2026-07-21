@@ -632,3 +632,81 @@ def test_run_writes_md_and_json_pair(tmp_path: Path, capsys: pytest.CaptureFixtu
     # stdout carries the JSON when --format json.
     out = capsys.readouterr().out
     assert '"report_kind": "throughput"' in out
+
+
+# ─── _cost_by_kind: per-kind cost breakdown ──────────────────────────────────
+
+def _bundle(kind: str | None, role_usage: dict[str, Any]) -> report.BundleSummary:
+    """Minimal BundleSummary — _cost_by_kind reads only kind + role_usage."""
+    return report.BundleSummary(
+        cve_id="CVE-0000-0000", bundle_id=None, kind=kind, kind_reason=None,
+        per_role={}, total_wall_time_seconds=None, has_reproducer_nix=False,
+        has_reproducer_refusal=False, patcher_provenance="absent",
+        role_usage=role_usage,
+    )
+
+
+def _usage(cost: float | None) -> dict[str, Any]:
+    return {"patcher": {"actual_cost_usd": cost}}
+
+
+def test_cost_by_kind_groups_and_means() -> None:
+    bundles = [
+        _bundle("auto-merge", _usage(0.20)),
+        _bundle("auto-merge", _usage(0.40)),
+        _bundle("human-review-required", _usage(0.10)),
+    ]
+    out = report._cost_by_kind(bundles)
+    assert out["kinds"]["auto-merge"]["data_points"] == 2
+    assert out["kinds"]["auto-merge"]["mean_usd"] == 0.30
+    assert out["kinds"]["auto-merge"]["total_usd"] == 0.60
+    assert out["kinds"]["human-review-required"]["mean_usd"] == 0.10
+    assert out["total_usd"] == 0.70
+
+
+def test_cost_by_kind_skips_bundles_without_patcher_sidecar() -> None:
+    # A bundle with no patcher usage has no observed spend -> excluded.
+    bundles = [_bundle("auto-merge", _usage(0.20)), _bundle("advisory-only", {})]
+    out = report._cost_by_kind(bundles)
+    assert set(out["kinds"]) == {"auto-merge"}
+
+
+def test_cost_by_kind_excludes_bundle_without_patcher_cost() -> None:
+    # Only a reviewer sidecar (no Patcher) -> partial, cost-incomplete -> excluded
+    # (Patcher dominates spend; both cross-family shapes include it).
+    bundles = [
+        _bundle("auto-merge", _usage(0.20)),
+        _bundle("auto-merge", {"reviewer": {"actual_cost_usd": 0.05}}),
+    ]
+    out = report._cost_by_kind(bundles)
+    assert out["kinds"]["auto-merge"]["data_points"] == 1
+    assert out["kinds"]["auto-merge"]["total_usd"] == 0.20
+
+
+def test_cost_by_kind_sums_all_roles_when_patcher_present() -> None:
+    bundles = [_bundle("auto-merge", {
+        "patcher": {"actual_cost_usd": 0.20},
+        "reviewer": {"actual_cost_usd": 0.05},
+    })]
+    out = report._cost_by_kind(bundles)
+    assert out["kinds"]["auto-merge"]["total_usd"] == 0.25
+
+
+def test_cost_by_kind_excludes_null_cost_sidecar() -> None:
+    # A sidecar present but actual_cost_usd=None (adapter emitted no usage) is
+    # cost-UNKNOWN, not $0 -> must not inflate data_points / understate the mean.
+    bundles = [_bundle("auto-merge", _usage(0.20)), _bundle("auto-merge", _usage(None))]
+    out = report._cost_by_kind(bundles)
+    assert out["kinds"]["auto-merge"]["data_points"] == 1
+    assert out["kinds"]["auto-merge"]["mean_usd"] == 0.20
+
+
+def test_cost_by_kind_unclassified_bucket_for_missing_kind() -> None:
+    out = report._cost_by_kind([_bundle(None, _usage(0.05))])
+    assert out["kinds"]["unclassified"]["total_usd"] == 0.05
+
+
+def test_cost_by_kind_empty_when_no_costed_bundles() -> None:
+    out = report._cost_by_kind([_bundle("auto-merge", {})])
+    assert out["kinds"] == {}
+    assert out["total_usd"] == 0.0

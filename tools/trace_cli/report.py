@@ -411,6 +411,7 @@ def build_report(
         "reproducer_status_distribution": repro_status,
         "patcher_provenance_distribution": patcher_family,
         "cost_per_merge_ready_bundle": _cost_per_merge_ready(bundles),
+        "cost_by_kind": _cost_by_kind(bundles),
     }
 
     n_bundles = len(bundles)
@@ -462,6 +463,56 @@ def _per_role_cost_reason(
     for role in ("patcher", "reviewer", "reproducer"):
         parts.append(f"{role}={role_counts[role]}/{n_bundles}")
     return f"per-role sidecar coverage: {', '.join(parts)}"
+
+
+def _bundle_realized_cost(b: BundleSummary) -> float | None:
+    """Sum of whatever role sidecars carry a numeric actual_cost_usd for this
+    bundle — the realized spend, whichever cross-family shape (Patcher+Reviewer
+    or Patcher+Reproducer) the bundle used. Returns None unless the Patcher role
+    reported a NUMERIC cost: both documented cross-family shapes include Patcher
+    and it dominates spend, so a bundle without an observed Patcher cost (missing
+    sidecar, null cost, or reviewer/reproducer-only telemetry) is cost-incomplete
+    — counting it would understate the mean and inflate data_points. Mirrors the
+    Patcher baseline in _cost_per_merge_ready."""
+    patcher = b.role_usage.get("patcher") or {}
+    if not isinstance(patcher.get("actual_cost_usd"), (int, float)):
+        return None
+    total = 0.0
+    for u in b.role_usage.values():
+        c = u.get("actual_cost_usd")
+        if isinstance(c, (int, float)):
+            total += float(c)
+    return total
+
+
+def _cost_by_kind(bundles: list[BundleSummary]) -> dict[str, Any]:
+    """Realized agent cost grouped by the bundle's disposition `kind`
+    (auto-merge / human-review-required / advisory-only). Uses the kind each
+    bundle already carries — no per-bundle cohort tagging. Only bundles with an
+    observed numeric cost contribute; a bundle with no numeric role cost is
+    excluded rather than counted as $0 (see _bundle_realized_cost). This is the
+    per-segment view the corpus's productivity claim rests on: auto-merge cost
+    is the merge-ready cost, human-review/advisory cost is the honest-refusal
+    cost."""
+    groups: dict[str, list[float]] = {}
+    for b in bundles:
+        cost = _bundle_realized_cost(b)
+        if cost is None:
+            continue  # no observed numeric cost — not a $0 data point
+        key = b.kind or "unclassified"
+        groups.setdefault(key, []).append(cost)
+    by_kind = {
+        kind: {
+            "data_points": len(costs),
+            "mean_usd": round(sum(costs) / len(costs), 6) if costs else None,
+            "total_usd": round(sum(costs), 6),
+        }
+        for kind, costs in sorted(groups.items())
+    }
+    return {
+        "kinds": by_kind,
+        "total_usd": round(sum(g["total_usd"] for g in by_kind.values()), 6),
+    }
 
 
 def _cost_per_merge_ready(bundles: list[BundleSummary]) -> dict[str, Any]:
@@ -649,6 +700,19 @@ def _md_derived_section(derived: dict[str, Any]) -> str:
         for k in sorted(derived["patcher_provenance_distribution"]):
             lines.append(
                 f"| {k} | {derived['patcher_provenance_distribution'][k]} |"
+            )
+        lines.append("")
+    cbk = (derived.get("cost_by_kind") or {}).get("kinds") or {}
+    if cbk:
+        lines.append("**Cost by bundle kind**")
+        lines.append("")
+        lines.append("| kind | bundles | mean (USD) | total (USD) |")
+        lines.append("|---|---|---|---|")
+        for kind in sorted(cbk):
+            g = cbk[kind]
+            mean = f"${g['mean_usd']:.4f}" if g.get("mean_usd") is not None else "—"
+            lines.append(
+                f"| {kind} | {g['data_points']} | {mean} | ${g['total_usd']:.4f} |"
             )
         lines.append("")
     cpb = derived.get("cost_per_merge_ready_bundle") or {}
