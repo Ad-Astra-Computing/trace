@@ -6,6 +6,26 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ---
 
+## v0.7.0 — 21 July 2026
+
+### Validated Reviewer corpus, family-disjoint evaluation, and autonomous Nix-aware CVE discovery
+
+This window (since `trace-v0`, 15 June) turns the frozen v0 corpus into two trained-model pilots, opens the Scout discovery pipeline to a second source, and hardens the repo's trust boundary. The honest through-line: **the durable wins are the measurement/integrity gates and the honest-claim discipline, not a benchmark flip.**
+
+**Reviewer-LoRA pilot (Qwen2.5-Coder-14B).** The Reviewer corpus froze at **67 cert-green positives + 25 mutation-based negatives** (family-leakage-free splits, 63 families; `eval/corpus_readiness.py` READY). Frontier Reviewer baseline: **90.9% verdict accuracy** on the small held-out fold (n=11, sonnet-4-5, `prompts/reviewer.v3.md`). Reviewer-LoRA `v1.10` passes the reconciled small-fold gate (canary 9/9, test 11/11), where a deterministic grounding layer makes a Patch-comparison contradiction non-fatal ONLY when it falsifies the bad evidence on a correct reject, so no unsafe accept can pass. **No frontier-parity claim.** On the larger **34-example** family-disjoint evaluation the current composite (LoRA + a deterministic metadata-consistency gate + validated condition hard-negatives) is **0.853 (29/34) with zero false-rejects**, but the LoRA's *learned semantic guard comparison* still produces false-accepts on `source-backport-condition-mutation` negatives — so those discrepancies are **routed to frontier review, not auto-gated**. The earlier "beats frontier 100% vs 90.9%" headline is **retired** (n=11, single parse-format artifact; fresh-data gate not passed).
+
+**Authoring (source-backport) arc — the agent authors the fix.** New task answering the "version-bump bot" critique: from a CVE description with fix-symbols scrubbed + the pre-fix source window, the model authors a source-level fix; the label is the curated `upstream-fix.patch`. Shipped: a 3-tier eval harness (format/safety → structural-reference → behavioral build-and-execute via `eval/backport_validation.py`), a corpus that reached 50/50 and was then **integrity-cleaned to 79 honest exported rows** (an adversarial review caught ~12 ungrounded/self-leaked/dedup-escaped labels; export-time grounding + self-leak + edit-dedup gates now enforce it), and authoring-LoRA `v0.1`→`v1.3` training runs. **Result (honest lever/ceiling):** byte-exact edit-precision is the ceiling and is insensitive to corpus scale and cleanliness at this size; data scale+diversity moves *localization* (finding the right site) but not the edit itself; verifier-guided **pass@K sampling** over the LoRA + the behavioral reproducer is the working lever (best-of-16 add-recall 0.36 vs ~0 greedy). DPO on the guard-clip edit-shape was tested and **retired as strictly harmful**. The durable output is the integrity gates and the `docs/FINDINGS_LORA.md` honest-measurement ledger.
+
+**Autonomous Scout discovery — second source + drain-once ledger.** Scout gained the vulnpatch `/nix/cves` snapshot as a second discovery source alongside the NVD walk: a curated backlog of open nixpkgs-affecting CVEs pre-mapped to attributes, wired through the same poll → graph-lookup → relevance path so the mapping is only a seed hint, never a merge decision. Because the snapshot is a fixed backlog (not a fresh-publish feed), a cross-run **evaluation ledger** drains it once, then emits only new / changed / TTL-expired deltas — the change signal aggregates every nixpkgs record a CVE spans, and a CVE stays re-emittable until it reaches a terminal outcome. A `beat-upstream` PR-accuracy screen and NVD-comparison harness compare trace's fresh-CVE output against upstream ground truth.
+
+**Protected-main + security cadence.** `main` now enforces required checks (schema+steward, rego, graph) via an active ruleset; Scout longitudinal telemetry moved to an unprotected `scout-telemetry` branch (`trace report` reads it via `--scout-runs-ref`) so the gate never blocks data. A red-main CI alert opens an issue when main goes red. The five-slice security-audit cadence ran to completion twice in this window (2026-07-13, 2026-07-20) plus a proactive close (2026-07-21); the resolver now routes non-semver/git-snapshot versions to human review instead of crashing; `trace pr` trust-boundary and fork-only push fixes landed with fork PRs opened as accuracy-comparison artifacts (never upstream, never merged).
+
+**Corpus curation and retirements (since v0.6.0).** expat CVE-2025-59375 codified the F18 `ulimit -s` Nix-sandbox stack-limit fix (cert GREEN). Three candidates retired at preflight: libpng CVE-2025-66293 (F22, ASAN compile timeout + pre-`by-name` resolver miss), openexr CVE-2026-26981 (pre-fix version outside the CVE range), poppler CVE-2025-43903 (CWE-347 logic flaw, not crash-class). `eval-candidate-schema.json` gained a schema-valid `"retired"` state for both eligibility and bundle-kind.
+
+**Cost.** ~$0.38 mean per auto-merge cert-green bundle (N=24), stable since v0.5.0; full report in `docs/COST_REPORT_v1.0.0.md`.
+
+---
+
 ## trace-v0 — 15 June 2026
 
 ### Reviewer-LoRA corpus frozen at 50/25; v0 pilot gate cleared
@@ -26,17 +46,7 @@ The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and th
 
 ## Unreleased
 
-### Phase 3 arc open; libpng retired (F22); schema + cost improvements
-
-**F18 finding (expat) documented.** Added to v0.6.0 DECISIONS, SEED_INDEX, and expect.json. The F18 `ulimit -s` Nix sandbox stack-limit fix codified: default Nix sandbox stack is 8 MiB; expat's 60K-level entity chain exhausts it without `ulimit -s unlimited`. Cert [26348784388](https://github.com/Ad-Astra-Computing/trace/actions/runs/26348784388) GREEN.
-
-**openexr + poppler retired (Phase 3 preflight failures).** openexr CVE-2026-26981 retired: nixpkgs pre-fix version 3.2.4 is outside the CVE affected range (3.3.0–3.3.6); Reproducer cannot fire SIGNAL_UNPATCHED. Data errors corrected: `upstream_tag_or_release` v3.3.7 → v3.3.8, `version_bump_complexity` patch-release → multi-release. poppler CVE-2025-43903 retired: CWE-347 (signature verification bypass), not crash-class; F8 failure (protocol-level fixture engineering required).
-
-**`eval-candidate-schema.json` extended: `"retired"` added to `expected_v0_eligibility` and `expected_bundle_kind` enums.** Retired candidates now carry schema-valid state rather than ad-hoc strings. Triggered by the openexr + poppler retirements.
-
-**libpng CVE-2025-66293 definitively retired (F22).** Resurrection attempt via F21-class ASAN failed at cert [26455695210](https://github.com/Ad-Astra-Computing/trace/actions/runs/26455695210) with two independent hard failures: (1) patch-apply-failed — Builder resolver cannot find libpng's package directory at nixpkgs_rev `3ab61cef9c...` (predates pkgs/by-name/ migration); (2) ASAN compile timeout — libpng 1.6.51 from source under ASAN elapsed 3600.012s, exceeding the Builder's 3600s limit. Both are CI infrastructure limits. New retirement class F22 (ASAN compile timeout) codified. `build.json` committed (bundle_id `93800cc9b80b3092`).
-
-**v0.6.0 cost report: N=6 merge-ready; $0.35 mean per bundle.** Three-role (patcher+reviewer+reproducer) bundles cluster $0.40–$0.46. Full report at `data/reports/throughput-20260526T150039Z.{json,md}`.
+_Nothing yet; work accumulates here until the next tag. The Phase-3 curation and retirements that previously sat here (F18 expat, libpng F22, openexr, poppler) shipped in v0.7.0._
 
 ---
 
