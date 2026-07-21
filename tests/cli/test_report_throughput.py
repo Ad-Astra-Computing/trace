@@ -710,3 +710,17 @@ def test_cost_by_kind_empty_when_no_costed_bundles() -> None:
     out = report._cost_by_kind([_bundle("auto-merge", {})])
     assert out["kinds"] == {}
     assert out["total_usd"] == 0.0
+
+
+def test_cost_per_merge_ready_excludes_null_patcher_cost() -> None:
+    # An auto-merge bundle with a patcher sidecar but null cost is cost-unknown,
+    # not a $0 merge-ready observation (shares _bundle_realized_cost's baseline).
+    bundles = [
+        _bundle("auto-merge", _usage(0.30)),
+        _bundle("auto-merge", _usage(None)),
+        _bundle("human-review-required", _usage(0.99)),  # wrong kind, ignored
+    ]
+    out = report._cost_per_merge_ready(bundles)
+    assert out["data_points"] == 1
+    assert out["mean_usd"] == 0.30
+    assert out["total_usd"] == 0.30

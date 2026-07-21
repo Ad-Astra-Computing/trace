@@ -529,13 +529,9 @@ def _cost_per_merge_ready(bundles: list[BundleSummary]) -> dict[str, Any]:
     for b in bundles:
         if b.kind != "auto-merge":
             continue
-        if "patcher" not in b.role_usage:
-            continue
-        bundle_cost = 0.0
-        for role, u in b.role_usage.items():
-            c = u.get("actual_cost_usd")
-            if isinstance(c, (int, float)):
-                bundle_cost += float(c)
+        bundle_cost = _bundle_realized_cost(b)
+        if bundle_cost is None:
+            continue  # no observed numeric Patcher cost — cost-incomplete
         rows.append({
             "cve_id": b.cve_id,
             "roles_present": sorted(b.role_usage.keys()),
