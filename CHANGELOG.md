@@ -46,7 +46,9 @@ This window (since `trace-v0`, 15 June) turns the frozen v0 corpus into two trai
 
 ## Unreleased
 
-_Nothing yet; work accumulates here until the next tag. The Phase-3 curation and retirements that previously sat here (F18 expat, libpng F22, openexr, poppler) shipped in v0.7.0._
+**nix-seed drain actually converges (two-lane process cap).** Post-release CI verification showed the v0.7.0 drain-once ledger was inert end-to-end: the process cap (`head -50`) was consumed entirely by NVD discoveries, so the emitted 235-entry backlog never got a processing slot and the ledger never marked anything terminal. scout-cron's Discover step now splits the cap into two lanes — a reserved nix-seed share (default 20) and a retry+NVD share — with two-way backfill so the cap is never wasted. Fresh discoveries that overflow the cap carry over via the retry queue (`retry_cli update --also-enqueue`, entries at attempts=0) instead of being lost past the advancing cursor, and the retry-update step no longer truncates the cache-restored queue (which had also been resetting the attempts counter every run). Verified live: `nix-seed ledger: 49 entries (+20 new this run)` (was 0), `Retry queue size: 251` displaced ids preserved. Three codex-review P1s converged in the fix.
+
+**`trace report throughput`: cost by bundle kind.** New `cost_by_kind` derived section groups realized agent cost by each bundle's disposition `kind`. First measurement: auto-merge 22 bundles / $0.373 mean / $8.20 total; human-review-required 51 / $0.380 / $19.38 — the corpus spends 2.4× more on honest-refusal evidence than merge-ready bundles at a near-identical per-bundle mean. A bundle counts only when its Patcher role reports a numeric cost (null/partial telemetry is cost-incomplete, not $0); `_cost_per_merge_ready` now shares the same baseline via a common helper.
 
 ---
 
