@@ -109,6 +109,22 @@ def fingerprint_fields(
     return "h:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def aggregate_fingerprint(fingerprints: Iterable[str]) -> str:
+    """Combine the per-record fingerprints of every nixpkgs record that shares a
+    CVE into one change token. A CVE can appear across several /nix/cves records
+    (separate affected attributes), each with its own upstream state; keying the
+    change signal on only the first record seen would miss a fixed_version / PR
+    change on any later record. A single distinct fingerprint passes through
+    verbatim; multiple distinct ones fold into an order-independent `m:` digest,
+    so a change to ANY record moves the aggregate and re-triggers evaluation."""
+    uniq = sorted(set(fingerprints))
+    if not uniq:
+        return "h:" + hashlib.sha256(b"").hexdigest()[:16]
+    if len(uniq) == 1:
+        return uniq[0]
+    return "m:" + hashlib.sha256("\n".join(uniq).encode("utf-8")).hexdigest()[:16]
+
+
 def read_ledger(path: Path) -> dict[str, LedgerEntry]:
     """Load the ledger keyed by cve_id. Malformed lines are skipped (a corrupt
     line must never wedge discovery); last entry for a cve_id wins."""

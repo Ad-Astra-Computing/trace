@@ -10,6 +10,7 @@ from pathlib import Path
 
 from agents.scout.nix_seed_ledger import (
     LedgerEntry,
+    aggregate_fingerprint,
     fingerprint_fields,
     read_ledger,
     should_emit,
@@ -46,6 +47,29 @@ def test_fingerprint_moves_on_pr_merge():
     open_pr = _fp(has_pr=True, has_open_pr=True)
     merged = _fp(has_pr=True, has_merged_pr=True)
     assert open_pr != merged
+
+
+def test_aggregate_single_fingerprint_passes_through():
+    assert aggregate_fingerprint(["u:x"]) == "u:x"
+
+
+def test_aggregate_dedupes_identical_records():
+    # Two records with the SAME state aggregate to the shared fingerprint,
+    # not an m: digest — a multi-record but unchanged CVE stays stable.
+    assert aggregate_fingerprint(["u:x", "u:x"]) == "u:x"
+
+
+def test_aggregate_multiple_distinct_is_order_independent():
+    a = aggregate_fingerprint(["u:a", "u:b"])
+    b = aggregate_fingerprint(["u:b", "u:a"])
+    assert a == b
+    assert a.startswith("m:")
+
+
+def test_aggregate_moves_when_any_record_changes():
+    before = aggregate_fingerprint(["u:a", "u:b"])
+    after = aggregate_fingerprint(["u:a", "u:c"])  # second record changed
+    assert before != after
 
 
 def test_read_write_round_trip(tmp_path: Path):

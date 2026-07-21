@@ -165,6 +165,56 @@ def test_ledger_re_emits_on_fingerprint_change(tmp_path, capsys):
     assert capsys.readouterr().out.strip().splitlines() == ["CVE-2026-1001"]
 
 
+def test_ledger_re_emits_when_second_record_changed(tmp_path, capsys):
+    # A CVE spans two snapshot records (separate attrs). The ledger holds a
+    # terminal entry matching the FIRST record's fingerprint. A change on the
+    # SECOND record must still re-emit — the change signal aggregates all
+    # records, not just the first seen (codex audit 2026-07-21).
+    ledger = tmp_path / "seen.jsonl"
+    _write_ledger(ledger, [{
+        "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
+        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "written",
+        "fingerprint": "u:A",  # matches record #1 only
+    }])
+    rec1 = NixpkgsCve(
+        nixpkgs_id="attr-a", cve_id="CVE-2026-1001", cve_ids=["CVE-2026-1001"],
+        status="open", published_at="2026-07-19T00:00:00Z", updated_at="A",
+    )
+    rec2 = NixpkgsCve(
+        nixpkgs_id="attr-b", cve_id="CVE-2026-1001", cve_ids=["CVE-2026-1001"],
+        status="open", published_at="2026-07-19T00:00:00Z", updated_at="B",
+    )
+    with patch.object(discover_nix_cli, "list_nixpkgs_cves", return_value=_snap([rec1, rec2])):
+        rc = discover_nix_cli.main(["--seen-ledger", str(ledger)])
+    assert rc == 0
+    assert capsys.readouterr().out.strip().splitlines() == ["CVE-2026-1001"]
+
+
+def test_ledger_skips_multi_record_when_aggregate_unchanged(tmp_path, capsys):
+    # Same two-record CVE, but the ledger holds the AGGREGATE fingerprint and
+    # nothing changed -> suppressed. Proves the aggregate is stable across runs.
+    from agents.scout.nix_seed_ledger import aggregate_fingerprint
+    agg = aggregate_fingerprint(["u:A", "u:B"])
+    ledger = tmp_path / "seen.jsonl"
+    _write_ledger(ledger, [{
+        "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
+        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "written",
+        "fingerprint": agg,
+    }])
+    rec1 = NixpkgsCve(
+        nixpkgs_id="attr-a", cve_id="CVE-2026-1001", cve_ids=["CVE-2026-1001"],
+        status="open", published_at="2026-07-19T00:00:00Z", updated_at="A",
+    )
+    rec2 = NixpkgsCve(
+        nixpkgs_id="attr-b", cve_id="CVE-2026-1001", cve_ids=["CVE-2026-1001"],
+        status="open", published_at="2026-07-19T00:00:00Z", updated_at="B",
+    )
+    with patch.object(discover_nix_cli, "list_nixpkgs_cves", return_value=_snap([rec1, rec2])):
+        rc = discover_nix_cli.main(["--seen-ledger", str(ledger)])
+    assert rc == 0
+    assert capsys.readouterr().out.strip() == ""
+
+
 def test_emit_sidecar_records_fingerprints(tmp_path, capsys):
     import json
     sidecar = tmp_path / "emitted.jsonl"

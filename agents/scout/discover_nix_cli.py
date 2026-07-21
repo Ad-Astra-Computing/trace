@@ -42,6 +42,7 @@ from agents.scout.feed_client import (
 )
 from agents.scout.nix_discovery import list_nixpkgs_cves
 from agents.scout.nix_seed_ledger import (
+    aggregate_fingerprint,
     fingerprint_fields,
     read_ledger,
     should_emit,
@@ -130,12 +131,16 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc)
     sidecar_lines: list[str] = []
 
-    seen: set[str] = set()
+    # First pass: collect every record's fingerprint per cve id, in first-seen
+    # order. A CVE can span multiple snapshot records (separate affected attrs),
+    # each with its own upstream state; the change signal must aggregate all of
+    # them so a change on any record — not just the first seen — re-triggers
+    # evaluation (codex audit 2026-07-21).
+    order: list[str] = []
+    fps_by_cid: dict[str, list[str]] = {}
     for entry in snapshot.entries:
         if not _in_window(entry.published_at, since, until):
             continue
-        # All cve_ids grouped under one snapshot entry share its upstream state,
-        # so they share one change fingerprint.
         fp = fingerprint_fields(
             status=entry.status,
             fixed_version=entry.fixed_version,
@@ -146,21 +151,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         # An entry's primary cve_id first, then any additional ids it groups.
         for cid in (entry.cve_id, *entry.cve_ids):
-            if not _CVE_RE.match(cid) or cid in seen:
+            if not _CVE_RE.match(cid):
                 continue
-            seen.add(cid)
-            if args.seen_ledger and not should_emit(
-                ledger.get(cid),
-                current_fingerprint=fp,
-                now=now,
-                ttl_days=args.ttl_days,
-            ):
-                continue
-            print(cid)
-            if args.emit_sidecar:
-                sidecar_lines.append(
-                    json.dumps({"cve_id": cid, "fingerprint": fp}, sort_keys=True)
-                )
+            if cid not in fps_by_cid:
+                fps_by_cid[cid] = []
+                order.append(cid)
+            fps_by_cid[cid].append(fp)
+
+    # Second pass: gate each cve id on its AGGREGATE fingerprint.
+    for cid in order:
+        fp = aggregate_fingerprint(fps_by_cid[cid])
+        if args.seen_ledger and not should_emit(
+            ledger.get(cid),
+            current_fingerprint=fp,
+            now=now,
+            ttl_days=args.ttl_days,
+        ):
+            continue
+        print(cid)
+        if args.emit_sidecar:
+            sidecar_lines.append(
+                json.dumps({"cve_id": cid, "fingerprint": fp}, sort_keys=True)
+            )
 
     if args.emit_sidecar:
         sidecar = Path(args.emit_sidecar)
