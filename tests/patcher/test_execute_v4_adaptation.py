@@ -322,6 +322,32 @@ def test_execute_canonicalizes_wrong_inner_header_and_records_provenance(tmp_pat
     assert out_sha["patch.diff"] == sha256_hex(written.encode("utf-8"))
 
 
+def test_execute_emits_applicability_attestation(tmp_path):
+    import json
+    from tools.trace_cli.hunk_normalizer import CANONICALIZER_VERSION
+    bd = _build_source_context_bundle(tmp_path)
+    result = execute(
+        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
+        model_id="fake-opus-4-7", adapter_factory=_factory(_wrong_header_response()),
+    )
+    att_path = bd / "patch-applicability.json"
+    assert att_path.exists()
+    att = json.loads(att_path.read_text())
+    assert att["canonicalizer_version"] == CANONICALIZER_VERSION
+    assert att["applies_at_fuzz0"] is True
+    assert att["unique_source_match"] is True
+    assert att["canonicalized"] is True
+    assert att["raw_patch_sha256"] != att["canonical_patch_sha256"]
+    assert att["files"][0]["file"] == "foo.c"
+    assert len(att["files"][0]["postimage_sha256"]) == 64
+    # Declared as a hash-recorded output of the invocation.
+    out_paths = {o["path"] for o in result["replay_invocation"]["outputs"]}
+    assert "patch-applicability.json" in out_paths
+    from tools.trace_cli.execute import sha256_hex
+    out_sha = {o["path"]: o["sha256"] for o in result["replay_invocation"]["outputs"]}
+    assert out_sha["patch-applicability.json"] == sha256_hex(att_path.read_bytes())
+
+
 def test_execute_canonicalization_is_idempotent_fixpoint(tmp_path):
     # Canonicalizing a patch is a fixpoint: the written (already-canonical) patch,
     # fed back through the compiler, produces no further change.

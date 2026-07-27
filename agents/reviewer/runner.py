@@ -107,6 +107,21 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
         av = inputs.get("applies_verbatim")
         if av is not None:
             parts.append("applies_verbatim: " + ("true" if av else "false"))
+        # v10 adaptation lane: the executor's deterministic applicability attestation
+        # for the canonical patch.diff. Mechanical applicability is machine-verified
+        # here, so the Reviewer must NOT re-litigate whether the patch applies — it
+        # judges semantic equivalence. Rendered only when present.
+        pa = mac.get("patch_applicability")
+        if isinstance(pa, dict):
+            parts.append(
+                "patch_applicability: applies_at_fuzz0="
+                + ("true" if pa.get("applies_at_fuzz0") else "false")
+                + " unique_source_match="
+                + ("true" if pa.get("unique_source_match") else "false")
+                + f" (canonicalizer {pa.get('canonicalizer_version', '<unknown>')}) "
+                + "— mechanical applicability is machine-attested; assess semantic "
+                "equivalence, not whether the patch applies"
+            )
         parts.append("")
 
     pkg_path = inputs.get("package_source_path", "<package.nix>")

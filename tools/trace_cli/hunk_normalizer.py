@@ -41,6 +41,12 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 
 
+# Version of the canonical-compilation contract. Bump on any change that can alter
+# the canonical bytes produced from a given (raw patch, source-context) pair, so a
+# recorded applicability attestation names the exact compiler that produced it.
+CANONICALIZER_VERSION = "canonical-compiler-1"
+
+
 class HunkNormalizationError(Exception):
     """Raised when a hunk body cannot be grounded uniquely in the pinned source.
 

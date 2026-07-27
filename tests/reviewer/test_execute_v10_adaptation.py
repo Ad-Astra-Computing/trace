@@ -131,6 +131,31 @@ def test_assemble_renders_applies_verbatim_and_source_context():
     assert "l = l * base;" in content
 
 
+def test_assemble_renders_applicability_attestation():
+    content = assemble_user_content({
+        "finding": {}, "upstream_ref": {}, "impact": {}, "maintainers": {},
+        "package_source": "x", "patch_diff": "d", "patch_rationale_md": "r",
+        "patch_strategy": "source-backport",
+        "source_context": {"foo.c": "x\n"},
+        "applies_verbatim": False,
+        "model_attestation_context": {
+            "reviewer_model_id": "claude-sonnet-4-5-20250929",
+            "reviewer_family": "anthropic-sonnet",
+            "patcher_model_id": "claude-opus-4-7",
+            "patcher_family": "anthropic-opus",
+            "cross_family_rule_honored_expected": True,
+            "applies_verbatim": False,
+            "patch_applicability": {
+                "applies_at_fuzz0": True,
+                "unique_source_match": True,
+                "canonicalizer_version": "canonical-compiler-1",
+            },
+        },
+    })
+    assert "patch_applicability: applies_at_fuzz0=true unique_source_match=true" in content
+    assert "machine-attested" in content
+
+
 # ── execute end-to-end ──────────────────────────────────────────────────────
 
 def test_reviewer_routes_to_v10_and_declares_source_context(tmp_path):
@@ -211,6 +236,43 @@ def test_adaptation_accept_without_equivalence_assessment_is_rejected(tmp_path):
     # Nothing signed: no review.md written; raw persisted for debugging.
     assert not (bd / "review.md").exists()
     assert list((bd / ".reviewer-failures").rglob("raw-response.txt"))
+
+
+def test_reviewer_rejects_missing_applicability_attestation(tmp_path):
+    import pytest
+    bd = _prep_reviewable_adaptation_bundle(tmp_path)
+    (bd / "patch-applicability.json").unlink()
+    with pytest.raises(Exception, match="requires patch-applicability.json"):
+        execute(
+            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        )
+
+
+def test_reviewer_rejects_attestation_false_verdict(tmp_path):
+    import pytest
+    bd = _prep_reviewable_adaptation_bundle(tmp_path)
+    att = json.loads((bd / "patch-applicability.json").read_text())
+    att["applies_at_fuzz0"] = False
+    (bd / "patch-applicability.json").write_text(json.dumps(att))
+    with pytest.raises(Exception, match="does not apply at fuzz 0"):
+        execute(
+            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        )
+
+
+def test_reviewer_rejects_attestation_hash_mismatch(tmp_path):
+    # patch.diff swapped after canonicalization: the attestation's canonical hash no
+    # longer matches the reviewed bytes → tamper, refuse.
+    import pytest
+    bd = _prep_reviewable_adaptation_bundle(tmp_path)
+    (bd / "patch.diff").write_text((bd / "patch.diff").read_text() + "\n# tampered\n")
+    with pytest.raises(Exception, match="not the attested artifact"):
+        execute(
+            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        )
 
 
 def _v10_review_with_equivalence(value: str, verdict: str = "accept") -> str:

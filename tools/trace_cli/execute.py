@@ -759,6 +759,36 @@ def _execute_patcher(
             {"path": "patch.diff", "sha256": sha256_hex(diff_bytes), "bytes": len(diff_bytes)},
             {"path": "patch-rationale.md", "sha256": sha256_hex(rat_bytes), "bytes": len(rat_bytes)},
         ]
+        # Adaptation lane: emit a signed applicability attestation the Reviewer
+        # treats as deterministic evidence that the canonical patch.diff is the
+        # artifact Builder will execute. Reaching this point means the canonical
+        # compiler already PROVED (fail-closed) that every hunk matched the pinned
+        # source uniquely and the canonical diff re-applies at fuzz 0 reproducing the
+        # recorded postimage — so those verdicts are `true` by construction here.
+        if hunk_normalization is not None:
+            from tools.trace_cli.hunk_normalizer import CANONICALIZER_VERSION
+
+            attestation = {
+                "schema_version": "1.0.0",
+                "canonicalizer_version": CANONICALIZER_VERSION,
+                "raw_patch_sha256": hunk_normalization["pre_sha256"],
+                "canonical_patch_sha256": hunk_normalization["post_sha256"],
+                "canonicalized": hunk_normalization["applied"],
+                "unique_source_match": True,
+                "applies_at_fuzz0": True,
+                "files": hunk_normalization["files"],
+            }
+            att_bytes = (
+                json.dumps(attestation, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+            )
+            _atomic_write_bytes(bundle_dir / "patch-applicability.json", att_bytes)
+            outputs.append(
+                {
+                    "path": "patch-applicability.json",
+                    "sha256": sha256_hex(att_bytes),
+                    "bytes": len(att_bytes),
+                }
+            )
     else:  # refusal
         refusal_body = json.dumps(
             {
@@ -1337,6 +1367,56 @@ def _execute_reviewer(
             # higher-scrutiny path (requires the equivalence assessment).
             inputs["applies_verbatim"] = False
             inputs["model_attestation_context"]["applies_verbatim"] = False
+
+            # Applicability attestation gate (adaptation lane). The Patcher emits
+            # patch-applicability.json attesting that the canonical patch.diff was
+            # grounded uniquely in source-context and re-applies at fuzz 0. The
+            # Reviewer treats it as deterministic evidence that it is reviewing the
+            # exact artifact Builder will execute: it MUST be present, its verdicts
+            # true, and its canonical hash MUST match the patch.diff on disk (else the
+            # patch was swapped after canonicalization). Fail closed at input-assembly
+            # time, before any model spend.
+            att_path = bundle_dir / "patch-applicability.json"
+            if not att_path.is_file():
+                raise ExecutionError(
+                    "adaptation-lane review requires patch-applicability.json "
+                    "(the Patcher's canonical-compile attestation); it is missing — "
+                    "refusing to review an unattested adaptation patch"
+                )
+            try:
+                att = json.loads(att_path.read_text())
+            except json.JSONDecodeError as exc:
+                raise ExecutionError(
+                    f"patch-applicability.json is not valid JSON: {exc}"
+                ) from exc
+            if att.get("applies_at_fuzz0") is not True or att.get(
+                "unique_source_match"
+            ) is not True:
+                raise ExecutionError(
+                    "patch-applicability.json attests the patch does not apply at "
+                    "fuzz 0 / is not uniquely grounded — refusing adaptation review"
+                )
+            actual_diff_sha = sha256_hex(diff_path.read_bytes())
+            if att.get("canonical_patch_sha256") != actual_diff_sha:
+                raise ExecutionError(
+                    "patch-applicability.json canonical_patch_sha256 does not match "
+                    "patch.diff on disk — the reviewed patch is not the attested "
+                    "artifact (tamper / stale attestation); refusing review"
+                )
+            inputs["model_attestation_context"]["patch_applicability"] = att
+            if verify and invocation.get("inputs"):
+                if "patch-applicability.json" not in {
+                    ref.get("path") for ref in invocation["inputs"]
+                }:
+                    raise ExecutionError(
+                        "reviewer replay: patch-applicability.json not declared in the "
+                        "recorded invocation inputs; refusing to read it unverified"
+                    )
+            if "patch-applicability.json" not in {v.get("path") for v in input_verification}:
+                input_verification.append(
+                    {"path": "patch-applicability.json", "verified": False}
+                )
+
             if prompt_path is None:
                 reviewer_prompt = REVIEWER_PROMPT_PATH_ADAPT
 
@@ -1647,6 +1727,11 @@ def _build_reviewer_invocation(
             review_input_files += [f"source-context/{rel}" for rel in sc_rels]
             if pf.is_file():
                 review_input_files.append("preflight.json")
+            # The applicability attestation is deterministic evidence the Reviewer
+            # gates on (canonical patch applies at fuzz 0, matches patch.diff), so a
+            # replay must judge against the same attestation → replay-critical.
+            if (bundle_dir / "patch-applicability.json").is_file():
+                review_input_files.append("patch-applicability.json")
     for fname in review_input_files:
         p = bundle_dir / fname
         if p.is_file():
