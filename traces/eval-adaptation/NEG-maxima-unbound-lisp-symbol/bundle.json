@@ -55,8 +55,8 @@
       "replay_critical": true
     },
     "patch.diff": {
-      "sha256": "21acad11adabdf29ea2585b424e6ebb4bbcdccfa41d8ae2fb9b6b21c03ed9bed",
-      "bytes": 4343,
+      "sha256": "94087105fcf1fa9b566791fe174f4e0e1ee28dfbf857b51804cd6e70fa773603",
+      "bytes": 4346,
       "producer_role": "patcher",
       "replay_critical": true
     },
@@ -195,7 +195,7 @@
       },
       {
         "path": "patch.diff",
-        "sha256": "21acad11adabdf29ea2585b424e6ebb4bbcdccfa41d8ae2fb9b6b21c03ed9bed"
+        "sha256": "94087105fcf1fa9b566791fe174f4e0e1ee28dfbf857b51804cd6e70fa773603"
       },
       {
         "path": "patch-rationale.md",

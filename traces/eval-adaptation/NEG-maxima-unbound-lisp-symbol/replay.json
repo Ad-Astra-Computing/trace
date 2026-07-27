@@ -136,7 +136,7 @@
           "outputs": [
             {
               "path": "patch.diff",
-              "sha256": "21acad11adabdf29ea2585b424e6ebb4bbcdccfa41d8ae2fb9b6b21c03ed9bed"
+              "sha256": "94087105fcf1fa9b566791fe174f4e0e1ee28dfbf857b51804cd6e70fa773603"
             },
             {
               "path": "patch-rationale.md",
@@ -144,7 +144,7 @@
             },
             {
               "path": "patch-applicability.json",
-              "sha256": "065c7945fb300c2b1c1ba1fc43835b644b92952adbfdeccd1317f93826fcb992"
+              "sha256": "d0cb026b616d967358304057185aa09ab1ef726abe6df51b7ff98fb9053b2d03"
             }
           ],
           "rng_seed": null,

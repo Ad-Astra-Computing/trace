@@ -1,0 +1,17 @@
+{
+  "applies_at_fuzz0": true,
+  "canonical_patch_sha256": "c26847c02fdc1a929f2f8103743832d4b52dd113edea9af8d1c844875e78ec5f",
+  "canonicalized": true,
+  "canonicalizer_version": "canonical-compiler-1",
+  "files": [
+    {
+      "canonical_hunks": 1,
+      "file": "libarchive/archive_read_support_format_tar.c",
+      "model_hunks": 1,
+      "postimage_sha256": "ea9bf5c809bd63582d8cf08ea66f063bd105d93240856d9197cb0f9b2581241a"
+    }
+  ],
+  "raw_patch_sha256": "43fe694c50623440b8aae896ced30cd747b6c3db887f029e5f042ee38dd73d23",
+  "schema_version": "1.0.0",
+  "unique_source_match": true
+}

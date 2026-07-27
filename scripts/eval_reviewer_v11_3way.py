@@ -51,9 +51,14 @@ NEG_SAME = REPO / "traces" / "eval-adaptation" / "NEG-maxima-unbound-lisp-symbol
 NEG_CROSS = REPO / "traces" / "eval-adaptation" / "NEG-libarchive-unresolved-ckd-helpers"
 
 # (label, bundle dir, expected verdict, grading mode, needs_no_verify)
-# The NEGs carry intentionally-stale manifest hashes (corrupted patch.diff +
-# scrubbed reviewer role), so their reviewer replay needs --no-verify; the
-# pristine POS bundle verifies normally, which also catches copy drift.
+# The NEGs pass the adaptation-lane attestation gate HONESTLY (patch-applicability.json
+# regenerated via scripts/regen_eval_attestation.py: applies at fuzz 0, uniquely grounded
+# in source-context -- their sole defect is a dangling symbol in patch content, which the
+# Patcher's canonical-compile attestation doesn't touch and reviewer.v11's existence
+# conjunct must catch). They still need --no-verify because the reviewer role was
+# scrubbed from replay.json (so a future replay re-reviews rather than failing input
+# verification against a stale recorded patch.diff hash); the pristine POS bundle
+# verifies normally, which also catches copy drift.
 CASES = [
     ("POS/maxima-package-scope", POS, "equivalent", "oracle", False),
     ("NEG-same-lang/unbound-lisp", NEG_SAME, "not-equivalent", "verdict-assertion", True),
