@@ -1,6 +1,6 @@
 # Seed Index
 
-The twenty real-CVE bundles under `traces/example/CVE-*/` each demonstrate a distinct shape in the v0 contract. This document is the single-page external-review map: what each bundle is for, what it proves, what it does *not* prove, and where to look first if you're auditing the corpus.
+The real-CVE bundles under `traces/example/CVE-*/` catalogued below each demonstrate a distinct shape in the v0 contract. This document is the single-page external-review map: what each bundle is for, what it proves, what it does *not* prove, and where to look first if you're auditing the corpus.
 
 The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exercise specific Steward rules and per-document schema edges, and are read against `expect.json` notes individually.
 

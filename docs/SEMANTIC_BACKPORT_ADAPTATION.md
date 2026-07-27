@@ -1,10 +1,14 @@
-# Semantic backport adaptation — design note (pre-spend, unopened arc)
+# Semantic backport adaptation — design note
 
-**Status:** design / scoping only. No code, no prompt version bumps, no live spend
-yet. Opened 2026-07-27 as backlog finding #2 from the libarchive CVE-2026-15028
-retirement (`docs/DECISIONS.md` 2026-07-27). This note exists so the arc is ready
-to execute the moment Jason authorizes the live-eval spend it requires; it does
-**not** open the arc.
+**Status (updated 27 July 2026): arc opened and executed.** The lane described
+below was subsequently built and run: `patcher.v4` gained source-aware adaptation
+and the Reviewer gained an equivalence verdict (`reviewer.v10`, with a drafted
+`v11` candidate), and live slices ran through 27 July 2026. See the
+`docs/DECISIONS.md` 2026-07-27 entries and the cited capability summary in
+[`ADAPTATION_CAPABILITY.md`](ADAPTATION_CAPABILITY.md) for the actual outcomes —
+including maxima as the sole equivalence oracle (N=1) and the reviewer.v10
+language-generality miss. This note is retained as the original design/scoping
+record; the text below is the pre-execution plan, not the final state.
 
 ## The gap this closes
 
