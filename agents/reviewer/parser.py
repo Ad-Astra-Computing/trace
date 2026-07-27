@@ -129,6 +129,9 @@ class ReviewerParseResult:
     raw_review_md: str | None = None  # for atomic-write to disk
     # v5: optional section for source-backport reviews; None means absent
     patch_comparison_raw: str | None = None
+    # v10: optional section for source-backport ADAPTATION-lane reviews
+    # (applies_verbatim: false); None means absent
+    equivalence_assessment_raw: str | None = None
 
     def to_schema_dict(self) -> dict[str, Any]:
         if self.kind != "review":
@@ -143,6 +146,8 @@ class ReviewerParseResult:
         }
         if self.patch_comparison_raw is not None:
             d["patch_comparison"] = self.patch_comparison_raw
+        if self.equivalence_assessment_raw is not None:
+            d["equivalence_assessment"] = self.equivalence_assessment_raw
         return d
 
 
@@ -271,6 +276,12 @@ def _parse_review(text: str) -> ReviewerParseResult:
     if patch_comparison_raw is not None:
         patch_comparison_raw = patch_comparison_raw.strip()
 
+    # Optional section: present only for source-backport ADAPTATION-lane
+    # reviews (reviewer.v10+, applies_verbatim: false).
+    equivalence_assessment_raw: str | None = sections.get("## Equivalence assessment")
+    if equivalence_assessment_raw is not None:
+        equivalence_assessment_raw = equivalence_assessment_raw.strip()
+
     return ReviewerParseResult(
         kind="review",
         verdict=verdict_text,
@@ -280,6 +291,7 @@ def _parse_review(text: str) -> ReviewerParseResult:
         cross_family=cross_family,
         raw_review_md=body.rstrip() + "\n",
         patch_comparison_raw=patch_comparison_raw,
+        equivalence_assessment_raw=equivalence_assessment_raw,
     )
 
 

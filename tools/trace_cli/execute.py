@@ -1120,6 +1120,10 @@ def _append_patcher_replay_entry(
 
 
 REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v9.md"
+# Adaptation lane (source-context present, applies_verbatim != true): reviewer.v10
+# adds the semantic-equivalence branch to check 0. Verbatim/non-source-backport
+# reviews stay on the default (v9).
+REVIEWER_PROMPT_PATH_ADAPT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v10.md"
 
 
 def _reviewer_prompt_relpath(prompt: Path) -> str:
@@ -1296,6 +1300,63 @@ def _execute_reviewer(
         inputs["patch_strategy"] = "source-backport"
         inputs["upstream_fix_patch"] = fix_patch_path.read_text()
 
+        # Adaptation lane (reviewer.v10): a source-context/ dir means the
+        # Patcher AUTHORED a semantic adaptation (upstream-fix.patch did not
+        # apply verbatim). Feed the Reviewer the pinned pre-patch source + the
+        # deterministic applies_verbatim verdict so it judges security-relevant
+        # equivalence against the pinned base rather than line-matching the
+        # non-applying upstream fix. Route to reviewer.v10 unless the caller
+        # pinned an explicit prompt_path (test override).
+        sc_dir = bundle_dir / "source-context"
+        sc_relpaths = _source_context_relpaths(sc_dir) if sc_dir.is_dir() else []
+        preflight_path = bundle_dir / "preflight.json"
+        applies_verbatim: bool | None = None
+        if preflight_path.is_file():
+            try:
+                applies_verbatim = json.loads(preflight_path.read_text()).get("applies_verbatim")
+            except (json.JSONDecodeError, OSError):
+                applies_verbatim = None
+        # Only the adaptation lane when source-context carries files AND the fix
+        # is NOT verbatim-applicable. A verbatim-applicable source-backport that
+        # happens to carry source-context stays on the v9 line-match path.
+        if sc_relpaths and applies_verbatim is not True:
+            inputs["source_context"] = {
+                rel: (sc_dir / rel).read_text() for rel in sc_relpaths
+            }
+            # We are definitionally NOT in the verbatim lane here (applies_verbatim
+            # is not the boolean True). Set the model-facing value to False without
+            # truthiness coercion — a malformed non-boolean preflight value (e.g.
+            # the JSON string "false") must not be coerced to True and contradict
+            # the lane we entered. Fail closed to the adaptation lane, which is the
+            # higher-scrutiny path (requires the equivalence assessment).
+            inputs["applies_verbatim"] = False
+            inputs["model_attestation_context"]["applies_verbatim"] = False
+            if prompt_path is None:
+                reviewer_prompt = REVIEWER_PROMPT_PATH_ADAPT
+
+            # Replay integrity: a recorded v10 invocation MUST declare the
+            # source-context files (+ preflight.json) as inputs, or replay could
+            # judge equivalence against different/absent source.
+            if verify and invocation.get("inputs"):
+                declared = {ref.get("path") for ref in invocation["inputs"]}
+                need = {f"source-context/{rel}" for rel in sc_relpaths}
+                if preflight_path.is_file():
+                    need.add("preflight.json")
+                missing = sorted(need - declared)
+                if missing:
+                    raise ExecutionError(
+                        "reviewer source-context replay verification: "
+                        f"{missing} not declared in the recorded invocation inputs; "
+                        "refusing to read them unverified (re-run without --verify)"
+                    )
+            _already = {v.get("path") for v in input_verification}
+            for rel in sc_relpaths:
+                key = f"source-context/{rel}"
+                if key not in _already:
+                    input_verification.append({"path": key, "verified": False})
+            if preflight_path.is_file() and "preflight.json" not in _already:
+                input_verification.append({"path": "preflight.json", "verified": False})
+
     started_at = _utc_now_iso()
     try:
         result = run_reviewer(
@@ -1314,6 +1375,40 @@ def _execute_reviewer(
         )
         raise ExecutionError(f"reviewer output malformed: {exc}") from exc
     ended_at = _utc_now_iso()
+
+    # Adaptation-lane contract enforcement (reviewer.v10). In this lane the
+    # `## Equivalence assessment` section REPLACES the line-level `## Patch
+    # comparison` as the check-0 gate, so an `accept` that omits it has no
+    # semantic-equivalence evidence. Enforce contextually here (the parser is
+    # applies_verbatim-agnostic; the executor is not). Parse-before-write: nothing
+    # is on disk yet, so a violation aborts cleanly. `inputs["source_context"]`
+    # is set only when the adaptation lane was entered.
+    if inputs.get("source_context") and result.kind == "review":
+        ea = result.parsed.equivalence_assessment_raw
+        problem: str | None = None
+        if not ea or "equivalence:" not in ea:
+            problem = (
+                "adaptation-lane review (applies_verbatim=false) must include a "
+                "'## Equivalence assessment' section with an 'equivalence:' line — "
+                "it is the check-0 gate that replaces line-level matching"
+            )
+        elif "equivalence: not-equivalent" in ea and result.parsed.verdict == "accept":
+            problem = (
+                "adaptation-lane review concludes 'equivalence: not-equivalent' "
+                "but verdict is 'accept' — contradiction"
+            )
+        if problem:
+            exc2 = ReviewerOutputMalformed(problem)
+            setattr(exc2, "raw_response", result.parsed.raw_review_md or "")
+            _persist_role_failure(
+                role="reviewer",
+                bundle_dir=bundle_dir,
+                exc=exc2,
+                model_id=model_id,
+                started_at=started_at,
+                prompt_path_relative=_reviewer_prompt_relpath(reviewer_prompt),
+            )
+            raise ExecutionError(f"reviewer output malformed: {exc2}")
 
     outputs: list[dict[str, Any]] = []
     if result.kind == "review":
@@ -1507,6 +1602,24 @@ def _build_reviewer_invocation(
     # (the ground truth the Reviewer verifies against), so it is replay-critical.
     if (bundle_dir / "upstream-fix.patch").is_file():
         review_input_files.append("upstream-fix.patch")
+    # Adaptation lane (reviewer.v10): the equivalence verdict is grounded in the
+    # pinned source-context/ + the preflight verdict, so both are replay-critical
+    # reviewer inputs — a replay must judge the same bytes. Only recorded when the
+    # v10 lane was actually entered (preflight.applies_verbatim != true).
+    sc_dir = bundle_dir / "source-context"
+    if sc_dir.is_dir():
+        pf = bundle_dir / "preflight.json"
+        av = None
+        if pf.is_file():
+            try:
+                av = json.loads(pf.read_text()).get("applies_verbatim")
+            except (json.JSONDecodeError, OSError):
+                av = None
+        sc_rels = _source_context_relpaths(sc_dir)
+        if sc_rels and av is not True:
+            review_input_files += [f"source-context/{rel}" for rel in sc_rels]
+            if pf.is_file():
+                review_input_files.append("preflight.json")
     for fname in review_input_files:
         p = bundle_dir / fname
         if p.is_file():

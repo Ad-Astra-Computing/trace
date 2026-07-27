@@ -100,6 +100,13 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
             "cross_family_rule_honored_expected: "
             + ("true" if mac.get("cross_family_rule_honored_expected") else "false")
         )
+        # v10 adaptation lane: the deterministic bootstrap verdict of whether
+        # upstream-fix.patch applies to the pinned base. Rendered only for
+        # source-backports that carry it. `false` = adaptation lane (judge
+        # semantic equivalence against source-context/); `true` = verbatim lane.
+        av = inputs.get("applies_verbatim")
+        if av is not None:
+            parts.append("applies_verbatim: " + ("true" if av else "false"))
         parts.append("")
 
     pkg_path = inputs.get("package_source_path", "<package.nix>")
@@ -140,6 +147,28 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
             "# compare against any fix you recall from training; this file is authoritative.",
             inputs["upstream_fix_patch"],
         ])
+
+    # v10 adaptation lane: the pinned PRE-PATCH source of the files the authored
+    # patch touches. This is the actual code the adaptation is applied to — the
+    # Reviewer's ground truth for judging that the adaptation applies to the
+    # pinned base and uses only constructs present there (not the upstream fix's
+    # constructs). Present only when applies_verbatim is false.
+    source_context = inputs.get("source_context")
+    if isinstance(source_context, dict) and source_context:
+        parts.append("")
+        parts.append(
+            "# source-context/ (pinned PRE-PATCH source of the affected files — "
+            "adaptation-lane ground truth)"
+        )
+        parts.append(
+            "# The authored patch is applied to THIS code. Judge that every -/context"
+        )
+        parts.append(
+            "# line exists here and that + lines use only constructs present here."
+        )
+        for rel in sorted(source_context):
+            parts.append(f"## source-context/{rel}")
+            parts.append(source_context[rel])
 
     return "\n".join(parts)
 
