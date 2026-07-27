@@ -14,7 +14,7 @@ Per prompts/patcher.v1.md the only two valid response shapes are:
   (b) a single refusal block:
 
       === BEGIN refusal ===
-      rule: <1-8>
+      rule: <1-9>
       reason: <one-line reason>
       === END refusal ===
 
@@ -26,7 +26,8 @@ deliberately strict:
   * Block order is enforced.
   * The rationale's five required level-2 headings must all be
     present and in the contracted order.
-  * Refusal rule number must be an integer in [1, 8].
+  * Refusal rule number must be an integer in [1, 9] (rule 9 is the
+    adaptation-lane grounding refusal added by prompts/patcher.v4.md).
 
 Returns a structured result on success. Raises PatcherOutputMalformed
 on any violation with a specific diagnosis.
@@ -213,6 +214,13 @@ def _validate_rationale_sections(rationale: str) -> None:
 _RULE_LINE_RE = re.compile(r"^rule:\s*(\d+)\s*$")
 _REASON_LINE_RE = re.compile(r"^reason:\s*(\S.*)$")
 
+# Refusal rule range. Rules 1-8 are the base contract (prompts/patcher.v1-v3);
+# rule 9 is the adaptation-lane grounding refusal added by patcher.v4 (refuse
+# rather than author an unfaithful partial adaptation when applies_verbatim is
+# false and no faithful adaptation can be grounded in source-context).
+_PATCHER_REFUSAL_RULE_MIN = 1
+_PATCHER_REFUSAL_RULE_MAX = 9
+
 
 def _parse_refusal(text: str) -> PatcherParseResult:
     stripped = text.lstrip()
@@ -246,9 +254,10 @@ def _parse_refusal(text: str) -> PatcherParseResult:
             "refusal body's first line must be 'rule: <integer>'"
         )
     rule = int(rule_match.group(1))
-    if rule < 1 or rule > 8:
+    if rule < _PATCHER_REFUSAL_RULE_MIN or rule > _PATCHER_REFUSAL_RULE_MAX:
         raise PatcherOutputMalformed(
-            f"refusal rule must be in [1, 8]; got {rule}"
+            f"refusal rule must be in [{_PATCHER_REFUSAL_RULE_MIN}, "
+            f"{_PATCHER_REFUSAL_RULE_MAX}]; got {rule}"
         )
 
     reason_match = _REASON_LINE_RE.match(body_lines[1])

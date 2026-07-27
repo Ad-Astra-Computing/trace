@@ -185,7 +185,7 @@ def test_rejects_refusal_bad_rule_number():
         "reason: off-scale rule number\n"
         "=== END refusal ==="
     )
-    with pytest.raises(PatcherOutputMalformed, match=r"\[1, 8\]"):
+    with pytest.raises(PatcherOutputMalformed, match=r"\[1, 9\]"):
         parse_patcher_output(raw)
 
 
@@ -199,6 +199,21 @@ def test_accepts_refusal_rule_8():
     r = parse_patcher_output(raw)
     assert r.kind == "refusal"
     assert r.refusal_rule == 8
+
+
+def test_accepts_refusal_rule_9():
+    # patcher.v4 adds rule 9: the adaptation-lane grounding refusal (refuse
+    # rather than author an unfaithful partial adaptation).
+    raw = (
+        "=== BEGIN refusal ===\n"
+        "rule: 9\n"
+        "reason: applies_verbatim is false and no faithful adaptation can be "
+        "grounded in source-context\n"
+        "=== END refusal ==="
+    )
+    r = parse_patcher_output(raw)
+    assert r.kind == "refusal"
+    assert r.refusal_rule == 9
 
 
 def test_rejects_refusal_missing_reason():
