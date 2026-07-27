@@ -18,8 +18,44 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
+      "description": "Bundle manifest schema version. 1.0.0 is the original locked shape. 1.1.0 adds the optional source-context manifest for source-backport bundles (semantic-backport-adaptation arc); a 1.1.0 source-backport MUST carry source_context, a 1.1.0 non-source-backport MUST NOT (see allOf). 1.0.0 bundles forbid both new fields, so every previously-signed bundle stays valid.",
       "type": "string",
-      "const": "1.0.0"
+      "enum": [
+        "1.0.0",
+        "1.1.0"
+      ]
+    },
+    "patch_strategy": {
+      "description": "Resolver-authorized patch strategy, copied verbatim from upstream-ref.json eligibility.patch_strategy at finalize (Steward rejects any disagreement between the two). Present only on 1.1.0 bundles. 'source-backport' means the Patcher authored an in-tree patch against the pinned version and MUST have carried source_context.",
+      "type": "string",
+      "enum": [
+        "version-bump",
+        "source-backport"
+      ]
+    },
+    "source_context": {
+      "description": "Sorted manifest of the pre-patch source files (under source-context/) the Patcher (v4) saw so it could author a semantic adaptation when the upstream fix does not apply verbatim to the pinned base. Each entry's sha256 MUST equal files[path].sha256, each path MUST also appear in files (producer_role source-context-extractor, replay_critical true) and in signed_manifest.signed_files, and there MUST be no source-context/ file on disk absent from this manifest. Present only on 1.1.0 source-backport bundles.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^source-context/.+"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
     },
     "bundle_id": {
       "description": "Stable bundle identifier. sha256 of (cve_id || nixpkgs_rev || created_at) hex-encoded, first 16 chars.",
@@ -118,6 +154,7 @@
               "scout",
               "cartographer",
               "upstream-ref-resolver",
+              "source-context-extractor",
               "patcher",
               "reproducer",
               "builder",
@@ -201,6 +238,72 @@
     }
   },
   "allOf": [
+    {
+      "$comment": "1.0.0 bundles predate the source-context contract: forbid both new fields so every previously-signed bundle validates unchanged and nothing can smuggle an unsigned source-context claim into a 1.0.0 manifest.",
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.0.0"
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "patch_strategy"
+              ]
+            },
+            {
+              "required": [
+                "source_context"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "$comment": "1.1.0: a source-backport MUST carry source_context; any other strategy MUST NOT. This is why patch_strategy lives in the manifest — presence of source_context alone could not enforce the source-backport requirement.",
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.1.0"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "patch_strategy"
+        ],
+        "if": {
+          "properties": {
+            "patch_strategy": {
+              "const": "source-backport"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "source_context"
+          ]
+        },
+        "else": {
+          "not": {
+            "required": [
+              "source_context"
+            ]
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {

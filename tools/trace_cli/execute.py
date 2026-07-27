@@ -382,6 +382,12 @@ PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / 
 # the v3 prompt authorizes the Patcher to author an in-tree backport patch
 # against the current version instead of bumping to the fixed release.
 PATCHER_PROMPT_PATH_BACKPORT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v3.md"
+# Used when a source-backport bundle carries a source-context/ dir (schema 1.1.0):
+# the v4 prompt gives the Patcher the pre-patch source of the affected files plus
+# the deterministic preflight verdict (applies_verbatim), so it transcribes
+# verbatim when the upstream fix applies and authors a grounded semantic
+# adaptation when the pinned base has diverged (semantic-backport-adaptation arc).
+PATCHER_PROMPT_PATH_ADAPT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v4.md"
 
 
 def _persist_role_failure(
@@ -591,6 +597,62 @@ def _execute_patcher(
         patcher_prompt_path = PATCHER_PROMPT_PATH_BACKPORT
         if not any(ref.get("path") == "upstream-fix.patch" for ref in input_verification):
             input_verification.append({"path": "upstream-fix.patch", "verified": False})
+
+        # Semantic-adaptation lane (patcher.v4): a source-context/ dir means this
+        # bundle carries the pre-patch source of the affected files (a schema-1.1.0
+        # signed input). Feed it, plus the deterministic preflight verdict baked at
+        # bootstrap (preflight.json.applies_verbatim), so v4 transcribes verbatim
+        # when the fix applies and authors a grounded adaptation when it does not.
+        source_context_dir = bundle_dir / "source-context"
+        sc_relpaths = (
+            _source_context_relpaths(source_context_dir)
+            if source_context_dir.is_dir() else []
+        )
+        # Only the adaptation lane when source-context actually carries files. An
+        # empty dir must NOT route to v4 (it would run v4 with no context while
+        # finalize emits a 1.0.0 bundle — an inconsistent, unsigned v4 contract).
+        if sc_relpaths:
+            inputs["source_context"] = {
+                rel: (source_context_dir / rel).read_text()
+                for rel in sc_relpaths
+            }
+            preflight_path = bundle_dir / "preflight.json"
+            if preflight_path.is_file():
+                pf = json.loads(preflight_path.read_text())
+                inputs["applies_verbatim"] = pf.get("applies_verbatim")
+                inputs["preflight_diagnostics"] = pf.get("diagnostics", "")
+            else:
+                # No baked verdict: fail closed to adaptation (the model must
+                # ground its change in source-context rather than assume verbatim).
+                inputs["applies_verbatim"] = None
+                inputs["preflight_diagnostics"] = ""
+            patcher_prompt_path = PATCHER_PROMPT_PATH_ADAPT
+
+            # Replay integrity: a recorded v4 invocation MUST declare the
+            # source-context files (and preflight.json when present) as inputs, or
+            # replay could run the adaptation lane against different/absent source.
+            if verify and invocation.get("inputs"):
+                declared = {ref.get("path") for ref in invocation["inputs"]}
+                need = {f"source-context/{rel}" for rel in sc_relpaths}
+                if preflight_path.is_file():
+                    need.add("preflight.json")
+                missing = sorted(need - declared)
+                if missing:
+                    raise ExecutionError(
+                        "patcher source-context replay verification: "
+                        f"{missing} not declared in the recorded invocation inputs; "
+                        "refusing to read them unverified (re-run without --verify)"
+                    )
+            # Only record inputs not already covered: in --verify mode the generic
+            # loop above has already appended these with verified:True, and a
+            # duplicate verified:False entry would contradict it.
+            _already = {v.get("path") for v in input_verification}
+            for rel in sc_relpaths:
+                key = f"source-context/{rel}"
+                if key not in _already:
+                    input_verification.append({"path": key, "verified": False})
+            if preflight_path.is_file() and "preflight.json" not in _already:
+                input_verification.append({"path": "preflight.json", "verified": False})
 
     # Parse-before-write: if run_patcher raises PatcherOutputMalformed, we
     # exit without touching any bundle artifacts (no patch.diff, no
@@ -883,6 +945,30 @@ def _file_sha256(path: Path) -> str:
     return sha256_hex(path.read_bytes())
 
 
+def _source_context_relpaths(source_context_dir: Path) -> list[str]:
+    """Sorted POSIX relative paths of regular files under source-context/.
+
+    Symlinks are refused (a signed replay input must be real bytes, never a
+    pointer out of the bundle) — matching the finalize-time guard in bundle.py.
+    """
+    # Reject a symlinked root before rglob() follows it out of the bundle.
+    if source_context_dir.is_symlink():
+        raise ExecutionError(
+            f"source-context root is a symlink ({source_context_dir}); refusing "
+            "to read replay inputs through it."
+        )
+    rels: list[str] = []
+    for p in source_context_dir.rglob("*"):
+        if p.is_symlink():
+            raise ExecutionError(
+                f"source-context contains a symlink ({p}); only regular files "
+                "are allowed as signed replay inputs."
+            )
+        if p.is_file():
+            rels.append(p.relative_to(source_context_dir).as_posix())
+    return sorted(rels)
+
+
 def _build_patcher_invocation(
     *,
     bundle_dir: Path,
@@ -899,6 +985,16 @@ def _build_patcher_invocation(
     input_files = ["finding.json", "upstream-ref.json", "impact.json", "maintainers.json", "package.nix"]
     if (bundle_dir / "upstream-fix.patch").is_file():
         input_files.append("upstream-fix.patch")
+    # source-context inputs (patcher.v4 semantic-adaptation lane): the pre-patch
+    # source of the affected files + the deterministic preflight verdict. Recorded
+    # as replay-critical patcher inputs so a replay re-runs v4 on the same bytes.
+    source_context_dir = bundle_dir / "source-context"
+    if source_context_dir.is_dir():
+        input_files += [
+            f"source-context/{rel}" for rel in _source_context_relpaths(source_context_dir)
+        ]
+        if (bundle_dir / "preflight.json").is_file():
+            input_files.append("preflight.json")
     for fname in input_files:
         p = bundle_dir / fname
         if p.is_file():

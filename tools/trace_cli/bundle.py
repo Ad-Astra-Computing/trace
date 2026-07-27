@@ -108,6 +108,9 @@ def assemble_bundle(
     nixpkgs_rev: str | None = None,
     run_go_mod_vendor: bool = False,
     run_fetchzip: bool = False,
+    upstream_fix_patch_path: Path | None = None,
+    source_tree: Path | None = None,
+    write_source_context: bool = False,
     prefetch_url_fn=None,
     go_mod_vendor_runner=None,
     fetchzip_runner=None,
@@ -340,6 +343,24 @@ def assemble_bundle(
         shutil.copyfile(maintainers_path, out_dir / "maintainers.json")
         files_written.append("maintainers.json")
 
+    # Source-backport adaptation lane (semantic-backport-adaptation arc): stage the
+    # upstream fix diff, and — when a source tree is resolvable — extract the
+    # pre-patch source the fix touches into source-context/ and bake the
+    # deterministic applies_verbatim verdict into preflight.json. Both drive
+    # patcher.v4. Opt-in: fires only for a source-backport upstream-ref when
+    # upstream_fix_patch_path is supplied. The source-context step additionally
+    # needs a source tree (pre-unpacked via source_tree, or unpacked from pkg.src
+    # when write_source_context is set).
+    strategy = (upstream_ref.get("eligibility") or {}).get("patch_strategy")
+    if strategy == "source-backport" and upstream_fix_patch_path is not None:
+        _stage_source_context(
+            out_dir=out_dir,
+            upstream_fix_patch_path=upstream_fix_patch_path,
+            source_tree=source_tree,
+            write_source_context=write_source_context,
+            files_written=files_written,
+        )
+
     return AssembleResult(
         out_dir=out_dir,
         cve_id=cve_id,
@@ -351,6 +372,124 @@ def assemble_bundle(
         prefetch_skips=skip_descrs,
         prefetch_failures=failure_descrs,
     )
+
+
+def _stage_source_context(
+    *,
+    out_dir: Path,
+    upstream_fix_patch_path: Path,
+    source_tree: Path | None,
+    write_source_context: bool,
+    files_written: list[str],
+) -> None:
+    """Stage upstream-fix.patch + (source tree permitting) source-context/ + preflight.json.
+
+    The upstream fix diff is always copied in. When a source tree is available
+    (``source_tree`` pre-unpacked, or ``write_source_context`` to unpack the pinned
+    ``pkg.src``), the pre-patch source of the files the fix touches is extracted
+    into ``source-context/`` and the deterministic ``applies_verbatim`` verdict
+    (a real ``patch`` dry-run against a writable copy) is written to
+    ``preflight.json``. Reuses the same primitives as ``trace bundle preflight``
+    so "the pinned base" is resolved through one code path.
+    """
+    import tempfile
+
+    from tools.trace_cli import pinned_source, preflight, source_context
+
+    fix_dst = out_dir / "upstream-fix.patch"
+    if fix_dst.resolve() != upstream_fix_patch_path.resolve():
+        shutil.copyfile(upstream_fix_patch_path, fix_dst)
+    if "upstream-fix.patch" not in files_written:
+        files_written.append("upstream-fix.patch")
+    patch_text = fix_dst.read_text()
+
+    # Re-assembly is a fresh source-backport staging: clear any source-context/ +
+    # preflight.json from a prior run so we never sign or feed stale source that is
+    # inconsistent with the just-staged upstream-fix.patch (e.g. an addition-only
+    # patch retaining an old adaptation lane, or a different patch's leftover files).
+    _clear_stale_source_context(out_dir)
+
+    if source_tree is None and not write_source_context:
+        return  # diff staged; source-context deferred (no tree available)
+
+    # An addition-only upstream fix (only new files, no pre-patch old-side paths)
+    # has no pinned source to adapt against: stay on the verbatim (v3) lane rather
+    # than create an empty adaptation lane that would route to v4 but finalize 1.0.0.
+    if not source_context.parse_touched_paths(patch_text):
+        return
+
+    with tempfile.TemporaryDirectory(prefix="trace-assemble-src-") as tmp:
+        tmp_root = Path(tmp)
+        if source_tree is not None:
+            tree = source_tree.resolve()
+            patch_flags = ["-p1"]
+        else:
+            tree, patch_flags = pinned_source.unpack_pinned_source(out_dir, tmp_root)
+
+        written = source_context.write_source_context(
+            patch_text, tree, out_dir / "source-context")
+        files_written.extend(f"source-context/{rel}" for rel in written)
+
+        # Deterministic applies_verbatim: apply on a throwaway writable copy so the
+        # source tree is untouched (mirrors preflight semantics exactly).
+        work = tmp_root / "verbatim-check"
+        preflight._make_writable_copy(tree, work)
+        applies, output = preflight.apply_patch(work, fix_dst, patch_flags)
+
+    preflight_doc = {
+        "applies_verbatim": applies,
+        "patch": "upstream-fix.patch",
+        "patch_flags": patch_flags,
+        "diagnostics": output[:4096],
+    }
+    (out_dir / "preflight.json").write_text(json.dumps(preflight_doc, indent=2) + "\n")
+    files_written.append("preflight.json")
+
+
+def _clear_stale_source_context(out_dir: Path) -> None:
+    """Remove any existing source-context/ dir + preflight.json before restaging.
+
+    A symlinked path is unlinked (never followed / rmtree'd through), so a
+    feed-influenced pre-existing dir cannot redirect the delete out of the bundle.
+    """
+    sc_dir = out_dir / "source-context"
+    if sc_dir.is_symlink():
+        sc_dir.unlink()
+    elif sc_dir.is_dir():
+        shutil.rmtree(sc_dir)
+    pf = out_dir / "preflight.json"
+    if pf.is_symlink() or pf.is_file():
+        pf.unlink()
+
+
+def _collect_source_context(bundle_dir: Path) -> list[str]:
+    """Return the sorted relative paths of files under ``<bundle>/source-context``.
+
+    Paths are POSIX-style, relative to the source-context dir (so the manifest key
+    is ``source-context/<rel>``). Symlinks are refused: a source-context file must
+    be a real, hashable byte sequence, never a pointer out of the bundle. Empty
+    list when the dir is absent (the 1.0.0 lane).
+    """
+    root = bundle_dir / "source-context"
+    # Reject a symlinked root before is_dir()/rglob() follow it: otherwise an
+    # external tree's files would be hashed and signed as bundle inputs.
+    if root.is_symlink():
+        raise BundleSchemaError(
+            f"source-context root is a symlink ({root}); refusing to hash/sign "
+            "through it (external files must not enter the signed manifest)."
+        )
+    if not root.is_dir():
+        return []
+    rels: list[str] = []
+    for p in root.rglob("*"):
+        if p.is_symlink():
+            raise BundleSchemaError(
+                f"source-context contains a symlink ({p.relative_to(root)}); "
+                "only regular files are allowed as signed replay inputs."
+            )
+        if p.is_file():
+            rels.append(p.relative_to(root).as_posix())
+    return sorted(rels)
 
 
 def _gmv_failure_to_prefetch_failures_entry(failure: GoModVendorFailure) -> dict:
@@ -653,7 +792,11 @@ def finalize_bundle(
     # bundle never claims a signed artifact that doesn't exist). upstream-fix.patch
     # is the source-backport ground-truth diff (the Patcher transcribes it and the
     # Reviewer verifies against it — replay-critical when present).
-    for fname, producer in (("upstream-fix.patch", "upstream-ref-resolver"),):
+    # preflight.json (source-context-extractor) is the deterministic
+    # applies_verbatim verdict baked at bootstrap that drives patcher.v4; it is a
+    # replay-critical, signed input on the adaptation lane.
+    for fname, producer in (("upstream-fix.patch", "upstream-ref-resolver"),
+                            ("preflight.json", "source-context-extractor")):
         path = bundle_dir / fname
         if path.is_file():
             data = path.read_bytes()
@@ -664,6 +807,39 @@ def finalize_bundle(
                 "replay_critical": True,
             }
             real_hash_names.append(fname)
+
+    # source-context/ manifest (schema 1.1.0 — semantic-backport-adaptation arc).
+    # The pre-patch source files the Patcher (v4) saw so it could author a semantic
+    # adaptation when the upstream fix does not apply verbatim to the pinned base.
+    # Presence of the dir is what OPTS a source-backport into the 1.1.0 contract:
+    # bundles without it stay 1.0.0 (the v3 verbatim lane, unchanged — this is why
+    # re-finalizing any of the 117 existing source-backports does NOT bump them).
+    # Each file is a replay-critical, signed input under producer_role
+    # source-context-extractor (bootstrap extracts the pinned source; the resolver
+    # only identifies the fix).
+    source_context_files = _collect_source_context(bundle_dir)
+    source_context_manifest: list[dict[str, Any]] = []
+    if source_context_files:
+        strategy = (upstream_ref.get("eligibility") or {}).get("patch_strategy")
+        if strategy != "source-backport":
+            raise BundleSchemaError(
+                "source-context/ is present but upstream-ref.json is not a "
+                f"source-backport (patch_strategy={strategy!r}); source-context is "
+                "only valid on the source-backport adaptation lane."
+            )
+        for rel in source_context_files:
+            key = f"source-context/{rel}"
+            data = (bundle_dir / "source-context" / rel).read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            files_block[key] = {
+                "sha256": digest,
+                "bytes": len(data),
+                "producer_role": "source-context-extractor",
+                "replay_critical": True,
+            }
+            source_context_manifest.append({"path": key, "sha256": digest})
+            real_hash_names.append(key)
+        source_context_manifest.sort(key=lambda e: e["path"])
 
     # bundle.json's own entry is necessarily a placeholder — the file we
     # are about to write doesn't exist on disk yet, and self-hashing is
@@ -708,8 +884,21 @@ def finalize_bundle(
         else:
             kind_reason = "major-version-jump-requires-review"
 
+    # schema_version + patch_strategy are driven by whether this bundle carries a
+    # source-context manifest. A source-context bundle is a 1.1.0 source-backport;
+    # everything else stays 1.0.0 so previously-signed bundles are byte-stable
+    # through a re-finalize.
+    if source_context_manifest:
+        schema_version = "1.1.0"
+        patch_strategy = "source-backport"
+    else:
+        schema_version = "1.0.0"
+        patch_strategy = None
+
     bundle_doc: dict[str, Any] = {
-        "schema_version": "1.0.0",
+        "schema_version": schema_version,
+        **({"patch_strategy": patch_strategy} if patch_strategy else {}),
+        **({"source_context": source_context_manifest} if source_context_manifest else {}),
         "bundle_id": bundle_id,
         "cve_id": cve_id,
         "nixpkgs_rev": nixpkgs_rev,
@@ -733,8 +922,13 @@ def finalize_bundle(
                 # upstream-fix.patch on source-backport bundles) must also be
                 # signed, or Steward rule 4 rejects the bundle.
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
-                for fname in ("upstream-fix.patch",)
+                for fname in ("upstream-fix.patch", "preflight.json")
                 if fname in files_block and files_block[fname].get("replay_critical")
+            ] + [
+                # source-context files are replay-critical inputs → signed. Order
+                # matches the sorted manifest so signed_files is deterministic.
+                {"path": e["path"], "sha256": e["sha256"]}
+                for e in source_context_manifest
             ],
         },
     }
@@ -779,7 +973,8 @@ def finalize_bundle(
             _refresh_resolver_invocation_hashes(existing_roles, files_block)
 
     replay_doc = {
-        "schema_version": "1.0.0",
+        # Parity with bundle.json: a source-context bundle is 1.1.0 in both docs.
+        "schema_version": schema_version,
         "bundle_id": bundle_id,
         "cve_id": cve_id,
         "nixpkgs_rev": nixpkgs_rev,

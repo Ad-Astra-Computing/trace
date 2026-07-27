@@ -18,7 +18,11 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": {
+      "$comment": "1.1.0 pairs with a bundle.json carrying a source_context manifest (semantic-backport-adaptation arc). At 1.1.0 the patcher invocation additionally declares each source-context/<file> as a replay-critical input (an ordinary hashRef, already valid at 1.0.0); the executor's --verify mode enforces that those inputs are present and hashed, and the bundle manifest is what makes the MUST-carry-source_context requirement binding. Kept as a version-gated enum rather than a const swap so 1.0.0 replays validate unchanged.",
+      "type": "string",
+      "enum": ["1.0.0", "1.1.0"]
+    },
     "bundle_id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
     "cve_id": { "type": "string", "pattern": "^CVE-\\d{4}-\\d{4,19}$" },
     "nixpkgs_rev": { "type": "string", "pattern": "^[0-9a-f]{40}$" },

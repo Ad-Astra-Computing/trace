@@ -115,7 +115,7 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
             "## patch_strategy: source-backport (resolver-authorized)",
             "Do NOT bump the version. Author the upstream fix below as an in-tree",
             "patch file under the package directory and wire it into the package's",
-            "`patches = [ ... ]` list, per the v3 source-backport contract.",
+            "`patches = [ ... ]` list, per the source-backport contract.",
             "",
             "## upstream-fix.patch (the upstream fix commit diff — ground truth for the fix content)",
             "```diff",
@@ -123,6 +123,55 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
             "```",
             "",
         ]
+
+    # Semantic-adaptation lane (patcher.v4): the pre-patch source of the affected
+    # files plus the deterministic preflight verdict. `applies_verbatim` is a
+    # bootstrap-computed fact (patch -p1 dry-run against the pinned base), NOT a
+    # judgment the model makes — v4 transcribes verbatim when True and authors a
+    # grounded adaptation when False.
+    source_context = inputs.get("source_context")
+    if source_context:
+        applies_verbatim = inputs.get("applies_verbatim")
+        if applies_verbatim is True:
+            verdict_line = (
+                "applies_verbatim: true — the upstream fix applies cleanly to the "
+                "pinned base. Transcribe it VERBATIM per the verbatim path."
+            )
+        elif applies_verbatim is False:
+            verdict_line = (
+                "applies_verbatim: false — the upstream fix does NOT apply to the "
+                "pinned base (base divergence). Author a SEMANTIC ADAPTATION grounded "
+                "in the source-context below, per the semantic-adaptation path. If no "
+                "faithful adaptation can be grounded in the provided source, refuse."
+            )
+        else:
+            verdict_line = (
+                "applies_verbatim: unknown — no deterministic preflight verdict was "
+                "provided. Treat as base-divergent: ground every change in the "
+                "source-context below and refuse if you cannot."
+            )
+        diag = inputs.get("preflight_diagnostics") or ""
+        parts += [
+            "## preflight verdict (deterministic — bootstrap `patch -p1` dry-run)",
+            verdict_line,
+        ]
+        if diag:
+            parts += ["", "preflight diagnostics:", "```", diag.rstrip(), "```"]
+        parts += [
+            "",
+            "## source-context/ — pre-patch source of the affected files (pinned base)",
+            "Ground your adaptation in these exact bytes. These are the files the "
+            "upstream fix touches, as they exist in the pinned package source.",
+            "",
+        ]
+        for rel in sorted(source_context):
+            parts += [
+                f"### source-context/{rel}",
+                "```",
+                source_context[rel].rstrip("\n"),
+                "```",
+                "",
+            ]
 
     parts.append("Produce the contracted output now.")
     return "\n".join(parts)

@@ -204,6 +204,19 @@ def main(argv: list[str]) -> int:
                             "(slow; off by default). Required when the "
                             "package uses any fetcher whose hash is NOT "
                             "the raw download hash.")
+    b_asm.add_argument("--upstream-fix-patch", type=Path, default=None,
+                       help="source-backport only: the upstream fix commit diff "
+                            "(ground truth). Copied in as upstream-fix.patch; when "
+                            "a source tree is available also drives source-context/ "
+                            "extraction + the applies_verbatim preflight verdict.")
+    b_asm.add_argument("--source-tree", type=Path, default=None,
+                       help="pre-unpacked pinned source root for source-context "
+                            "extraction (skips the nix unpack; use offline or when "
+                            "you already have the source, e.g. from preflight).")
+    b_asm.add_argument("--source-context", action="store_true",
+                       help="source-backport only: extract source-context/ from the "
+                            "pinned pkg.src (nix unpack; slow, network). Implied "
+                            "when --source-tree is given.")
     b_asm.add_argument("--format", choices=("human", "json"), default="human")
 
     b_fin = b_subs.add_parser(
@@ -561,6 +574,9 @@ def _cmd_bundle_assemble(args: argparse.Namespace) -> int:
             nixpkgs_rev=args.nixpkgs_rev,
             run_go_mod_vendor=args.go_mod_vendor,
             run_fetchzip=args.fetchzip,
+            upstream_fix_patch_path=args.upstream_fix_patch,
+            source_tree=args.source_tree,
+            write_source_context=args.source_context or args.source_tree is not None,
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)

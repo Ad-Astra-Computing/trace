@@ -136,9 +136,15 @@ the files the upstream fix touches, from a provenance-clean origin:
   pinned-source unpack into `tools/trace_cli/pinned_source.py`, shared by the
   preflight and (slice 2) the Patcher source-input assembly. No behavior/schema/
   prompt change. Counter 0/5→1/5, baseline `2229f7e`.
-- **Slice 2 — SPEC READY (codex-confirmed 2026-07-27), not yet implemented.**
-  Atomic: source-context input + schema bump + `patcher.v4` land together (no
-  dormant signed inputs). No live spend until the FakeAdapter end-to-end is green.
+- **Slice 2 — SHIPPED (2026-07-27).** Atomic: `source-context/` signed input +
+  `preflight.json` verdict + bundle/replay `schema_version` 1.1.0 (`oneOf`-gated,
+  grandfathers all 117 existing source-backports at 1.0.0) + `patcher.v4`
+  (verbatim-on-true / grounded-adaptation-on-false / refuse-if-ungroundable) land
+  together. Six `codex review --uncommitted` rounds + the `security-review` skill;
+  eight findings fixed in-slice (schema loophole, hunk-aware diff parsing, verify
+  dedup, empty-lane consistency, root/leaf/stale symlink + source-context hygiene),
+  final verdict clean. Suite 1900 passed. No live spend (FakeAdapter). See
+  DECISIONS 2026-07-27 "slice 2".
 - **Slice 3+ — live prompt iteration** on the libarchive canary + verbatim-cohort
   regression (the authorized-spend phase), then cert.
 
