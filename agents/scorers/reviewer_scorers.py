@@ -267,6 +267,41 @@ class ReviewSchemaValidScorer:
         )
 
 
+def _bundle_cve_id(bundle_dir: Path) -> str | None:
+    """Best-effort read of the bundle's cve_id from bundle.json (a stable bundle
+    fact). Returns None if unreadable — the caller then simply does not credit
+    the `<cve>.patch` alias (fails toward under-crediting, never over-crediting)."""
+    try:
+        data = json.loads((bundle_dir / "bundle.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    cve_id = data.get("cve_id") if isinstance(data, dict) else None
+    return cve_id if isinstance(cve_id, str) and cve_id else None
+
+
+def _is_source_context_citation(artifact: str, bundle_dir: Path) -> bool:
+    """True iff `artifact` names an existing `source-context/*` file that stays
+    INSIDE the bundle. The citation comes from model prose, so a traversal like
+    `source-context/../../etc/passwd` is refused (resolved path must be under
+    the bundle's source-context dir) before any filesystem check credits it."""
+    if not artifact.startswith("source-context/"):
+        return False
+    try:
+        bundle_root = bundle_dir.resolve()
+        sc_root = (bundle_dir / "source-context").resolve()
+        # The source-context dir itself must live inside the bundle — a bundle
+        # whose `source-context` is a symlink to an external dir cannot launder
+        # host files into "recognized" citations.
+        sc_root.relative_to(bundle_root)
+        target = (bundle_dir / artifact).resolve()
+        target.relative_to(sc_root)
+    except (ValueError, OSError, RuntimeError):
+        # RuntimeError: Path.resolve() on a symlink loop — a malformed bundle
+        # must not crash scoring; treat the citation as unrecognized.
+        return False
+    return target.is_file()
+
+
 # ─── 2. review-evidence-cited ──────────────────────────────────────────────
 
 
@@ -306,6 +341,11 @@ class ReviewEvidenceCitedScorer:
         recognised_set = set(CANONICAL_BUNDLE_ARTIFACTS) | {
             name for name in _OPTIONAL_BUNDLE_ARTIFACTS if (bundle_dir / name).is_file()
         }
+        # Adaptation-lane evidence: a correct equivalence review MUST cite the
+        # pinned `source-context/*` files it grounds claims in, and it names the
+        # authored patch by its in-tree `<cve>.patch` filename (an alias for the
+        # bundle's patch.diff). Recognize both so the lane is not under-scored.
+        cve_id = _bundle_cve_id(bundle_dir)
         recognised = []
         unrecognised = []
         for entry in cited:
@@ -319,6 +359,10 @@ class ReviewEvidenceCitedScorer:
                         artifact = name
                         break
             if artifact in recognised_set:
+                recognised.append(entry)
+            elif _is_source_context_citation(artifact, bundle_dir):
+                recognised.append(entry)
+            elif cve_id and artifact == f"{cve_id}.patch" and (bundle_dir / "patch.diff").is_file():
                 recognised.append(entry)
             else:
                 unrecognised.append(entry)

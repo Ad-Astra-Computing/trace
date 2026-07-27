@@ -200,6 +200,74 @@ def test_evidence_cited_partial_when_one_unrecognised(tmp_path: Path) -> None:
     assert "some-imaginary-file.json" in r.details["unrecognised"]
 
 
+def test_evidence_cited_recognises_source_context(tmp_path: Path) -> None:
+    # Adaptation-lane reviews cite the pinned source-context/* they ground on.
+    bd = _build_bundle(tmp_path)
+    (bd / "source-context" / "src").mkdir(parents=True)
+    (bd / "source-context" / "src" / "plot.lisp").write_text("(in-package :maxima)\n")
+    body = _accept_review_md().replace(
+        "- patch.diff\n",
+        "- patch.diff\n- source-context/src/plot.lisp\n",
+    )
+    (bd / "review.md").write_text(body)
+    r = ReviewEvidenceCitedScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.score == 1.0
+    assert r.details["unrecognised"] == []
+
+
+def test_evidence_cited_recognises_cve_patch_alias(tmp_path: Path) -> None:
+    # The authored patch is cited by its in-tree <cve>.patch name (= patch.diff).
+    bd = _build_bundle(tmp_path)
+    (bd / "bundle.json").write_text(json.dumps({"kind": "human-review-required", "cve_id": "CVE-2024-34490"}))
+    (bd / "patch.diff").write_text("--- a\n+++ b\n")
+    body = _accept_review_md().replace(
+        "- patch.diff\n",
+        "- CVE-2024-34490.patch\n",
+    )
+    (bd / "review.md").write_text(body)
+    r = ReviewEvidenceCitedScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert "CVE-2024-34490.patch" not in r.details["unrecognised"]
+
+
+def test_evidence_cited_rejects_source_context_traversal(tmp_path: Path) -> None:
+    # A citation from model prose must not escape the bundle via `..`.
+    bd = _build_bundle(tmp_path)
+    (bd / "source-context").mkdir()
+    (tmp_path / "outside.txt").write_text("secret\n")
+    body = _accept_review_md().replace(
+        "- patch.diff\n",
+        "- patch.diff\n- source-context/../outside.txt\n",
+    )
+    (bd / "review.md").write_text(body)
+    r = ReviewEvidenceCitedScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert "source-context/../outside.txt" in r.details["unrecognised"]
+
+
+def test_evidence_cited_rejects_symlinked_source_context_root(tmp_path: Path) -> None:
+    # A bundle whose `source-context` is a symlink to an external dir must not
+    # launder host files into recognized citations.
+    bd = _build_bundle(tmp_path)
+    external = tmp_path / "external"
+    (external / "src").mkdir(parents=True)
+    (external / "src" / "secret.c").write_text("int leak;\n")
+    (bd / "source-context").symlink_to(external, target_is_directory=True)
+    body = _accept_review_md().replace(
+        "- patch.diff\n",
+        "- patch.diff\n- source-context/src/secret.c\n",
+    )
+    (bd / "review.md").write_text(body)
+    r = ReviewEvidenceCitedScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert "source-context/src/secret.c" in r.details["unrecognised"]
+
+
 def test_evidence_cited_skipped_on_refusal(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
