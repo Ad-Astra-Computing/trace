@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.1.0",
+  "patch_strategy": "source-backport",
+  "source_context": [
+    {
+      "path": "source-context/src/gnuplot_def.lisp",
+      "sha256": "fe5b914910d289609f39da045b8568cbeb39a98027bbba40f618808cbd7f3206"
+    },
+    {
+      "path": "source-context/src/plot.lisp",
+      "sha256": "2bae52d80905760104bb70cf7a49cdbb10941f695af33d855369006b6908fc72"
+    },
+    {
+      "path": "source-context/src/xmaxima_def.lisp",
+      "sha256": "396c3cd5c9159f1f140fad70e0c6ac51df333f17481039f65a21f02f6364b423"
+    }
+  ],
+  "bundle_id": "c3ad8fadc690f28e",
+  "cve_id": "CVE-2024-34490",
+  "nixpkgs_rev": "f6c038475dbc6b0f0cae4c079132d159313b944a",
+  "kind": "human-review-required",
+  "kind_reason": "source-backport-experimental",
+  "created_at": "2026-07-27T17:15:00Z",
+  "policy_version": "0000000000000000000000000000000000000000000000000000000000000000",
+  "bundle_schema_version": "1111111111111111111111111111111111111111111111111111111111111111",
+  "files": {
+    "bundle.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "steward",
+      "replay_critical": true
+    },
+    "finding.json": {
+      "sha256": "6a6c19ba65f99eae2f41ae965a54d65c44b422cfc6ed0100625089e20755b596",
+      "bytes": 1215,
+      "producer_role": "scout",
+      "replay_critical": true
+    },
+    "impact.json": {
+      "sha256": "d0a38a825f6c35ba17751e011908b4d3f2eee6a7a14b6a7e5d2fe36d434ca1ec",
+      "bytes": 881,
+      "producer_role": "cartographer",
+      "replay_critical": true
+    },
+    "maintainers.json": {
+      "sha256": "c938bd3c9e0c835288095b92225aeff7d4228c0d9a414af76e4eb7a43f08e085",
+      "bytes": 279,
+      "producer_role": "cartographer",
+      "replay_critical": true
+    },
+    "upstream-ref.json": {
+      "sha256": "b3ef0b1e1a9685c56e0f6f0744396764a720b996f243dbe4b269227a581fc4a9",
+      "bytes": 1584,
+      "producer_role": "upstream-ref-resolver",
+      "replay_critical": true
+    },
+    "patch.diff": {
+      "sha256": "21acad11adabdf29ea2585b424e6ebb4bbcdccfa41d8ae2fb9b6b21c03ed9bed",
+      "bytes": 4343,
+      "producer_role": "patcher",
+      "replay_critical": true
+    },
+    "patch-rationale.md": {
+      "sha256": "3f0a3588e8685496fd8e35e82de5ebad347c47293a65be6ec11a2e3d96967b2f",
+      "bytes": 1051,
+      "producer_role": "patcher",
+      "replay_critical": true
+    },
+    "passthru-tests.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "reproducer",
+      "replay_critical": true
+    },
+    "reproducer.nix": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "reproducer",
+      "replay_critical": true
+    },
+    "reproducer-log.txt": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "reproducer",
+      "replay_critical": false
+    },
+    "reproducer-refusal.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "reproducer",
+      "replay_critical": true
+    },
+    "build.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "builder",
+      "replay_critical": false
+    },
+    "review.md": {
+      "sha256": "58f5a9a6eb24e0c70f8c7f48b0f9cec1e1bf4b3cb2e904a8bb64d27f432099be",
+      "bytes": 9666,
+      "producer_role": "reviewer",
+      "replay_critical": true
+    },
+    "review-refusal.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "reviewer",
+      "replay_critical": true
+    },
+    "review-scoring-report.json": {
+      "sha256": "19d9ebf2e3d76c8e2162077a9ee0a63650406226df9a3debe90c4f74ed14477d",
+      "bytes": 3122,
+      "producer_role": "reviewer",
+      "replay_critical": false
+    },
+    "sbom-delta.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "upstream-ref-resolver",
+      "replay_critical": true
+    },
+    "replay.json": {
+      "sha256": "7ea573b9ce36fe4aa18266d07e6401389156382c73b47e260b744217505d40da",
+      "bytes": 8755,
+      "producer_role": "steward",
+      "replay_critical": true
+    },
+    "provenance.jsonl": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "steward",
+      "replay_critical": false
+    },
+    "bundle.sig": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "steward",
+      "replay_critical": false
+    },
+    "upstream-fix.patch": {
+      "sha256": "e25406aa9c6fd799654bfa2e3ecea60c1df9e5e2a8fe7a188493d863c7c346b7",
+      "bytes": 4524,
+      "producer_role": "upstream-ref-resolver",
+      "replay_critical": true
+    },
+    "preflight.json": {
+      "sha256": "55c13bb6deb63b2b7d2b5d1830134c5545ee9857593eaa8d112d1226643945a2",
+      "bytes": 687,
+      "producer_role": "source-context-extractor",
+      "replay_critical": true
+    },
+    "source-context/src/gnuplot_def.lisp": {
+      "sha256": "fe5b914910d289609f39da045b8568cbeb39a98027bbba40f618808cbd7f3206",
+      "bytes": 34817,
+      "producer_role": "source-context-extractor",
+      "replay_critical": true
+    },
+    "source-context/src/plot.lisp": {
+      "sha256": "2bae52d80905760104bb70cf7a49cdbb10941f695af33d855369006b6908fc72",
+      "bytes": 122621,
+      "producer_role": "source-context-extractor",
+      "replay_critical": true
+    },
+    "source-context/src/xmaxima_def.lisp": {
+      "sha256": "396c3cd5c9159f1f140fad70e0c6ac51df333f17481039f65a21f02f6364b423",
+      "bytes": 21344,
+      "producer_role": "source-context-extractor",
+      "replay_critical": true
+    }
+  },
+  "signed_manifest": {
+    "algorithm": "sigstore-cosign-v1",
+    "signer": "trace-dev@adastracomputing.com",
+    "signed_files": [
+      {
+        "path": "bundle.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "finding.json",
+        "sha256": "6a6c19ba65f99eae2f41ae965a54d65c44b422cfc6ed0100625089e20755b596"
+      },
+      {
+        "path": "impact.json",
+        "sha256": "d0a38a825f6c35ba17751e011908b4d3f2eee6a7a14b6a7e5d2fe36d434ca1ec"
+      },
+      {
+        "path": "maintainers.json",
+        "sha256": "c938bd3c9e0c835288095b92225aeff7d4228c0d9a414af76e4eb7a43f08e085"
+      },
+      {
+        "path": "upstream-ref.json",
+        "sha256": "b3ef0b1e1a9685c56e0f6f0744396764a720b996f243dbe4b269227a581fc4a9"
+      },
+      {
+        "path": "patch.diff",
+        "sha256": "21acad11adabdf29ea2585b424e6ebb4bbcdccfa41d8ae2fb9b6b21c03ed9bed"
+      },
+      {
+        "path": "patch-rationale.md",
+        "sha256": "3f0a3588e8685496fd8e35e82de5ebad347c47293a65be6ec11a2e3d96967b2f"
+      },
+      {
+        "path": "passthru-tests.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "reproducer.nix",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "reproducer-refusal.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "review.md",
+        "sha256": "58f5a9a6eb24e0c70f8c7f48b0f9cec1e1bf4b3cb2e904a8bb64d27f432099be"
+      },
+      {
+        "path": "review-refusal.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "sbom-delta.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "replay.json",
+        "sha256": "7ea573b9ce36fe4aa18266d07e6401389156382c73b47e260b744217505d40da"
+      },
+      {
+        "path": "upstream-fix.patch",
+        "sha256": "e25406aa9c6fd799654bfa2e3ecea60c1df9e5e2a8fe7a188493d863c7c346b7"
+      },
+      {
+        "path": "preflight.json",
+        "sha256": "55c13bb6deb63b2b7d2b5d1830134c5545ee9857593eaa8d112d1226643945a2"
+      },
+      {
+        "path": "source-context/src/gnuplot_def.lisp",
+        "sha256": "fe5b914910d289609f39da045b8568cbeb39a98027bbba40f618808cbd7f3206"
+      },
+      {
+        "path": "source-context/src/plot.lisp",
+        "sha256": "2bae52d80905760104bb70cf7a49cdbb10941f695af33d855369006b6908fc72"
+      },
+      {
+        "path": "source-context/src/xmaxima_def.lisp",
+        "sha256": "396c3cd5c9159f1f140fad70e0c6ac51df333f17481039f65a21f02f6364b423"
+      }
+    ]
+  }
+}

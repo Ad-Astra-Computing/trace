@@ -1,0 +1,29 @@
+{
+  "applies_at_fuzz0": true,
+  "canonical_patch_sha256": "21acad11adabdf29ea2585b424e6ebb4bbcdccfa41d8ae2fb9b6b21c03ed9bed",
+  "canonicalized": true,
+  "canonicalizer_version": "canonical-compiler-1",
+  "files": [
+    {
+      "canonical_hunks": 3,
+      "file": "src/plot.lisp",
+      "model_hunks": 2,
+      "postimage_sha256": "001de4e8f010a20690962c8ad60ddcd02c6ad6d2fe8a97d344f737000b21187f"
+    },
+    {
+      "canonical_hunks": 2,
+      "file": "src/gnuplot_def.lisp",
+      "model_hunks": 1,
+      "postimage_sha256": "9a97eafc7db5104b989fb68002bd85070d3307c8d959f888e91add6768db9ca1"
+    },
+    {
+      "canonical_hunks": 1,
+      "file": "src/xmaxima_def.lisp",
+      "model_hunks": 1,
+      "postimage_sha256": "5efb3ad84d8fa9c782ce7714e0d486dd91c225868e089a6151dde812d4b48675"
+    }
+  ],
+  "raw_patch_sha256": "6bf3682ea2bc06d96e3717d7f706c65ce370d08f154673b852a89aaf4c96a743",
+  "schema_version": "1.0.0",
+  "unique_source_match": true
+}

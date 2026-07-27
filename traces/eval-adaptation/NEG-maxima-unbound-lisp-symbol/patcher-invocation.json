@@ -1,0 +1,55 @@
+{
+  "adapter": "fake",
+  "budget": {
+    "actual_cost_usd": null,
+    "hard_cap_usd": null,
+    "soft_cap_usd": null
+  },
+  "cve_id": "CVE-2024-34490",
+  "ended_at": "2026-07-27T16:55:14Z",
+  "hunk_normalization": {
+    "applied": true,
+    "files": [
+      {
+        "canonical_hunks": 3,
+        "file": "src/plot.lisp",
+        "model_hunks": 2,
+        "postimage_sha256": "001de4e8f010a20690962c8ad60ddcd02c6ad6d2fe8a97d344f737000b21187f"
+      },
+      {
+        "canonical_hunks": 2,
+        "file": "src/gnuplot_def.lisp",
+        "model_hunks": 1,
+        "postimage_sha256": "9a97eafc7db5104b989fb68002bd85070d3307c8d959f888e91add6768db9ca1"
+      },
+      {
+        "canonical_hunks": 1,
+        "file": "src/xmaxima_def.lisp",
+        "model_hunks": 1,
+        "postimage_sha256": "5efb3ad84d8fa9c782ce7714e0d486dd91c225868e089a6151dde812d4b48675"
+      }
+    ],
+    "post_sha256": "21acad11adabdf29ea2585b424e6ebb4bbcdccfa41d8ae2fb9b6b21c03ed9bed",
+    "pre_sha256": "6bf3682ea2bc06d96e3717d7f706c65ce370d08f154673b852a89aaf4c96a743"
+  },
+  "invocation_id": "4fb297f9-704a-4b12-96aa-4b57401627a1",
+  "kind": "patch",
+  "model_id": "fake-opus-4-7",
+  "prompt_sha256": "79d57cf3fb7aafac1d59fb1c6be72f731863dc2d335e16f531fffaccb4be6163",
+  "raw_response_sha256": "31d0bce65c6651dc7dfcf5924924c908f0adfaf5303e6042d146b640f5321f47",
+  "role": "patcher",
+  "sampling": {
+    "max_tokens": 8192,
+    "temperature": 0.0,
+    "top_p": 1.0
+  },
+  "schema_version": "1.0.0",
+  "started_at": "2026-07-27T16:55:14Z",
+  "usage": {
+    "cache_creation_input_tokens": null,
+    "cache_read_input_tokens": null,
+    "input_tokens": null,
+    "output_tokens": null
+  },
+  "user_content_sha256": "dfa5771cb94f7aa35f54b07e0925ff2e4012d382715352d38adc81bfd7055751"
+}

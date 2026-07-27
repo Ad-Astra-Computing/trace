@@ -1,0 +1,201 @@
+{
+  "schema_version": "1.1.0",
+  "patch_strategy": "source-backport",
+  "source_context": [
+    {
+      "path": "source-context/libarchive/archive_read_support_format_tar.c",
+      "sha256": "e5817f71681b892af9d14f84e18f08feeb7ed1c67b354869ec5ed7cbaccd38cc"
+    }
+  ],
+  "bundle_id": "1c4ef238c7b5bc98",
+  "cve_id": "CVE-2026-15028",
+  "nixpkgs_rev": "c530e744f6ac771f7930998f9f70efa82fada903",
+  "kind": "human-review-required",
+  "kind_reason": "shipped-binary-non-discrimination",
+  "auto_merge_evidence_path": "reviewer-attested",
+  "created_at": "2026-07-27T05:15:15Z",
+  "policy_version": "0000000000000000000000000000000000000000000000000000000000000000",
+  "bundle_schema_version": "1111111111111111111111111111111111111111111111111111111111111111",
+  "files": {
+    "bundle.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "steward",
+      "replay_critical": true
+    },
+    "finding.json": {
+      "sha256": "7b3924c807ab363271a9dd37943f1af4bf57409ae94977b051e0a4c08c239480",
+      "bytes": 1826,
+      "producer_role": "scout",
+      "replay_critical": true
+    },
+    "impact.json": {
+      "sha256": "170fc1907f946edc41c55694b7fbac92d53389eb66cc07ad34bbca4113d6632b",
+      "bytes": 1066,
+      "producer_role": "cartographer",
+      "replay_critical": true
+    },
+    "maintainers.json": {
+      "sha256": "0e66a4c9652d0f61fcdbb924a1084de633a96431eb3e9a5b1a4981e65a1cffec",
+      "bytes": 281,
+      "producer_role": "cartographer",
+      "replay_critical": true
+    },
+    "upstream-ref.json": {
+      "sha256": "a38508b1162b61c7ad864db97b24b5ef3174cd417ab8d9e725bc155cd72b5fc8",
+      "bytes": 2735,
+      "producer_role": "upstream-ref-resolver",
+      "replay_critical": true
+    },
+    "patch.diff": {
+      "sha256": "00f0cf4f307bea58544f2fd115e8299120473935f93b9ba133b9777ce4f72784",
+      "bytes": 1912,
+      "producer_role": "patcher",
+      "replay_critical": true
+    },
+    "patch-rationale.md": {
+      "sha256": "d3d8ffec11221274044609750b1a2d891bfef40a95e4ada9512f97e917f333ff",
+      "bytes": 4432,
+      "producer_role": "patcher",
+      "replay_critical": true
+    },
+    "passthru-tests.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "reproducer",
+      "replay_critical": true
+    },
+    "reproducer-refusal.json": {
+      "sha256": "703553cda13faa5403f427cee5e2b6b1350ebdb3e0a6f1e3063ab7630fb84035",
+      "bytes": 2655,
+      "producer_role": "reproducer",
+      "replay_critical": true
+    },
+    "build.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "builder",
+      "replay_critical": false
+    },
+    "review.md": {
+      "sha256": "19467a4f771d0915baaac1a6aa9a8955559bc2f11143a44ceed99bf51437d709",
+      "bytes": 4476,
+      "producer_role": "reviewer",
+      "replay_critical": true
+    },
+    "review-scoring-report.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "reviewer",
+      "replay_critical": false
+    },
+    "sbom-delta.json": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "upstream-ref-resolver",
+      "replay_critical": true
+    },
+    "replay.json": {
+      "sha256": "dc92d85cd425859e20a52ca303e8a8667085cca0690934141bdc862952e36e5d",
+      "bytes": 9630,
+      "producer_role": "steward",
+      "replay_critical": true
+    },
+    "provenance.jsonl": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "steward",
+      "replay_critical": false
+    },
+    "bundle.sig": {
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 256,
+      "producer_role": "steward",
+      "replay_critical": false
+    },
+    "upstream-fix.patch": {
+      "sha256": "81f4efaf94027c2134f4cc9d158e8525e127e3cfce29f6ada96898716d3cc378",
+      "bytes": 1551,
+      "producer_role": "upstream-ref-resolver",
+      "replay_critical": true
+    },
+    "preflight.json": {
+      "sha256": "d422a1ed8fbe4562f7b01cf8b97c4e59f82538e346cc4159002af5ebc2099cb6",
+      "bytes": 302,
+      "producer_role": "source-context-extractor",
+      "replay_critical": true
+    },
+    "source-context/libarchive/archive_read_support_format_tar.c": {
+      "sha256": "e5817f71681b892af9d14f84e18f08feeb7ed1c67b354869ec5ed7cbaccd38cc",
+      "bytes": 113163,
+      "producer_role": "source-context-extractor",
+      "replay_critical": true
+    }
+  },
+  "signed_manifest": {
+    "algorithm": "sigstore-cosign-v1",
+    "signer": "trace-dev@adastracomputing.com",
+    "signed_files": [
+      {
+        "path": "bundle.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "finding.json",
+        "sha256": "7b3924c807ab363271a9dd37943f1af4bf57409ae94977b051e0a4c08c239480"
+      },
+      {
+        "path": "impact.json",
+        "sha256": "170fc1907f946edc41c55694b7fbac92d53389eb66cc07ad34bbca4113d6632b"
+      },
+      {
+        "path": "maintainers.json",
+        "sha256": "0e66a4c9652d0f61fcdbb924a1084de633a96431eb3e9a5b1a4981e65a1cffec"
+      },
+      {
+        "path": "upstream-ref.json",
+        "sha256": "a38508b1162b61c7ad864db97b24b5ef3174cd417ab8d9e725bc155cd72b5fc8"
+      },
+      {
+        "path": "patch.diff",
+        "sha256": "00f0cf4f307bea58544f2fd115e8299120473935f93b9ba133b9777ce4f72784"
+      },
+      {
+        "path": "patch-rationale.md",
+        "sha256": "d3d8ffec11221274044609750b1a2d891bfef40a95e4ada9512f97e917f333ff"
+      },
+      {
+        "path": "passthru-tests.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "reproducer-refusal.json",
+        "sha256": "703553cda13faa5403f427cee5e2b6b1350ebdb3e0a6f1e3063ab7630fb84035"
+      },
+      {
+        "path": "review.md",
+        "sha256": "19467a4f771d0915baaac1a6aa9a8955559bc2f11143a44ceed99bf51437d709"
+      },
+      {
+        "path": "sbom-delta.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "path": "replay.json",
+        "sha256": "dc92d85cd425859e20a52ca303e8a8667085cca0690934141bdc862952e36e5d"
+      },
+      {
+        "path": "upstream-fix.patch",
+        "sha256": "81f4efaf94027c2134f4cc9d158e8525e127e3cfce29f6ada96898716d3cc378"
+      },
+      {
+        "path": "preflight.json",
+        "sha256": "d422a1ed8fbe4562f7b01cf8b97c4e59f82538e346cc4159002af5ebc2099cb6"
+      },
+      {
+        "path": "source-context/libarchive/archive_read_support_format_tar.c",
+        "sha256": "e5817f71681b892af9d14f84e18f08feeb7ed1c67b354869ec5ed7cbaccd38cc"
+      }
+    ]
+  }
+}

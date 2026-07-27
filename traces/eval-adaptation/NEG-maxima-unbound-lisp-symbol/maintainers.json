@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-2024-34490",
+  "nixpkgs_rev": "f6c038475dbc6b0f0cae4c079132d159313b944a",
+  "attr_paths": {
+    "maxima": {
+      "maintainers": [
+        {
+          "github": "doronbehar"
+        }
+      ]
+    }
+  },
+  "replay_critical": true
+}

@@ -1,0 +1,98 @@
+diff --git a/CVE-2024-34490.patch b/CVE-2024-34490.patch
+new file mode 100644
+--- /dev/null
++++ b/CVE-2024-34490.patch
+@@ -0,0 +1,79 @@
++Backport of upstream fix for CVE-2024-34490 (SourceForge commit
++51704ccb090f6f971b641e4e0b7c1c22c4828bf7), adapted to Maxima 5.47.0.
++
++Upstream introduced a `random-name` helper in src/plot.lisp and replaced
++the fixed/predictable temporary output filenames ("maxplot.ps",
++"maxplot.txt", "maxout<pid>.<fmt>", "maxout<pid>.xmaxima") with random
++names. This adaptation carries the same behavior against 5.47.0, whose
++plot code uses keyword-symbol plists (:gnuplot_term, :plot_format, ...)
++rather than the $-prefixed property names of the upstream trunk.
++
++--- a/src/plot.lisp
+++++ b/src/plot.lisp
++@@ -1750,6 +1750,15 @@
++ #+(or sbcl openmcl) (defvar $gnuplot_file_args "~a")
++ #-(or sbcl openmcl) (defvar $gnuplot_file_args "~s")
++ 
+++;; random-file-name
+++;; Creates a random word of 'count' alphanumeric characters
+++(defun random-name (count)
+++  (let ((chars "0123456789abcdefghijklmnopqrstuvwxyz") (name ""))
+++    (setf *random-state* (make-random-state t))
+++    (dotimes (i count)
+++      (setq name (format nil "~a~a" name (aref chars (random 36)))))
+++    name))
+++
++ (defvar $mgnuplot_command "mgnuplot")
++ (defvar $geomview_command "geomview")
++ 
++@@ -1762,8 +1771,8 @@
++              (eq gnuplot-term '$default) gnuplot-out-file)
++ 	(plot-file-path gnuplot-out-file t options)
++       (plot-file-path
++-       (format nil "maxout~d.~(~a~)"
++-	       (getpid)
+++       (format nil "~a.~(~a~)"
+++	       (random-name 16)
++                (ensure-string (getf options :plot_format))) nil options))))
++ 
++ (defun plot-temp-file0 (file &optional (preserve-file nil))
++@@ -2579,7 +2588,7 @@
++ 
++ (defun show-open-plot (ans file)
++   (cond ($show_openplot
++-         (with-open-file (st1 (plot-temp-file (format nil "maxout~d.xmaxima" (getpid))) :direction :output :if-exists :supersede)
+++         (with-open-file (st1 (plot-temp-file (format nil "~a.xmaxima" (random-name 16))) :direction :output :if-exists :supersede)
++            (princ  ans st1))
++          ($system (concatenate 'string *maxima-prefix* 
++                                (if (string= *autoconf-windows* "true") "\\bin\\" "/bin/") 
++--- a/src/gnuplot_def.lisp
+++++ b/src/gnuplot_def.lisp
++@@ -286,7 +286,7 @@
++                (format nil "set term postscript eps color solid lw 2 size 16.4 cm, 12.3 cm font \",24\" ~a" gstrings)))
++      (if (getf plot-options :gnuplot_out_file)
++          (setq out-file (getf plot-options :gnuplot_out_file))
++-         (setq out-file "maxplot.ps")))
+++         (setq out-file (format nil "~a.ps" (random-name 16)))))
++     ((eq (getf plot-options :gnuplot_term) '$dumb)
++      (if (getf plot-options :gnuplot_dumb_term_command)
++          (setq terminal-command
++@@ -294,7 +294,7 @@
++          (setq terminal-command "set term dumb 79 22"))
++      (if (getf plot-options :gnuplot_out_file)
++          (setq out-file (getf plot-options :gnuplot_out_file))
++-         (setq out-file "maxplot.txt")))
+++         (setq out-file (format nil "~a.txt" (random-name 16)))))
++     ((eq (getf plot-options :gnuplot_term) '$default)
++      (if (getf plot-options :gnuplot_default_term_command)
++          (setq terminal-command
++--- a/src/xmaxima_def.lisp
+++++ b/src/xmaxima_def.lisp
++@@ -431,7 +431,7 @@
++         (format $pstream "}~%"))))))
++ 
++ (defmethod plot-shipout ((plot xmaxima-plot) options &optional output-file)
++-  (let ((file (plot-file-path (format nil "maxout~d.xmaxima" (getpid)))))
+++  (let ((file (plot-file-path (format nil "~a.xmaxima" (scramble-fname 16)))))
++     (cond ($show_openplot
++            (with-open-file (fl
++                             #+sbcl (sb-ext:native-namestring file)
+diff --git a/package.nix b/package.nix
+--- a/package.nix
++++ b/package.nix
+@@ -49,6 +49,10 @@
+   '';
+ 
+   patches = [
++    # CVE-2024-34490: predictable temporary-file names in Maxima's plotting
++    # facilities. Backport of upstream SourceForge commit
++    # 51704ccb090f6f971b641e4e0b7c1c22c4828bf7, adapted to 5.47.0.
++    ./CVE-2024-34490.patch
+     # fix path to info dir (see https://trac.sagemath.org/ticket/11348)
+     (fetchpatch {
+       url = "https://raw.githubusercontent.com/sagemath/sage/07d6c37d18811e2b377a9689790a7c5e24da16ba/build/pkgs/maxima/patches/infodir.patch";

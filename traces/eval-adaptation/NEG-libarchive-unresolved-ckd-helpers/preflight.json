@@ -1,0 +1,8 @@
+{
+  "applies_verbatim": false,
+  "patch": "upstream-fix.patch",
+  "patch_flags": [
+    "-p1"
+  ],
+  "diagnostics": "patching file libarchive/archive_read_support_format_tar.c\nHunk #1 FAILED at 3517.\n1 out of 1 hunk FAILED -- saving rejects to file libarchive/archive_read_support_format_tar.c.rej"
+}
