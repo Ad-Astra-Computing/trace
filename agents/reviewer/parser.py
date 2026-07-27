@@ -295,6 +295,48 @@ def _parse_review(text: str) -> ReviewerParseResult:
     )
 
 
+VALID_EQUIVALENCE_VALUES: frozenset[str] = frozenset(
+    {"equivalent", "not-equivalent", "indeterminate"}
+)
+
+
+# The `equivalence:` field must be the field name at the START of the line, not
+# a substring: `non-equivalence: equivalent` does NOT declare equivalence. Allow
+# only an optional list-marker + whitespace prefix (the v10 contract writes the
+# line as a `- equivalence: <value>` bullet).
+_EQUIVALENCE_FIELD_RE = re.compile(
+    r"^\s*(?:[-*]\s+)?equivalence:\s*(?P<value>\S+)?"
+)
+
+
+def parse_equivalence_verdict(equivalence_assessment_raw: str | None) -> str | None:
+    """Extract the DECLARED equivalence value from a `## Equivalence assessment`
+    section body.
+
+    The v10 adaptation-lane contract requires a line reading
+    ``equivalence: <value> — <why>`` where ``<value>`` is one of
+    ``equivalent | not-equivalent | indeterminate``. Returns the lowercased
+    value token, or None when the section is absent/empty or carries no
+    ``equivalence:`` line.
+
+    This is the single source of truth for that extraction: the executor's
+    accept-gate (`tools/trace_cli/execute.py`) and the cohort-eval
+    adaptation-equivalence scorer both call it so they can never drift. The
+    caller decides what to do with an unrecognized value — this helper does
+    NOT validate the token against VALID_EQUIVALENCE_VALUES (it returns
+    whatever token was declared so callers can distinguish "no line" from
+    "bad value").
+    """
+    if not equivalence_assessment_raw:
+        return None
+    for line in equivalence_assessment_raw.splitlines():
+        m = _EQUIVALENCE_FIELD_RE.match(line)
+        if m:
+            value = m.group("value")
+            return value.strip().lower() if value else None
+    return None
+
+
 def _split_sections(body: str) -> dict[str, str]:
     """Split a markdown body into a dict keyed by `## Heading` lines."""
     sections: dict[str, str] = {}
@@ -502,7 +544,9 @@ __all__ = [
     "ReviewerOutputMalformed",
     "ReviewerParseResult",
     "SCHEMA_VERSION",
+    "VALID_EQUIVALENCE_VALUES",
     "VALID_SEVERITIES",
     "VALID_VERDICTS",
+    "parse_equivalence_verdict",
     "parse_reviewer_output",
 ]

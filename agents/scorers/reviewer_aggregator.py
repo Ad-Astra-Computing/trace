@@ -10,6 +10,8 @@ reports the verdict-distribution + per-scorer rates the user locked:
   evidence_cited_mean
   attestation_correct_rate
   reviewer_steward_disagreement_rate
+  patch_comparison_present_rate (source-backport reviews only)
+  adaptation_equivalence_correct_rate (adaptation-lane reviews only)
   provenance list per run
 
 The aggregator reads files in two shapes:
@@ -75,6 +77,7 @@ class ReviewerAggregateResult:
     attestation_correct_rate: float | None
     reviewer_steward_disagreement_rate: float | None
     patch_comparison_present_rate: float | None = None  # source-backport only
+    adaptation_equivalence_correct_rate: float | None = None  # adaptation lane only
     provenance: list[ReviewerProvenanceEntry] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -89,6 +92,7 @@ class ReviewerAggregateResult:
             "attestation_correct_rate": self.attestation_correct_rate,
             "reviewer_steward_disagreement_rate": self.reviewer_steward_disagreement_rate,
             "patch_comparison_present_rate": self.patch_comparison_present_rate,
+            "adaptation_equivalence_correct_rate": self.adaptation_equivalence_correct_rate,
             "provenance": [p.to_dict() for p in self.provenance],
         }
 
@@ -108,6 +112,7 @@ def aggregate_reviewer_reports(
     attestation_match_samples: list[float] = []
     disagreement_aligned_samples: list[float] = []  # 1.0 if score == 1.0, 0.0 otherwise
     patch_comparison_samples: list[float] = []  # source-backport reviews only
+    adaptation_equivalence_samples: list[float] = []  # adaptation-lane reviews only
 
     for path in report_paths:
         try:
@@ -153,6 +158,8 @@ def aggregate_reviewer_reports(
                 disagreement_aligned_samples.append(1.0 if float(score) == 1.0 else 0.0)
             elif name == "review-patch-comparison-present":
                 patch_comparison_samples.append(float(score))
+            elif name == "review-adaptation-equivalence":
+                adaptation_equivalence_samples.append(float(score))
 
     n_verdict = sum(verdict_counts.values())
     totals = {
@@ -188,6 +195,10 @@ def aggregate_reviewer_reports(
         sum(patch_comparison_samples) / len(patch_comparison_samples)
         if patch_comparison_samples else None
     )
+    adaptation_equivalence_correct_rate = (
+        sum(adaptation_equivalence_samples) / len(adaptation_equivalence_samples)
+        if adaptation_equivalence_samples else None
+    )
 
     return ReviewerAggregateResult(
         cohort=cohort,
@@ -200,6 +211,7 @@ def aggregate_reviewer_reports(
         attestation_correct_rate=attestation_correct_rate,
         reviewer_steward_disagreement_rate=disagreement_rate,
         patch_comparison_present_rate=patch_comparison_present_rate,
+        adaptation_equivalence_correct_rate=adaptation_equivalence_correct_rate,
         provenance=provenance,
     )
 

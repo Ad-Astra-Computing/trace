@@ -1201,7 +1201,12 @@ def _execute_reviewer(
         gate is the deterministic enforcement.
     """
     from agents.patcher import AnthropicAdapter
-    from agents.reviewer import ReviewerOutputMalformed, run_reviewer
+    from agents.reviewer import (
+        VALID_EQUIVALENCE_VALUES,
+        ReviewerOutputMalformed,
+        parse_equivalence_verdict,
+        run_reviewer,
+    )
 
     reviewer_prompt = prompt_path or REVIEWER_PROMPT_PATH_DEFAULT
     if not reviewer_prompt.is_file():
@@ -1476,16 +1481,10 @@ def _execute_reviewer(
         # section's line reads `equivalence: <value> — <why>`. A substring check
         # would miss `accept` paired with `indeterminate` (missing evidence, must
         # escalate) and would tolerate arbitrary values like `equivalence: unknown`.
-        equivalence_value: str | None = None
-        if ea:
-            for line in ea.splitlines():
-                pos = line.find("equivalence:")
-                if pos != -1:
-                    tail = line[pos + len("equivalence:") :].split()
-                    if tail:
-                        equivalence_value = tail[0].strip().lower()
-                    break
-        valid_equivalence = {"equivalent", "not-equivalent", "indeterminate"}
+        # Shared with the cohort-eval adaptation-equivalence scorer so the two
+        # can never drift.
+        equivalence_value = parse_equivalence_verdict(ea)
+        valid_equivalence = set(VALID_EQUIVALENCE_VALUES)
         if not ea or equivalence_value is None:
             problem = (
                 "adaptation-lane review (applies_verbatim=false) must include a "

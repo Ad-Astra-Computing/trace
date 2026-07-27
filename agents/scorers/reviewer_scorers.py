@@ -41,14 +41,18 @@ with the matching role.
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 from agents.reviewer import (
     ReviewerOutputMalformed,
     ReviewerParseResult,
+    VALID_EQUIVALENCE_VALUES,
+    parse_equivalence_verdict,
     parse_reviewer_output,
 )
+from agents.scorers.adaptation_oracle import get_oracle
 from agents.scorers.types import SCORER_VERSION, ScorerResult
 
 
@@ -72,7 +76,19 @@ _OPTIONAL_BUNDLE_ARTIFACTS: tuple[str, ...] = (
 
 
 def reviewer_scorer_names() -> tuple[str, ...]:
-    """The locked Reviewer scorer names, in canonical order."""
+    """The locked Reviewer scorer names, in canonical order.
+
+    NOTE: `review-adaptation-equivalence` (below) is deliberately NOT in this
+    tuple. This tuple is the locked canonical composite paired with
+    `prompts/reviewer.v1.md`; it runs against every reviewer invocation
+    regardless of bundle shape. The adaptation-equivalence scorer only
+    applies to the narrow adaptation lane (source-context/ + preflight.json
+    with applies_verbatim != true) AND only for CVEs with a registered
+    ground-truth oracle (`agents/scorers/adaptation_oracle.py`) — most
+    bundles will never trigger it. It is a cohort-eval scorer consumed by
+    name (e.g. by the aggregator / a dedicated eval command), not part of
+    the per-invocation canonical set.
+    """
     return (
         "review-schema-valid",
         "review-evidence-cited",
@@ -117,14 +133,26 @@ def _patcher_family_from_replay(bundle_dir: Path) -> str | None:
         replay = json.loads(rj.read_text())
     except json.JSONDecodeError:
         return None
-    for role in replay.get("roles", []):
-        if role.get("role") != "patcher":
+    if not isinstance(replay, dict):
+        return None
+    roles = replay.get("roles", [])
+    if not isinstance(roles, list):
+        return None
+    # Tolerant of a malformed replay: non-dict role entries, a non-list/empty
+    # invocations, or a non-dict last invocation are skipped rather than
+    # crashing on .get() (the scorer must fail closed, not traceback).
+    for role in roles:
+        if not isinstance(role, dict) or role.get("role") != "patcher":
             continue
-        invs = role.get("invocations", [])
-        if not invs:
+        invs = role.get("invocations")
+        if not isinstance(invs, list) or not invs:
             continue
         last = invs[-1]
-        return _model_id_to_family((last.get("model") or {}).get("model_id") or "")
+        if not isinstance(last, dict):
+            continue
+        model = last.get("model")
+        model_id = model.get("model_id") if isinstance(model, dict) else None
+        return _model_id_to_family(model_id or "")
     return None
 
 
@@ -504,6 +532,23 @@ class ReviewPatchComparisonPresentScorer:
                 notes=f"patch_strategy={patch_strategy!r}; scorer only applies to source-backport",
             )
 
+        # Adaptation lane (reviewer.v10): the contract REPLACES `## Patch
+        # comparison` with `## Equivalence assessment` (line-level matching is
+        # not meaningful when the fix does not apply verbatim). A contract-
+        # compliant v10 review omits `## Patch comparison`, so this scorer must
+        # abstain here rather than score a false 0.0 that depresses the cohort
+        # rate. The adaptation-equivalence scorer covers this lane instead.
+        if _is_adaptation_lane(bundle_dir):
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes=(
+                    "adaptation lane (applies_verbatim!=true): '## Patch comparison' "
+                    "is replaced by '## Equivalence assessment'; scored by "
+                    "review-adaptation-equivalence instead"
+                ),
+            )
+
         parsed = _load_review_md(bundle_dir)
         if parsed is None or parsed.kind != "review":
             return ScorerResult(
@@ -529,6 +574,252 @@ class ReviewPatchComparisonPresentScorer:
                 f"({len(parsed.patch_comparison_raw)} chars)"
             ),
             details={"patch_comparison_length": len(parsed.patch_comparison_raw)},
+        )
+
+
+# ─── 4b. review-adaptation-equivalence (adaptation-lane cohort scorer) ────
+
+
+def _is_adaptation_lane(bundle_dir: Path) -> bool:
+    """A bundle is in the ADAPTATION lane iff it is a SOURCE-BACKPORT that
+    carries a non-empty source-context/ dir AND `applies_verbatim` is anything
+    other than the literal True.
+
+    This MUST match the executor's routing in `tools/trace_cli/execute.py`,
+    which enters this lane only inside the `patch_strategy == 'source-backport'`
+    branch, and there fails closed to the higher-scrutiny adaptation lane for
+    every `applies_verbatim` value except a successfully-parsed literal True:
+    a missing preflight.json, unparseable JSON, a non-object document, or a
+    missing/false/non-boolean `applies_verbatim` key all route to the
+    adaptation lane. Only `preflight.json` that parses to an object whose
+    `applies_verbatim` is exactly True selects the verbatim lane. A non-source-
+    backport bundle (e.g. a version bump) is never the adaptation lane even if
+    it happens to retain a source-context/ dir."""
+    upstream_ref_path = bundle_dir / "upstream-ref.json"
+    if not upstream_ref_path.is_file():
+        return False
+    try:
+        upstream_ref = json.loads(upstream_ref_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(upstream_ref, dict):
+        return False
+    patch_strategy = (upstream_ref.get("eligibility") or {}).get("patch_strategy")
+    if patch_strategy != "source-backport":
+        return False
+    source_context = bundle_dir / "source-context"
+    if not source_context.is_dir():
+        return False
+    if not any(p.is_file() for p in source_context.rglob("*")):
+        return False
+    applies_verbatim: Any = None
+    preflight_path = bundle_dir / "preflight.json"
+    if preflight_path.is_file():
+        try:
+            preflight = json.loads(preflight_path.read_text())
+        except json.JSONDecodeError:
+            preflight = None
+        if isinstance(preflight, dict):
+            applies_verbatim = preflight.get("applies_verbatim")
+    # Fail closed: only a literal True is the verbatim lane.
+    return applies_verbatim is not True
+
+
+def _cve_id_from_finding(bundle_dir: Path) -> str | None:
+    finding_path = bundle_dir / "finding.json"
+    if not finding_path.is_file():
+        return None
+    try:
+        finding = json.loads(finding_path.read_text())
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(finding, dict):
+        return None
+    cve_id = finding.get("cve_id")
+    return cve_id if isinstance(cve_id, str) and cve_id else None
+
+
+class ReviewAdaptationEquivalenceScorer:
+    """Compares the Reviewer's declared `equivalence:` verdict (adaptation
+    lane, reviewer.v10+) against a registered ground-truth oracle
+    (`agents/scorers/adaptation_oracle.py`).
+
+    This is NOT part of `reviewer_scorer_names()` — see the note there. It
+    only applies when ALL of the following hold:
+
+      * the invocation produced a review (not a refusal)
+      * the bundle is in the adaptation lane (source-context/ present +
+        non-empty, preflight.json.applies_verbatim is not True)
+      * finding.json exists, parses, and carries a cve_id
+      * an oracle is registered for that cve_id
+
+    Score:
+      1.0 — reviewer's `equivalence:` token matches the oracle's
+            ground_truth_equivalence exactly.
+      0.0 — reviewer declared `indeterminate` against a settled oracle
+            label (an under-commitment miss, distinct from a
+            wrong-direction miss); OR the reviewer declared the opposite
+            settled value or an unrecognized token (wrong-direction /
+            unrecognized miss); OR review.md is missing/malformed; OR the
+            adaptation-lane review has no `## Equivalence assessment`
+            `equivalence:` line at all.
+      None+applies=False — refusal, non-adaptation-lane bundle, no
+            resolvable cve_id, or no registered oracle.
+    """
+    name = "review-adaptation-equivalence"
+    version = SCORER_VERSION
+    advisory = False
+
+    def score(self, *, bundle_dir: Path, invocation: dict[str, Any]) -> ScorerResult:
+        kind = _outputs_kind(invocation)
+        if kind == "refusal":
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes="reviewer refusal: adaptation-equivalence check is not applicable",
+            )
+
+        if not _is_adaptation_lane(bundle_dir):
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes=(
+                    "bundle is not in the adaptation lane (no non-empty "
+                    "source-context/ or preflight.json.applies_verbatim is true)"
+                ),
+            )
+
+        cve_id = _cve_id_from_finding(bundle_dir)
+        if cve_id is None:
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes="finding.json missing, invalid, or lacks a cve_id",
+            )
+
+        oracle = get_oracle(cve_id)
+        if oracle is None:
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes=f"no adaptation-equivalence oracle registered for {cve_id}",
+            )
+
+        # Bind the label to the SPECIFIC adjudicated adaptation. The oracle
+        # verdict was settled against one canonical patch; a bundle carrying a
+        # different patch (e.g. a re-run Patcher that produced a semantically
+        # different, un-adjudicated adaptation) has no ground truth here. Abstain
+        # (applies=False) rather than award the settled label to a patch nobody
+        # adjudicated. Compare the on-disk patch.diff bytes — in a finalized
+        # adaptation-lane bundle patch.diff IS the canonical, Builder-executed
+        # artifact.
+        patch_path = bundle_dir / "patch.diff"
+        if not patch_path.is_file():
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes=f"patch.diff missing; cannot bind oracle label for {cve_id}",
+            )
+        bundle_patch_sha = sha256(patch_path.read_bytes()).hexdigest()
+        if bundle_patch_sha != oracle.adjudicated_patch_sha256:
+            return ScorerResult(
+                self.name, self.version,
+                applies=False, advisory=False, score=None,
+                notes=(
+                    f"bundle patch.diff (sha256={bundle_patch_sha[:12]}…) does not "
+                    f"match the adjudicated adaptation "
+                    f"(sha256={oracle.adjudicated_patch_sha256[:12]}…) for {cve_id}; "
+                    f"oracle label does not apply to this patch"
+                ),
+                details={
+                    "cve_id": cve_id,
+                    "bundle_patch_sha256": bundle_patch_sha,
+                    "adjudicated_patch_sha256": oracle.adjudicated_patch_sha256,
+                },
+            )
+
+        parsed = _load_review_md(bundle_dir)
+        if parsed is None or parsed.kind != "review":
+            return ScorerResult(
+                self.name, self.version,
+                applies=True, advisory=False, score=0.0,
+                notes="review.md missing or fails strict parser",
+                details={
+                    "cve_id": cve_id,
+                    "reviewer_equivalence": None,
+                    "ground_truth_equivalence": oracle.ground_truth_equivalence,
+                    "oracle_base_relation": oracle.provenance.base_relation,
+                    "oracle_adjudicated_by": oracle.adjudicated_by,
+                    "match": False,
+                },
+            )
+
+        reviewer_equivalence = parse_equivalence_verdict(parsed.equivalence_assessment_raw)
+
+        details_base: dict[str, Any] = {
+            "cve_id": cve_id,
+            "reviewer_equivalence": reviewer_equivalence,
+            "ground_truth_equivalence": oracle.ground_truth_equivalence,
+            "oracle_base_relation": oracle.provenance.base_relation,
+            "oracle_adjudicated_by": oracle.adjudicated_by,
+            "adjudicated_patch_sha256": oracle.adjudicated_patch_sha256,
+        }
+
+        if reviewer_equivalence is None:
+            return ScorerResult(
+                self.name, self.version,
+                applies=True, advisory=False, score=0.0,
+                notes=(
+                    "adaptation-lane review has no '## Equivalence assessment' "
+                    "'equivalence:' line"
+                ),
+                details={**details_base, "match": False},
+            )
+
+        if reviewer_equivalence == oracle.ground_truth_equivalence:
+            return ScorerResult(
+                self.name, self.version,
+                applies=True, advisory=False, score=1.0,
+                notes=(
+                    f"reviewer equivalence={reviewer_equivalence!r} matches oracle "
+                    f"ground truth for {cve_id}"
+                ),
+                details={**details_base, "match": True},
+            )
+
+        if reviewer_equivalence == "indeterminate":
+            return ScorerResult(
+                self.name, self.version,
+                applies=True, advisory=False, score=0.0,
+                notes=(
+                    f"reviewer declared 'indeterminate' against a settled oracle label "
+                    f"({oracle.ground_truth_equivalence!r} for {cve_id}); "
+                    f"under-commitment miss, not a wrong-direction miss"
+                ),
+                details={**details_base, "match": False},
+            )
+
+        if reviewer_equivalence not in VALID_EQUIVALENCE_VALUES:
+            return ScorerResult(
+                self.name, self.version,
+                applies=True, advisory=False, score=0.0,
+                notes=(
+                    f"reviewer declared unrecognized equivalence value "
+                    f"{reviewer_equivalence!r} (oracle ground truth is "
+                    f"{oracle.ground_truth_equivalence!r} for {cve_id})"
+                ),
+                details={**details_base, "match": False},
+            )
+
+        return ScorerResult(
+            self.name, self.version,
+            applies=True, advisory=False, score=0.0,
+            notes=(
+                f"reviewer equivalence={reviewer_equivalence!r} contradicts oracle "
+                f"ground truth {oracle.ground_truth_equivalence!r} for {cve_id} "
+                f"(wrong-direction miss)"
+            ),
+            details={**details_base, "match": False},
         )
 
 
@@ -626,6 +917,7 @@ def _derive_steward_signal(bundle_dir: Path) -> str | None:
 
 __all__ = [
     "CANONICAL_BUNDLE_ARTIFACTS",
+    "ReviewAdaptationEquivalenceScorer",
     "ReviewCrossFamilyAttestationScorer",
     "ReviewDisagreementScorer",
     "ReviewEvidenceCitedScorer",

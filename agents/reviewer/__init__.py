@@ -5,8 +5,10 @@ from agents.reviewer.parser import (
     ReviewerOutputMalformed,
     ReviewerParseResult,
     SCHEMA_VERSION,
+    VALID_EQUIVALENCE_VALUES,
     VALID_SEVERITIES,
     VALID_VERDICTS,
+    parse_equivalence_verdict,
     parse_reviewer_output,
 )
 from agents.reviewer.runner import (
@@ -23,9 +25,11 @@ __all__ = [
     "ReviewerParseResult",
     "ReviewerRunResult",
     "SCHEMA_VERSION",
+    "VALID_EQUIVALENCE_VALUES",
     "VALID_SEVERITIES",
     "VALID_VERDICTS",
     "assemble_user_content",
+    "parse_equivalence_verdict",
     "parse_reviewer_output",
     "run_reviewer",
 ]

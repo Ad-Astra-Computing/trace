@@ -332,6 +332,23 @@ def main(argv: list[str]) -> int:
         "--format", choices=("human", "json"), default="human",
     )
 
+    sc = subs.add_parser("score", help="scorer-run tooling (produces scoring-report.json artifacts)")
+    sc_subs = sc.add_subparsers(dest="score_cmd", required=True)
+    sc_rv = sc_subs.add_parser(
+        "review",
+        help=(
+            "run the reviewer scorer set (canonical five + adaptation-"
+            "equivalence) against a bundle's last reviewer invocation "
+            "and write review-scoring-report.json"
+        ),
+    )
+    sc_rv.add_argument("bundle_dir", type=Path, help="bundle directory")
+    sc_rv.add_argument("--force", action="store_true",
+                       help="overwrite an existing review-scoring-report.json")
+    sc_rv.add_argument("--format", choices=("text", "json"), default="text")
+    sc_rv.add_argument("-o", "--out", type=Path, default=None,
+                       help="output path (default: <bundle_dir>/review-scoring-report.json)")
+
     args = parser.parse_args(argv)
     if args.cmd == "pr":
         from tools.trace_cli import pr as _pr_module
@@ -384,6 +401,10 @@ def main(argv: list[str]) -> int:
             return _cmd_eval_review_rate(args)
         if args.eval_cmd == "repro-rate":
             return _cmd_eval_repro_rate(args)
+        return EXIT_USAGE
+    if args.cmd == "score":
+        if args.score_cmd == "review":
+            return _cmd_score_review(args)
         return EXIT_USAGE
     return EXIT_USAGE
 
@@ -482,8 +503,299 @@ def _cmd_eval_review_rate(args: argparse.Namespace) -> int:
     print(f"escalate_rate:                {_fmt(result.escalate_rate)}")
     print(f"evidence_cited_mean:          {_fmt(result.evidence_cited_mean)}")
     print(f"attestation_correct_rate:     {_fmt(result.attestation_correct_rate)}")
+    print(f"patch_comparison_present_rate:")
+    print(f"                              {_fmt(result.patch_comparison_present_rate)}")
+    print(f"adaptation_equivalence_correct_rate:")
+    print(f"                              {_fmt(result.adaptation_equivalence_correct_rate)}")
     print(f"reviewer_steward_disagreement_rate (informational):")
     print(f"                              {_fmt(result.reviewer_steward_disagreement_rate)}")
+    return EXIT_OK
+
+
+def _find_last_reviewer_invocation(replay: dict[str, Any]) -> dict[str, Any] | None:
+    """Mirrors `agents.scorers.reviewer_scorers._patcher_family_from_replay`:
+    walk replay.json's roles for the reviewer role and return its last
+    recorded invocation, or None if no reviewer invocation is recorded.
+
+    Tolerant of a malformed replay: a non-list `roles`, non-dict role
+    entries, or a non-list/empty `invocations` are skipped rather than
+    crashing (the caller has already confirmed `replay` is a dict)."""
+    roles = replay.get("roles", [])
+    if not isinstance(roles, list):
+        return None
+    for role in roles:
+        if not isinstance(role, dict) or role.get("role") != "reviewer":
+            continue
+        invs = role.get("invocations")
+        if not isinstance(invs, list) or not invs:
+            continue
+        last = invs[-1]
+        # A non-dict final entry (scalar/null in a malformed replay) is not a
+        # usable invocation record; treat it as "no reviewer invocation".
+        return last if isinstance(last, dict) else None
+    return None
+
+
+# Canonical reviewer inputs — the bundle files the reviewer runner reads into
+# the model context (see agents/reviewer/runner.py:assemble_user_content) and
+# that the scorers subsequently re-read from disk. Any present on disk must be
+# pinned (recorded + hash-verified) by the scored invocation. Kept in sync with
+# the reviewer runner; NOT a superset of every file a scorer touches
+# (bundle.json / replay.json are bundle context whose integrity is the signing
+# layer's concern, and replay.json cannot record its own hash).
+#
+# Split by lane: the ALWAYS set is consumed by every reviewer run; the
+# ADAPTATION-ONLY set (+ source-context/**) is consumed only when execution
+# entered the adaptation lane (applies_verbatim != true). A verbatim
+# source-backport that happens to carry preflight.json/patch-applicability.json
+# never fed them to the reviewer, so requiring them there would falsely reject
+# a valid recorded invocation.
+_ALWAYS_REVIEWER_INPUTS: tuple[str, ...] = (
+    "finding.json",
+    "upstream-ref.json",
+    "impact.json",
+    "maintainers.json",
+    "package.nix",
+    "patch.diff",
+    "patch-rationale.md",
+    "upstream-fix.patch",
+)
+_ADAPTATION_ONLY_INPUTS: tuple[str, ...] = (
+    "preflight.json",
+    "patch-applicability.json",
+)
+
+
+def _safe_bundle_relpath(bundle_dir: Path, rel: str) -> bool:
+    """True iff `rel` is a bundle-relative path that stays within bundle_dir.
+
+    Rejects absolute paths and any path that (after resolving, which also
+    follows symlinks) escapes the bundle. A recorded artifact path is
+    attacker-influenced when scoring an untrusted bundle, so a traversal like
+    ``../../secret`` must never be read (nor its hash prefix leaked)."""
+    if os.path.isabs(rel):
+        return False
+    try:
+        resolved = (bundle_dir / rel).resolve()
+        resolved.relative_to(bundle_dir.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _verify_invocation_artifacts(
+    bundle_dir: Path, invocation: dict[str, Any]
+) -> str | None:
+    """Confirm the on-disk bundle matches the artifacts the selected reviewer
+    invocation actually recorded — BOTH the inputs it consumed (finding.json,
+    upstream-ref.json, patch.diff, …) and the outputs it produced (review.md /
+    review-refusal.json). Returns an error string on the first problem, or None
+    when every recorded artifact verifies.
+
+    Without this the command could attribute a score to the recorded model +
+    invocation while the scorers actually evaluated evidence the model never
+    saw (a modified input) or an output it never produced (a swapped
+    review.md). Several scorers derive their result from the inputs, so both
+    sides must be pinned.
+
+    Policy: at least one recorded output must be verified, and every recorded
+    entry (input or output) must be well-formed. A non-empty outputs list whose
+    entries are malformed / omit path or sha256 is REJECTED rather than
+    silently passed — an unverifiable record is not evidence.
+    """
+    from hashlib import sha256 as _sha256
+
+    def _verify(entry: Any, kind: str) -> tuple[bool, str | None]:
+        """Returns (verified_a_file, error). verified_a_file is True only when
+        a real file was hashed and matched."""
+        if not isinstance(entry, dict):
+            return False, f"malformed {kind} record (not an object): {entry!r}"
+        rel = entry.get("path")
+        recorded = entry.get("sha256")
+        if not isinstance(rel, str) or not rel or not isinstance(recorded, str):
+            return False, (
+                f"malformed {kind} record (missing/invalid path or sha256): "
+                f"{entry!r}"
+            )
+        if not _safe_bundle_relpath(bundle_dir, rel):
+            return False, (
+                f"unsafe {kind} path {rel!r} escapes the bundle; refusing to read"
+            )
+        f = bundle_dir / rel
+        if not f.is_file():
+            return False, f"recorded {kind} {rel!r} is missing from {bundle_dir}"
+        actual = _sha256(f.read_bytes()).hexdigest()
+        if actual != recorded:
+            return False, (
+                f"{rel} on disk (sha256={actual[:12]}…) does not match the "
+                f"recorded invocation {kind} (sha256={recorded[:12]}…); the "
+                f"bundle was modified after the reviewer run"
+            )
+        return True, None
+
+    canonical_outputs = {"review.md", "review-refusal.json"}
+    outputs = invocation.get("outputs")
+    if not isinstance(outputs, list) or not outputs:
+        return "selected reviewer invocation records no outputs to verify"
+    verified_paths: set[str] = set()
+    for out in outputs:
+        ok, err = _verify(out, "output")
+        if err is not None:
+            return err
+        if ok and isinstance(out, dict):
+            verified_paths.add(out.get("path"))
+    # The scorers read review.md / review-refusal.json from disk; requiring that
+    # a canonical reviewer output was RECORDED and VERIFIED stops a malformed
+    # invocation from passing on an incidental non-review file (e.g. recording
+    # finding.json as its sole output) while the scorers evaluate an unrelated
+    # on-disk review.md the invocation never produced.
+    if not (canonical_outputs & verified_paths):
+        return (
+            "selected reviewer invocation records no verified canonical output "
+            "(review.md or review-refusal.json)"
+        )
+
+    # The scorers read mutable bundle inputs (finding.json, upstream-ref.json,
+    # patch.diff, …). Require the invocation to RECORD those inputs and verify
+    # each, so a stale invocation cannot be scored against evidence it never
+    # consumed. Missing or empty inputs defeats the attribution guarantee and is
+    # rejected; a present non-list value is malformed.
+    inputs = invocation.get("inputs")
+    if inputs is None:
+        return "selected reviewer invocation records no inputs to verify"
+    if not isinstance(inputs, list):
+        return f"malformed inputs record (present but not a list): {inputs!r}"
+    if not inputs:
+        return "selected reviewer invocation records an empty inputs list"
+    verified_inputs: set[str] = set()
+    for inp in inputs:
+        ok, err = _verify(inp, "input")
+        if err is not None:
+            return err
+        if ok and isinstance(inp, dict):
+            verified_inputs.add(inp.get("path"))
+
+    # Recording a nonempty-but-partial input set would let an UN-recorded but
+    # scorer-consumed reviewer input (e.g. patch.diff, upstream-ref.json) be
+    # modified after the run and still scored under this invocation. Require
+    # every canonical reviewer input that is PRESENT on disk to be among the
+    # verified inputs. (These are exactly the files the reviewer runner reads;
+    # bundle.json / replay.json are bundle context, not reviewer inputs, and
+    # their integrity is the signing/`bundle verify` layer's concern — see the
+    # score-review boundary note in docs/DECISIONS.md.)
+    from agents.scorers.reviewer_scorers import _is_adaptation_lane
+
+    adaptation = _is_adaptation_lane(bundle_dir)
+    required = list(_ALWAYS_REVIEWER_INPUTS)
+    if adaptation:
+        required += list(_ADAPTATION_ONLY_INPUTS)
+    unpinned = [
+        name for name in required
+        if (bundle_dir / name).is_file() and name not in verified_inputs
+    ]
+    # Only the adaptation lane feeds source-context/** to the reviewer (a
+    # verbatim run never reads it); pin each present file there dynamically.
+    if adaptation:
+        sc_dir = bundle_dir / "source-context"
+        if sc_dir.is_dir():
+            for f in sorted(sc_dir.rglob("*")):
+                if f.is_file():
+                    rel = f.relative_to(bundle_dir).as_posix()
+                    if rel not in verified_inputs:
+                        unpinned.append(rel)
+    if unpinned:
+        return (
+            "reviewer inputs present on disk but not recorded/verified by the "
+            f"selected invocation: {unpinned}; the invocation must pin every "
+            "input the scorers read"
+        )
+    return None
+
+
+def _atomic_write_text(target: Path, text: str) -> None:
+    """Write text atomically to target via temp file + os.replace, matching
+    the pattern in tools/trace_cli/execute.py's _atomic_write_bytes."""
+    import tempfile
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, target)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except Exception:
+            pass
+        raise
+
+
+def _cmd_score_review(args: argparse.Namespace) -> int:
+    from agents.scorers.reviewer_runner import run_reviewer_scorers
+
+    bundle_dir: Path = args.bundle_dir
+    replay_path = bundle_dir / "replay.json"
+    try:
+        replay = json.loads(replay_path.read_text())
+    except FileNotFoundError:
+        print(f"error: {replay_path} not found", file=sys.stderr)
+        return EXIT_NOT_FOUND
+    except json.JSONDecodeError as exc:
+        print(f"error: {replay_path} invalid JSON: {exc}", file=sys.stderr)
+        return EXIT_INVALID
+
+    if not isinstance(replay, dict):
+        print(
+            f"error: {replay_path} is not a JSON object",
+            file=sys.stderr,
+        )
+        return EXIT_INVALID
+
+    invocation = _find_last_reviewer_invocation(replay)
+    if invocation is None:
+        print(
+            f"error: no reviewer invocation found in {replay_path}",
+            file=sys.stderr,
+        )
+        return EXIT_INVALID
+
+    mismatch = _verify_invocation_artifacts(bundle_dir, invocation)
+    if mismatch is not None:
+        print(f"error: {mismatch}", file=sys.stderr)
+        return EXIT_HASH_MISMATCH
+
+    report = run_reviewer_scorers(bundle_dir=bundle_dir, invocation=invocation)
+
+    out_path: Path = args.out if args.out is not None else bundle_dir / "review-scoring-report.json"
+    if out_path.exists() and not args.force:
+        print(
+            f"error: {out_path} already exists; pass --force to overwrite",
+            file=sys.stderr,
+        )
+        return EXIT_INVALID
+
+    body = json.dumps(report.to_dict(), indent=2) + "\n"
+    _atomic_write_text(out_path, body)
+
+    if args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2))
+        return EXIT_OK
+
+    print(f"bundle_dir: {report.bundle_dir}")
+    print(f"bundle_id:  {report.bundle_id}")
+    print(f"cve_id:     {report.cve_id}")
+    print(f"report:     {out_path}")
+    for s in report.scorers:
+        d = s.to_dict()
+        score_str = "n/a" if d["score"] is None else f"{d['score']:.3f}"
+        print(f"  {d['scorer_name']:32s} applies={str(d['applies']):5s} score={score_str}")
     return EXIT_OK
 
 

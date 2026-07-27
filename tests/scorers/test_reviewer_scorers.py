@@ -567,6 +567,26 @@ def test_patch_comparison_present_scores_1(tmp_path: Path) -> None:
     assert "Patch comparison" in r.notes
 
 
+def test_patch_comparison_abstains_in_adaptation_lane(tmp_path: Path) -> None:
+    """A v10 adaptation-lane source-backport replaces '## Patch comparison' with
+    '## Equivalence assessment'; the patch-comparison scorer must abstain, not
+    score a false 0.0 that depresses the cohort rate."""
+    bd = _source_backport_bundle(tmp_path)
+    # Push it into the adaptation lane: non-empty source-context + applies_verbatim=false.
+    sc = bd / "source-context" / "src"
+    sc.mkdir(parents=True)
+    (sc / "x.c").write_text("int main(void){}\n")
+    (bd / "preflight.json").write_text(json.dumps({"applies_verbatim": False}))
+    # A contract-compliant v10 review omits '## Patch comparison'.
+    (bd / "review.md").write_text(_accept_review_md())
+    r = ReviewPatchComparisonPresentScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is False
+    assert r.score is None
+    assert "adaptation lane" in r.notes
+
+
 def test_patch_comparison_absent_scores_0(tmp_path: Path) -> None:
     """Source-backport review without ## Patch comparison section → score=0.0."""
     bd = _source_backport_bundle(tmp_path)

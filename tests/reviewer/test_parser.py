@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator
 
 from agents.reviewer import (
     ReviewerOutputMalformed,
+    parse_equivalence_verdict,
     parse_reviewer_output,
 )
 from tests.schema.validate import REPO_ROOT
@@ -283,3 +284,65 @@ def test_rejects_findings_out_of_order() -> None:
     )
     with pytest.raises(ReviewerOutputMalformed, match="out of contracted order"):
         parse_reviewer_output(raw)
+
+
+# ─── parse_equivalence_verdict ──────────────────────────────────────────────
+
+
+def test_parse_equivalence_verdict_extracts_token() -> None:
+    section = "- equivalence: equivalent — same overflow invariant established"
+    assert parse_equivalence_verdict(section) == "equivalent"
+
+
+def test_parse_equivalence_verdict_lowercases() -> None:
+    section = "- equivalence: Equivalent — mixed-case token"
+    assert parse_equivalence_verdict(section) == "equivalent"
+
+
+def test_parse_equivalence_verdict_returns_none_for_none() -> None:
+    assert parse_equivalence_verdict(None) is None
+
+
+def test_parse_equivalence_verdict_returns_none_for_empty_string() -> None:
+    assert parse_equivalence_verdict("") is None
+
+
+def test_parse_equivalence_verdict_returns_none_when_no_equivalence_line() -> None:
+    section = (
+        "- unsafe operation: unchecked multiply\n"
+        "- behavior preserved: yes\n"
+    )
+    assert parse_equivalence_verdict(section) is None
+
+
+def test_parse_equivalence_verdict_takes_first_line() -> None:
+    """A section with two `equivalence:` lines (malformed input, but the
+    helper doesn't validate structure) returns the FIRST one."""
+    section = (
+        "- equivalence: equivalent — first token\n"
+        "- equivalence: not-equivalent — should not be picked\n"
+    )
+    assert parse_equivalence_verdict(section) == "equivalent"
+
+
+def test_parse_equivalence_verdict_returns_raw_token_for_unrecognized_value() -> None:
+    """The helper does not validate against VALID_EQUIVALENCE_VALUES; the
+    caller decides what to do with an out-of-enum token."""
+    section = "- equivalence: maybe — unrecognized token"
+    assert parse_equivalence_verdict(section) == "maybe"
+
+
+def test_parse_equivalence_verdict_ignores_substring_field() -> None:
+    """A different field that merely CONTAINS 'equivalence:' as a substring
+    (e.g. `non-equivalence:`) is not an equivalence declaration."""
+    assert parse_equivalence_verdict("- non-equivalence: equivalent — trap") is None
+    assert parse_equivalence_verdict("summary of equivalence: equivalent") is None
+
+
+def test_parse_equivalence_verdict_bare_field_no_bullet() -> None:
+    """The list-marker prefix is optional."""
+    assert parse_equivalence_verdict("equivalence: not-equivalent") == "not-equivalent"
+
+
+def test_parse_equivalence_verdict_field_with_no_value() -> None:
+    assert parse_equivalence_verdict("- equivalence:") is None
