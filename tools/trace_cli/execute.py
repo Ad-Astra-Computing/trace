@@ -1392,16 +1392,37 @@ def _execute_reviewer(
     if inputs.get("source_context") and result.kind == "review":
         ea = result.parsed.equivalence_assessment_raw
         problem: str | None = None
-        if not ea or "equivalence:" not in ea:
+        # Extract the DECLARED equivalence value exactly (not a substring test): the
+        # section's line reads `equivalence: <value> — <why>`. A substring check
+        # would miss `accept` paired with `indeterminate` (missing evidence, must
+        # escalate) and would tolerate arbitrary values like `equivalence: unknown`.
+        equivalence_value: str | None = None
+        if ea:
+            for line in ea.splitlines():
+                pos = line.find("equivalence:")
+                if pos != -1:
+                    tail = line[pos + len("equivalence:") :].split()
+                    if tail:
+                        equivalence_value = tail[0].strip().lower()
+                    break
+        valid_equivalence = {"equivalent", "not-equivalent", "indeterminate"}
+        if not ea or equivalence_value is None:
             problem = (
                 "adaptation-lane review (applies_verbatim=false) must include a "
                 "'## Equivalence assessment' section with an 'equivalence:' line — "
                 "it is the check-0 gate that replaces line-level matching"
             )
-        elif "equivalence: not-equivalent" in ea and result.parsed.verdict == "accept":
+        elif equivalence_value not in valid_equivalence:
             problem = (
-                "adaptation-lane review concludes 'equivalence: not-equivalent' "
-                "but verdict is 'accept' — contradiction"
+                f"adaptation-lane review has an unrecognized equivalence value "
+                f"{equivalence_value!r} (expected equivalent | not-equivalent | "
+                f"indeterminate)"
+            )
+        elif result.parsed.verdict == "accept" and equivalence_value != "equivalent":
+            problem = (
+                f"adaptation-lane review verdict is 'accept' but equivalence is "
+                f"{equivalence_value!r} — accept requires 'equivalent'; "
+                f"'not-equivalent' and 'indeterminate' (missing evidence) must escalate"
             )
         if problem:
             exc2 = ReviewerOutputMalformed(problem)

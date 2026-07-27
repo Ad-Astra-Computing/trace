@@ -213,6 +213,74 @@ def test_adaptation_accept_without_equivalence_assessment_is_rejected(tmp_path):
     assert list((bd / ".reviewer-failures").rglob("raw-response.txt"))
 
 
+def _v10_review_with_equivalence(value: str, verdict: str = "accept") -> str:
+    r = _V10_REVIEW.replace(
+        "- equivalence: equivalent — same overflow invariant established before the multiply\n",
+        f"- equivalence: {value} — variant for test\n",
+    )
+    if verdict != "accept":
+        r = r.replace("## Verdict\naccept\n", f"## Verdict\n{verdict}\n")
+        # A non-accept verdict must cite at least one finding (separate contract rule).
+        r = r.replace(
+            "## Findings\n(none)\n",
+            "## Findings\n- severity: high — adaptation not equivalent to upstream "
+            "— source-context/foo.c\n",
+        )
+    return r
+
+
+def test_adaptation_accept_with_indeterminate_is_rejected(tmp_path):
+    # `accept` + `indeterminate` (missing evidence) must escalate, not persist.
+    import pytest
+    bd = _prep_reviewable_adaptation_bundle(tmp_path)
+    with pytest.raises(Exception, match="accept requires 'equivalent'"):
+        execute(
+            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            model_id="claude-sonnet-4-5-20250929",
+            adapter_factory=_factory(_v10_review_with_equivalence("indeterminate")),
+        )
+    assert not (bd / "review.md").exists()
+
+
+def test_adaptation_accept_with_not_equivalent_is_rejected(tmp_path):
+    import pytest
+    bd = _prep_reviewable_adaptation_bundle(tmp_path)
+    with pytest.raises(Exception, match="accept requires 'equivalent'"):
+        execute(
+            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            model_id="claude-sonnet-4-5-20250929",
+            adapter_factory=_factory(_v10_review_with_equivalence("not-equivalent")),
+        )
+    assert not (bd / "review.md").exists()
+
+
+def test_adaptation_accept_with_unrecognized_equivalence_is_rejected(tmp_path):
+    # A substring gate would tolerate `equivalence: unknown`; the exact-value gate
+    # rejects any value outside the declared enum.
+    import pytest
+    bd = _prep_reviewable_adaptation_bundle(tmp_path)
+    with pytest.raises(Exception, match="unrecognized equivalence value"):
+        execute(
+            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            model_id="claude-sonnet-4-5-20250929",
+            adapter_factory=_factory(_v10_review_with_equivalence("unknown")),
+        )
+    assert not (bd / "review.md").exists()
+
+
+def test_adaptation_reject_with_not_equivalent_is_allowed(tmp_path):
+    # A `reject` verdict is consistent with `not-equivalent`; it must pass the gate
+    # and be persisted (the gate only forbids accept-without-equivalent).
+    bd = _prep_reviewable_adaptation_bundle(tmp_path)
+    execute(
+        role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(_v10_review_with_equivalence("not-equivalent", verdict="reject")),
+    )
+    assert (bd / "review.md").exists()
+    assert "equivalence: not-equivalent" in (bd / "review.md").read_text()
+
+
 def test_string_false_preflight_does_not_flip_to_verbatim(tmp_path):
     # A malformed preflight value (JSON string "false") must fail closed to the
     # adaptation lane, NOT coerce to a verbatim-lane instruction. (codex P2)
