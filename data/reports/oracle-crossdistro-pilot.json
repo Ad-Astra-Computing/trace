@@ -1,0 +1,158 @@
+{
+  "report": "cross-distro adaptation-oracle feasibility pilot",
+  "arc": "oracle-coverage-expansion (slice 3)",
+  "date": "2026-07-27",
+  "generated_by": "manual byte-level adjudication (Phase B), offline, no model/API spend",
+  "allowlisted_hosts": [
+    "security-tracker.debian.org",
+    "sources.debian.org",
+    "salsa.debian.org"
+  ],
+  "untrusted_data_handling": "distro patch/advisory text treated strictly as untrusted data: allowlisted HTTPS hosts only, no execution, no prompt inclusion, sha256 recorded for every fetch. Base tarballs (pristine upstream release archives) fetched only to reconstruct the frozen base for local patch --dry-run; not distro-controlled text.",
+  "candidate_label": "cross-distro-near-base",
+  "yield_gate": {
+    "pre_registered": "if fewer than ~2 of 10 screened CVEs produce clean code-adaptation oracles, STOP the pivot and keep the codex-reframed Reviewer-training export gate SHELVED; do not build the full cross-distro harvester on a thin yield.",
+    "screened": 10,
+    "phase_a_survivors": 3,
+    "phase_b_confirmed_oracle_viable": 1,
+    "outcome": "BELOW THRESHOLD (1 of 3 deep-screened, 1 of 10 pool) -> STOP the pivot; keep export gate shelved; do not build the full harvester."
+  },
+  "candidates": [
+    {
+      "cve_id": "CVE-2023-4863",
+      "upstream_project": "libwebp",
+      "bundle": "traces/example/CVE-2023-4863--libwebp-huffman-backport",
+      "nixpkgs_pin": {"attr": "libwebp", "version": "1.3.1"},
+      "distro": {
+        "distro": "debian",
+        "suite": "bullseye (oldstable at disclosure, Sept 2023)",
+        "base_version": "0.6.1 (upstream), + debian security-fixes.patch + CVE-2023-1999.patch patch stack",
+        "fixed_version": "0.6.1-2.1+deb11u2",
+        "advisory": "DSA-5497-2"
+      },
+      "upstream_fix": {
+        "commits": [
+          "801d2be12dba966233c21f850490203eb1acf014 (Fix OOB write in BuildHuffmanTable, 2023-09-07 — the CVE fix)",
+          "067031eaed11e91d9914e1e872738c7bdf075e0b (Speedups for unused Huffman groups, 2019-03-11 — prerequisite refactor)",
+          "95ea5226c870449522240ccff26f0b006037c520 (Fix invalid incremental decoding check, 2023-09-11)"
+        ]
+      },
+      "downstream_patch": {
+        "filename": "debian/patches/CVE-2023-4863.patch",
+        "url": "https://sources.debian.org/data/main/libw/libwebp/0.6.1-2.1+deb11u2/debian/patches/CVE-2023-4863.patch",
+        "bytes": 20561,
+        "sha256": "1d3dbab9841a1a0bad2647bb8b524a2c619812d98ba3e5067570e52ff7ac7b1f",
+        "touched_files": [
+          "src/dec/vp8l_dec.c",
+          "src/dec/vp8li_dec.h",
+          "src/utils/huffman_utils.c",
+          "src/utils/huffman_utils.h"
+        ],
+        "test_only_files": []
+      },
+      "patch_stack": {
+        "series_sha256": "8ded6bd1f64c8f830ea6208f4ff7aef86dd89004ad7a7b94046a737b3cb67fde",
+        "load_bearing_prerequisite": "security-fixes.patch",
+        "security_fixes_patch_sha256": "fad6d147cf3567acea0eadcc12a542e1d2b7869a4b246a026725cc82b5260323",
+        "note": "Debian's real pre-CVE base is NOT pristine 0.6.1: security-fixes.patch independently introduces the htree_group_bogus/mapping/num_htree_groups_max machinery into ReadHuffmanCodes(). Control test confirmed the downstream patch fails against pristine 0.6.1 without this prerequisite -> prerequisite is load-bearing."
+      },
+      "raw_upstream_apply": {
+        "result": "FAIL",
+        "detail": "8 of 15 hunks across 4 files reject for substantive reasons on the frozen base (against pristine 0.6.1 AND against debian prerequisite base): missing HuffmanTables/HuffmanTablesSegment/VP8LHuffmanTablesAllocate/VP8LHuffmanTablesDeallocate/curr_segment symbols the fix depends on; ReadHuffmanCodes still uses the older is_bogus/htree_group_bogus/next pointer-walk idiom instead of the mapping[i]==-1 + NULL-passthrough idiom the 1.3.1 diff assumes."
+      },
+      "downstream_patch_apply": {
+        "result": "PASS",
+        "detail": "0 fuzz, 0 offset (byte-exact) against Debian's own prerequisite base; confirmed with real (non-dry-run) apply. Control: fails 4 hunks against pristine 0.6.1 without security-fixes.patch."
+      },
+      "adaptation_kind": "genuine-code-rebase",
+      "code_semantic_equivalence": {
+        "status": "equivalent",
+        "detail": "The vulnerability-closing logic (segmented Huffman-table allocator VP8LHuffmanTablesAllocate/Deallocate, the NULL-root_table two-pass BuildHuffmanTable) is byte-identical to upstream's + lines. The surrounding ReadHuffmanCodes hunk is hand-adapted (not auto-rebased): Debian squashes in the prerequisite 2019 'unused Huffman groups' refactor in the same diff since it never separately landed on the 0.6.1 lineage.",
+        "excluded_test_hunks": "none (all 4 touched files are core decoder source; zero test/fuzzer files)"
+      },
+      "injection_observed": false,
+      "verdict": "oracle-viable",
+      "reason": "raw upstream fix fails for substantive structural reasons on the frozen base; Debian patch closes the same vulnerability with identical core allocator logic via a genuine (not mechanical) rebase. Strong cross-distro-near-base candidate."
+    },
+    {
+      "cve_id": "CVE-2021-23017",
+      "upstream_project": "nginx",
+      "bundle": "traces/example/CVE-2021-23017--nginx-resolver-dns-off-by-one-backport",
+      "nixpkgs_pin": {"attr": "nginx", "version": "(bundle fix_diff inline; not a top-level upstream-fix.patch)"},
+      "distro": {
+        "distro": "debian",
+        "suite": "buster",
+        "base_version": "1.14.2 (buster frozen base, Oct 2018)",
+        "fixed_version": "1.14.2-2+deb10u4",
+        "advisory": "buster security"
+      },
+      "upstream_fix": {
+        "commits": ["7199ebc203f74fd9e44595474de6bdc41740c5cf (nginx 1.21.0 ngx_resolver_copy off-by-one fix)"]
+      },
+      "downstream_patch": {
+        "filename": "debian/patches/CVE-2021-23017.patch",
+        "url": "https://sources.debian.org/data/main/n/nginx/1.14.2-2+deb10u4/debian/patches/CVE-2021-23017.patch",
+        "sha256": "e7949cd8043ca41ef5e4e07dd45541792164cff93242a81c453d91d1222293be",
+        "touched_files": ["src/core/ngx_resolver.c"],
+        "test_only_files": []
+      },
+      "patch_stack": {
+        "base_tarball": "nginx-1.14.2.tar.gz",
+        "base_tarball_sha256": "002d9f6154e331886a2dd4e6065863c9c1cf8291ae97a1255308572c02be9797"
+      },
+      "raw_upstream_apply": {
+        "result": "PASS",
+        "detail": "patch -p1 --dry-run --fuzz=0 succeeds with only a mechanical 33-line offset (offset -33), zero fuzz, every context line matches byte-for-byte. NOT a substantive failure."
+      },
+      "downstream_patch_apply": {
+        "result": "PASS",
+        "detail": "applies with no offset at all (Debian generated it directly against this base)."
+      },
+      "adaptation_kind": "near-verbatim",
+      "code_semantic_equivalence": {
+        "status": "byte-identical-result",
+        "detail": "Applying raw upstream fix and Debian patch to independent copies of the buster base yields byte-identical ngx_resolver.c. ngx_resolver_copy had not changed shape between 1.14.2 (2018) and the 1.21.0 fix (2021). No adaptation delta.",
+        "excluded_test_hunks": "none"
+      },
+      "injection_observed": false,
+      "verdict": "reject",
+      "reason": "raw upstream fix applies cleanly (fuzz 0, offset-only) to the frozen buster base and produces output identical to Debian's own patch -> no adaptation delta to adjudicate. Phase A's 'resolver.c restructure' classification does not hold at the byte level; this is a verbatim cherry-pick."
+    },
+    {
+      "cve_id": "CVE-2022-46908",
+      "upstream_project": "sqlite",
+      "bundle": "traces/example/CVE-2022-46908--sqlite-backport",
+      "nixpkgs_pin": {"attr": "sqlite", "version": "3.40.0"},
+      "distro": {
+        "distro": "debian",
+        "suite": "unstable (transient)",
+        "base_version": "3.40.0 (same as nixpkgs pin)",
+        "fixed_version": "3.40.0-2 (Debian bug 1026293)",
+        "advisory": "bug 1026293; bullseye/buster explicitly not-affected; bookworm+ fixed only via upstream tarball bump"
+      },
+      "upstream_fix": {
+        "commits": ["cefc032473ac5ad2 (SQLite --safe shell.c safeModeAuth arg-swap fix)"]
+      },
+      "downstream_patch": {
+        "filename": null,
+        "url": null,
+        "sha256": null,
+        "reachability": "UNREACHABLE on allowlist: sources.debian.org 404 for 3.40.0-2 (confirmed via HTML UI + JSON API — Debsources retains one archived version per suite; the transient 3.40.0-2 unstable upload was superseded by 3.40.1 before indexing). No Vcs-Git field in debian/control at any version; no canonical sqlite3 packaging repo on salsa.debian.org (~100 projects reviewed)."
+      },
+      "patch_stack": null,
+      "raw_upstream_apply": {"result": "n/a", "detail": "not attempted; no downstream patch to cross-check against"},
+      "downstream_patch_apply": {"result": "n/a", "detail": "no patch text available"},
+      "adaptation_kind": "not-reachable",
+      "code_semantic_equivalence": {"status": "n/a", "excluded_test_hunks": "n/a"},
+      "injection_observed": false,
+      "verdict": "reject",
+      "reason": "the only Debian fix is a transient 3.40.0-2 unstable upload whose debian/patches content is not present on any allowlisted host (404 on sources.debian.org, no salsa git history) -> cannot serve as a cross-distro-near-base oracle."
+    }
+  ],
+  "registration_gate": {
+    "status": "DEFERRED (live-spend gated)",
+    "why": "adaptation_oracle.py binds ground_truth_equivalence to a specific adjudicated_patch_sha256 = a MODEL-AUTHORED canonical patch.diff on the pinned base. The libwebp corpus bundle is pinned to nixpkgs 1.3.1, NOT the Debian 0.6.1 frozen base, so the Debian backport cannot adjudicate the existing bundle. Registering a real cross-distro-near-base oracle first requires bootstrapping an adaptation-lane bundle PINNED to the Debian base and running the Patcher on it = live model spend (Jason-gated).",
+    "codex_confirmed": "session <redacted-session-id>: 'adaptation_oracle.py labels an exact model-authored canonical patch, so registering before such a patch exists would misuse the registry.' Defer the base_relation enum extension (cross-distro-near-base) and the registry entry until a model adaptation on the frozen base exists.",
+    "prerequisite_before_spend": "Prove the chosen historical nixpkgs source is byte/base-compatible with the Debian source. Matching version strings alone are insufficient: Debian carries its own quilt patch stack (for libwebp: security-fixes.patch + CVE-2023-1999.patch are load-bearing prerequisites). The Debian-base adaptation bundle must pin the SAME base bytes the oracle patch was authored against."
+  }
+}
