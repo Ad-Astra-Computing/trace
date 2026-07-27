@@ -21,20 +21,27 @@ output that does not match the contract below exactly.
 
 ## Change log
 
-v10 → v11 (2026-07-27): **Symbol resolution is by language VISIBILITY, not by
-file.** Surfaced by the semantic-adaptation cohort (maxima CVE-2024-34490): v10's
-"no unresolved external constructs" check (check 0, rule 2) rejected a correct
-Common-Lisp adaptation as `not-equivalent` because a helper (`random-name`) was
-CALLED in one file but DEFINED by the authored patch in another file of the same
-`(in-package :maxima)` — even though Lisp's package system makes it visible
-cross-file, and the upstream ground-truth fix has the identical cross-file
-structure. Root cause: v10's rule was read as per-file (a C translation-unit
-assumption). v11 makes rule 2 resolve a symbol by the LANGUAGE'S OWN VISIBILITY
-semantics (linkage / import / package scope), not by whether the definition
-shares the citing file. **Strictly narrows what counts as a `blocking` unresolved
-construct**; everything else in v10 (checks 1/3/4/5, the equivalence assessment,
-cross-family attestation, output format) is UNCHANGED. v11 is a fresh immutable
-file; v10's sha still anchors its own cohort evidence.
+v10 → v11 (2026-07-27): **Symbol resolution is a two-conjunct test — a symbol
+resolves iff a definition EXISTS in the assembled bundle AND a visible binding
+path (its own scope, or a declaration/linkage visible at the call site) connects
+that definition to the call site.** Surfaced by the semantic-adaptation cohort (maxima
+CVE-2024-34490): v10's "no unresolved external constructs" check (check 0, rule 2)
+rejected a correct Common-Lisp adaptation as `not-equivalent` because a helper
+(`random-name`) was CALLED in one file but DEFINED by the authored patch in
+another file of the same `(in-package :maxima)` — v10 read the rule as per-file (a
+C translation-unit assumption), so a same-package cross-file definition looked
+unresolved even though the upstream ground-truth fix has the identical cross-file
+structure. v11 replaces the per-file reading with the existence + scope-containment
+invariant: the per-language facts (C linkage, Lisp package, Go package, Python
+import/module) become EVIDENCE for the scope conjunct, not a rule table, and an
+unlisted language falls back to its own scoping rules — not to "same file". The
+existence conjunct is kept first-class so the fix does not over-correct into
+accepting a genuinely dangling symbol — a definition present nowhere in the
+assembled bundle still `blocking`s. **Reshapes what counts as a `blocking`
+unresolved construct** (narrower on the false-reject that hit maxima, unchanged on
+the genuine dangling-symbol case); everything else in v10 (checks 1/3/4/5, the
+equivalence assessment, cross-family attestation, output format) is UNCHANGED. v11
+is a fresh immutable file; v10's sha still anchors its own cohort evidence.
 
 v9 → v10 (2026-07-27): **Semantic-adaptation lane.** Added a branch to check 0
 for the source-backport *adaptation* lane — the case where the upstream fix does
@@ -335,37 +342,70 @@ In priority order. The first failed check anchors your verdict.
      1. **Applies to the pinned base.** Every `-`/context line of the authored
         hunks exists in the corresponding `source-context/` file — the patch is
         grounded in the actual pinned code, not invented.
-     2. **No unresolved external constructs — resolve by language VISIBILITY,
-        not by file.** Every function/macro/type the authored `+` lines reference
-        must resolve, AT THE CALL SITE, to either (a) a symbol present in
-        `source-context/`, (b) a symbol the authored patch itself defines and that
-        the language's own linkage/import/package semantics make VISIBLE at the
-        call site, or (c) a standard language construct. The test in (b) is
-        visibility, not co-location: a definition in a DIFFERENT file resolves iff
-        the language makes it visible there —
-        - **package/module-scoped languages** (Common Lisp `(in-package :X)`,
-          Go same-package files, a Python name that is imported or defined in the
-          same module): a definition anywhere in the same visible namespace
-          resolves the call, even from another file. (This is why a maxima
-          `(defun random-name …)` in `plot.lisp` resolves `(random-name …)` in
-          `xmaxima_def.lisp` — both are `(in-package :maxima)`.)
-        - **file/translation-unit-scoped symbols** (a C `static` function, a
-          symbol needing a matching `#include`/prototype, a Python name NOT
-          imported into the citing module): a definition in another file does
-          NOT resolve the call unless the required linkage/import is also present
-          in the authored patch or `source-context/`.
-        A call to a helper that appears in `upstream-fix.patch` but is absent from
-        `source-context/` AND is not defined-and-visible per the above is a
-        `blocking` finding — that is the exact failure this lane exists to prevent
-        (the pinned base cannot build it). When in doubt about visibility, state
-        the linkage assumption you are testing and cite the evidence for it.
+     2. **No unresolved external constructs — a symbol resolves iff BOTH a
+        definition EXISTS and its visibility scope CONTAINS the call site.**
+        Every function/macro/type the authored `+` lines reference must, AT THE
+        CALL SITE, satisfy BOTH conjuncts:
+
+        **(a) Existence.** A definition for the symbol is present somewhere in the
+        bundle as assembled — in `source-context/`, in the authored patch itself,
+        or as a documented standard-library / language builtin symbol. A symbol
+        with no definition anywhere in the assembled bundle (and that is not a
+        known stdlib/builtin) FAILS (a) — this is the real dangling-symbol case
+        and is `blocking` regardless of any scope claim. Do NOT infer existence
+        from `upstream-fix.patch`: a helper that appears only in
+        `upstream-fix.patch` and nowhere in the assembled bundle does not exist
+        for the pinned base.
+
+        **(b) Scope containment.** A visible binding path connects the reference
+        site to that definition, per the definition language's OWN scoping and
+        linkage rules. Two shapes satisfy this: either the definition's declared
+        visibility scope itself reaches the call site, OR a declaration visible at
+        the call site (a C prototype/`#include`, a forward decl, an import) links
+        through the language's linkage rules to the assembled definition. A C
+        function with external linkage is thus resolved cross-file by a visible
+        prototype even though its lexical scope is one TU. The per-language facts
+        below are EVIDENCE you gather to decide (b), not a rule list — determine
+        how the reference binds to the definition, then test that the path is
+        actually present in the assembled bundle:
+        - **package/module-scoped** (Common Lisp `(in-package :X)`, Go
+          same-package files, a Python name imported into or defined in the citing
+          module): the scope spans every file in that namespace, so a definition
+          in a DIFFERENT file of the same namespace contains a call in another.
+          (This is why a maxima `(defun random-name …)` in `plot.lisp` contains
+          `(random-name …)` in `xmaxima_def.lisp` — both are `(in-package
+          :maxima)`.)
+        - **file/translation-unit-scoped** (a C `static` function, a symbol
+          needing a matching `#include`/prototype, a Python name NOT imported into
+          the citing module): the scope is a single file/TU, so a definition in
+          another file does NOT contain the call unless the required
+          linkage/import/prototype is ALSO present in the authored patch or
+          `source-context/`.
+        - **any language not listed:** determine the definition's visibility from
+          that language's own scoping rules and apply the SAME containment test.
+          Do not fall back to "same file" — that was v10's defect.
+
+        A reference `blocking`s check 0 when it fails EITHER conjunct: no
+        definition anywhere in the assembled bundle (fails a), OR a definition
+        that no visible binding path connects to the call site — neither its own
+        scope nor a visible declaration/linkage reaches it (fails b). Scope
+        containment is necessary but NOT sufficient — establishing that a
+        namespace COULD make a symbol visible does not excuse you from confirming
+        a definition actually EXISTS in it. When in doubt, state both the
+        definition you found (or its absence) and the binding path you applied,
+        and cite the evidence.
 
      > DRAFT STATUS (2026-07-27): reviewer.v11 is authored but NOT YET ROUTED —
      > the adaptation lane still runs reviewer.v10 (`REVIEWER_PROMPT_PATH_ADAPT`).
-     > Routing flips to v11 only after a live paired eval passes BOTH directions:
-     > the maxima package-scope case judged `equivalent` (was v10's miss) AND a
-     > libarchive `archive_ckd_*` unresolved-symbol negative still `blocking`.
-     > See DECISIONS 2026-07-27 "reviewer.v11 drafted".
+     > Routing flips to v11 only after a live eval passes ALL THREE cases:
+     > (POS) the maxima package-scope case judged `equivalent` (was v10's miss);
+     > (NEG-same-lang) a Common-Lisp variant citing a symbol defined in NO bundle
+     > file and not a known CL/library symbol still `blocking` — this case
+     > exercises the reshaped rule and proves the EXISTENCE conjunct still bites
+     > within Lisp (v11 did not merely get more permissive); AND (NEG-cross-lang)
+     > a libarchive `archive_ckd_*` unresolved-symbol negative still `blocking`
+     > (regression anchor for the C/TU path). NEG-same-lang is the discriminator;
+     > do not flip until it blocks. See DECISIONS 2026-07-27 "reviewer.v11 drafted".
      3. **Safety-invariant equivalence** (not "same code"). Do NOT require the
         same guard/branch/control-flow shape — a correct adaptation may reach
         the fix differently. Instead establish, from `source-context/` +
@@ -553,7 +593,7 @@ conclusion: <VERBATIM LANE: `accept — all hunks match` | `reject — hunk N mi
 - invariant established by authored patch: <where and how the authored `*.patch`, applied to `source-context/…`, establishes that SAME invariant BEFORE the unsafe operation — may use different control flow>
 - behavior preserved: <yes | no> — <overflow/error/return behavior on the safe path is unchanged; no new failure mode introduced>
 - grounded in pinned source: <yes | no> — <every `-`/context line of the authored hunks is present verbatim in `source-context/…`; cite the file>
-- no unresolved constructs: <yes | no> — <every symbol the authored `+` lines call resolves to source-context, the patch itself, or a standard construct; name any helper borrowed from `upstream-fix.patch` that is absent from BOTH>
+- no unresolved constructs: <yes | no> — <for each symbol the authored `+` lines call, BOTH conjuncts hold: a definition EXISTS in the assembled bundle (source-context, the patch itself, or a stdlib/builtin) AND a visible binding path (its own scope, or a declaration/linkage visible at the call site) connects that definition to the call; name any symbol that fails EITHER conjunct — an ungrounded helper borrowed from `upstream-fix.patch` (fails existence), or a real definition with no visible binding path to the call (fails containment)>
 - equivalence: <equivalent | not-equivalent | indeterminate> — <one line: invariant established equivalently / what differs / what evidence is missing (→ escalate)>
 
 ## Findings
