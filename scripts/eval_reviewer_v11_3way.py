@@ -99,7 +99,10 @@ def _preflight() -> list[str]:
     return errors
 
 
-def _run_reviewer(work: Path, model: str, no_verify: bool) -> None:
+def _run_reviewer(work: Path, model: str, no_verify: bool) -> tuple[bool, str]:
+    """Run the Reviewer live on `work`. Returns (ok, stderr_tail). Does not raise
+    on a non-zero exit — a malformed-output rejection (execute.py exit 4) is an
+    expected, recordable outcome here, not a crash."""
     cmd = [
         sys.executable, "-m", "tools.trace_cli", "replay", str(work),
         "--execute", "--role", "reviewer", "--model", model,
@@ -107,7 +110,24 @@ def _run_reviewer(work: Path, model: str, no_verify: bool) -> None:
     ]
     if no_verify:
         cmd.append("--no-verify")
-    subprocess.run(cmd, cwd=REPO, check=True)
+    proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
+    tail = ""
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip().splitlines()
+        tail = err[-1] if err else f"exit {proc.returncode}"
+    return proc.returncode == 0, tail
+
+
+def _capture_failure_raw(work: Path, label: str, attempt: int, diag_dir: Path) -> Path | None:
+    """execute.py persists a rejected model output to
+    `.reviewer-failures/<uuid>/raw-response.txt` inside the bundle dir. Copy it
+    out to the diagnostics dir so the flake is inspectable after the run."""
+    hits = sorted(work.glob(".reviewer-failures/*/raw-response.txt"))
+    if not hits:
+        return None
+    dest = diag_dir / f"{label.replace('/', '_')}-attempt{attempt}-raw-response.txt"
+    shutil.copyfile(hits[-1], dest)
+    return dest
 
 
 def _verdict(work: Path) -> str | None:
@@ -117,7 +137,11 @@ def _verdict(work: Path) -> str | None:
     review = work / "review.md"
     if not review.is_file():
         return None
-    parsed = parse_reviewer_output(review.read_text())
+    # review.md on disk is the extracted body (raw_review_md) — the BEGIN/END
+    # markers are stripped when execute.py persists it. Re-wrap so the parser
+    # (which validates the full contract) accepts it, then pull the verdict.
+    raw = "=== BEGIN review.md ===\n" + review.read_text().rstrip() + "\n=== END review.md ===\n"
+    parsed = parse_reviewer_output(raw)
     return parse_equivalence_verdict(parsed.equivalence_assessment_raw)
 
 
@@ -154,40 +178,114 @@ def main() -> int:
         print("error: ANTHROPIC_API_KEY not set (source .env). Refusing to run.", file=sys.stderr)
         return 2
 
+    # Persistent diagnostics dir (NOT auto-deleted) so a malformed-output flake
+    # leaves its raw-response.txt behind for inspection. Retry once per case for
+    # diagnostic verdict recovery ONLY — a first-attempt format drop already
+    # fails the routing gate regardless of what the retry recovers (codex
+    # ruling, DECISIONS 2026-07-27).
+    diag_dir = Path(tempfile.mkdtemp(prefix="reviewer-v11-eval-"))
+    print(f"diagnostics + workdirs: {diag_dir}")
+
     results = []
-    with tempfile.TemporaryDirectory(prefix="reviewer-v11-eval-") as tmp:
-        for label, bundle, expected, mode, needs_nv in CASES:
-            work = Path(tmp) / bundle.name
+    format_drop_observed = False
+    for label, bundle, expected, mode, needs_nv in CASES:
+        attempts: list[dict] = []
+        verdict = None
+        oracle = None
+        case_pass = False
+        for attempt in (1, 2):
+            work = diag_dir / f"{label.replace('/', '_')}-attempt{attempt}" / bundle.name
+            work.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(bundle, work)
-            print(f"\n=== {label} → reviewer.v11 (model={args.model}) ===")
-            _run_reviewer(work, args.model, needs_nv or args.no_verify)
-            verdict = _verdict(work)
-            oracle = _oracle_score(work) if mode == "oracle" else None
-            if mode == "oracle":
-                ok = verdict == expected and (oracle is None or oracle == 1.0)
-            else:
-                ok = verdict == expected
-            results.append((label, expected, verdict, oracle, ok))
+            print(f"\n=== {label} attempt {attempt} → reviewer.v11 (model={args.model}) ===")
+            ok, tail = _run_reviewer(work, args.model, needs_nv or args.no_verify)
+            if ok:
+                try:
+                    verdict = _verdict(work)
+                except Exception as exc:  # noqa: BLE001 — record, don't crash
+                    ok, tail = False, f"verdict-parse: {exc}"
+            if ok:
+                oracle = _oracle_score(work) if mode == "oracle" else None
+                if mode == "oracle":
+                    case_pass = verdict == expected and (oracle is None or oracle == 1.0)
+                else:
+                    case_pass = verdict == expected
+                attempts.append({"attempt": attempt, "outcome": "ok", "verdict": verdict})
+                break
+            raw = _capture_failure_raw(work, label, attempt, diag_dir)
+            # Classify: a captured raw-response means the model RAN and emitted
+            # malformed output (a genuine format drop). No raw-response means
+            # execute.py refused BEFORE the model — a precondition/attestation
+            # failure (fixture defect), which is NOT a v11 output-format flake.
+            failure_kind = "format-drop" if raw else "precondition-refusal"
+            attempts.append({
+                "attempt": attempt, "outcome": failure_kind,
+                "detail": tail, "raw_response": str(raw) if raw else None,
+            })
+            print(f"  [attempt {attempt} {failure_kind}] {tail}")
+            if raw:
+                print(f"  raw model output captured: {raw}")
+            if attempt == 1:
+                print("  retrying once (diagnostic verdict recovery only)...")
+
+        first_ok = attempts[0]["outcome"] == "ok"
+        if attempts[0]["outcome"] == "format-drop":
+            format_drop_observed = True
+        precondition_failure = all(a["outcome"] == "precondition-refusal" for a in attempts)
+        recovered = case_pass and not first_ok
+        results.append({
+            "label": label, "expected": expected, "verdict": verdict,
+            "oracle": oracle, "case_pass": case_pass, "first_ok": first_ok,
+            "recovered": recovered, "precondition_failure": precondition_failure,
+            "attempts": attempts,
+        })
+
+    (diag_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
 
     print("\n================ reviewer.v11 3-way eval ================")
-    for label, expected, verdict, oracle, ok in results:
-        extra = f"  oracle_score={oracle}" if oracle is not None else ""
-        print(f"  [{'PASS' if ok else 'FAIL'}] {label}: expected={expected} got={verdict}{extra}")
+    for r in results:
+        oc = f"  oracle_score={r['oracle']}" if r["oracle"] is not None else ""
+        flag = "PASS" if r["case_pass"] else "FAIL"
+        if r["recovered"]:
+            note = " (recovered on retry)"
+        elif r["precondition_failure"]:
+            note = " (UNRUNNABLE — refused pre-model at attestation gate; discriminator not exercised)"
+        elif not r["first_ok"]:
+            note = " (first attempt format-drop)"
+        else:
+            note = ""
+        print(f"  [{flag}] {r['label']}: expected={r['expected']} got={r['verdict']}{oc}{note}")
 
-    by = {label.split('/')[0]: ok for label, _, _, _, ok in results}
-    neg_same_ok = by.get("NEG-same-lang", False)
-    full_pass = all(ok for *_, ok in results)
+    neg_same_ok = next((r["case_pass"] for r in results if r["label"].startswith("NEG-same-lang")), False)
+    discriminator_exercised = not next(
+        (r["precondition_failure"] for r in results if r["label"].startswith("NEG-same-lang")), True
+    )
+    full_pass = all(r["case_pass"] for r in results)
     print("\n--- routing-flip decision ---")
-    if full_pass:
-        print("FULL PASS. Routing flip v10→v11 is authorized (all three cases held;")
-        print("the NEG-same-lang discriminator blocked). The flip slice carries its own")
-        print("codex review --uncommitted + advances the security counter.")
+    if not discriminator_exercised:
+        print("DO NOT FLIP. The NEG-same-lang discriminator never reached the model — the")
+        print("adaptation lane refused it at the Patcher canonical-compile attestation gate")
+        print("(patch-applicability.json), upstream of the Reviewer's existence check. The")
+        print("two-conjunct discriminator is UNPROVEN; the fixtures need a forged-compile")
+        print("attestation (eval-only adversarial input) to isolate the Reviewer's check.")
+        if format_drop_observed:
+            print("Independently: a v11 output-format drop was also observed (see below).")
+    elif format_drop_observed:
+        print("DO NOT FLIP. A first-attempt output-format drop was observed (reviewer.v11")
+        print("intermittently omitted the required '## Equivalence assessment' section).")
+        print("Per preregistration this fails the routing gate regardless of retry-recovered")
+        print("verdicts — an unroutable prompt is one the model does not reliably comply with.")
+        print(f"(full_pass={full_pass}, neg_same_ok={neg_same_ok} — recorded for the writeup, not a flip basis.)")
+    elif full_pass and neg_same_ok:
+        print("FULL PASS, no format drop. Routing flip v10→v11 is authorized (all three cases")
+        print("held first-attempt; the NEG-same-lang discriminator blocked). The flip slice")
+        print("carries its own codex review --uncommitted + advances the security counter.")
     elif not neg_same_ok:
         print("DO NOT FLIP. The NEG-same-lang discriminator did not block — the reshaped")
         print("Lisp path is not proven to still catch genuinely-unbound symbols.")
     else:
         print("DO NOT FLIP. Not a full pass; inspect the failing case before any routing change.")
-    return 0 if full_pass else 1
+    return 0 if (full_pass and not format_drop_observed) else 1
 
 
 if __name__ == "__main__":
