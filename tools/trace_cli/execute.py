@@ -430,7 +430,7 @@ def _persist_role_failure(
         _atomic_write_bytes(fail_dir / "raw-response.txt", raw.encode("utf-8"))
 
     failure_meta = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "role": role,
         "failure_id": failure_id,
         "started_at": started_at,
@@ -443,6 +443,33 @@ def _persist_role_failure(
         "parser_error": str(exc),
         "raw_response_bytes": (len(raw.encode("utf-8")) if raw else 0),
     }
+    # Record the failed attempt's realized spend when the exception carries its
+    # model response. A retried review bills earlier attempts into the success
+    # sidecar; but on TERMINAL exhaustion no sidecar is written, so without this
+    # the spent tokens would vanish from every artifact. This keeps a per-attempt
+    # forensic record (the failures dir is gitignored / not in replay) so cost
+    # can always be reconstructed. None when the failure preceded the model call.
+    model_response = getattr(exc, "model_response", None)
+    if model_response is not None:
+        from agents.cost import actual_cost_usd
+
+        in_tok = getattr(model_response, "input_tokens", None)
+        out_tok = getattr(model_response, "output_tokens", None)
+        cache_creation = getattr(model_response, "cache_creation_input_tokens", None)
+        cache_read = getattr(model_response, "cache_read_input_tokens", None)
+        failure_meta["usage"] = {
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "cache_creation_input_tokens": cache_creation,
+            "cache_read_input_tokens": cache_read,
+        }
+        failure_meta["actual_cost_usd"] = actual_cost_usd(
+            model_id=getattr(exc, "model_id", None) or model_id,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            cache_creation_input_tokens=cache_creation,
+            cache_read_input_tokens=cache_read,
+        )
     failure_body = (json.dumps(failure_meta, indent=2, sort_keys=True) + "\n").encode("utf-8")
     _atomic_write_bytes(fail_dir / "failure.json", failure_body)
 
@@ -885,6 +912,7 @@ def _write_role_invocation_sidecar(
     ended_at: str,
     role_run_meta: dict[str, Any],
     model_response: Any,
+    extra_usages: list[Any] | None = None,
 ) -> Path:
     """Write a <role>-invocation.json sidecar capturing usage + cost.
 
@@ -894,16 +922,35 @@ def _write_role_invocation_sidecar(
     replay.json carries the invocation in roles[] but is bound by its
     schema (additionalProperties: false) and can't carry usage data.
 
+    `extra_usages` (Reviewer retry path) are additional model responses —
+    earlier malformed attempts that still spent tokens. The headline `usage`
+    block and `actual_cost_usd` SUM over `[model_response, *extra_usages]` so
+    a retried review bills its full realized spend, not only the conforming
+    attempt. model_id / adapter / shas stay from the successful `model_response`.
+
     Returns the path written. Caller is expected to log the path or
     surface it in the test/CI artifact list.
     """
     from agents.cost import actual_cost_usd
 
     model_id = model_response.model_id
-    input_tokens = getattr(model_response, "input_tokens", None)
-    output_tokens = getattr(model_response, "output_tokens", None)
-    cache_creation = getattr(model_response, "cache_creation_input_tokens", None)
-    cache_read = getattr(model_response, "cache_read_input_tokens", None)
+    # Sum a usage field across every attempt, None-safe. A total is only
+    # honest if EVERY attempt reported the field: if ANY attempt's field is
+    # None (FakeAdapter/OpenAI unobserved case, or a partial-observability
+    # mix) keep the total None so cost stays 'unobserved' rather than a
+    # spurious partial sum that reads as a complete total.
+    all_responses = [model_response, *(extra_usages or [])]
+
+    def _sum_field(name: str) -> int | None:
+        vals = [getattr(r, name, None) for r in all_responses]
+        if any(v is None for v in vals):
+            return None
+        return sum(vals)
+
+    input_tokens = _sum_field("input_tokens")
+    output_tokens = _sum_field("output_tokens")
+    cache_creation = _sum_field("cache_creation_input_tokens")
+    cache_read = _sum_field("cache_read_input_tokens")
     cost = actual_cost_usd(
         model_id=model_id,
         input_tokens=input_tokens,
@@ -929,11 +976,15 @@ def _write_role_invocation_sidecar(
             # input_tokens is the *uncached* new-input count; the two
             # cache fields complete the picture for prompt-cached
             # adapters (Anthropic). Non-caching adapters leave both
-            # cache fields at None.
+            # cache fields at None. All four are SUMMED across attempts
+            # on the Reviewer retry path (see extra_usages).
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "cache_creation_input_tokens": cache_creation,
             "cache_read_input_tokens": cache_read,
+            # Number of model calls this spend covers (1 + retried attempts).
+            # Always >= 1; only meaningful for the Reviewer retry path.
+            "attempts": len(all_responses),
         },
         "budget": {
             # Reviewer + Reproducer have no CLI-set budget caps in v0;
@@ -949,6 +1000,15 @@ def _write_role_invocation_sidecar(
     # not written (keeps sidecar shape clean for Patcher/Reproducer).
     if "attestation_grounded" in role_run_meta:
         payload["attestation_grounded"] = role_run_meta["attestation_grounded"]
+    # Bounded auto-retry metrics (Reviewer only; REVIEWER_MAX_ATTEMPTS). Absent
+    # from role_run_meta for Patcher/Reproducer, so the sidecar shape for those
+    # roles is unchanged.
+    if "first_attempt_conformant" in role_run_meta:
+        payload["first_attempt_conformant"] = role_run_meta["first_attempt_conformant"]
+    if "retry_count" in role_run_meta:
+        payload["retry_count"] = role_run_meta["retry_count"]
+    if "reviewer_attempts" in role_run_meta:
+        payload["reviewer_attempts"] = role_run_meta["reviewer_attempts"]
     # Adaptation-lane hunk-header normalization provenance (Patcher only). Records
     # the pre/post patch sha256 and every header rewrite so an auditor can see
     # exactly what the deterministic normalizer changed before the patch was signed.
@@ -1161,6 +1221,13 @@ REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" /
 # reviews stay on the default (v9).
 REVIEWER_PROMPT_PATH_ADAPT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v10.md"
 
+# Bounded auto-retry for parse/contract-malformed Reviewer output ONLY (a live
+# eval showed the model intermittently, ~33% of the time, drops the required
+# '## Equivalence assessment' section in the adaptation lane — transient
+# model non-determinism, not a substantive judgment). 2 == one retry.
+# Reviewer-only: Patcher and Reproducer are not in scope for this constant.
+REVIEWER_MAX_ATTEMPTS = 2
+
 
 def _reviewer_prompt_relpath(prompt: Path) -> str:
     """Repo-relative path string for `prompt` when it lives under the repo
@@ -1204,6 +1271,7 @@ def _execute_reviewer(
     from agents.reviewer import (
         VALID_EQUIVALENCE_VALUES,
         ReviewerOutputMalformed,
+        ReviewerRunResult,
         parse_equivalence_verdict,
         run_reviewer,
     )
@@ -1448,73 +1516,111 @@ def _execute_reviewer(
             if preflight_path.is_file() and "preflight.json" not in _already:
                 input_verification.append({"path": "preflight.json", "verified": False})
 
-    started_at = _utc_now_iso()
-    try:
-        result = run_reviewer(
+    def _attempt_once() -> ReviewerRunResult:
+        """Call the model once, parse, and enforce the adaptation-lane
+        contract. Returns a conformant ReviewerRunResult, or raises
+        ReviewerOutputMalformed — either the parser's own exception (run_
+        reviewer, malformed sections/headings) or the adaptation-lane
+        equivalence-assessment violation constructed below. Raising both
+        as the same exception type lets the retry loop below treat them
+        identically."""
+        candidate = run_reviewer(
             inputs=inputs,
             adapter=adapter,
             prompt_path=reviewer_prompt,
         )
-    except ReviewerOutputMalformed as exc:
-        _persist_role_failure(
-            role="reviewer",
-            bundle_dir=bundle_dir,
-            exc=exc,
-            model_id=model_id,
-            started_at=started_at,
-            prompt_path_relative=_reviewer_prompt_relpath(reviewer_prompt),
-        )
-        raise ExecutionError(f"reviewer output malformed: {exc}") from exc
-    ended_at = _utc_now_iso()
 
-    # Adaptation-lane contract enforcement (reviewer.v10). In this lane the
-    # `## Equivalence assessment` section REPLACES the line-level `## Patch
-    # comparison` as the check-0 gate, so an `accept` that omits it has no
-    # semantic-equivalence evidence. Enforce contextually here (the parser is
-    # applies_verbatim-agnostic; the executor is not). Parse-before-write: nothing
-    # is on disk yet, so a violation aborts cleanly. `inputs["source_context"]`
-    # is set only when the adaptation lane was entered.
-    if inputs.get("source_context") and result.kind == "review":
-        ea = result.parsed.equivalence_assessment_raw
-        problem: str | None = None
-        # Extract the DECLARED equivalence value exactly (not a substring test): the
-        # section's line reads `equivalence: <value> — <why>`. A substring check
-        # would miss `accept` paired with `indeterminate` (missing evidence, must
-        # escalate) and would tolerate arbitrary values like `equivalence: unknown`.
-        # Shared with the cohort-eval adaptation-equivalence scorer so the two
-        # can never drift.
-        equivalence_value = parse_equivalence_verdict(ea)
-        valid_equivalence = set(VALID_EQUIVALENCE_VALUES)
-        if not ea or equivalence_value is None:
-            problem = (
-                "adaptation-lane review (applies_verbatim=false) must include a "
-                "'## Equivalence assessment' section with an 'equivalence:' line — "
-                "it is the check-0 gate that replaces line-level matching"
-            )
-        elif equivalence_value not in valid_equivalence:
-            problem = (
-                f"adaptation-lane review has an unrecognized equivalence value "
-                f"{equivalence_value!r} (expected equivalent | not-equivalent | "
-                f"indeterminate)"
-            )
-        elif result.parsed.verdict == "accept" and equivalence_value != "equivalent":
-            problem = (
-                f"adaptation-lane review verdict is 'accept' but equivalence is "
-                f"{equivalence_value!r} — accept requires 'equivalent'; "
-                f"'not-equivalent' and 'indeterminate' (missing evidence) must escalate"
-            )
-        if problem:
-            exc2 = ReviewerOutputMalformed(problem)
-            setattr(exc2, "raw_response", result.parsed.raw_review_md or "")
+        # Adaptation-lane contract enforcement (reviewer.v10). In this lane the
+        # `## Equivalence assessment` section REPLACES the line-level `## Patch
+        # comparison` as the check-0 gate, so an `accept` that omits it has no
+        # semantic-equivalence evidence. Enforce contextually here (the parser is
+        # applies_verbatim-agnostic; the executor is not). Parse-before-write: nothing
+        # is on disk yet, so a violation aborts cleanly. `inputs["source_context"]`
+        # is set only when the adaptation lane was entered.
+        if inputs.get("source_context") and candidate.kind == "review":
+            ea = candidate.parsed.equivalence_assessment_raw
+            problem: str | None = None
+            # Extract the DECLARED equivalence value exactly (not a substring test): the
+            # section's line reads `equivalence: <value> — <why>`. A substring check
+            # would miss `accept` paired with `indeterminate` (missing evidence, must
+            # escalate) and would tolerate arbitrary values like `equivalence: unknown`.
+            # Shared with the cohort-eval adaptation-equivalence scorer so the two
+            # can never drift.
+            equivalence_value = parse_equivalence_verdict(ea)
+            valid_equivalence = set(VALID_EQUIVALENCE_VALUES)
+            if not ea or equivalence_value is None:
+                problem = (
+                    "adaptation-lane review (applies_verbatim=false) must include a "
+                    "'## Equivalence assessment' section with an 'equivalence:' line — "
+                    "it is the check-0 gate that replaces line-level matching"
+                )
+            elif equivalence_value not in valid_equivalence:
+                problem = (
+                    f"adaptation-lane review has an unrecognized equivalence value "
+                    f"{equivalence_value!r} (expected equivalent | not-equivalent | "
+                    f"indeterminate)"
+                )
+            elif candidate.parsed.verdict == "accept" and equivalence_value != "equivalent":
+                problem = (
+                    f"adaptation-lane review verdict is 'accept' but equivalence is "
+                    f"{equivalence_value!r} — accept requires 'equivalent'; "
+                    f"'not-equivalent' and 'indeterminate' (missing evidence) must escalate"
+                )
+            if problem:
+                exc2 = ReviewerOutputMalformed(problem)
+                setattr(exc2, "raw_response", candidate.parsed.raw_review_md or "")
+                # Carry this attempt's response so its token usage is billed
+                # even though it parsed cleanly (site-1 attaches it in run_reviewer).
+                setattr(exc2, "model_response", candidate.model_response)
+                raise exc2
+        return candidate
+
+    # Bounded auto-retry (REVIEWER_MAX_ATTEMPTS). Retry ONLY parse/contract-
+    # malformed output — transient model non-determinism, not a substantive
+    # outcome. A valid refusal or a valid review (any verdict, including
+    # reject) is a SUCCESS on the first attempt that returns immediately.
+    # Every failed attempt is still persisted via _persist_role_failure before
+    # the loop retries or gives up, so a retry that succeeds never erases the
+    # evidence that an earlier attempt was non-conformant.
+    started_at = _utc_now_iso()
+    result: ReviewerRunResult | None = None
+    reviewer_attempts = 0
+    # Each failed attempt still spent API tokens; collect their responses so
+    # the sidecar can bill TOTAL realized spend, not just the conforming run.
+    failed_responses: list[Any] = []
+    for attempt in range(1, REVIEWER_MAX_ATTEMPTS + 1):
+        reviewer_attempts = attempt
+        try:
+            result = _attempt_once()
+            break
+        except ReviewerOutputMalformed as exc:
             _persist_role_failure(
                 role="reviewer",
                 bundle_dir=bundle_dir,
-                exc=exc2,
+                exc=exc,
                 model_id=model_id,
                 started_at=started_at,
                 prompt_path_relative=_reviewer_prompt_relpath(reviewer_prompt),
             )
-            raise ExecutionError(f"reviewer output malformed: {exc2}")
+            # A pre-parser failure (raised before the model call) has no
+            # response; guard so we only bill attempts that reached the model.
+            mr = getattr(exc, "model_response", None)
+            if mr is not None:
+                failed_responses.append(mr)
+            if attempt >= REVIEWER_MAX_ATTEMPTS:
+                raise ExecutionError(f"reviewer output malformed: {exc}") from exc
+            # else: attempts remain, loop retries. The retry is the fix for
+            # the ~33% transient equivalence-assessment / parse flake this
+            # constant was added for.
+    ended_at = _utc_now_iso()
+    assert result is not None  # loop above only exits via break or raise
+
+    # First-attempt conformance is a SEPARATE metric from the retried outcome
+    # above: a successful retry must not erase the fact that attempt 1 was
+    # non-conformant. Surfaced in reviewer_run_meta below and copied into the
+    # invocation sidecar by _write_role_invocation_sidecar.
+    first_attempt_conformant = reviewer_attempts == 1
+    retry_count = reviewer_attempts - 1
 
     outputs: list[dict[str, Any]] = []
     if result.kind == "review":
@@ -1570,6 +1676,12 @@ def _execute_reviewer(
         # verbatim from the Model attestation context block? None when the
         # context block was unavailable (e.g. pre-v2 callers).
         "attestation_grounded": attestation_grounded,
+        # Bounded auto-retry metrics (REVIEWER_MAX_ATTEMPTS). first_attempt_
+        # conformant is a separate claim from the (possibly retried) success
+        # above — see the comment at the retry loop.
+        "first_attempt_conformant": first_attempt_conformant,
+        "retry_count": retry_count,
+        "reviewer_attempts": reviewer_attempts,
     }
 
     replay_invocation = _build_reviewer_invocation(
@@ -1594,6 +1706,8 @@ def _execute_reviewer(
         ended_at=ended_at,
         role_run_meta=reviewer_run_meta,
         model_response=result.model_response,
+        # Bill any earlier malformed attempts' usage into total realized spend.
+        extra_usages=failed_responses,
     )
 
     _append_reviewer_replay_entry(

@@ -241,6 +241,10 @@ def run_reviewer(
         exc.model_id = response.model_id
         exc.prompt_sha256 = prompt_sha256
         exc.user_content_sha256 = user_content_sha256
+        # Carry the full response so the executor can recover this failed
+        # attempt's realized token usage — a retried review must bill the
+        # spend of every attempt, not only the one that finally conformed.
+        exc.model_response = response
         raise
 
     return ReviewerRunResult(

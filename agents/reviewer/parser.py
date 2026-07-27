@@ -69,10 +69,11 @@ class ReviewerOutputMalformed(Exception):
     """Raised when model output does not match the prompt contract.
 
     Carries optional `raw_response` / `raw_response_sha256` / `model_id` /
-    `prompt_sha256` / `user_content_sha256` attributes, attached by
-    `run_reviewer` so the executor can persist the failing artifact to
-    `.reviewer-failures/<uuid>/` for debugging. Mirrors the Patcher
-    failure-capture pattern (F19, 2026-05-25).
+    `prompt_sha256` / `user_content_sha256` / `model_response` attributes,
+    attached by `run_reviewer` so the executor can persist the failing
+    artifact to `.reviewer-failures/<uuid>/` for debugging and bill the
+    failed attempt's token usage. Mirrors the Patcher failure-capture
+    pattern (F19, 2026-05-25).
     """
 
     raw_response: str | None = None
@@ -80,6 +81,10 @@ class ReviewerOutputMalformed(Exception):
     model_id: str | None = None
     prompt_sha256: str | None = None
     user_content_sha256: str | None = None
+    # Full adapter response for the failed attempt, attached by run_reviewer /
+    # the executor's adaptation-lane check so retried-review spend can be
+    # aggregated. None when the failure preceded the model call.
+    model_response: Any = None
 
 
 @dataclass(frozen=True)
