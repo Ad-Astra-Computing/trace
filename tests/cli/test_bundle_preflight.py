@@ -103,41 +103,9 @@ def test_discover_missing_override_raises(tmp_path: Path) -> None:
         preflight.discover_source_patches(bd, [Path("nope.patch")])
 
 
-# ─── _read_bundle_field fallback ───────────────────────────────────────────
-
-def test_read_bundle_field_falls_through(tmp_path: Path) -> None:
-    bd = tmp_path / "bundle"
-    bd.mkdir()
-    (bd / "impact.json").write_text(json.dumps({"nixpkgs_rev": "a" * 40}))
-    got = preflight._read_bundle_field(
-        bd, ("bundle.json", "nixpkgs_rev"), ("impact.json", "nixpkgs_rev"),
-    )
-    assert got == "a" * 40
-
-
-# ─── injection guard: malicious attr/rev never reach nix ───────────────────
-
-def test_unpack_rejects_malicious_attr(tmp_path: Path) -> None:
-    bd = tmp_path / "bundle"
-    bd.mkdir()
-    (bd / "resolver-input.json").write_text(
-        json.dumps({"attr_path": 'zlib"; builtins.exec ""; x = "'})
-    )
-    (bd / "bundle.json").write_text(json.dumps({"nixpkgs_rev": "b" * 40}))
-    with pytest.raises(RuntimeError, match="valid nixpkgs attr"):
-        preflight.unpack_pinned_source(bd, tmp_path)
-
-
-def test_unpack_rejects_bad_rev(tmp_path: Path) -> None:
-    bd = tmp_path / "bundle"
-    bd.mkdir()
-    (bd / "resolver-input.json").write_text(json.dumps({"attr_path": "zlib"}))
-    (bd / "bundle.json").write_text(json.dumps({"nixpkgs_rev": "not-a-sha"}))
-    with pytest.raises(RuntimeError, match="40-char git SHA"):
-        preflight.unpack_pinned_source(bd, tmp_path)
-
-
 # ─── end-to-end run() via --source-tree ────────────────────────────────────
+# (pinned-source primitive tests — field fallback, extraction, injection guards —
+#  live in test_pinned_source.py alongside the extracted module.)
 
 def _args(**kw: object) -> argparse.Namespace:
     base = dict(source_tree=None, patches=None, strip=1, format="json")
