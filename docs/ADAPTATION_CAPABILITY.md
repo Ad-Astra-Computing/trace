@@ -30,14 +30,18 @@ limitation are both sharpest.
 
 ## What is demonstrably working
 
-**Cert-green evidence bundles.** The last machine-verified corpus total
-from `corpus_readiness.py` is **77 cert-green positives + 25/25
-negatives**, dated 21 June 2026 (`docs/DECISIONS.md:6365`). That number
-is over a month old relative to this compile date; individual bundles
-have landed since, but no fresh grand-total run is on record, so it is
-quoted here with its date and not represented as current. The trend that
-produced it: 41/50 then 45/50 (15 June, `docs/DECISIONS.md:4597`,
-`:4676`), 70/50 (18 June, `:6021`), 77/50 (21 June).
+**Cert-green evidence bundles.** The current machine-verified corpus
+total, from a `corpus_readiness.py` re-run on 27 July 2026, is **84
+cert-green positives + 55 negatives**
+([`data/reports/corpus-readiness-20260727.json`](../data/reports/corpus-readiness-20260727.json)).
+Both pilot thresholds (50 positives / 25 negatives) are cleared with gap
+0, and no auto-merge positive is uncerted. The overall pilot-ready gate
+currently reads **NOT YET**, blocked by 27 schema-invalid bundles — those
+are unfinalized source-backport-lane entries (mostly a missing
+`expect.json`), i.e. work-in-progress dirs in the tree, **not a
+regression of the certified set**. The trend on the certified reviewer
+set: 41/50 then 45/50 (15 June, `docs/DECISIONS.md:4597`, `:4676`), 70/50
+(18 June, `:6021`), 77/50 (21 June, `:6365`), 84/55 (27 July).
 
 Strongest named examples, each with a green Linux cert run:
 
@@ -172,9 +176,10 @@ figure and should not be quoted as a regression.
 - **Not a broad adaptation-accuracy rate.** Oracle coverage is N=1; the
   adaptation-judge prompt has one documented miss on that one case.
 - **Not upstream-merged.** Fork PRs are accuracy artifacts, not merges.
-- **Not a current cert-green total.** The 77/50 figure is dated 21 June
-  2026; treat later per-bundle increments as additive, not as a new
-  verified grand total, until `corpus_readiness.py` is re-run.
+- **Cert-green total is 84/55 as of the 27 July re-run** (certified
+  reviewer set), with the overall pilot-ready gate reading NOT YET
+  because of 27 unfinalized source-backport dirs — the certified set is
+  not itself blocked.
 
 The strongest honest statement the evidence supports: on the verbatim
 lane the pipeline produces cert-green, signed, replayable bundles at

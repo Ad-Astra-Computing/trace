@@ -1,0 +1,1210 @@
+{
+  "reviewer": {
+    "positive": 84,
+    "negative": 55,
+    "positive_cert_green": 84,
+    "positive_gap": 0,
+    "negative_gap": 0,
+    "splits": {
+      "canary": 0,
+      "dev": 16,
+      "test": 11,
+      "train": 112
+    },
+    "families": 74,
+    "leakage_check_ok": true,
+    "total_bundles_enumerated": 233
+  },
+  "exclusions": {
+    "total": 94,
+    "by_reason": {
+      "no reviewer target (review.md / review-refusal.j": 87,
+      "review.md fails reviewer parser contract": 2,
+      "duplicate (cve_id, attr_path, mutation_type)": 3,
+      "reorg-positives-root bundle is not a kept reorg ": 2
+    },
+    "recoverable": [
+      {
+        "bundle": "CVE-2014-9913--unzip-methbuf-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2015-1419--vsftpd-deny-file-symlink-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2015-8784--libtiff-next-decode-oob-write-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2016-9844--unzip-zipinfo-methbuf-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2017-12652--libpng-chunk-length-limit-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2017-12898--tcpdump-nfs-oob-read-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2017-13024--tcpdump-mobility-oob-read-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2018-13785--libpng-png-check-chunk-length-row-factor-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2018-18384--unzip-cfactorstr-snprintf-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2019-12900--bzip2-nselectors-oob-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2019-18218--file-cdf-vector-element-limit-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2019-3863--libssh2-flush-oob-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2019-5544--openslp-remaining-buffer-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2020-15503--libraw-kodak-thumb-oob-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-23017--nginx-resolver-dns-off-by-one-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-28677--pillow-flidecode-copy-oob-read-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-28918",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-3520--lz4-negative-outputsize-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-3575--openjpeg-sycc420-to-rgb-oob-read-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-40633--giflib-screenbuffer-row-leak-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-41581",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2021-4217--unzip-bytes-read-check-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2022-28805--lua524-singlevar-anyregup-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2022-47016",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2023-28484",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2023-3603--libssh-sftp-read-null-check-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2023-4863",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2023-49502",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-12254",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-23334",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-25629--c-ares-read-line-null-embedded-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-37407--libarchive-zip-empty-name-oob-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-41671--twisted-chunked-trailer-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-45780--grub2-tar-integer-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-45781--grub2-ufs-symlink-strlcpy-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-45782--grub2-hfs-strcpy-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-49766--werkzeug-safe-join-windows-abspath-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-5535--openssl-ssl-select-next-proto-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2024-8096--curl-gtls-ocsp-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-0622--grub2-strlcpy-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-10911--libxslt-rvtlist-uaf-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-11230",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-14905--389ds-schema-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-24928",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-31162--fig2dev-style-val-max-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-31163--fig2dev-coincident-arc-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-31344--giflib-colorcount-bounds-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-40909--perl-dirp-dup-fdopendir-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-40928",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-4382--grub2-rescue-cli-auth-bypass-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-46836--corosync-orf-token-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-48060",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-49466--aerc-attachment-path-traversal-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-55763--civetweb-buffer-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-57052--cjson-array-index-cursor-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-57812--libcupsfilters-tiff-planar-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-5917--libarchive-ustar-name-off-by-one-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-64503",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-69693--ffmpeg-rv60dec-qp-oob-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-7207--mruby-nregs-init-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-7424--libxslt-psvi-type-confusion-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-1144--quickjs-ng-atomics-get-buf-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-11625--bytes-random-secure-fork-pid-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-2245--ccextractor-pmt-heap-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-24061--inetutils-telnetd-metachar-injection-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-2903--re2c-ast-empty-rules",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-31842--tinyproxy-chunked-case",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-32316--jq-jvstring-intoverflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-32746--inetutils-telnetd-credentials-dir-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-33236--nltk-downloader-path-traversal-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-33947--jq-path-depth-dos-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-39979--jq-jvparse-oob-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-40164--jq-hash-collision-dos-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-40198",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-40199",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-40355--krb5-negoex-nullderef",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-42046--libcaca-canvas-intmax-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-44331--proftpd-sql-injection-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-45186--expat-attr-collision-dos-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-45190",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-45191",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2026-7135--gpac-elng-box-read-size-overflow-backport",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2022-37434",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2022-37434",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2022-37434",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-48060",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      },
+      {
+        "bundle": "CVE-2025-48060",
+        "reason": "no reviewer target (review.md / review-refusal.j"
+      }
+    ],
+    "structural": [
+      {
+        "bundle": "CVE-2024-13978",
+        "reason": "review.md fails reviewer parser contract"
+      },
+      {
+        "bundle": "CVE-2024-33664--python-jose-jwe-size-limit-backport",
+        "reason": "review.md fails reviewer parser contract"
+      },
+      {
+        "bundle": "CVE-2025-34451",
+        "reason": "duplicate (cve_id, attr_path, mutation_type)"
+      },
+      {
+        "bundle": "CVE-2025-47256",
+        "reason": "duplicate (cve_id, attr_path, mutation_type)"
+      },
+      {
+        "bundle": "CVE-2025-60876",
+        "reason": "duplicate (cve_id, attr_path, mutation_type)"
+      },
+      {
+        "bundle": "CVE-2024-47081",
+        "reason": "reorg-positives-root bundle is not a kept reorg "
+      },
+      {
+        "bundle": "CVE-2025-47256",
+        "reason": "reorg-positives-root bundle is not a kept reorg "
+      }
+    ]
+  },
+  "authoring": {
+    "examples": 79,
+    "splits": {
+      "dev": 9,
+      "test": 2,
+      "train": 68
+    }
+  },
+  "schema_invalid": [
+    {
+      "bundle": "CVE-2014-9913--unzip-methbuf-overflow-backport",
+      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847485' does not match '^[0-9a-f]{7,40}$'"
+    },
+    {
+      "bundle": "CVE-2015-1419--vsftpd-deny-file-symlink-backport",
+      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'novell-bugzilla-cve-2015-1419' does not match '^[0-9a-f]{7,40}$'"
+    },
+    {
+      "bundle": "CVE-2015-8784--libtiff-next-decode-oob-write-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2016-9844--unzip-zipinfo-methbuf-backport",
+      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847486' does not match '^[0-9a-f]{7,40}$'"
+    },
+    {
+      "bundle": "CVE-2017-12652--libpng-chunk-length-limit-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2017-12898--tcpdump-nfs-oob-read-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2017-13024--tcpdump-mobility-oob-read-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2018-13785--libpng-png-check-chunk-length-row-factor-overflow-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2018-18384--unzip-cfactorstr-snprintf-backport",
+      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-unzip-18384' does not match '^[0-9a-f]{7,40}$'"
+    },
+    {
+      "bundle": "CVE-2019-12900--bzip2-nselectors-oob-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2019-18218--file-cdf-vector-element-limit-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2019-3863--libssh2-flush-oob-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2019-5544--openslp-remaining-buffer-backport",
+      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'vmware-cve-2019-5544-fix' does not match '^[0-9a-f]{7,40}$'"
+    },
+    {
+      "bundle": "CVE-2020-15503--libraw-kodak-thumb-oob-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2021-23017--nginx-resolver-dns-off-by-one-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2021-28677--pillow-flidecode-copy-oob-read-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2021-3520--lz4-negative-outputsize-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2021-3575--openjpeg-sycc420-to-rgb-oob-read-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2022-28805--lua524-singlevar-anyregup-backport",
+      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'nixpkgs-backport-no-sha' does not match '^[0-9a-f]{7,40}$'"
+    },
+    {
+      "bundle": "CVE-2023-3603--libssh-sftp-read-null-check-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2024-25629--c-ares-read-line-null-embedded-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2024-37407--libarchive-zip-empty-name-oob-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2024-49766--werkzeug-safe-join-windows-abspath-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2025-57052--cjson-array-index-cursor-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2025-5917--libarchive-ustar-name-off-by-one-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2025-69693--ffmpeg-rv60dec-qp-oob-backport",
+      "error": "missing expect.json"
+    },
+    {
+      "bundle": "CVE-2026-7135--gpac-elng-box-read-size-overflow-backport",
+      "error": "missing expect.json"
+    }
+  ],
+  "uncerted_auto_merge": [],
+  "source_backports": {
+    "total": 118,
+    "validated": 31,
+    "verified_only": 87,
+    "validated_bundles": [
+      "CVE-2011-10007--FileFindRule-backport",
+      "CVE-2021-45340--libsixel-backport",
+      "CVE-2022-35920--sanic-backport",
+      "CVE-2022-37434--zlib-backport",
+      "CVE-2022-46908--sqlite-backport",
+      "CVE-2023-40890--zbar-databar-bounds",
+      "CVE-2024-33664--python-jose-jwe-size-limit-backport",
+      "CVE-2024-41254--litestream-sftp-hostkey",
+      "CVE-2024-41810--twisted-backport",
+      "CVE-2024-47081--requests-backport",
+      "CVE-2025-0938--cpython-backport",
+      "CVE-2025-31344--giflib-backport",
+      "CVE-2025-34451--proxychains-ng-backport",
+      "CVE-2025-47256--libxmp-backport",
+      "CVE-2025-48060--jq-backport",
+      "CVE-2025-5278--coreutils-backport",
+      "CVE-2025-60876--busybox-backport",
+      "CVE-2025-60876--busybox-wget-header-injection",
+      "CVE-2025-6170--libxml2-backport",
+      "CVE-2026-0989--libxml2-relaxng-limit",
+      "CVE-2026-0992--libxml2-catalog-dedup",
+      "CVE-2026-10275--opensc-pkcs11-overflow",
+      "CVE-2026-33948--jq-nul-backport",
+      "CVE-2026-39979--jq-oob-backport",
+      "CVE-2026-40347--python-multipart-backport",
+      "CVE-2026-42250--bzip2-backport",
+      "CVE-2026-44331--proftpd-sql-injection",
+      "CVE-2026-4539--pygments-redos-backport",
+      "CVE-2026-50593--graphite2-backport",
+      "CVE-2026-6507--dnsmasq-dhcp-overflow",
+      "CVE-2026-7598--libssh2-backport"
+    ],
+    "validation_failures": [
+      {
+        "bundle": "CVE-2014-9913--unzip-methbuf-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2015-1419--vsftpd-deny-file-symlink-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2015-8784--libtiff-next-decode-oob-write-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2016-9844--unzip-zipinfo-methbuf-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2017-12652--libpng-chunk-length-limit-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2017-12898--tcpdump-nfs-oob-read-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2017-13024--tcpdump-mobility-oob-read-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2018-13785--libpng-png-check-chunk-length-row-factor-overflow-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2018-18384--unzip-cfactorstr-snprintf-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2019-12900--bzip2-nselectors-oob-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2019-18218--file-cdf-vector-element-limit-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2019-3863--libssh2-flush-oob-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2019-5544--openslp-remaining-buffer-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2020-15503--libraw-kodak-thumb-oob-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-23017--nginx-resolver-dns-off-by-one-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-28677--pillow-flidecode-copy-oob-read-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-28918--netcidrlite-octet-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-3520--lz4-negative-outputsize-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-3575--openjpeg-sycc420-to-rgb-oob-read-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-40633--giflib-screenbuffer-row-leak-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-41581--libressl-x509-mailbox-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2021-4217--unzip-bytes-read-check-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2022-28805--lua524-singlevar-anyregup-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2022-47016--tmux-bufferevent-null-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2023-28484--libxml2-schema-nullderef",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2023-3603--libssh-sftp-read-null-check-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2023-4016--procps-ng-xxcalloc",
+        "failed": [
+          "unpatched-reproducer-fires"
+        ]
+      },
+      {
+        "bundle": "CVE-2023-4863--libwebp-huffman-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2023-49502--ffmpeg-bwdif-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-12254--cpython-asyncio-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-23334--aiohttp-path-traversal-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-25629--c-ares-read-line-null-embedded-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-34490--maxima-plot-tempfile-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-37407--libarchive-zip-empty-name-oob-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-41671--twisted-chunked-trailer-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-45780--grub2-tar-integer-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-45781--grub2-ufs-symlink-strlcpy-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-45782--grub2-hfs-strcpy-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-49766--werkzeug-safe-join-windows-abspath-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-5535--openssl-ssl-select-next-proto-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2024-8096--curl-gtls-ocsp-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-0622--grub2-strlcpy-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-10911--libxslt-rvtlist-uaf-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-11230--haproxy-mjson-dos-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-14905--389ds-schema-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-24928--libxml2-xmlsnprintf-sbo",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-31162--fig2dev-style-val-max-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-31163--fig2dev-coincident-arc-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-31344--giflib-colorcount-bounds-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-3155--yelp-xsl-csp-nonce",
+        "failed": [
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-40909--perl-dirp-dup-fdopendir-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-40928--jsonxs-numparse-oob-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-4382--grub2-rescue-cli-auth-bypass-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-46836--corosync-orf-token-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-48060--jq-jvp-string-empty-sbo",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-49466--aerc-attachment-path-traversal-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-55763--civetweb-buffer-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-57052--cjson-array-index-cursor-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-57812--libcupsfilters-tiff-planar-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-5917--libarchive-ustar-name-off-by-one-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-64503--libcupsfilters-pdftoras-oob-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-69693--ffmpeg-rv60dec-qp-oob-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-7207--mruby-nregs-init-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2025-7424--libxslt-psvi-type-confusion-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-1144--quickjs-ng-atomics-get-buf-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-11625--bytes-random-secure-fork-pid-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-15028--libarchive-tar-atol-oob-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-proxy-signal"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-2245--ccextractor-pmt-heap-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-24061--inetutils-telnetd-metachar-injection-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-2903--re2c-ast-empty-rules",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-31842--tinyproxy-chunked-case",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-32316--jq-jvstring-intoverflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-32746--inetutils-telnetd-credentials-dir-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-33236--nltk-downloader-path-traversal-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-33947--jq-path-depth-dos-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-39979--jq-jvparse-oob-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-40164--jq-hash-collision-dos-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-40198--netcidrlite-uncompressed-ipv6-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-40199--netcidrlite-ipv4mapped-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-40355--krb5-negoex-nullderef",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-42046--libcaca-canvas-intmax-overflow-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-44331--proftpd-sql-injection-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-45186--expat-attr-collision-dos-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-45190--netcidrlite-unicode-newline-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-45191--netcidrlite-cidrmask-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-48526--pyjwt-backport",
+        "failed": [
+          "semantic-match-upstream-fix"
+        ]
+      },
+      {
+        "bundle": "CVE-2026-7135--gpac-elng-box-read-size-overflow-backport",
+        "failed": [
+          "patch-applies",
+          "unpatched-reproducer-fires",
+          "backported-reproducer-clean",
+          "no-version-bump",
+          "semantic-match-upstream-fix",
+          "no-proxy-signal"
+        ]
+      }
+    ]
+  },
+  "thresholds": {
+    "positive": 50,
+    "negative": 25
+  },
+  "pilot_ready": false,
+  "blocking": [
+    "27 schema-invalid/uncerted bundles in corpus"
+  ]
+}
