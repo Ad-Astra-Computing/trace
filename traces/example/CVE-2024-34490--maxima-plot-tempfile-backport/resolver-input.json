@@ -1,0 +1,41 @@
+{
+  "cve_id": "CVE-2024-34490",
+  "current_version": "5.47.0",
+  "attr_path": "maxima",
+  "candidate_refs": [
+    {
+      "version": "5.47.0",
+      "tag": "5.47.0",
+      "release_url": "https://sourceforge.net/p/maxima/code/ci/51704ccb090f6f971b641e4e0b7c1c22c4828bf7/",
+      "changelog_url": "https://sourceforge.net/p/maxima/code/ci/51704ccb090f6f971b641e4e0b7c1c22c4828bf7/",
+      "advisory_urls": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2024-34490",
+        "https://sourceforge.net/p/maxima/code/ci/51704ccb090f6f971b641e4e0b7c1c22c4828bf7/"
+      ],
+      "upstream_fix_commits": [
+        {
+          "repo_url": "https://sourceforge.net/p/maxima/code/",
+          "commit_sha": "51704ccb090f6f971b641e4e0b7c1c22c4828bf7",
+          "message": "plotting: use random-name for gnuplot/xmaxima temp output files (CVE-2024-34490); upstream-fix.patch carries the src/gnuplot_def.lisp, src/plot.lisp, src/xmaxima_def.lisp change"
+        }
+      ],
+      "delta": {
+        "transitive_package_changes": 0,
+        "new_direct_deps": [],
+        "removed_direct_deps": [],
+        "crosses_large_delta_threshold": false,
+        "threshold_policy": "v0-default"
+      },
+      "tier_hint": "source-backport",
+      "prefetch_hashes": [],
+      "eligibility": {
+        "verdict": "eligible-requires-human-review",
+        "verdict_reason": "SOURCE-BACKPORT (experimental). CVE-2024-34490 predictable /tmp plot-output filenames in maxima 5.47.0 plotting (plot2d/plot3d via gnuplot). Upstream fix 51704cc randomizes the output filename (random-name). patch_strategy=source-backport; upstream-fix.patch is the ground-truth src/*.lisp change and does NOT apply verbatim to 5.47.0 (see preflight.json).",
+        "human_review_trigger": "source-backport-experimental",
+        "patch_strategy": "source-backport",
+        "kind": "human-review-required",
+        "kind_reason": "source-backport-experimental"
+      }
+    }
+  ]
+}
