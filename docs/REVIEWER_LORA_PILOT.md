@@ -141,6 +141,14 @@ Snapshot 2026-06-14: 28/50 positives (gap 22), 25/25 negatives, leakage-free, 11
 excluded (8 triage / 3 structural), 4 authoring examples → verdict NOT YET. Run this
 before any baseline freeze; freeze only when it prints READY.
 
+Snapshot 2026-07-27: **84 cert-green positives / 55 negatives, verdict READY**
+(`pilot_ready=true`, `blocking=[]`). The enumerator now excludes two non-pollution
+classes via fail-closed guards — 6 self-declared schema-negative authoring fixtures
+(own `expect.json` declares `overall=invalid` + `expected_failure.doc=upstream-ref.json`,
+test-asserted-invalid) and 21 authoring-only training pairs — kept visible in the
+report. Frozen as **corpus-v2** (`data/reports/reviewer-corpus-2026-07-27-freeze.json`,
+139 examples, splits 112/16/11, CVE-disjoint, jsonl `097bd49c…`, commit `f27fc9c`).
+
 ---
 
 # Results & findings (v1.0 → v1.10) — research log
