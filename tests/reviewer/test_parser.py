@@ -299,6 +299,17 @@ def test_parse_equivalence_verdict_lowercases() -> None:
     assert parse_equivalence_verdict(section) == "equivalent"
 
 
+def test_parse_equivalence_verdict_strips_bold_emphasis() -> None:
+    # Models routinely bold the value; the token is unambiguous.
+    section = "- equivalence: **not-equivalent** — unresolved construct"
+    assert parse_equivalence_verdict(section) == "not-equivalent"
+
+
+def test_parse_equivalence_verdict_strips_code_and_italic() -> None:
+    assert parse_equivalence_verdict("- equivalence: `equivalent` — x") == "equivalent"
+    assert parse_equivalence_verdict("- equivalence: *indeterminate* — y") == "indeterminate"
+
+
 def test_parse_equivalence_verdict_returns_none_for_none() -> None:
     assert parse_equivalence_verdict(None) is None
 

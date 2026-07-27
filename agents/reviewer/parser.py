@@ -308,6 +308,30 @@ _EQUIVALENCE_FIELD_RE = re.compile(
     r"^\s*(?:[-*]\s+)?equivalence:\s*(?P<value>\S+)?"
 )
 
+# Markdown emphasis / code markers a model may wrap the value in. Stripped
+# symmetrically so `**not-equivalent**` or `` `equivalent` `` still declares a
+# valid enum token — the value is semantically unambiguous, only the emphasis
+# byte-form differs. Longest markers first so `**` is tried before `*`.
+_MD_EMPHASIS_MARKERS: tuple[str, ...] = ("**", "__", "*", "_", "`")
+
+
+def _strip_md_emphasis(token: str) -> str:
+    """Strip matched wrapping markdown emphasis/code markers from a token."""
+    t = token.strip()
+    changed = True
+    while changed:
+        changed = False
+        for marker in _MD_EMPHASIS_MARKERS:
+            if (
+                t.startswith(marker)
+                and t.endswith(marker)
+                and len(t) > 2 * len(marker)
+            ):
+                t = t[len(marker) : -len(marker)].strip()
+                changed = True
+                break
+    return t
+
 
 def parse_equivalence_verdict(equivalence_assessment_raw: str | None) -> str | None:
     """Extract the DECLARED equivalence value from a `## Equivalence assessment`
@@ -333,7 +357,9 @@ def parse_equivalence_verdict(equivalence_assessment_raw: str | None) -> str | N
         m = _EQUIVALENCE_FIELD_RE.match(line)
         if m:
             value = m.group("value")
-            return value.strip().lower() if value else None
+            if not value:
+                return None
+            return _strip_md_emphasis(value).lower()
     return None
 
 
