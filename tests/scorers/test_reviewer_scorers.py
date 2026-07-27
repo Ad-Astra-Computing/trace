@@ -122,6 +122,20 @@ def test_schema_valid_passes_clean_review(tmp_path: Path) -> None:
     assert r.details["verdict"] == "accept"
 
 
+def test_schema_valid_passes_review_with_patch_comparison(tmp_path: Path) -> None:
+    """Source-backport reviews carry a ## Patch comparison section (reviewer.v5+);
+    the parser emits `patch_comparison`, so the schema must allow it. Regression
+    guard for 9bd5b98, which added the field without updating the schema."""
+    bd = _source_backport_bundle(tmp_path)
+    (bd / "review.md").write_text(_accept_review_with_patch_comparison())
+    r = ReviewSchemaValidScorer().score(
+        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+    )
+    assert r.applies is True and r.advisory is False
+    assert r.score == 1.0, r.notes
+    assert r.details["verdict"] == "accept"
+
+
 def test_schema_valid_fails_malformed_review(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     # Missing the required ## Cross-family attestation section.

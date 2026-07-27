@@ -74,6 +74,10 @@
         "patcher_family_observed": { "type": "string", "minLength": 1 },
         "rule_honored": { "type": "boolean" }
       }
+    },
+    "patch_comparison": {
+      "description": "Optional free-text section present only for source-backport reviews (reviewer.v5+). The `## Patch comparison` heading, in which the Reviewer walks each patch.diff hunk against the corresponding upstream-fix.patch hunk and states a per-hunk match/mismatch verdict. Absent for version-bump and non-source-backport reviews; its presence is graded by the advisory review-patch-comparison-present scorer, not required by this schema.",
+      "type": "string"
     }
   }
 }
