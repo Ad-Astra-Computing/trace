@@ -1,0 +1,8 @@
+{
+  "applies_verbatim": false,
+  "patch": "upstream-fix.patch",
+  "patch_flags": [
+    "-p1"
+  ],
+  "diagnostics": "AUTHORITATIVE preflight against the hash-verified pinned maxima 5.47.0 source (SRI sha256-kQQCGyT9U+jAOpg1CctC6TepJejAyFwzXXcJoU/UD3o=, byte-identical to package.nix). `patch -p1 --dry-run` of the complete raw upstream commit 51704cc (8 hunks / 3 files): src/gnuplot_def.lisp 3/3 FAILED; src/plot.lisp 2/3 FAILED (hunk #3 offset -29); src/xmaxima_def.lisp 1/2 FAILED (hunk #2 offset -6). 6 of 8 hunks FAILED, rc=1. Context drift: 5.47.0 plot-options use '$gnuplot_out_file keys / older Time-stamp headers vs upstream master. applies_verbatim=false -> adaptation lane."
+}

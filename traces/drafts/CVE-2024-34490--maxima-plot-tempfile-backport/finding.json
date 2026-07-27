@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-2024-34490",
+  "source_feeds": [
+    "nvd"
+  ],
+  "severity": {
+    "rating": "medium",
+    "cvss_v3_score": 5.1
+  },
+  "published_at": "2024-05-05T00:00:00Z",
+  "summary": "Predictable temporary-file names (CWE-377) in Maxima's plotting facilities. Through 5.47.0 (before upstream commit 51704cc), plot2d/plot3d and related gnuplot/xmaxima interfaces write output to fixed names such as \"maxplot.ps\" and \"maxplot.txt\" under the working/temp directory, so a local attacker who pre-creates those names can influence or read the plot output. Upstream fixes this by generating the output filename with random-name in src/gnuplot_def.lisp, src/plot.lisp and src/xmaxima_def.lisp. Affects the maxima package at 5.47.0; the fix is an upstream source commit with no tagged release pinning 5.47.0.",
+  "affected": [
+    {
+      "attr_path": "maxima",
+      "drv_path": "/nix/store/00000000000000000000000000034490-maxima-5.47.0.drv",
+      "pname": "maxima",
+      "version": "5.47.0",
+      "confidence": "high"
+    }
+  ],
+  "mapping": {
+    "cpe": [
+      "cpe:2.3:a:maxima:maxima:5.47.0:*:*:*:*:*:*:*"
+    ],
+    "method": "cpe-exact"
+  },
+  "replay_critical": true
+}
