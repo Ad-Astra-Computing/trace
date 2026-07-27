@@ -130,9 +130,55 @@ the files the upstream fix touches, from a provenance-clean origin:
 - **Total to a first green adaptation canary:** low tens of dollars of live spend,
   dominated by prompt iteration. This is the gate that needs Jason's authorization.
 
-## Not started
+## Slice plan + status
 
-This note is scope only. Opening the arc requires Jason's live-spend
+- **Slice 1 — SHIPPED (`8a8e0a1`, 2026-07-27).** Pure refactor: extracted the
+  pinned-source unpack into `tools/trace_cli/pinned_source.py`, shared by the
+  preflight and (slice 2) the Patcher source-input assembly. No behavior/schema/
+  prompt change. Counter 0/5→1/5, baseline `2229f7e`.
+- **Slice 2 — SPEC READY (codex-confirmed 2026-07-27), not yet implemented.**
+  Atomic: source-context input + schema bump + `patcher.v4` land together (no
+  dormant signed inputs). No live spend until the FakeAdapter end-to-end is green.
+- **Slice 3+ — live prompt iteration** on the libarchive canary + verbatim-cohort
+  regression (the authorized-spend phase), then cert.
+
+### Slice 2 implementation spec (codex-confirmed)
+
+1. **Storage.** At bootstrap (`bundle assemble`), write the pre-patch copies of
+   exactly the files named in `upstream-fix.patch` hunks into `source-context/`,
+   preserving **normalized upstream-relative** paths, sourced from the pinned
+   `pkg.src` via `pinned_source`. Reject absolute paths, `..`, symlinks, duplicate
+   normalized paths, and any path outside the parsed diff's file set
+   (path-traversal hardening — trace threat model item #4).
+2. **Replay integrity.** Add an explicit **sorted** manifest of `{path, sha256}`
+   entries (not an implicit glob), every entry `replay_critical: true`, folded
+   into the signed bundle hash. Hashed at finalize.
+3. **`patcher.v4`.** Do NOT ask the model to infer applicability. Feed the
+   deterministic preflight result — `applies_verbatim: true|false` + bounded
+   diagnostics — into the assembly. v4 transcribes verbatim on `true` (v3
+   behavior) and authors a semantic adaptation grounded in `source-context/` on
+   `false`; refuses if no adaptation can be grounded in the provided source.
+   Source-context is always present for source-backports.
+4. **Schema compatibility.** Bump `schema_version` on bundle + replay schemas via
+   versioned `oneOf` branches, not a `const` swap or a bare enum: existing
+   `1.0.0` bundles stay valid; a `1.1.0` **source-backport MUST** include the
+   source-context manifest, a `1.1.0` non-source-backport MUST NOT (so "optional"
+   never silently weakens the new contract). `bundle_schema_version` sha still
+   covers drift.
+
+Touch list: `tools/trace_cli/bundle.py` (assemble writes source-context +
+finalize hashes the manifest), `tools/trace_cli/execute.py` +
+`agents/patcher/runner.py` (load + assemble source-context + `applies_verbatim`),
+`agents/patcher/prompt` (`patcher.v4`), `policy/bundle-schema.json` +
+`policy/replay-schema.json` (oneOf version branches + manifest shape), a
+diff-hunk-path parser (reuse/extend existing patch parsing), and FakeAdapter
+end-to-end coverage. All no-spend up to and including FakeAdapter-green.
+
+## Not started (live phase)
+
+The live prompt-iteration + cohort-regression phase (slice 3+) is scope-approved
+by Jason but spends model budget; the no-spend slice-2 wiring lands first.
+This note's prose above the slice plan is scope only. Opening the arc requires Jason's live-spend
 authorization (per the CLAUDE.md live-run cost discipline + the standing
 large-workflow hold). Until then: verbatim lane + preflight gate is the shipped
 behavior; base-mismatch candidates are retired (documented non-viable examples),
