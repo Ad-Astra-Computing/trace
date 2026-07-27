@@ -63,6 +63,7 @@ no wall-clock, no randomness):
                + signal_bonus
                + single_file_bonus
                - size_penalty
+               - unwired_penalty
 
     classification_bonus = 100 if likely-adaptation
                              40 if unknown
@@ -72,6 +73,16 @@ no wall-clock, no randomness):
     size_penalty          = 1.0 * n_hunks
                           + 1.5 * max(n_files - 1, 0)
                           + 0.03 * (added_lines + removed_lines)
+    unwired_penalty       = 1000 if not wired else 0
+
+  ``wired`` is whether any ``.nix`` at/below the patch's anchor dir
+  references the patch basename — i.e. some derivation actually applies it.
+  An unwired patch is an orphaned/stale ``.patch`` file with no pinned base
+  to adjudicate against, so it cannot be an oracle; ``unwired_penalty`` (a
+  flat 1000, larger than the entire positive range) sinks every unwired
+  candidate below every wired one while preserving wired ordering. Unwired
+  candidates are still listed (with ``"wired": false``) rather than dropped,
+  so a stale patch remains visible as a diagnostic.
 
   The classification gap (100 vs 0) dominates: any adaptation-classified
   candidate outranks every verbatim-classified one regardless of size.
@@ -251,6 +262,29 @@ def derive_package_name(patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path) ->
     return patch_path.parent.name
 
 
+def patch_is_wired(patch_path: Path, anchor_dir: Path | None) -> bool:
+    """True if the patch's basename is referenced by any `.nix` file at or
+    below its anchor dir.
+
+    A CVE patch that no derivation applies (an orphaned/stale `.patch` file
+    left in the tree, e.g. after a version bump dropped it from the
+    ``patches`` list) has no defined *pinned base*: the base an oracle
+    adjudicates against is exactly the version of the derivation that
+    applies the patch. So an unwired patch cannot be an oracle, and
+    ``downstream_patch_applies`` is undefined for it. Pure offline file
+    read; never raises (unreadable .nix files are skipped)."""
+    if anchor_dir is None:
+        return False
+    needle = patch_path.name
+    for nix_file in anchor_dir.rglob("*.nix"):
+        try:
+            if needle in nix_file.read_text(encoding="utf-8", errors="replace"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def parse_pinned_version(anchor_dir: Path | None) -> str | None:
     """Best-effort `version = "..."` parse from the anchor dir's
     package.nix (preferred) or default.nix. None if there's no anchor dir
@@ -354,6 +388,7 @@ def rank_score(
     added_lines: int,
     removed_lines: int,
     adaptation_signals: list[str],
+    wired: bool,
 ) -> float:
     """See the module docstring "rank_score formula" section."""
     classification_bonus = {
@@ -368,7 +403,18 @@ def rank_score(
         + 1.5 * max(n_files - 1, 0)
         + 0.03 * (added_lines + removed_lines)
     )
-    return classification_bonus + signal_bonus + single_file_bonus - size_penalty
+    # An unwired (orphaned) patch has no derivation applying it, so no
+    # pinned base to adjudicate against — it cannot be an oracle. Sink it
+    # below every wired candidate with a flat penalty larger than the whole
+    # positive range, so wired ordering is preserved within each bucket.
+    unwired_penalty = 0.0 if wired else 1000.0
+    return (
+        classification_bonus
+        + signal_bonus
+        + single_file_bonus
+        - size_penalty
+        - unwired_penalty
+    )
 
 
 # ─── harvest ────────────────────────────────────────────────────────────────
@@ -380,6 +426,8 @@ def build_candidate(patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path) -> dic
     classification = classify(
         parsed["is_format_patch"], parsed["adaptation_signals"], parsed["n_hunks"]
     )
+    anchor_dir = find_anchor_dir(patch_path, pkgs_root)
+    wired = patch_is_wired(patch_path, anchor_dir)
     score = rank_score(
         classification,
         n_files=parsed["n_files"],
@@ -387,8 +435,8 @@ def build_candidate(patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path) -> dic
         added_lines=parsed["added_lines"],
         removed_lines=parsed["removed_lines"],
         adaptation_signals=parsed["adaptation_signals"],
+        wired=wired,
     )
-    anchor_dir = find_anchor_dir(patch_path, pkgs_root)
     cve_ids = parse_cve_ids(patch_path.name)
 
     return {
@@ -405,6 +453,7 @@ def build_candidate(patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path) -> dic
         "is_format_patch": parsed["is_format_patch"],
         "upstream_commit": parsed["upstream_commit"],
         "adaptation_signals": parsed["adaptation_signals"],
+        "wired": wired,
         "classification": classification,
         "rank_score": score,
     }
@@ -434,6 +483,7 @@ def build_header(nixpkgs_dir: Path, all_candidates: list[dict[str, Any]]) -> dic
     counts: dict[str, int] = {}
     for c in all_candidates:
         counts[c["classification"]] = counts.get(c["classification"], 0) + 1
+    wired_count = sum(1 for c in all_candidates if c["wired"])
     return {
         "kind": "harvest-header",
         "schema_version": SCHEMA_VERSION,
@@ -441,6 +491,8 @@ def build_header(nixpkgs_dir: Path, all_candidates: list[dict[str, Any]]) -> dic
         "nixpkgs_ref": nixpkgs_dir.name,
         "total_patches_scanned": len(all_candidates),
         "classification_counts": counts,
+        "wired_count": wired_count,
+        "unwired_count": len(all_candidates) - wired_count,
     }
 
 
@@ -454,6 +506,10 @@ def render_markdown(header: dict[str, Any], candidates: list[dict[str, Any]]) ->
     lines.append(f"nixpkgs: `{header['nixpkgs_dir']}`")
     lines.append(f"nixpkgs_ref: `{header['nixpkgs_ref']}`")
     lines.append(f"total patches scanned: {header['total_patches_scanned']}")
+    lines.append(
+        f"wired: {header['wired_count']} / unwired: {header['unwired_count']} "
+        "(unwired = orphaned patch, no derivation applies it → not oracle-viable)"
+    )
     lines.append("")
     counts = header["classification_counts"]
     lines.append("| classification | count |")
@@ -464,15 +520,16 @@ def render_markdown(header: dict[str, Any], candidates: list[dict[str, Any]]) ->
     lines.append("## Ranked candidates (best-first)")
     lines.append("")
     lines.append(
-        "| rank | score | cve_ids | package | classification | files | hunks "
-        "| +/- | signals | patch_path |"
+        "| rank | score | cve_ids | package | wired | classification | files "
+        "| hunks | +/- | signals | patch_path |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
     for i, c in enumerate(candidates, start=1):
         signals = ", ".join(c["adaptation_signals"]) or "-"
+        wired = "yes" if c["wired"] else "**no**"
         lines.append(
             f"| {i} | {c['rank_score']:.2f} | {', '.join(c['cve_ids']) or '-'} "
-            f"| {c['package']} | {c['classification']} | {c['n_files']} "
+            f"| {c['package']} | {wired} | {c['classification']} | {c['n_files']} "
             f"| {c['n_hunks']} | +{c['added_lines']}/-{c['removed_lines']} "
             f"| {signals} | `{c['patch_path']}` |"
         )
@@ -547,6 +604,7 @@ def main(argv: list[str]) -> int:
     print(f"nixpkgs: {nixpkgs_dir}")
     print(f"nixpkgs_ref: {header['nixpkgs_ref']}")
     print(f"total patches scanned: {header['total_patches_scanned']}")
+    print(f"  wired: {header['wired_count']}  unwired: {header['unwired_count']}")
     counts = header["classification_counts"]
     for key in ("likely-adaptation", "likely-verbatim", "unknown"):
         print(f"  {key}: {counts.get(key, 0)}")

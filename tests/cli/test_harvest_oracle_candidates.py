@@ -127,22 +127,32 @@ def _build_fake_nixpkgs(root: Path) -> Path:
 
     jq_dir = pkgs / "by-name" / "jq" / "jq"
     jq_dir.mkdir(parents=True)
-    (jq_dir / "package.nix").write_text('{ }: {\n  version = "1.8.1";\n}\n')
+    (jq_dir / "package.nix").write_text(
+        '{ }: {\n  version = "1.8.1";\n  patches = [ ./CVE-2026-32316.patch ];\n}\n'
+    )
     (jq_dir / "CVE-2026-32316.patch").write_text(VERBATIM_PATCH)
 
     maxima_dir = pkgs / "by-name" / "ma" / "maxima"
     maxima_dir.mkdir(parents=True)
-    (maxima_dir / "package.nix").write_text('{ }: {\n  version = "5.47.0";\n}\n')
+    (maxima_dir / "package.nix").write_text(
+        '{ }: {\n  version = "5.47.0";\n'
+        "  patches = [ ./5.47.0-CVE-2024-34490.patch ];\n}\n"
+    )
     (maxima_dir / "5.47.0-CVE-2024-34490.patch").write_text(ADAPTED_PATCH)
 
     big_dir = pkgs / "development" / "big"
     big_dir.mkdir(parents=True)
-    (big_dir / "default.nix").write_text('{ }: {\n  version = "9.9.9";\n}\n')
+    (big_dir / "default.nix").write_text(
+        '{ }: {\n  version = "9.9.9";\n  patches = [ ./CVE-2026-99999.patch ];\n}\n'
+    )
     (big_dir / "CVE-2026-99999.patch").write_text(LARGE_MULTIFILE_PATCH)
 
     krb5_dir = pkgs / "by-name" / "kr" / "krb5"
     krb5_dir.mkdir(parents=True)
-    (krb5_dir / "package.nix").write_text('{ }: {\n  version = "1.21";\n}\n')
+    (krb5_dir / "package.nix").write_text(
+        '{ }: {\n  version = "1.21";\n'
+        "  patches = [ ./CVE-2026-40355-and-CVE-2026-40356.patch ];\n}\n"
+    )
     (krb5_dir / "CVE-2026-40355-and-CVE-2026-40356.patch").write_text(
         DOUBLE_CVE_PATCH
     )
@@ -339,6 +349,62 @@ def test_harvest_ranks_small_adaptation_above_verbatim(tmp_path: Path) -> None:
     # verbatim ranking: small single-file verbatim still beats large
     # multi-file verbatim (both classification 0, but size penalty differs)
     assert jq["rank_score"] > big["rank_score"]
+
+
+def test_harvest_all_fixture_patches_are_wired(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    assert all(c["wired"] for c in candidates)
+
+
+def test_patch_is_wired_true_when_referenced(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    maxima_dir = nixpkgs_dir / "pkgs" / "by-name" / "ma" / "maxima"
+    patch = maxima_dir / "5.47.0-CVE-2024-34490.patch"
+    assert hoc.patch_is_wired(patch, maxima_dir) is True
+
+
+def test_patch_is_wired_false_when_orphaned(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    # drop an orphaned patch into maxima that no .nix references
+    maxima_dir = nixpkgs_dir / "pkgs" / "by-name" / "ma" / "maxima"
+    orphan = maxima_dir / "CVE-2099-00001-orphan.patch"
+    orphan.write_text(ADAPTED_PATCH)
+    assert hoc.patch_is_wired(orphan, maxima_dir) is False
+
+
+def test_patch_is_wired_false_when_no_anchor() -> None:
+    assert hoc.patch_is_wired(Path("/nope/x.patch"), None) is False
+
+
+def test_harvest_unwired_patch_sinks_below_wired(tmp_path: Path) -> None:
+    # an orphaned small adaptation (would otherwise rank near the top) must
+    # sink below every wired candidate — no derivation applies it, so it has
+    # no pinned base to adjudicate against and cannot be an oracle.
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    orphan_dir = nixpkgs_dir / "pkgs" / "by-name" / "or" / "orphanpkg"
+    orphan_dir.mkdir(parents=True)
+    # package.nix that does NOT reference the patch
+    (orphan_dir / "package.nix").write_text('{ }: {\n  version = "1.0";\n}\n')
+    (orphan_dir / "CVE-2099-12345.patch").write_text(ADAPTED_PATCH)
+
+    candidates = hoc.harvest(nixpkgs_dir)
+    orphan = next(c for c in candidates if c["package"] == "orphanpkg")
+    assert orphan["wired"] is False
+    assert orphan["classification"] == "likely-adaptation"
+    wired = [c for c in candidates if c["wired"]]
+    assert wired, "fixture should have wired candidates"
+    assert orphan["rank_score"] < min(c["rank_score"] for c in wired)
+    # it is still listed, not dropped
+    assert orphan in candidates
+
+
+def test_header_reports_wired_counts(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    header = hoc.build_header(nixpkgs_dir, candidates)
+    assert header["wired_count"] == 4
+    assert header["unwired_count"] == 0
 
 
 def test_harvest_is_sorted_best_first(tmp_path: Path) -> None:
