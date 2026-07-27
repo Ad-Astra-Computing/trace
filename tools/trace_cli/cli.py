@@ -241,6 +241,9 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import pr_snippet as _pr_snippet_module
     _pr_snippet_module.add_parser(b_subs)
 
+    from tools.trace_cli import preflight as _preflight_module
+    _preflight_module.add_parser(b_subs)
+
     rp = subs.add_parser("report", help="rollup reports over on-disk artifacts")
     rp_subs = rp.add_subparsers(dest="report_cmd", required=True)
     from tools.trace_cli import report as _report_module
@@ -350,6 +353,10 @@ def main(argv: list[str]) -> int:
         if args.bundle_cmd == "pr-snippet":
             from tools.trace_cli import pr_snippet as _pr_snippet_module
             return _pr_snippet_module.run(args)
+        if args.bundle_cmd == "preflight":
+            from tools.trace_cli import preflight as _preflight_module
+            from pathlib import Path as _Path
+            return _preflight_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
         return EXIT_USAGE
     if args.cmd == "report":
         if args.report_cmd == "throughput":
