@@ -78,10 +78,36 @@ def _expected_patch_sha(label: str, bundle: Path) -> str | None:
     return expect.get("adjudicated_patch_sha256")
 
 
+def _attestation_reason(bundle: Path) -> str | None:
+    """Why an adaptation-lane bundle would refuse BEFORE the model, or None if it
+    would reach the Reviewer. Mirrors the execute.py gate (~L1384): the lane
+    requires patch-applicability.json with applies_at_fuzz0/unique_source_match
+    true and canonical_patch_sha256 == sha256(patch.diff). Without this check a
+    NEG that can't reach the model passes preflight and the '3-way' silently
+    collapses to a POS-only run (the 2026-07-27 fixture defect)."""
+    att_path = bundle / "patch-applicability.json"
+    if not att_path.is_file():
+        return "missing patch-applicability.json (adaptation lane refuses pre-model)"
+    try:
+        att = json.loads(att_path.read_text())
+    except json.JSONDecodeError as exc:
+        return f"patch-applicability.json invalid JSON: {exc}"
+    if att.get("applies_at_fuzz0") is not True or att.get("unique_source_match") is not True:
+        return "patch-applicability.json attests not-applies / not-unique"
+    if att.get("canonical_patch_sha256") != _patch_sha(bundle):
+        return (
+            f"patch-applicability.json canonical_patch_sha256 "
+            f"{str(att.get('canonical_patch_sha256'))[:12]}… != patch.diff "
+            f"{_patch_sha(bundle)[:12]}… (stale attestation)"
+        )
+    return None
+
+
 def _preflight() -> list[str]:
     """No-spend checks: bundles present, patch.diff bytes match the hash the
-    expected verdict is bound to. A drift here means the eval would grade a
-    different adaptation than the one preregistered — abort before spending."""
+    expected verdict is bound to, AND each NEG can actually reach the model past
+    the adaptation-lane attestation gate. A drift or an unrunnable NEG means the
+    eval would not grade what it preregistered — abort before spending."""
     errors: list[str] = []
     if not V11_PROMPT.is_file():
         errors.append(f"missing {V11_PROMPT}")
@@ -96,6 +122,12 @@ def _preflight() -> list[str]:
                 f"{label}: patch.diff sha {got[:12]}… != bound {want[:12]}… "
                 "(fixture drift — the preregistered verdict no longer applies)"
             )
+        # The NEGs live in the adaptation lane; if they can't pass the
+        # attestation gate they never reach the Reviewer and prove nothing.
+        if label.startswith("NEG"):
+            reason = _attestation_reason(bundle)
+            if reason:
+                errors.append(f"{label}: UNRUNNABLE — {reason}")
     return errors
 
 
