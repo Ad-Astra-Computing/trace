@@ -476,6 +476,10 @@ def _execute_patcher(
         PatcherOutputMalformed,
         run_patcher,
     )
+    from tools.trace_cli.hunk_normalizer import (
+        HunkNormalizationError,
+        normalize_backport_patch,
+    )
 
     # Dispatch guards. These check the bundle itself, not the invocation
     # record — the bundle is the authoritative state on whether Patcher
@@ -682,8 +686,52 @@ def _execute_patcher(
 
     # Atomic writes. Temp file + os.replace guarantees no half-written artifact.
     outputs: list[dict[str, Any]] = []
+    hunk_normalization: dict[str, Any] | None = None
     if result.kind == "patch":
-        diff_bytes = (result.parsed.patch_diff or "").encode("utf-8")
+        diff_text = result.parsed.patch_diff or ""
+
+        # Adaptation-lane hunk-header normalization (slice 4, DECISIONS
+        # 2026-07-27). The verbatim lane copies the upstream header (always
+        # correct); only the adaptation lane AUTHORS a fresh `@@ -a,b +c,d @@`
+        # header, and the model reliably miscomputes the arithmetic (libarchive
+        # CVE-2026-15028: emitted `@@ -3517,13` — upstream start + wrong counts —
+        # for a body at pinned line 3443 with 16/16 lines). This is a
+        # deterministic, metadata-only recompute of the header from the (correct)
+        # body, matched exactly and uniquely against source-context. It never
+        # touches body lines and fails loud (does not silently "fix") on an
+        # ungroundable/ambiguous body. Runs only on the adaptation lane
+        # (source-context present, applies_verbatim not True).
+        source_context = inputs.get("source_context")
+        if source_context and inputs.get("applies_verbatim") is not True:
+            pre_sha = sha256_hex(diff_text.encode("utf-8"))
+            try:
+                norm = normalize_backport_patch(diff_text, source_context)
+            except HunkNormalizationError as exc:
+                # Fail-don't-fix: the authored body is not grounded in the pinned
+                # source, so no honest header can be computed. Persist the raw
+                # patch for debugging (the model call already billed) and abort
+                # before writing/​signing anything.
+                setattr(exc, "raw_response", diff_text)
+                setattr(exc, "raw_response_sha256", pre_sha)
+                _persist_role_failure(
+                    role="patcher",
+                    bundle_dir=bundle_dir,
+                    exc=exc,
+                    model_id=model_id,
+                    started_at=started_at,
+                    prompt_path_relative=f"prompts/{patcher_prompt_path.name}",
+                )
+                raise ExecutionError(
+                    f"patcher hunk-header normalization failed: {exc}"
+                ) from exc
+            diff_text = norm.text
+            hunk_normalization = {
+                "applied": norm.changed,
+                "pre_sha256": pre_sha,
+                "rewrites": norm.rewrites,
+            }
+
+        diff_bytes = diff_text.encode("utf-8")
         rat_bytes = (result.parsed.patch_rationale_md or "").encode("utf-8")
         # Defensive trailing-newline guarantee. The model frequently
         # ends its diff body without a final newline (the parser's
@@ -697,6 +745,8 @@ def _execute_patcher(
             diff_bytes += b"\n"
         if rat_bytes and not rat_bytes.endswith(b"\n"):
             rat_bytes += b"\n"
+        if hunk_normalization is not None:
+            hunk_normalization["post_sha256"] = sha256_hex(diff_bytes)
         _atomic_write_bytes(bundle_dir / "patch.diff", diff_bytes)
         _atomic_write_bytes(bundle_dir / "patch-rationale.md", rat_bytes)
         outputs = [
@@ -728,6 +778,8 @@ def _execute_patcher(
         "refusal_reason": result.parsed.refusal_reason,
         "adapter": result.model_response.extras.get("adapter"),
     }
+    if hunk_normalization is not None:
+        patcher_run_meta["hunk_normalization"] = hunk_normalization
 
     # Append a canonical replay-shape invocation entry into replay.json. Done
     # AFTER atomic writes so a partial / malformed parse doesn't pollute
@@ -861,6 +913,11 @@ def _write_role_invocation_sidecar(
     # not written (keeps sidecar shape clean for Patcher/Reproducer).
     if "attestation_grounded" in role_run_meta:
         payload["attestation_grounded"] = role_run_meta["attestation_grounded"]
+    # Adaptation-lane hunk-header normalization provenance (Patcher only). Records
+    # the pre/post patch sha256 and every header rewrite so an auditor can see
+    # exactly what the deterministic normalizer changed before the patch was signed.
+    if "hunk_normalization" in role_run_meta:
+        payload["hunk_normalization"] = role_run_meta["hunk_normalization"]
     sidecar_path = bundle_dir / f"{role}-invocation.json"
     body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8") + b"\n"
     _atomic_write_bytes(sidecar_path, body)

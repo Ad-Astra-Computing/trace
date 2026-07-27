@@ -49,19 +49,23 @@ reverse_closure_count=42; under threshold.
 
 
 def _adapted_patch_response() -> str:
+    # Canonical nested source-backport: the outer diff adds a .patch file whose
+    # content is the inner unified diff. The inner `+++ b/foo.c` header appears in
+    # the outer diff as `++++ b/foo.c` (outer `+` prefix + inner `+++`). The inner
+    # header `@@ -1 +1 @@` is correct (foo.c's single source line is line 1).
     return (
         "=== BEGIN patch.diff ===\n"
         "diff --git a/CVE-0000-0002.patch b/CVE-0000-0002.patch\n"
         "new file mode 100644\n"
         "--- /dev/null\n"
         "+++ b/CVE-0000-0002.patch\n"
-        "@@ -0,0 +1,7 @@\n"
+        "@@ -0,0 +1,5 @@\n"
         "+--- a/foo.c\n"
-        "+++ b/foo.c\n"
+        "++++ b/foo.c\n"
         "+@@ -1 +1 @@\n"
         "+-    l = l * base;\n"
         "++    if (l > limit) return -1;\n"
-        "+diff --git a/package.nix b/package.nix\n"
+        "diff --git a/package.nix b/package.nix\n"
         "--- a/package.nix\n"
         "+++ b/package.nix\n"
         "@@ -1 +1,2 @@\n"
@@ -228,6 +232,114 @@ def test_execute_verify_mode_hash_checks_source_context(tmp_path):
     )
     vpaths = {v["path"] for v in verified["input_verification"] if v.get("verified")}
     assert "source-context/foo.c" in vpaths
+
+
+def _wrong_header_response() -> str:
+    """Same adapted patch, but the model botched the inner hunk header (upstream
+    line number + wrong-looking counts). The body is correct and grounded."""
+    return (
+        "=== BEGIN patch.diff ===\n"
+        "diff --git a/CVE-0000-0002.patch b/CVE-0000-0002.patch\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/CVE-0000-0002.patch\n"
+        "@@ -0,0 +1,5 @@\n"
+        "+--- a/foo.c\n"
+        "++++ b/foo.c\n"
+        "+@@ -812,5 +812,9 @@\n"          # WRONG: source is line 1, single line
+        "+-    l = l * base;\n"
+        "++    if (l > limit) return -1;\n"
+        "diff --git a/package.nix b/package.nix\n"
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -1 +1,2 @@\n"
+        ' version = "1.0.0";\n'
+        "+patches = [ ./CVE-0000-0002.patch ];\n"
+        "=== END patch.diff ===\n"
+        "=== BEGIN patch-rationale.md ===\n"
+        + _RATIONALE
+        + "=== END patch-rationale.md ===\n"
+    )
+
+
+def _ungroundable_response() -> str:
+    """Adapted patch whose inner deletion line does NOT exist in source-context —
+    the normalizer must fail loud rather than fabricate a header."""
+    return (
+        "=== BEGIN patch.diff ===\n"
+        "diff --git a/CVE-0000-0002.patch b/CVE-0000-0002.patch\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/CVE-0000-0002.patch\n"
+        "@@ -0,0 +1,5 @@\n"
+        "+--- a/foo.c\n"
+        "++++ b/foo.c\n"
+        "+@@ -1 +1 @@\n"
+        "+-    this_line_is_not_in_the_pinned_source();\n"
+        "++    if (l > limit) return -1;\n"
+        "diff --git a/package.nix b/package.nix\n"
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -1 +1,2 @@\n"
+        ' version = "1.0.0";\n'
+        "+patches = [ ./CVE-0000-0002.patch ];\n"
+        "=== END patch.diff ===\n"
+        "=== BEGIN patch-rationale.md ===\n"
+        + _RATIONALE
+        + "=== END patch-rationale.md ===\n"
+    )
+
+
+def test_execute_normalizes_wrong_inner_header_and_records_provenance(tmp_path):
+    bd = _build_source_context_bundle(tmp_path)
+    result = execute(
+        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
+        model_id="fake-opus-4-7", adapter_factory=_factory(_wrong_header_response()),
+    )
+    assert result["kind"] == "patch"
+    written = (bd / "patch.diff").read_text()
+    # The botched header is corrected in place; body untouched.
+    assert "+@@ -1 +1 @@" in written
+    assert "+@@ -812,5 +812,9 @@" not in written
+    assert "++    if (l > limit) return -1;" in written
+    # Provenance recorded in patcher_run + the invocation sidecar.
+    hn = result["patcher_run"]["hunk_normalization"]
+    assert hn["applied"] is True
+    assert len(hn["rewrites"]) == 1
+    assert hn["rewrites"][0]["file"] == "foo.c"
+    assert hn["rewrites"][0]["from"].startswith("@@ -812,5 +812,9 @@")
+    assert hn["rewrites"][0]["to"] == "@@ -1 +1 @@"
+    assert hn["pre_sha256"] != hn["post_sha256"]
+    sidecar = json.loads((bd / "patcher-invocation.json").read_text())
+    assert sidecar["hunk_normalization"]["applied"] is True
+    # The recorded output sha matches the normalized bytes on disk.
+    from tools.trace_cli.execute import sha256_hex  # local import; test-only
+    out_sha = {o["path"]: o["sha256"] for o in result["replay_invocation"]["outputs"]}
+    assert out_sha["patch.diff"] == sha256_hex(written.encode("utf-8"))
+
+
+def test_execute_correct_header_records_applied_false(tmp_path):
+    bd = _build_source_context_bundle(tmp_path)
+    result = execute(
+        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
+        model_id="fake-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+    )
+    hn = result["patcher_run"]["hunk_normalization"]
+    assert hn["applied"] is False
+    assert hn["rewrites"] == []
+
+
+def test_execute_ungroundable_body_fails_and_persists_raw(tmp_path):
+    bd = _build_source_context_bundle(tmp_path)
+    with pytest.raises(Exception, match="hunk-header normalization failed"):
+        execute(
+            role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
+            model_id="fake-opus-4-7", adapter_factory=_factory(_ungroundable_response()),
+        )
+    # Nothing signed: no patch.diff written; raw persisted for debugging.
+    assert not (bd / "patch.diff").exists()
+    fails = list((bd / ".patcher-failures").rglob("raw-response.txt"))
+    assert fails, "raw patch should be persisted on normalization failure"
 
 
 def _build_from_zlib(tmp_path: Path) -> Path:
