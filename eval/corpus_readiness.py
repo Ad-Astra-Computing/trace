@@ -111,36 +111,61 @@ def _schema_invalid_bundles() -> list[dict]:
     return dirty
 
 
+def _is_expected_invalid_fixture(bd) -> bool:
+    """Fail-closed test for a self-declared schema-negative authoring fixture
+    (codex 2026-07-27). A bundle qualifies ONLY if ALL hold: authoring-example.json
+    present, bundle.json absent, expect.json overall=="invalid", and
+    expected_failure.doc=="upstream-ref.json". Such a bundle is test-asserted-invalid
+    by tests/schema/test_fixtures.py (the suite REQUIRES upstream-ref.json to fail
+    schema validation) — it is not hidden pollution counted as a valid positive, which
+    is the only failure mode this gate exists to catch. Deliberately narrow: a broad
+    "any overall=invalid" skip could hide a malformed evidence bundle."""
+    if not (bd / "authoring-example.json").is_file() or (bd / "bundle.json").is_file():
+        return False
+    exp = bd / "expect.json"
+    if not exp.is_file():
+        return False
+    try:
+        d = json.loads(exp.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return (d.get("overall") == "invalid"
+            and d.get("expected_failure", {}).get("doc") == "upstream-ref.json")
+
+
 def _classify_schema_invalid(dirty: list[dict]) -> dict:
     """Partition the raw schema-invalid list into honest buckets so the readiness
-    gate distinguishes a real evidence-bundle defect from two known non-defects:
+    gate distinguishes a real evidence-bundle defect from three known non-defects:
 
-    - authoring_only: dirs that are authoring-track training pairs mis-enumerated
-      as evidence bundles (they carry authoring-example.json and no bundle.json, so
-      the 'missing expect.json' flag fires). These were never evidence bundles;
-      counting them as corpus pollution is a category error, so they are excluded
-      from the block entirely.
-    - non_git_provenance: legitimate backports whose upstream-fix provenance is a
-      distro/vendor tracker id (debian-bts-*, novell-bugzilla-*, vmware-*,
-      nixpkgs-backport-no-sha) rather than a public git sha, so validate_fixture's
-      commit_sha regex rejects them. A named known-limitation class (cf.
-      authoring-exporter-needs-public-git), surfaced honestly but STILL counted
-      toward the block: relaxing that is an eval-gate loosening that needs peer
-      sign-off, not a unilateral flip.
+    - expected_invalid_fixtures: self-declared schema-negative authoring fixtures
+      (fail-closed 4-condition test, `_is_expected_invalid_fixture`). Test-asserted
+      invalid by design; the opposite of hidden pollution. Excluded from the block,
+      kept visible in the report (codex 2026-07-27).
+    - authoring_only: authoring-track training pairs mis-enumerated as evidence
+      bundles (authoring-example.json, no bundle.json, so the 'missing expect.json'
+      flag fires). Never evidence bundles; counting them as pollution is a category
+      error, so they are excluded from the block.
+    - non_git_provenance: a REAL evidence bundle (has bundle.json) whose upstream-fix
+      provenance is a distro/vendor tracker id rather than a public git sha. Blocks
+      until a provenance-union contract change lands (codex 2026-07-27 (ii)); none on
+      the current corpus, but the bucket stays so a future one is caught, not hidden.
     - broken: everything else — the only unqualified evidence-bundle defect.
     """
-    authoring_only, non_git_provenance, broken = [], [], []
+    expected_invalid, authoring_only, non_git_provenance, broken = [], [], [], []
     for e in dirty:
         err = e.get("error", "")
         bd = REPO / "traces" / "example" / e["bundle"]
-        if err == "missing expect.json" and (bd / "authoring-example.json").is_file() \
+        if _is_expected_invalid_fixture(bd):
+            expected_invalid.append(e)
+        elif err == "missing expect.json" and (bd / "authoring-example.json").is_file() \
                 and not (bd / "bundle.json").is_file():
             authoring_only.append(e)
         elif "commit_sha" in err and "does not match" in err:
             non_git_provenance.append(e)
         else:
             broken.append(e)
-    return {"authoring_only": authoring_only,
+    return {"expected_invalid_fixtures": expected_invalid,
+            "authoring_only": authoring_only,
             "non_git_provenance": non_git_provenance,
             "broken": broken}
 
@@ -252,9 +277,10 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
             {"bundle": e.get("bundle") or e.get("dir") or e.get("cve_id"), "reason": short}
         )
 
-    # Authoring-only training pairs are not evidence bundles — never block on them.
-    # The 6 non-git-provenance backports stay blocking (conservative: relaxing them is
-    # an eval-gate loosening that needs peer sign-off, not a unilateral flip).
+    # Only genuine defects block: a broken bundle, or a REAL evidence bundle (bundle.json
+    # present) with non-git provenance. Self-declared schema-negative fixtures and
+    # authoring-only pairs are excluded (test-asserted-invalid / never evidence bundles),
+    # kept visible in the report (codex 2026-07-27).
     schema_blockers = buckets["broken"] + buckets["non_git_provenance"]
 
     pos_ready = pos_certed >= pos_threshold
@@ -287,7 +313,8 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
         },
         "schema_invalid": {
             "broken": buckets["broken"],                     # genuine evidence-bundle defect (blocks)
-            "non_git_provenance": buckets["non_git_provenance"],  # known-limitation backports (blocks, surfaced)
+            "non_git_provenance": buckets["non_git_provenance"],  # real evidence bundle, non-git provenance (blocks)
+            "expected_invalid_fixtures": [e["bundle"] for e in buckets["expected_invalid_fixtures"]],  # excluded, visible
             "authoring_only_excluded": len(buckets["authoring_only"]),  # not evidence bundles; count only
         },
         "uncerted_auto_merge": uncerted,
@@ -298,7 +325,7 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
             (f"need +{max(0, pos_threshold - pos_certed)} cert-green positives", pos_ready),
             (f"need +{max(0, neg_threshold - neg)} negatives", neg_ready),
             (f"{len(buckets['broken'])} broken + {len(buckets['non_git_provenance'])} "
-             f"non-git-provenance backports (schema-invalid)", schema_clean),
+             f"non-git-provenance evidence bundles (schema-invalid)", schema_clean),
             (f"{len(uncerted)} uncerted-auto-merge positives (cert-green+signed required)", cert_clean),
             ("family leakage across splits", leakage_ok),
         ) if not ok],
@@ -325,12 +352,18 @@ def _emit(r: dict) -> None:
     si = r.get("schema_invalid", {})
     broken = si.get("broken", [])
     non_git = si.get("non_git_provenance", [])
+    exp_inv = si.get("expected_invalid_fixtures", [])
     auth_excl = si.get("authoring_only_excluded", 0)
     if broken or non_git:
         print(f"  SCHEMA-INVALID bundles (block readiness): "
-              f"{len(broken)} broken + {len(non_git)} non-git-provenance backports")
+              f"{len(broken)} broken + {len(non_git)} non-git-provenance evidence bundles")
         for d in broken + non_git:
             print(f"    - {d['bundle']}: {d['error']}")
+    if exp_inv:
+        print(f"  (excluded {len(exp_inv)} self-declared schema-negative authoring "
+              f"fixtures — test-asserted-invalid by design, not pollution)")
+        for name in exp_inv:
+            print(f"    - {name}")
     if auth_excl:
         print(f"  (excluded {auth_excl} authoring-only training pairs — not evidence "
               f"bundles, tracked on the authoring track)")

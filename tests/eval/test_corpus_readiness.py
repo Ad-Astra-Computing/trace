@@ -7,6 +7,7 @@ The gate's analysis logic is tested against synthetic exporter manifests (the li
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,56 @@ def test_authoring_only_pairs_excluded_from_schema_block(monkeypatch, tmp_path):
     assert r["schema_invalid"]["authoring_only_excluded"] == 1
     assert r["pilot_ready"] is True
     assert r["blocking"] == []
+
+
+def _write_expected_invalid_fixture(root, name, *, with_bundle_json=False,
+                                    overall="invalid", doc="upstream-ref.json"):
+    bd = root / "traces" / "example" / name
+    bd.mkdir(parents=True)
+    (bd / "authoring-example.json").write_text("{}")
+    (bd / "expect.json").write_text(json.dumps(
+        {"overall": overall, "expected_failure": {"doc": doc}}))
+    if with_bundle_json:
+        (bd / "bundle.json").write_text("{}")
+    return bd
+
+
+def test_expected_invalid_authoring_fixture_excluded_and_ready(monkeypatch, tmp_path):
+    """A self-declared schema-negative authoring fixture (authoring-example.json, no
+    bundle.json, expect.json overall=invalid, expected_failure.doc=upstream-ref.json) is
+    test-asserted-invalid by design — excluded from the block, kept visible, pilot_ready
+    True (codex 2026-07-27)."""
+    _write_expected_invalid_fixture(tmp_path, "CVE-2022-28805--lua-fixture")
+    monkeypatch.setattr(cr, "REPO", tmp_path)
+    _manifests(monkeypatch, {
+        "labels": {"positive": 50, "negative": 25},
+        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
+    }, dirty=[{"bundle": "CVE-2022-28805--lua-fixture",
+               "error": "upstream-ref.json: commit_sha 'nixpkgs-backport-no-sha' does not match"}])
+    r = cr.build_report(50, 25)
+    assert r["schema_invalid"]["non_git_provenance"] == []
+    assert r["schema_invalid"]["broken"] == []
+    assert r["schema_invalid"]["expected_invalid_fixtures"] == ["CVE-2022-28805--lua-fixture"]
+    assert r["pilot_ready"] is True
+    assert r["blocking"] == []
+
+
+def test_expected_invalid_guard_is_fail_closed(monkeypatch, tmp_path):
+    """The exclusion is fail-closed: a bundle with bundle.json present is a real evidence
+    bundle, NOT a fixture, so non-git provenance still blocks even if expect.json says
+    overall=invalid (codex 2026-07-27 — don't let a broad overall=invalid skip hide a
+    malformed evidence bundle)."""
+    _write_expected_invalid_fixture(tmp_path, "CVE-W--realbundle", with_bundle_json=True)
+    monkeypatch.setattr(cr, "REPO", tmp_path)
+    _manifests(monkeypatch, {
+        "labels": {"positive": 50, "negative": 25},
+        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
+    }, dirty=[{"bundle": "CVE-W--realbundle",
+               "error": "upstream-ref.json: commit_sha 'debian-bts-1' does not match"}])
+    r = cr.build_report(50, 25)
+    assert r["schema_invalid"]["expected_invalid_fixtures"] == []
+    assert r["schema_invalid"]["non_git_provenance"][0]["bundle"] == "CVE-W--realbundle"
+    assert r["pilot_ready"] is False
 
 
 def test_non_git_provenance_backports_still_block(monkeypatch):

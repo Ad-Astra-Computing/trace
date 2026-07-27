@@ -36,19 +36,19 @@ cert-green positives + 55 negatives**
 ([`data/reports/corpus-readiness-20260727.json`](../data/reports/corpus-readiness-20260727.json)).
 Both pilot thresholds (50 positives / 25 negatives) are cleared with gap
 0, and no auto-merge positive is uncerted. The overall pilot-ready gate
-currently reads **NOT YET**, blocked by **6 non-git-provenance
-backports** — legitimate backports whose upstream-fix provenance is a
-distro/vendor tracker id (`debian-bts-*`, `novell-bugzilla-*`,
-`vmware-*`, `nixpkgs-backport-no-sha`) rather than a public git sha, so
-the policy schema's `commit_sha` regex rejects them. They are a named
-known-limitation class (cf. the authoring-exporter public-git
-requirement), already excluded from the 84-positive count, and **not a
-regression of the certified set**. The readiness enumerator additionally
-excludes 21 authoring-only training pairs that were previously
+now reads **READY** (`pilot_ready=true`, `blocking=[]`): there are **0
+genuinely-broken bundles** and **0 non-git-provenance evidence bundles**.
+The readiness enumerator excludes two classes that are not corpus
+pollution: **6 self-declared schema-negative authoring fixtures**
+(Authoring-LoRA Tier-B bundles whose own `expect.json` declares
+`overall="invalid"` with `expected_failure.doc="upstream-ref.json"`, so
+`tests/schema/test_fixtures.py` *requires* their `upstream-ref.json` to
+fail validation — test-asserted-invalid by design, kept visible in the
+report), and **21 authoring-only training pairs** previously
 mis-enumerated as evidence bundles (they carry `authoring-example.json`
-and no `bundle.json`); those were never evidence bundles and do not
-block. There are **0 genuinely-broken bundles**. The trend on the
-certified reviewer
+and no `bundle.json`). Both classes are excluded via fail-closed guards
+so a genuinely-malformed evidence bundle is never hidden. The trend on
+the certified reviewer
 set: 41/50 then 45/50 (15 June, `docs/DECISIONS.md:4597`, `:4676`), 70/50
 (18 June, `:6021`), 77/50 (21 June, `:6365`), 84/55 (27 July).
 
@@ -186,10 +186,10 @@ figure and should not be quoted as a regression.
   adaptation-judge prompt has one documented miss on that one case.
 - **Not upstream-merged.** Fork PRs are accuracy artifacts, not merges.
 - **Cert-green total is 84/55 as of the 27 July re-run** (certified
-  reviewer set), with the overall pilot-ready gate reading NOT YET
-  because of 6 non-git-provenance backports (tracker-id fix provenance,
-  not a public git sha) — the certified set is not itself blocked, and
-  those 6 are already excluded from the 84.
+  reviewer set), and the overall pilot-ready gate now reads READY
+  (`pilot_ready=true`): 0 broken bundles, 0 non-git-provenance evidence
+  bundles, with 6 self-declared schema-negative authoring fixtures and 21
+  authoring-only pairs excluded (fail-closed) as non-pollution.
 
 The strongest honest statement the evidence supports: on the verbatim
 lane the pipeline produces cert-green, signed, replayable bundles at

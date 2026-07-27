@@ -414,31 +414,14 @@
   },
   "schema_invalid": {
     "broken": [],
-    "non_git_provenance": [
-      {
-        "bundle": "CVE-2014-9913--unzip-methbuf-overflow-backport",
-        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847485' does not match '^[0-9a-f]{7,40}$'"
-      },
-      {
-        "bundle": "CVE-2015-1419--vsftpd-deny-file-symlink-backport",
-        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'novell-bugzilla-cve-2015-1419' does not match '^[0-9a-f]{7,40}$'"
-      },
-      {
-        "bundle": "CVE-2016-9844--unzip-zipinfo-methbuf-backport",
-        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847486' does not match '^[0-9a-f]{7,40}$'"
-      },
-      {
-        "bundle": "CVE-2018-18384--unzip-cfactorstr-snprintf-backport",
-        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-unzip-18384' does not match '^[0-9a-f]{7,40}$'"
-      },
-      {
-        "bundle": "CVE-2019-5544--openslp-remaining-buffer-backport",
-        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'vmware-cve-2019-5544-fix' does not match '^[0-9a-f]{7,40}$'"
-      },
-      {
-        "bundle": "CVE-2022-28805--lua524-singlevar-anyregup-backport",
-        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'nixpkgs-backport-no-sha' does not match '^[0-9a-f]{7,40}$'"
-      }
+    "non_git_provenance": [],
+    "expected_invalid_fixtures": [
+      "CVE-2014-9913--unzip-methbuf-overflow-backport",
+      "CVE-2015-1419--vsftpd-deny-file-symlink-backport",
+      "CVE-2016-9844--unzip-zipinfo-methbuf-backport",
+      "CVE-2018-18384--unzip-cfactorstr-snprintf-backport",
+      "CVE-2019-5544--openslp-remaining-buffer-backport",
+      "CVE-2022-28805--lua524-singlevar-anyregup-backport"
     ],
     "authoring_only_excluded": 21
   },
@@ -1123,8 +1106,6 @@
     "positive": 50,
     "negative": 25
   },
-  "pilot_ready": false,
-  "blocking": [
-    "0 broken + 6 non-git-provenance backports (schema-invalid)"
-  ]
+  "pilot_ready": true,
+  "blocking": []
 }
