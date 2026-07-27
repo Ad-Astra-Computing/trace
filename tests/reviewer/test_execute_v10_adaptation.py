@@ -275,6 +275,23 @@ def test_reviewer_rejects_attestation_hash_mismatch(tmp_path):
         )
 
 
+def test_reviewer_rejects_non_object_attestation(tmp_path):
+    # Tampered attestation that is valid JSON but not an object (`[]`, `null`,
+    # a string): must fail closed with a controlled ExecutionError, never an
+    # AttributeError traceback escaping the CLI's error handling.
+    import pytest
+    for i, payload in enumerate(("[]", "null", '"nope"', "42")):
+        case_root = tmp_path / f"case{i}"
+        case_root.mkdir()
+        bd = _prep_reviewable_adaptation_bundle(case_root)
+        (bd / "patch-applicability.json").write_text(payload)
+        with pytest.raises(Exception, match="must be a JSON object"):
+            execute(
+                role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+                model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+            )
+
+
 def _v10_review_with_equivalence(value: str, verdict: str = "accept") -> str:
     r = _V10_REVIEW.replace(
         "- equivalence: equivalent — same overflow invariant established before the multiply\n",

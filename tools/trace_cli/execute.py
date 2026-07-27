@@ -1462,6 +1462,15 @@ def _execute_reviewer(
                 raise ExecutionError(
                     f"patch-applicability.json is not valid JSON: {exc}"
                 ) from exc
+            # Fail closed on a tampered non-object attestation (valid JSON that
+            # is `[]`, `null`, a string, etc.): `.get()` on a non-dict would
+            # raise AttributeError and escape the CLI's controlled rejection.
+            if not isinstance(att, dict):
+                raise ExecutionError(
+                    "patch-applicability.json must be a JSON object; got "
+                    f"{type(att).__name__} — refusing to review a malformed / "
+                    "tampered attestation"
+                )
             if att.get("applies_at_fuzz0") is not True or att.get(
                 "unique_source_match"
             ) is not True:
