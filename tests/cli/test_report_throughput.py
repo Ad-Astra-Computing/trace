@@ -278,6 +278,9 @@ def test_scan_bundles_reads_patcher_invocation_when_present(tmp_path: Path) -> N
         "output_tokens": 765,
         "actual_cost_usd": 0.087,
         "model_id": "claude-opus-4-7",
+        "attempts": None,
+        "retry_count": None,
+        "first_attempt_conformant": None,
     }
 
 
@@ -362,6 +365,50 @@ def test_scan_bundles_sidecar_with_null_usage_still_lifted(tmp_path: Path) -> No
     assert "reviewer" in b.role_usage
     assert b.role_usage["reviewer"]["input_tokens"] is None
     assert b.role_usage["reviewer"]["actual_cost_usd"] is None
+
+
+def test_scan_bundles_sidecar_reads_retry_fields(tmp_path: Path) -> None:
+    """A Reviewer sidecar carrying bounded-auto-retry metrics (usage.attempts
+    > 1, top-level retry_count + first_attempt_conformant) must surface all
+    three through the reader, so the retry_summary aggregate and the
+    per-role-usage rows can see the retry-driven extra billed call."""
+    traces = tmp_path / "traces"
+    bundle_dir = _seed_bundle(traces, "CVE-2025-67899")
+    _write_json(bundle_dir / "reviewer-invocation.json", {
+        "schema_version": "1.0.0",
+        "role": "reviewer",
+        "model_id": "claude-sonnet-4-6",
+        "usage": {"input_tokens": 2100, "output_tokens": 380, "attempts": 2},
+        "budget": {"actual_cost_usd": 0.02},
+        "retry_count": 1,
+        "first_attempt_conformant": False,
+    })
+    b = report.scan_bundles(traces)[0]
+    assert b.role_usage["reviewer"]["attempts"] == 2
+    assert b.role_usage["reviewer"]["retry_count"] == 1
+    assert b.role_usage["reviewer"]["first_attempt_conformant"] is False
+
+
+def test_scan_bundles_sidecar_without_retry_fields_defaults_cleanly(
+    tmp_path: Path,
+) -> None:
+    """Patcher/Reproducer sidecars never carry retry_count or
+    first_attempt_conformant (Reviewer-only fields), and pre-bounded-retry
+    sidecars may not carry usage.attempts at all. The reader must surface
+    None for the absent fields rather than raising."""
+    traces = tmp_path / "traces"
+    _seed_bundle(
+        traces, "CVE-2025-67899",
+        patcher_invocation={
+            "model_id": "claude-opus-4-7",
+            "usage": {"input_tokens": 4321, "output_tokens": 765, "attempts": 1},
+            "budget": {"actual_cost_usd": 0.087},
+        },
+    )
+    b = report.scan_bundles(traces)[0]
+    assert b.role_usage["patcher"]["attempts"] == 1
+    assert b.role_usage["patcher"]["retry_count"] is None
+    assert b.role_usage["patcher"]["first_attempt_conformant"] is None
 
 
 # ─── build_report: observed / derived / unobserved split ─────────────────────
@@ -502,6 +549,68 @@ def test_build_report_cost_per_merge_ready_no_patcher_no_data_point(
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
     r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
     assert r.derived["cost_per_merge_ready_bundle"]["data_points"] == 0
+
+
+def test_build_report_retry_summary_counts_reviewer_retry(tmp_path: Path) -> None:
+    """A Reviewer sidecar with usage.attempts=2 / retry_count=1 /
+    first_attempt_conformant=false must (a) surface those fields on the
+    observed role_usage row and (b) roll up into derived.retry_summary as
+    one retried role + one extra billed call + one nonconformant first
+    attempt."""
+    traces = tmp_path / "traces"
+    bundle_dir = _seed_bundle(
+        traces, "CVE-2025-67899",
+        patcher_invocation={
+            "model_id": "claude-opus-4-7",
+            "usage": {"input_tokens": 100, "output_tokens": 50, "attempts": 1},
+            "budget": {"actual_cost_usd": 0.01},
+        },
+    )
+    _write_json(bundle_dir / "reviewer-invocation.json", {
+        "model_id": "claude-sonnet-4-6",
+        "usage": {"input_tokens": 2100, "output_tokens": 380, "attempts": 2},
+        "budget": {"actual_cost_usd": 0.02},
+        "retry_count": 1,
+        "first_attempt_conformant": False,
+    })
+    scout = report.load_scout_runs(tmp_path / "missing.jsonl")
+    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+
+    rows = {u["role"]: u for u in r.observed["role_usage"]}
+    assert rows["reviewer"]["attempts"] == 2
+    assert rows["reviewer"]["retry_count"] == 1
+    assert rows["reviewer"]["first_attempt_conformant"] is False
+
+    retry = r.derived["retry_summary"]
+    assert retry["roles_with_retry"] == 1
+    assert retry["total_extra_calls"] == 1
+    assert retry["total_model_call_attempts"] == 3  # patcher attempts=1 + reviewer attempts=2
+    assert retry["reviewer_first_attempt_nonconformant"] == 1
+    assert retry["reviewer_first_attempt_conformant"] == 0
+
+
+def test_build_report_retry_summary_zero_for_sidecars_without_retry_fields(
+    tmp_path: Path,
+) -> None:
+    """Patcher/Reproducer sidecars (no retry_count / first_attempt_conformant,
+    usage.attempts=1) must contribute 0 extra calls -- the common case for
+    the seed corpus, which predates bounded Reviewer auto-retry."""
+    traces = tmp_path / "traces"
+    _seed_bundle(
+        traces, "CVE-2025-67899",
+        patcher_invocation={
+            "model_id": "claude-opus-4-7",
+            "usage": {"input_tokens": 100, "output_tokens": 50, "attempts": 1},
+            "budget": {"actual_cost_usd": 0.01},
+        },
+    )
+    scout = report.load_scout_runs(tmp_path / "missing.jsonl")
+    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    retry = r.derived["retry_summary"]
+    assert retry["roles_with_retry"] == 0
+    assert retry["total_extra_calls"] == 0
+    assert retry["reviewer_first_attempt_conformant"] == 0
+    assert retry["reviewer_first_attempt_nonconformant"] == 0
 
 
 # ─── rendering ───────────────────────────────────────────────────────────────

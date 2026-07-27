@@ -77,3 +77,5 @@ Wall-clock total per-role (from `traces/example/*/replay.json` timings):
 | **v1.0.0 (2026-06-17)** | **24** | **$0.3772** | 8× larger N; cost stable |
 
 The $0.22 → $0.39 step was the Reproducer role addition (~$0.11/bundle). Since then, cost has been flat. At $0.38/bundle and a 50-bundle LoRA training corpus, total training-data acquisition cost is ~$19.
+
+**Note on retry cost (added 27 July 2026):** every figure above, including the $0.3772/N=24 headline and the $0.22 v0 history entry, was measured before the Reviewer bounded auto-retry (`REVIEWER_MAX_ATTEMPTS=2`) landed. A bundle whose Reviewer retried once bills a second Reviewer call, so its per-bundle cost is correspondingly higher than these baselines suggest. `trace report throughput` now includes a "Reviewer retry summary" section that surfaces how many extra model calls a corpus incurred through retry.

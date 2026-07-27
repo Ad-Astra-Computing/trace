@@ -305,6 +305,9 @@ def _read_role_invocation_sidecar(
         "output_tokens": usage.get("output_tokens"),
         "actual_cost_usd": budget.get("actual_cost_usd"),
         "model_id": inv.get("model_id"),
+        "attempts": usage.get("attempts"),
+        "retry_count": inv.get("retry_count"),
+        "first_attempt_conformant": inv.get("first_attempt_conformant"),
     }
 
 
@@ -412,6 +415,7 @@ def build_report(
         "patcher_provenance_distribution": patcher_family,
         "cost_per_merge_ready_bundle": _cost_per_merge_ready(bundles),
         "cost_by_kind": _cost_by_kind(bundles),
+        "retry_summary": _retry_summary(bundles),
     }
 
     n_bundles = len(bundles)
@@ -548,6 +552,49 @@ def _cost_per_merge_ready(bundles: list[BundleSummary]) -> dict[str, Any]:
     }
 
 
+def _retry_summary(bundles: list[BundleSummary]) -> dict[str, Any]:
+    """Observed aggregate over role-usage sidecars surfacing retry-driven
+    model-call overhead. `usage.attempts` (all roles) counts the number of
+    model calls a bundle's realized cost already covers (bounded auto-retry
+    sums retried-attempt usage into the sidecar at write time — see
+    execute.py `_write_role_invocation_sidecar`); this aggregate makes that
+    extra spend visible in the report rather than leaving it folded silently
+    into the dollar totals. This is a *model-call attempt* count, not a
+    billed-call count: FakeAdapter / local-adapter sidecars carry attempts
+    with null usage and cost, so they contribute attempts here without any
+    dollar spend. `retry_count` / `first_attempt_conformant` are
+    Reviewer-only fields, absent on Patcher/Reproducer sidecars. Older
+    sidecars predate bounded auto-retry and carry no `attempts` field at
+    all; those default to 1 (no retry), matching the "always >= 1" contract
+    documented at the sidecar-write site."""
+    roles_with_retry = 0
+    total_model_call_attempts = 0
+    total_extra_calls = 0
+    reviewer_first_attempt_conformant = 0
+    reviewer_first_attempt_nonconformant = 0
+    for b in bundles:
+        for role, usage in b.role_usage.items():
+            attempts = usage.get("attempts")
+            attempts = attempts if isinstance(attempts, int) else 1
+            total_model_call_attempts += attempts
+            if attempts > 1:
+                roles_with_retry += 1
+                total_extra_calls += attempts - 1
+            if role == "reviewer":
+                conformant = usage.get("first_attempt_conformant")
+                if conformant is True:
+                    reviewer_first_attempt_conformant += 1
+                elif conformant is False:
+                    reviewer_first_attempt_nonconformant += 1
+    return {
+        "roles_with_retry": roles_with_retry,
+        "total_model_call_attempts": total_model_call_attempts,
+        "total_extra_calls": total_extra_calls,
+        "reviewer_first_attempt_conformant": reviewer_first_attempt_conformant,
+        "reviewer_first_attempt_nonconformant": reviewer_first_attempt_nonconformant,
+    }
+
+
 # ─── rendering ───────────────────────────────────────────────────────────────
 
 
@@ -579,6 +626,8 @@ def render_markdown(report: Report) -> str:
     if report.observed["role_usage"]:
         lines.append(_md_role_usage_section(report.observed["role_usage"]))
         lines.append("")
+    lines.append(_md_retry_summary_section(report.derived["retry_summary"]))
+    lines.append("")
     lines.append("## Derived")
     lines.append("")
     lines.append(_md_derived_section(report.derived))
@@ -667,6 +716,29 @@ def _md_role_usage_section(usages: list[dict[str, Any]]) -> str:
             f"{u.get('output_tokens') if u.get('output_tokens') is not None else 'n/a'} | "
             f"{_fmt_float(u.get('actual_cost_usd'))} |"
         )
+    return "\n".join(lines)
+
+
+def _md_retry_summary_section(retry: dict[str, Any]) -> str:
+    lines: list[str] = []
+    lines.append("## Reviewer retry summary")
+    lines.append("")
+    if retry["total_extra_calls"] == 0:
+        lines.append(
+            "No retries observed in this corpus (the seed corpus predates "
+            "bounded Reviewer auto-retry, so 0 extra calls is the expected "
+            "current value)."
+        )
+        lines.append("")
+    lines.append(f"- roles with retry (attempts > 1): {retry['roles_with_retry']}")
+    lines.append(f"- total model-call attempts (all roles): {retry['total_model_call_attempts']}")
+    lines.append(f"- total extra calls attributable to retry: {retry['total_extra_calls']}")
+    lines.append(
+        f"- reviewer first-attempt conformant: {retry['reviewer_first_attempt_conformant']}"
+    )
+    lines.append(
+        f"- reviewer first-attempt nonconformant: {retry['reviewer_first_attempt_nonconformant']}"
+    )
     return "\n".join(lines)
 
 
