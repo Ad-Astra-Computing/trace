@@ -13,11 +13,16 @@ documented; see [Boundaries](#boundaries) below.
 
 ## Status
 
-* **Latest tag**: [v0.4.0](CHANGELOG.md) (F1–F7 contract slice on
-  wget2: drop-only patches, per-side `passthru.test`, gated SIGNAL
-  emission, Builder pins `pkgs` to bundle nixpkgs, unpatched.test
-  runs against pre-patch tree; wget2 retired as v0.1 anchor with new
-  sandbox-PoC suitability filter codified in the corpus).
+* **Latest tag**: [v0.7.0](CHANGELOG.md) — 21 July 2026. Two
+  trained-model pilots on the frozen v0 corpus (Reviewer-LoRA on
+  Qwen2.5-Coder-14B; an authoring / source-backport lane where the
+  agent writes the fix), a second Scout discovery source (vulnpatch
+  `/nix/cves` with a drain-once ledger), and a hardened trust boundary
+  (protected `main` with required checks, five-slice security-audit
+  cadence). The honest through-line is measurement and integrity gates,
+  **not a benchmark flip — no frontier-parity claim**. Adaptation-lane
+  capability and limits are summarized, fully cited, in
+  [`docs/ADAPTATION_CAPABILITY.md`](docs/ADAPTATION_CAPABILITY.md).
 * **Phase**: research artifact. Bundles live in `traces/example/` as
   files; review happens in PRs against the fork. No UI.
 * **Frozen scope**: nixpkgs `nixos-unstable`, derivations with
