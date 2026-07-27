@@ -1,0 +1,432 @@
+"""Tests for scripts/harvest_oracle_candidates.py.
+
+Builds a small fake nixpkgs tree under tmp_path with hand-written fixture
+patches covering the shapes the real scan hits: a clean git format-patch
+verbatim cherry-pick, a hand-adapted backport with a "based on ... adjusted
+to apply to" style header, a large multi-file patch, and a patch whose
+filename carries two CVE ids. Asserts parsing, classification, ranking
+order, and that the written manifest files round-trip.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from scripts import harvest_oracle_candidates as hoc
+
+
+# ─── fixture patch bodies ──────────────────────────────────────────────────
+
+VERBATIM_PATCH = """\
+From e47e56d226519635768e6aab2f38f0ab037c09e5 Mon Sep 17 00:00:00 2001
+From: Alice Example <alice@example.com>
+Date: Thu, 12 Mar 2026 20:28:43 +0900
+Subject: [PATCH] Fix heap buffer overflow
+
+Overflow fix, verbatim cherry-pick of the upstream commit.
+---
+ src/jv.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/jv.c b/src/jv.c
+index 1111111..2222222 100644
+--- a/src/jv.c
++++ b/src/jv.c
+@@ -10,7 +10,7 @@ int foo(void) {
+-  old_line_one();
+-  old_line_two();
++  new_line_one();
++  new_line_two();
+   return 0;
+ }
+"""
+
+ADAPTED_PATCH = """\
+Based on upstream https://example.com/commit/deadbeef
+adjusted to apply to 5.47.0
+
+diff --git a/src/plot.lisp b/src/plot.lisp
+index 3333333..4444444 100644
+--- a/src/plot.lisp
++++ b/src/plot.lisp
+@@ -5,3 +5,3 @@
+-(setq out-file "plot.ps")
++(setq out-file (format nil "~a.ps" (random-name 16)))
+"""
+
+LARGE_MULTIFILE_PATCH = """\
+From aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Mon Sep 17 00:00:00 2001
+From: Bob Example <bob@example.com>
+Date: Mon, 1 Jan 2026 00:00:00 +0000
+Subject: [PATCH] Large refactor touching many files
+
+---
+ a.c | 2 +-
+ b.c | 2 +-
+ c.c | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/a.c b/a.c
+index 1111111..2222222 100644
+--- a/a.c
++++ b/a.c
+@@ -1,3 +1,3 @@
+-old_a1();
+-old_a2();
++new_a1();
++new_a2();
+diff --git a/b.c b/b.c
+index 3333333..4444444 100644
+--- a/b.c
++++ b/b.c
+@@ -1,3 +1,3 @@
+-old_b1();
+-old_b2();
++new_b1();
++new_b2();
+diff --git a/c.c b/c.c
+index 5555555..6666666 100644
+--- a/c.c
++++ c.c
+@@ -1,3 +1,3 @@
+-old_c1();
+-old_c2();
++new_c1();
++new_c2();
+"""
+
+DOUBLE_CVE_PATCH = """\
+Backport of the upstream fix, rebased onto our tree.
+
+diff --git a/x.c b/x.c
+index 7777777..8888888 100644
+--- a/x.c
++++ b/x.c
+@@ -1,2 +1,2 @@
+-old_x();
++new_x();
+"""
+
+
+# ─── fake nixpkgs tree builder ──────────────────────────────────────────────
+
+
+def _build_fake_nixpkgs(root: Path) -> Path:
+    """Build a fake nixpkgs source dir with 4 CVE patches:
+
+      - by-name/jq/jq/CVE-2026-32316.patch     (verbatim cherry-pick)
+      - by-name/ma/maxima/5.47.0-CVE-2024-34490.patch (hand adaptation)
+      - development/big/CVE-2026-99999.patch   (large multi-file, verbatim header)
+      - by-name/kr/krb5/CVE-2026-40355-and-CVE-2026-40356.patch (two ids)
+
+    Returns the fake nixpkgs root (root / "nixpkgs-source").
+    """
+    nixpkgs_dir = root / "nixpkgs-source"
+    pkgs = nixpkgs_dir / "pkgs"
+
+    jq_dir = pkgs / "by-name" / "jq" / "jq"
+    jq_dir.mkdir(parents=True)
+    (jq_dir / "package.nix").write_text('{ }: {\n  version = "1.8.1";\n}\n')
+    (jq_dir / "CVE-2026-32316.patch").write_text(VERBATIM_PATCH)
+
+    maxima_dir = pkgs / "by-name" / "ma" / "maxima"
+    maxima_dir.mkdir(parents=True)
+    (maxima_dir / "package.nix").write_text('{ }: {\n  version = "5.47.0";\n}\n')
+    (maxima_dir / "5.47.0-CVE-2024-34490.patch").write_text(ADAPTED_PATCH)
+
+    big_dir = pkgs / "development" / "big"
+    big_dir.mkdir(parents=True)
+    (big_dir / "default.nix").write_text('{ }: {\n  version = "9.9.9";\n}\n')
+    (big_dir / "CVE-2026-99999.patch").write_text(LARGE_MULTIFILE_PATCH)
+
+    krb5_dir = pkgs / "by-name" / "kr" / "krb5"
+    krb5_dir.mkdir(parents=True)
+    (krb5_dir / "package.nix").write_text('{ }: {\n  version = "1.21";\n}\n')
+    (krb5_dir / "CVE-2026-40355-and-CVE-2026-40356.patch").write_text(
+        DOUBLE_CVE_PATCH
+    )
+
+    return nixpkgs_dir
+
+
+# ─── resolve_nixpkgs_dir ────────────────────────────────────────────────────
+
+
+def test_resolve_nixpkgs_dir_explicit(tmp_path: Path) -> None:
+    target = tmp_path / "explicit-nixpkgs"
+    target.mkdir()
+    assert hoc.resolve_nixpkgs_dir(target) == target
+
+
+def test_resolve_nixpkgs_dir_from_nix_path(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "from-nix-path"
+    target.mkdir()
+    monkeypatch.setenv("NIX_PATH", f"nixpkgs={target}:nixos-config=/etc/nixos/x.nix")
+    assert hoc.resolve_nixpkgs_dir(None) == target
+
+
+def test_resolve_nixpkgs_dir_missing_raises(monkeypatch) -> None:
+    monkeypatch.setenv("NIX_PATH", "nixos-config=/etc/nixos/x.nix")
+    try:
+        hoc.resolve_nixpkgs_dir(None)
+        assert False, "expected SystemExit"
+    except SystemExit:
+        pass
+
+
+# ─── parse_cve_ids ──────────────────────────────────────────────────────────
+
+
+def test_parse_cve_ids_single() -> None:
+    assert hoc.parse_cve_ids("CVE-2026-32316.patch") == ["CVE-2026-32316"]
+
+
+def test_parse_cve_ids_double_dedup_sorted() -> None:
+    ids = hoc.parse_cve_ids("CVE-2026-40355-and-CVE-2026-40356.patch")
+    assert ids == ["CVE-2026-40355", "CVE-2026-40356"]
+
+
+def test_parse_cve_ids_case_insensitive() -> None:
+    assert hoc.parse_cve_ids("fix-cve-2022-29360.patch") == ["CVE-2022-29360"]
+
+
+# ─── parse_patch ────────────────────────────────────────────────────────────
+
+
+def test_parse_patch_verbatim_format_patch() -> None:
+    parsed = hoc.parse_patch(VERBATIM_PATCH.encode("utf-8"))
+    assert parsed["is_format_patch"] is True
+    assert parsed["upstream_commit"] == "e47e56d226519635768e6aab2f38f0ab037c09e5"
+    assert parsed["n_files"] == 1
+    assert parsed["n_hunks"] == 1
+    assert parsed["added_lines"] == 2
+    assert parsed["removed_lines"] == 2
+    assert parsed["adaptation_signals"] == []
+
+
+def test_parse_patch_adapted() -> None:
+    parsed = hoc.parse_patch(ADAPTED_PATCH.encode("utf-8"))
+    assert parsed["is_format_patch"] is False
+    assert parsed["upstream_commit"] is None
+    assert parsed["n_files"] == 1
+    assert parsed["n_hunks"] == 1
+    assert parsed["added_lines"] == 1
+    assert parsed["removed_lines"] == 1
+    assert any(s.startswith("version-target:") for s in parsed["adaptation_signals"])
+
+
+def test_parse_patch_large_multifile() -> None:
+    parsed = hoc.parse_patch(LARGE_MULTIFILE_PATCH.encode("utf-8"))
+    assert parsed["is_format_patch"] is True
+    assert parsed["n_files"] == 3
+    assert parsed["n_hunks"] == 3
+    assert parsed["added_lines"] == 6
+    assert parsed["removed_lines"] == 6
+    assert parsed["adaptation_signals"] == []
+
+
+def test_parse_patch_backport_signal() -> None:
+    parsed = hoc.parse_patch(DOUBLE_CVE_PATCH.encode("utf-8"))
+    assert "backport" in parsed["adaptation_signals"]
+    assert "rebased" in parsed["adaptation_signals"]
+
+
+def test_parse_patch_empty_bytes_is_unknown_shaped() -> None:
+    parsed = hoc.parse_patch(b"")
+    assert parsed["n_files"] == 0
+    assert parsed["n_hunks"] == 0
+    assert parsed["is_format_patch"] is False
+    assert hoc.classify(parsed["is_format_patch"], parsed["adaptation_signals"], parsed["n_hunks"]) == "unknown"
+
+
+# ─── classify ───────────────────────────────────────────────────────────────
+
+
+def test_classify_verbatim() -> None:
+    assert hoc.classify(True, [], 1) == "likely-verbatim"
+
+
+def test_classify_adaptation_via_signals() -> None:
+    assert hoc.classify(True, ["backport"], 1) == "likely-adaptation"
+
+
+def test_classify_adaptation_via_missing_format_header() -> None:
+    assert hoc.classify(False, [], 1) == "likely-adaptation"
+
+
+def test_classify_unknown_when_no_hunks() -> None:
+    assert hoc.classify(False, [], 0) == "unknown"
+
+
+# ─── derive_package_name / parse_pinned_version ────────────────────────────
+
+
+def test_derive_package_name_by_name(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    patch_path = nixpkgs_dir / "pkgs" / "by-name" / "jq" / "jq" / "CVE-2026-32316.patch"
+    pkgs_root = nixpkgs_dir / "pkgs"
+    assert hoc.derive_package_name(patch_path, nixpkgs_dir, pkgs_root) == "jq"
+
+
+def test_derive_package_name_ancestor_default_nix(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    patch_path = nixpkgs_dir / "pkgs" / "development" / "big" / "CVE-2026-99999.patch"
+    pkgs_root = nixpkgs_dir / "pkgs"
+    assert hoc.derive_package_name(patch_path, nixpkgs_dir, pkgs_root) == "big"
+
+
+def test_derive_package_name_fallback_to_parent_dir(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    # a patch with no package.nix/default.nix anywhere above it
+    orphan_dir = nixpkgs_dir / "pkgs" / "misc" / "orphan-pkg"
+    orphan_dir.mkdir(parents=True)
+    (orphan_dir / "CVE-2020-00001.patch").write_text(DOUBLE_CVE_PATCH)
+    pkgs_root = nixpkgs_dir / "pkgs"
+    patch_path = orphan_dir / "CVE-2020-00001.patch"
+    assert hoc.derive_package_name(patch_path, nixpkgs_dir, pkgs_root) == "orphan-pkg"
+
+
+def test_parse_pinned_version_found(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    pkgs_root = nixpkgs_dir / "pkgs"
+    patch_path = nixpkgs_dir / "pkgs" / "by-name" / "ma" / "maxima" / "5.47.0-CVE-2024-34490.patch"
+    anchor = hoc.find_anchor_dir(patch_path, pkgs_root)
+    assert hoc.parse_pinned_version(anchor) == "5.47.0"
+
+
+def test_parse_pinned_version_none_when_no_anchor() -> None:
+    assert hoc.parse_pinned_version(None) is None
+
+
+# ─── harvest / ranking ──────────────────────────────────────────────────────
+
+
+def test_harvest_returns_all_candidates(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    assert len(candidates) == 4
+    all_ids = {cve for c in candidates for cve in c["cve_ids"]}
+    assert "CVE-2026-32316" in all_ids
+    assert "CVE-2024-34490" in all_ids
+    assert "CVE-2026-40355" in all_ids
+    assert "CVE-2026-40356" in all_ids
+
+
+def test_harvest_double_cve_filename_captures_both(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    krb5 = next(c for c in candidates if c["package"] == "krb5")
+    assert krb5["cve_ids"] == ["CVE-2026-40355", "CVE-2026-40356"]
+
+
+def test_harvest_ranks_small_adaptation_above_verbatim(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    by_pkg = {c["package"]: c for c in candidates}
+
+    maxima = by_pkg["maxima"]
+    jq = by_pkg["jq"]
+    big = by_pkg["big"]
+
+    assert maxima["classification"] == "likely-adaptation"
+    assert jq["classification"] == "likely-verbatim"
+    assert big["classification"] == "likely-verbatim"
+
+    assert maxima["rank_score"] > jq["rank_score"]
+    assert maxima["rank_score"] > big["rank_score"]
+
+    # verbatim ranking: small single-file verbatim still beats large
+    # multi-file verbatim (both classification 0, but size penalty differs)
+    assert jq["rank_score"] > big["rank_score"]
+
+
+def test_harvest_is_sorted_best_first(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    scores = [c["rank_score"] for c in candidates]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_harvest_limit_truncates(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir, limit=2)
+    assert len(candidates) == 2
+
+
+def test_patch_sha256_matches_bytes(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    maxima = next(c for c in candidates if c["package"] == "maxima")
+    patch_path = nixpkgs_dir / maxima["patch_path"]
+    assert maxima["patch_sha256"] == hoc.sha256_hex(patch_path.read_bytes())
+
+
+def test_patch_path_is_relative_posix(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    for c in candidates:
+        assert not c["patch_path"].startswith("/")
+        assert c["patch_path"].startswith("pkgs/")
+
+
+# ─── manifest write / round-trip ────────────────────────────────────────────
+
+
+def test_write_manifest_round_trips(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    header = hoc.build_header(nixpkgs_dir, candidates)
+
+    out_dir = tmp_path / "reports"
+    jsonl_path, md_path = hoc.write_manifest(out_dir, header, candidates)
+
+    assert jsonl_path.is_file()
+    assert md_path.is_file()
+
+    lines = jsonl_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1 + len(candidates)
+
+    header_obj = json.loads(lines[0])
+    assert header_obj["kind"] == "harvest-header"
+    assert header_obj["total_patches_scanned"] == 4
+    assert header_obj["nixpkgs_ref"] == nixpkgs_dir.name
+
+    body_objs = [json.loads(l) for l in lines[1:]]
+    for obj in body_objs:
+        assert obj["kind"] == "oracle-candidate"
+
+    # ranking order preserved on disk
+    scores = [obj["rank_score"] for obj in body_objs]
+    assert scores == sorted(scores, reverse=True)
+
+    md_text = md_path.read_text(encoding="utf-8")
+    assert "Adaptation-oracle candidates" in md_text
+    assert "likely-adaptation" in md_text
+
+
+def test_write_manifest_classification_counts(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    candidates = hoc.harvest(nixpkgs_dir)
+    header = hoc.build_header(nixpkgs_dir, candidates)
+    counts = header["classification_counts"]
+    assert counts["likely-verbatim"] == 2  # jq, big
+    assert counts["likely-adaptation"] == 2  # maxima, krb5(double-cve/backport)
+    assert sum(counts.values()) == 4
+
+
+def test_main_writes_files_and_returns_zero(tmp_path: Path) -> None:
+    nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
+    out_dir = tmp_path / "out"
+    rc = hoc.main(
+        [
+            "harvest_oracle_candidates.py",
+            "--nixpkgs",
+            str(nixpkgs_dir),
+            "--out",
+            str(out_dir),
+        ]
+    )
+    assert rc == 0
+    assert (out_dir / "oracle-candidates.jsonl").is_file()
+    assert (out_dir / "oracle-candidates.md").is_file()
