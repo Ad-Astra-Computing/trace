@@ -2,6 +2,15 @@
 
 The set of CVE bundles under `traces/example/` is the corpus trace ships as evidence that the role chain produces what it claims to produce. This document classifies every bundle in the corpus, names which dimension of the v0 contract each bundle exercises, and explains why each non-auto-merge bundle is non-auto-merge.
 
+> **Historical snapshot.** The per-bundle classification and counts below are a
+> 2026-05-13 snapshot and are no longer current — the corpus has grown well
+> beyond the bundles listed here. For the current per-bundle map see
+> [`SEED_INDEX.md`](SEED_INDEX.md); for corpus-state changes see
+> [`DECISIONS.md`](DECISIONS.md); for adaptation-lane capability see
+> [`ADAPTATION_CAPABILITY.md`](ADAPTATION_CAPABILITY.md). The curation-filter
+> rationale (why the corpus is intentionally small, which contract dimension each
+> shape exercises) remains valid as design intent.
+
 **Status (2026-05-13):** 9 real-CVE bundles + 19 synthetic / deny-path fixtures. The synthetic set is the test infrastructure (one fixture per Steward rule's deny path, plus structural fixtures for schema validation); the real-CVE set is the evidence layer.
 
 The corpus is intentionally small. trace's claim isn't "we automate CVE remediation across nixpkgs" — it's "we produce merge-ready evidence bundles a human can accept or reject in minutes." A small, well-classified corpus serves that claim better than a large, hand-wavy one.
