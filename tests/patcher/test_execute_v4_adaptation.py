@@ -290,7 +290,7 @@ def _ungroundable_response() -> str:
     )
 
 
-def test_execute_normalizes_wrong_inner_header_and_records_provenance(tmp_path):
+def test_execute_canonicalizes_wrong_inner_header_and_records_provenance(tmp_path):
     bd = _build_source_context_bundle(tmp_path)
     result = execute(
         role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
@@ -298,40 +298,50 @@ def test_execute_normalizes_wrong_inner_header_and_records_provenance(tmp_path):
     )
     assert result["kind"] == "patch"
     written = (bd / "patch.diff").read_text()
-    # The botched header is corrected in place; body untouched.
+    # The botched header is discarded and a canonical one re-derived from the pinned
+    # source. foo.c is a single logical line (the trailing newline is NOT an extra
+    # source line), so the canonical header is `@@ -1 +1 @@`.
     assert "+@@ -1 +1 @@" in written
+    assert "+@@ -1,2 +1,2 @@" not in written
     assert "+@@ -812,5 +812,9 @@" not in written
+    assert "+-    l = l * base;" in written
     assert "++    if (l > limit) return -1;" in written
     # Provenance recorded in patcher_run + the invocation sidecar.
     hn = result["patcher_run"]["hunk_normalization"]
     assert hn["applied"] is True
-    assert len(hn["rewrites"]) == 1
-    assert hn["rewrites"][0]["file"] == "foo.c"
-    assert hn["rewrites"][0]["from"].startswith("@@ -812,5 +812,9 @@")
-    assert hn["rewrites"][0]["to"] == "@@ -1 +1 @@"
+    assert len(hn["files"]) == 1
+    assert hn["files"][0]["file"] == "foo.c"
+    assert hn["files"][0]["canonical_hunks"] == 1
+    assert len(hn["files"][0]["postimage_sha256"]) == 64
     assert hn["pre_sha256"] != hn["post_sha256"]
     sidecar = json.loads((bd / "patcher-invocation.json").read_text())
     assert sidecar["hunk_normalization"]["applied"] is True
-    # The recorded output sha matches the normalized bytes on disk.
+    # The recorded output sha matches the canonicalized bytes on disk.
     from tools.trace_cli.execute import sha256_hex  # local import; test-only
     out_sha = {o["path"]: o["sha256"] for o in result["replay_invocation"]["outputs"]}
     assert out_sha["patch.diff"] == sha256_hex(written.encode("utf-8"))
 
 
-def test_execute_correct_header_records_applied_false(tmp_path):
+def test_execute_canonicalization_is_idempotent_fixpoint(tmp_path):
+    # Canonicalizing a patch is a fixpoint: the written (already-canonical) patch,
+    # fed back through the compiler, produces no further change.
+    from tools.trace_cli.hunk_normalizer import canonicalize_backport_patch
     bd = _build_source_context_bundle(tmp_path)
     result = execute(
         role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="fake-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+        model_id="fake-opus-4-7", adapter_factory=_factory(_wrong_header_response()),
     )
-    hn = result["patcher_run"]["hunk_normalization"]
-    assert hn["applied"] is False
-    assert hn["rewrites"] == []
+    assert result["patcher_run"]["hunk_normalization"]["applied"] is True
+    written = (bd / "patch.diff").read_text()
+    ctx = {"foo.c": (bd / "source-context" / "foo.c").read_text()}
+    again = canonicalize_backport_patch(written, ctx)
+    assert not again.changed
+    assert again.text == written
 
 
 def test_execute_ungroundable_body_fails_and_persists_raw(tmp_path):
     bd = _build_source_context_bundle(tmp_path)
-    with pytest.raises(Exception, match="hunk-header normalization failed"):
+    with pytest.raises(Exception, match="hunk-header canonicalization failed"):
         execute(
             role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
             model_id="fake-opus-4-7", adapter_factory=_factory(_ungroundable_response()),

@@ -478,7 +478,7 @@ def _execute_patcher(
     )
     from tools.trace_cli.hunk_normalizer import (
         HunkNormalizationError,
-        normalize_backport_patch,
+        canonicalize_backport_patch,
     )
 
     # Dispatch guards. These check the bundle itself, not the invocation
@@ -690,27 +690,33 @@ def _execute_patcher(
     if result.kind == "patch":
         diff_text = result.parsed.patch_diff or ""
 
-        # Adaptation-lane hunk-header normalization (slice 4, DECISIONS
-        # 2026-07-27). The verbatim lane copies the upstream header (always
-        # correct); only the adaptation lane AUTHORS a fresh `@@ -a,b +c,d @@`
-        # header, and the model reliably miscomputes the arithmetic (libarchive
-        # CVE-2026-15028: emitted `@@ -3517,13` — upstream start + wrong counts —
-        # for a body at pinned line 3443 with 16/16 lines). This is a
-        # deterministic, metadata-only recompute of the header from the (correct)
-        # body, matched exactly and uniquely against source-context. It never
-        # touches body lines and fails loud (does not silently "fix") on an
-        # ungroundable/ambiguous body. Runs only on the adaptation lane
-        # (source-context present, applies_verbatim not True).
+        # Adaptation-lane canonical compilation (DECISIONS 2026-07-27). The
+        # verbatim lane copies the upstream patch as-is; only the adaptation lane
+        # AUTHORS a patch, and the model reliably emits a NON-CANONICAL artifact:
+        # miscomputed / bare `@@` headers (libarchive `@@ -3517,13` for a body at
+        # 3443; maxima literal `@@` with no ranges) AND non-canonical bodies
+        # (redundant delete+re-add of byte-identical lines, missing trailing
+        # context) that GNU `patch`/`git apply` reject at default fuzz even when
+        # every line matches the pinned source. This is a TRANSPARENT COMPILATION
+        # step, not a correction of model intent: the postimage is reconstructed
+        # solely from the model's own old/new body (each hunk matched exactly and
+        # uniquely against source-context), then re-diffed against the pinned
+        # source. It changes representation, never meaning — semantic mistakes stay
+        # in the postimage and remain visible to Reviewer/Builder. The compiler
+        # verifies the canonical diff re-applies at fuzz 0 and reproduces the
+        # postimage (its internal invariant); it fails loud (does not silently
+        # "fix") on an ungroundable / ambiguous / overlapping body. Runs only on the
+        # adaptation lane (source-context present, applies_verbatim not True).
         source_context = inputs.get("source_context")
         if source_context and inputs.get("applies_verbatim") is not True:
             pre_sha = sha256_hex(diff_text.encode("utf-8"))
             try:
-                norm = normalize_backport_patch(diff_text, source_context)
+                canon = canonicalize_backport_patch(diff_text, source_context)
             except HunkNormalizationError as exc:
                 # Fail-don't-fix: the authored body is not grounded in the pinned
-                # source, so no honest header can be computed. Persist the raw
-                # patch for debugging (the model call already billed) and abort
-                # before writing/​signing anything.
+                # source (ambiguous / absent / overlapping), so no honest canonical
+                # patch can be compiled. Persist the raw patch for debugging (the
+                # model call already billed) and abort before writing/signing.
                 setattr(exc, "raw_response", diff_text)
                 setattr(exc, "raw_response_sha256", pre_sha)
                 _persist_role_failure(
@@ -722,13 +728,13 @@ def _execute_patcher(
                     prompt_path_relative=f"prompts/{patcher_prompt_path.name}",
                 )
                 raise ExecutionError(
-                    f"patcher hunk-header normalization failed: {exc}"
+                    f"patcher hunk-header canonicalization failed: {exc}"
                 ) from exc
-            diff_text = norm.text
+            diff_text = canon.text
             hunk_normalization = {
-                "applied": norm.changed,
+                "applied": canon.changed,
                 "pre_sha256": pre_sha,
-                "rewrites": norm.rewrites,
+                "files": canon.files,
             }
 
         diff_bytes = diff_text.encode("utf-8")
