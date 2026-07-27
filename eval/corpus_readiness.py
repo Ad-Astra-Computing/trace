@@ -111,6 +111,40 @@ def _schema_invalid_bundles() -> list[dict]:
     return dirty
 
 
+def _classify_schema_invalid(dirty: list[dict]) -> dict:
+    """Partition the raw schema-invalid list into honest buckets so the readiness
+    gate distinguishes a real evidence-bundle defect from two known non-defects:
+
+    - authoring_only: dirs that are authoring-track training pairs mis-enumerated
+      as evidence bundles (they carry authoring-example.json and no bundle.json, so
+      the 'missing expect.json' flag fires). These were never evidence bundles;
+      counting them as corpus pollution is a category error, so they are excluded
+      from the block entirely.
+    - non_git_provenance: legitimate backports whose upstream-fix provenance is a
+      distro/vendor tracker id (debian-bts-*, novell-bugzilla-*, vmware-*,
+      nixpkgs-backport-no-sha) rather than a public git sha, so validate_fixture's
+      commit_sha regex rejects them. A named known-limitation class (cf.
+      authoring-exporter-needs-public-git), surfaced honestly but STILL counted
+      toward the block: relaxing that is an eval-gate loosening that needs peer
+      sign-off, not a unilateral flip.
+    - broken: everything else — the only unqualified evidence-bundle defect.
+    """
+    authoring_only, non_git_provenance, broken = [], [], []
+    for e in dirty:
+        err = e.get("error", "")
+        bd = REPO / "traces" / "example" / e["bundle"]
+        if err == "missing expect.json" and (bd / "authoring-example.json").is_file() \
+                and not (bd / "bundle.json").is_file():
+            authoring_only.append(e)
+        elif "commit_sha" in err and "does not match" in err:
+            non_git_provenance.append(e)
+        else:
+            broken.append(e)
+    return {"authoring_only": authoring_only,
+            "non_git_provenance": non_git_provenance,
+            "broken": broken}
+
+
 def _uncerted_auto_merge_positives() -> list[dict]:
     """Real-CVE AUTO-MERGE bundles whose Reviewer accepted but which are NOT
     cert-green+signed. An auto-merge positive's accept is only trustworthy if the
@@ -193,6 +227,7 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
     rev = _export("reviewer") or {}
     auth = _export("authoring") or {}
     dirty = _schema_invalid_bundles()
+    buckets = _classify_schema_invalid(dirty)
     backports = _source_backport_report()
 
     labels = rev.get("labels", {})
@@ -217,9 +252,14 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
             {"bundle": e.get("bundle") or e.get("dir") or e.get("cve_id"), "reason": short}
         )
 
+    # Authoring-only training pairs are not evidence bundles — never block on them.
+    # The 6 non-git-provenance backports stay blocking (conservative: relaxing them is
+    # an eval-gate loosening that needs peer sign-off, not a unilateral flip).
+    schema_blockers = buckets["broken"] + buckets["non_git_provenance"]
+
     pos_ready = pos_certed >= pos_threshold
     neg_ready = neg >= neg_threshold
-    schema_clean = not dirty
+    schema_clean = not schema_blockers
     cert_clean = not uncerted
     pilot_ready = pos_ready and neg_ready and leakage_ok and schema_clean and cert_clean
 
@@ -245,7 +285,11 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
             "examples": auth.get("eligible_examples"),
             "splits": auth.get("splits", {}),
         },
-        "schema_invalid": dirty,
+        "schema_invalid": {
+            "broken": buckets["broken"],                     # genuine evidence-bundle defect (blocks)
+            "non_git_provenance": buckets["non_git_provenance"],  # known-limitation backports (blocks, surfaced)
+            "authoring_only_excluded": len(buckets["authoring_only"]),  # not evidence bundles; count only
+        },
         "uncerted_auto_merge": uncerted,
         "source_backports": backports,
         "thresholds": {"positive": pos_threshold, "negative": neg_threshold},
@@ -253,7 +297,8 @@ def build_report(pos_threshold: int, neg_threshold: int) -> dict:
         "blocking": [m for m, ok in (
             (f"need +{max(0, pos_threshold - pos_certed)} cert-green positives", pos_ready),
             (f"need +{max(0, neg_threshold - neg)} negatives", neg_ready),
-            (f"{len(dirty)} schema-invalid/uncerted bundles in corpus", schema_clean),
+            (f"{len(buckets['broken'])} broken + {len(buckets['non_git_provenance'])} "
+             f"non-git-provenance backports (schema-invalid)", schema_clean),
             (f"{len(uncerted)} uncerted-auto-merge positives (cert-green+signed required)", cert_clean),
             ("family leakage across splits", leakage_ok),
         ) if not ok],
@@ -277,12 +322,18 @@ def _emit(r: dict) -> None:
               f"{len(ex['recoverable'])}")
         for e in ex["recoverable"]:
             print(f"    - {e['bundle']}: {e['reason']}")
-    dirty = r.get("schema_invalid", [])
-    if dirty:
-        print(f"  SCHEMA-INVALID / uncerted bundles (counted by review-accept but would fail "
-              f"CI / pollute the dataset): {len(dirty)}")
-        for d in dirty:
+    si = r.get("schema_invalid", {})
+    broken = si.get("broken", [])
+    non_git = si.get("non_git_provenance", [])
+    auth_excl = si.get("authoring_only_excluded", 0)
+    if broken or non_git:
+        print(f"  SCHEMA-INVALID bundles (block readiness): "
+              f"{len(broken)} broken + {len(non_git)} non-git-provenance backports")
+        for d in broken + non_git:
             print(f"    - {d['bundle']}: {d['error']}")
+    if auth_excl:
+        print(f"  (excluded {auth_excl} authoring-only training pairs — not evidence "
+              f"bundles, tracked on the authoring track)")
     unc = r.get("uncerted_auto_merge", [])
     if unc:
         print(f"  UNCERTED AUTO-MERGE positives (review-accept but not cert-green+signed; "

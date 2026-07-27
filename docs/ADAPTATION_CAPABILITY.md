@@ -36,10 +36,19 @@ cert-green positives + 55 negatives**
 ([`data/reports/corpus-readiness-20260727.json`](../data/reports/corpus-readiness-20260727.json)).
 Both pilot thresholds (50 positives / 25 negatives) are cleared with gap
 0, and no auto-merge positive is uncerted. The overall pilot-ready gate
-currently reads **NOT YET**, blocked by 27 schema-invalid bundles — those
-are unfinalized source-backport-lane entries (mostly a missing
-`expect.json`), i.e. work-in-progress dirs in the tree, **not a
-regression of the certified set**. The trend on the certified reviewer
+currently reads **NOT YET**, blocked by **6 non-git-provenance
+backports** — legitimate backports whose upstream-fix provenance is a
+distro/vendor tracker id (`debian-bts-*`, `novell-bugzilla-*`,
+`vmware-*`, `nixpkgs-backport-no-sha`) rather than a public git sha, so
+the policy schema's `commit_sha` regex rejects them. They are a named
+known-limitation class (cf. the authoring-exporter public-git
+requirement), already excluded from the 84-positive count, and **not a
+regression of the certified set**. The readiness enumerator additionally
+excludes 21 authoring-only training pairs that were previously
+mis-enumerated as evidence bundles (they carry `authoring-example.json`
+and no `bundle.json`); those were never evidence bundles and do not
+block. There are **0 genuinely-broken bundles**. The trend on the
+certified reviewer
 set: 41/50 then 45/50 (15 June, `docs/DECISIONS.md:4597`, `:4676`), 70/50
 (18 June, `:6021`), 77/50 (21 June, `:6365`), 84/55 (27 July).
 
@@ -178,8 +187,9 @@ figure and should not be quoted as a regression.
 - **Not upstream-merged.** Fork PRs are accuracy artifacts, not merges.
 - **Cert-green total is 84/55 as of the 27 July re-run** (certified
   reviewer set), with the overall pilot-ready gate reading NOT YET
-  because of 27 unfinalized source-backport dirs — the certified set is
-  not itself blocked.
+  because of 6 non-git-provenance backports (tracker-id fix provenance,
+  not a public git sha) — the certified set is not itself blocked, and
+  those 6 are already excluded from the 84.
 
 The strongest honest statement the evidence supports: on the verbatim
 lane the pipeline produces cert-green, signed, replayable bundles at

@@ -60,8 +60,43 @@ def test_schema_invalid_bundles_block_readiness_even_at_threshold(monkeypatch):
     }, dirty=[{"bundle": "CVE-X--foo", "error": "missing expect.json"}])
     r = cr.build_report(50, 25)
     assert r["pilot_ready"] is False
-    assert r["schema_invalid"] and r["schema_invalid"][0]["bundle"] == "CVE-X--foo"
+    assert r["schema_invalid"]["broken"][0]["bundle"] == "CVE-X--foo"
     assert any("schema-invalid" in b for b in r["blocking"])
+
+
+def test_authoring_only_pairs_excluded_from_schema_block(monkeypatch, tmp_path):
+    """Authoring-track training pairs (authoring-example.json, no bundle.json) are
+    mis-enumerated as evidence bundles by the 'missing expect.json' flag. They are not
+    evidence bundles, so they must NOT block readiness — only count as excluded."""
+    ex = tmp_path / "traces" / "example" / "CVE-Z--authoring"
+    ex.mkdir(parents=True)
+    (ex / "authoring-example.json").write_text("{}")
+    monkeypatch.setattr(cr, "REPO", tmp_path)
+    _manifests(monkeypatch, {
+        "labels": {"positive": 50, "negative": 25},
+        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
+    }, dirty=[{"bundle": "CVE-Z--authoring", "error": "missing expect.json"}])
+    r = cr.build_report(50, 25)
+    assert r["schema_invalid"]["broken"] == []
+    assert r["schema_invalid"]["authoring_only_excluded"] == 1
+    assert r["pilot_ready"] is True
+    assert r["blocking"] == []
+
+
+def test_non_git_provenance_backports_still_block(monkeypatch):
+    """Backports whose upstream-fix provenance is a distro tracker id (not a git sha)
+    are surfaced as a named bucket but STILL block — relaxing that is an eval-gate
+    loosening that needs peer sign-off, not a unilateral flip."""
+    _manifests(monkeypatch, {
+        "labels": {"positive": 50, "negative": 25},
+        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
+    }, dirty=[{"bundle": "CVE-W--unzip",
+               "error": "commit_sha 'debian-bts-847485' does not match ^[0-9a-f]{7,40}$"}])
+    r = cr.build_report(50, 25)
+    assert r["schema_invalid"]["non_git_provenance"][0]["bundle"] == "CVE-W--unzip"
+    assert r["schema_invalid"]["broken"] == []
+    assert r["pilot_ready"] is False
+    assert any("non-git-provenance" in b for b in r["blocking"])
 
 
 def test_uncerted_auto_merge_blocks_readiness_even_at_threshold(monkeypatch):

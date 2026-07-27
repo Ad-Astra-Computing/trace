@@ -412,116 +412,36 @@
       "train": 68
     }
   },
-  "schema_invalid": [
-    {
-      "bundle": "CVE-2014-9913--unzip-methbuf-overflow-backport",
-      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847485' does not match '^[0-9a-f]{7,40}$'"
-    },
-    {
-      "bundle": "CVE-2015-1419--vsftpd-deny-file-symlink-backport",
-      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'novell-bugzilla-cve-2015-1419' does not match '^[0-9a-f]{7,40}$'"
-    },
-    {
-      "bundle": "CVE-2015-8784--libtiff-next-decode-oob-write-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2016-9844--unzip-zipinfo-methbuf-backport",
-      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847486' does not match '^[0-9a-f]{7,40}$'"
-    },
-    {
-      "bundle": "CVE-2017-12652--libpng-chunk-length-limit-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2017-12898--tcpdump-nfs-oob-read-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2017-13024--tcpdump-mobility-oob-read-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2018-13785--libpng-png-check-chunk-length-row-factor-overflow-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2018-18384--unzip-cfactorstr-snprintf-backport",
-      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-unzip-18384' does not match '^[0-9a-f]{7,40}$'"
-    },
-    {
-      "bundle": "CVE-2019-12900--bzip2-nselectors-oob-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2019-18218--file-cdf-vector-element-limit-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2019-3863--libssh2-flush-oob-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2019-5544--openslp-remaining-buffer-backport",
-      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'vmware-cve-2019-5544-fix' does not match '^[0-9a-f]{7,40}$'"
-    },
-    {
-      "bundle": "CVE-2020-15503--libraw-kodak-thumb-oob-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2021-23017--nginx-resolver-dns-off-by-one-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2021-28677--pillow-flidecode-copy-oob-read-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2021-3520--lz4-negative-outputsize-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2021-3575--openjpeg-sycc420-to-rgb-oob-read-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2022-28805--lua524-singlevar-anyregup-backport",
-      "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'nixpkgs-backport-no-sha' does not match '^[0-9a-f]{7,40}$'"
-    },
-    {
-      "bundle": "CVE-2023-3603--libssh-sftp-read-null-check-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2024-25629--c-ares-read-line-null-embedded-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2024-37407--libarchive-zip-empty-name-oob-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2024-49766--werkzeug-safe-join-windows-abspath-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2025-57052--cjson-array-index-cursor-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2025-5917--libarchive-ustar-name-off-by-one-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2025-69693--ffmpeg-rv60dec-qp-oob-backport",
-      "error": "missing expect.json"
-    },
-    {
-      "bundle": "CVE-2026-7135--gpac-elng-box-read-size-overflow-backport",
-      "error": "missing expect.json"
-    }
-  ],
+  "schema_invalid": {
+    "broken": [],
+    "non_git_provenance": [
+      {
+        "bundle": "CVE-2014-9913--unzip-methbuf-overflow-backport",
+        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847485' does not match '^[0-9a-f]{7,40}$'"
+      },
+      {
+        "bundle": "CVE-2015-1419--vsftpd-deny-file-symlink-backport",
+        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'novell-bugzilla-cve-2015-1419' does not match '^[0-9a-f]{7,40}$'"
+      },
+      {
+        "bundle": "CVE-2016-9844--unzip-zipinfo-methbuf-backport",
+        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-847486' does not match '^[0-9a-f]{7,40}$'"
+      },
+      {
+        "bundle": "CVE-2018-18384--unzip-cfactorstr-snprintf-backport",
+        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'debian-bts-unzip-18384' does not match '^[0-9a-f]{7,40}$'"
+      },
+      {
+        "bundle": "CVE-2019-5544--openslp-remaining-buffer-backport",
+        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'vmware-cve-2019-5544-fix' does not match '^[0-9a-f]{7,40}$'"
+      },
+      {
+        "bundle": "CVE-2022-28805--lua524-singlevar-anyregup-backport",
+        "error": "upstream-ref.json: upstream_fix_commits/0/commit_sha: 'nixpkgs-backport-no-sha' does not match '^[0-9a-f]{7,40}$'"
+      }
+    ],
+    "authoring_only_excluded": 21
+  },
   "uncerted_auto_merge": [],
   "source_backports": {
     "total": 118,
@@ -1205,6 +1125,6 @@
   },
   "pilot_ready": false,
   "blocking": [
-    "27 schema-invalid/uncerted bundles in corpus"
+    "0 broken + 6 non-git-provenance backports (schema-invalid)"
   ]
 }
