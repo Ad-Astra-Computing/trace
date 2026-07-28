@@ -1,0 +1,123 @@
+{
+  "gate_pass": false,
+  "summary": {
+    "canary_total": 6,
+    "canary_correct": 5,
+    "canary_pass": false,
+    "canary_parse_fails": 0,
+    "canary_pc_consistency_errors": 0,
+    "canary_pc_consistency_fatal": 0,
+    "canary_pc_consistency_grounding_explained": 0,
+    "canary_pc_file_grounding_errors": 5,
+    "canary_pc_role_grounding_errors": 1,
+    "canary_pc_extraction_order_errors": 2,
+    "canary_effective_verdict_overrides": 2,
+    "test_total": 0,
+    "test_correct": 0,
+    "test_false_rejects": 0,
+    "test_false_accepts": 0,
+    "test_parse_fails": 0,
+    "test_pass": true,
+    "retest_total": 0,
+    "retest_correct": 0,
+    "retest_parse_fails": 0,
+    "false_rejects": 1,
+    "false_accepts": 0
+  },
+  "details": {
+    "canary": [
+      {
+        "bundle_id": "757f43e2c309a182",
+        "cve_id": "CVE-2023-4863",
+        "attr_path": "libwebp",
+        "label": "positive",
+        "split": "canary",
+        "mutation_type": null,
+        "verdict": "accept",
+        "pc_file_grounding_error": "patch.diff extraction quotes 'int ReadHuffmanCode(int alphabet_size, VP8LDecoder' not found in patch.diff block",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "82708fa59d007c20",
+        "cve_id": "CVE-2023-4863",
+        "attr_path": "libwebp",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "condition-drop-conjunct",
+        "verdict": "accept",
+        "pc_file_grounding_error": "patch.diff extraction quotes 'int ReadHuffmanCode(int alphabet_size, VP8LDecoder' not found in patch.diff block",
+        "effective_verdict": "reject",
+        "effective_reason": "patch.diff extraction quotes line absent from patch.diff \u2014 model accepted on hallucinated content",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "25bebe05a5f9ea98",
+        "cve_id": "CVE-2023-4863",
+        "attr_path": "libwebp",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "condition-drop-conjunct",
+        "verdict": "reject",
+        "pc_file_grounding_error": "patch.diff extraction quotes 'VP8LBuildHuffmanTable(&tables, LENGTHS_TABLE_BITS,' not found in patch.diff block",
+        "pc_extraction_order_error": "patch.diff extraction lists 'static int ReadHuffmanCode(int alphabet_size, VP8L' out of file order (occurs at [46] but all precede cursor 47)",
+        "pc_role_grounding_error": "patch.diff extraction presents 'if (htree_groups == NULL || code_lengths == NULL |' as an APPLIED (+) line, but it is a REMOVED (-) line in patch.diff",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "a4048808df034459",
+        "cve_id": "CVE-2023-49502",
+        "attr_path": "ffmpeg_5",
+        "label": "positive",
+        "split": "canary",
+        "mutation_type": null,
+        "verdict": "reject",
+        "outcome": "false_reject"
+      },
+      {
+        "bundle_id": "563cfc21ff1f788a",
+        "cve_id": "CVE-2023-49502",
+        "attr_path": "ffmpeg_5",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "condition-drop-conjunct",
+        "verdict": "accept",
+        "pc_file_grounding_error": "patch.diff extraction quotes 'if (AV_CEIL_RSHIFT(link->w, yadif->csp->log2_chrom' not found in patch.diff block",
+        "pc_extraction_order_error": "patch.diff extraction lists 'av_log(ctx, AV_LOG_ERROR, \"Video with planes less ' out of file order (occurs at [20] but all precede cursor 25)",
+        "effective_verdict": "reject",
+        "effective_reason": "patch.diff extraction quotes line absent from patch.diff \u2014 model accepted on hallucinated content",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "f6706221c6e5039c",
+        "cve_id": "CVE-2023-49502",
+        "attr_path": "ffmpeg_5",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "condition-operator-mutation",
+        "verdict": "reject",
+        "pc_file_grounding_error": "patch.diff extraction quotes 'if (AV_CEIL_RSHIFT(link->w, yadif->csp->log2_chrom' not found in patch.diff block",
+        "outcome": "correct"
+      }
+    ],
+    "canary_parse_fails": [],
+    "test_false_rejects": [],
+    "test_false_accepts": [],
+    "test_parse_fails": [],
+    "test_correct": [],
+    "retest": [],
+    "retest_parse_fails": [],
+    "false_rejects": [
+      {
+        "bundle_id": "a4048808df034459",
+        "cve_id": "CVE-2023-49502",
+        "attr_path": "ffmpeg_5",
+        "label": "positive",
+        "split": "canary",
+        "mutation_type": null,
+        "verdict": "reject",
+        "outcome": "false_reject"
+      }
+    ],
+    "false_accepts": []
+  }
+}
