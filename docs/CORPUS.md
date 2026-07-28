@@ -186,6 +186,26 @@ This filter is independent of the sandbox-positive PoC suitability filter below:
 source-backport authoring candidate still needs a reproducer to cert, so it must ALSO
 pass the six PoC criteria to become a cert-green bundle.
 
+#### Source-backport target must be BY-NAME (post-2026-07-28)
+
+A source-backport `patch.diff` touches ≥2 files (the new `CVE-xxxx.patch` + the
+`package.nix` edit). The Builder's `_apply_patch` (agents/builder/runner.py:403-508)
+can only place both files when the target is a **by-name** package — real file
+`pkgs/by-name/XX/pname/package.nix` at the pinned pre-fix rev. Then `by-name-package-nix`
+mode applies via `git apply --directory=<attr dir>`. The `canonical-package-remap`
+(package.nix→`default.nix`) is **single-file-only** (`numstat_paths == ["package.nix"]`),
+so it does NOT rescue a multi-file source-backport on a `default.nix` / shared
+`common.nix` / core-interpreter `interpreter.nix` package. Such a candidate cert-fails
+with `dispatch_outcome=patch-apply-failed`.
+
+**Gate (cheap, pre-spend):** at the pinned pre-fix rev, require
+`pkgs/by-name/XX/pname/package.nix` to exist. If the real file is `default.nix` or a
+shared builder, retire at harvest time — before the Patcher is paid. Burned example:
+expat CVE-2022-23852 (2026-07-28) cost ~$0.22 at cert on a `default.nix` base (no
+pre-fix by-name rev exists — by-name expat starts at 2.8.0). Same class: libxml2
+CVE-2025-6021 (shared `common.nix` + atomic cross-file plumbing), perl CVE-2026-8376
+(core-interpreter layout). krb5 CVE-2026-40356 is by-name → cert-green.
+
 ### Sandbox-positive PoC suitability filter (post-2026-05-17, F6)
 
 The wget2 cert arc surfaced that `patch_shape` alone is insufficient to predict whether a CVE's PoC will fire in the Nix build sandbox. A CVE's *PoC class* must independently qualify. Codified after F6.
