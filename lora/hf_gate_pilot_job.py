@@ -47,7 +47,17 @@ def main():
     pilot_path = data_dir / "gate-pilot.jsonl"
     if not pilot_path.exists():
         raise FileNotFoundError(f"{pilot_path} not found in mounted dataset")
-    records = [json.loads(l) for l in pilot_path.read_text().splitlines() if l.strip()]
+    pilot_bytes = pilot_path.read_bytes()
+    expected_input_sha256 = os.environ.get("EXPECTED_INPUT_SHA256")
+    if expected_input_sha256:
+        actual_input_sha256 = hashlib.sha256(pilot_bytes).hexdigest()
+        if actual_input_sha256 != expected_input_sha256:
+            raise RuntimeError(
+                f"EXPECTED_INPUT_SHA256 mismatch for {pilot_path}: "
+                f"expected {expected_input_sha256}, got {actual_input_sha256} "
+                "(the mounted dataset file may have changed since dispatch)"
+            )
+    records = [json.loads(l) for l in pilot_bytes.decode().splitlines() if l.strip()]
     print(f"Gate pilot: {len(records)} examples  adapter={adapter_repo}", flush=True)
 
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, revision=BASE_REVISION)
@@ -98,13 +108,16 @@ def main():
     from huggingface_hub import HfApi
     out_path = Path("/tmp/gate_pilot_responses.jsonl")
     out_path.write_text("\n".join(json.dumps(r) for r in responses) + "\n")
+    path_in_repo = os.environ.get("RESPONSES_PATH", "gate_pilot_responses/responses.jsonl")
     HfApi().upload_file(
         path_or_fileobj=str(out_path),
-        path_in_repo="gate_pilot_responses/responses.jsonl",
+        path_in_repo=path_in_repo,
         repo_id=adapter_repo,
         repo_type="model",
     )
-    print(f"Pushed {len(responses)} responses to {adapter_repo}/gate_pilot_responses/", flush=True)
+    response_sha256 = hashlib.sha256(out_path.read_bytes()).hexdigest()
+    print(f"response_sha256={response_sha256} adapter={adapter_repo}", flush=True)
+    print(f"Pushed {len(responses)} responses to {adapter_repo}/{path_in_repo}", flush=True)
 
 
 if __name__ == "__main__":
