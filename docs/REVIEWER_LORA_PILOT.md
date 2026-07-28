@@ -224,3 +224,102 @@ wrong operator / wrong grouping / missing conjunct / check-after-use) to strengt
 generalization on hard multi-subterm guards (the zlib `(len = extra_len - length) <
 extra_max` shape). Folded into the next normal training batch, NOT a dedicated run; no
 prompt change unless a future failure escapes grounding.
+
+## Held-out compound-guard probe (v1.11 measurability)
+
+Added 2026-07-27. The v1.10 gate is saturated (canary 9/9, test 11/11), and the 5
+existing compound-condition negatives (proxychains-ng, libxml2, libxml2-relaxng,
+procps) all live in the TRAIN split of the frozen corpus-v2
+(`data/reports/reviewer-corpus-2026-07-27-freeze.json`, immutable, 139 examples). A
+v1.11 retrain on that corpus would LEARN the compound-guard shape but there was no
+HELD-OUT compound example to MEASURE whether it actually generalized, as opposed to
+memorizing the five training instances. This probe closes that measurability gap
+without touching the frozen corpus or spending any model/API budget.
+
+**Source.** Two families that are demonstrably absent from corpus-v2 train/dev/test
+(confirmed by family-normalized diff against `eligible_examples` in the freeze
+report, see `tests/eval/test_compound_guard_probe.py`):
+
+- `libwebp` (CVE-2023-4863, the September 2023 zero-day Huffman-table OOB write).
+  Compound guard: `if (htree_groups == NULL || code_lengths == NULL ||
+  !VP8LHuffmanTablesAllocate(...))` in `ReadHuffmanCodes`, and `if (total_size == 0
+  || root_table == NULL) return total_size;` in `VP8LBuildHuffmanTable`.
+- `ffmpeg_5` (CVE-2023-49502, the bwdif filter's per-plane bounds check). Compound
+  guard: `if (AV_CEIL_RSHIFT(link->w, ...) < 3 || AV_CEIL_RSHIFT(link->h, ...) < 4)`.
+
+Both bundles are trace's own base-valid source backports to the pinned nixpkgs
+version (behaviorally green locally 2026-06-28), not a third-party oracle transfer.
+
+**Shape: paired positive + negatives per family, not negatives-only.** A probe that
+only ever expects `reject` cannot distinguish genuine compound-guard discrimination
+from a model that rejects anything compound-shaped. Each family therefore
+contributes a clean, unmutated **positive control** (expected `accept`) alongside its
+mutated **negatives** (expected `reject`), minted with the existing `trace mutate
+reviewer-negative --mutation condition-drop-conjunct` / `condition-operator-mutation`
+tooling against the real added guard line:
+
+| Family | Row | Mutation | Expected |
+|---|---|---|---|
+| libwebp | clean-positive | — | accept |
+| libwebp | drop-codelengths-conjunct | condition-drop-conjunct (drops ` \|\| code_lengths == NULL`) | reject |
+| libwebp | drop-alloc-null-conjunct | condition-drop-conjunct (drops ` \|\| root_table == NULL`) | reject |
+| ffmpeg_5 | clean-positive | — | accept |
+| ffmpeg_5 | drop-height-conjunct | condition-drop-conjunct (drops the `AV_CEIL_RSHIFT(link->h, ...) < 4` conjunct) | reject |
+| ffmpeg_5 | off-by-one-width | condition-operator-mutation (`< 3` → `<= 3`) | reject |
+
+6 rows total (2 positive + 4 negative). Bundles live under
+`traces/probes/compound-guard/`, a directory `trace export reviewer` never scans (it
+only globs `traces/example/` and `traces/negatives/`), so the probe cannot leak into
+training regardless of corpus regeneration. Every bundle's `mutation.json` /
+`probe.json` carries `"probe": true` and an explicit "excluded from training" note,
+mirroring the zlib canary convention.
+
+**Build + score.** `scripts/build_compound_probe.py` assembles the rows with the
+same `_build_user_turn` / `_normalize_attr` machinery the regular exporter and
+`scripts/build_gate_pilot.py` use, system prompt `prompts/reviewer.v9.md` (the
+current default, matching what the v1.10 gate pilot was built against), assistant
+turn stripped:
+
+```
+python3 scripts/build_compound_probe.py \
+  --probes traces/probes/compound-guard \
+  --prompt prompts/reviewer.v9.md \
+  --out data/probes/compound-guard-probe.jsonl
+```
+
+Rows are labeled `split: "canary"` so `eval/score_gate_pilot.py` applies its full
+canary-grade treatment with **zero scorer changes** — mandatory correctness plus the
+PC-consistency / `pc_file_grounding` / `pc_role_grounding` checks. This is a reused
+label, not a claim that this is the v1.10 gate's zlib/jq canary; the probe is always
+scored as its own isolated file, never merged into the real gate-pilot JSONL. Score
+at v1.11 eval time with:
+
+```
+python3 eval/score_gate_pilot.py \
+  --pilot data/probes/compound-guard-probe.jsonl \
+  --responses <v1.11-responses.jsonl> \
+  --out data/reports/compound-guard-probe-v1.11.json
+```
+
+**Read the result as three separate numbers, not one accuracy.** Label the run
+"unseen-family compound-guard probe, n=6" and report:
+
+1. **Raw verdict accuracy** — `canary_correct / canary_total` from the report
+   summary (6/6 in the harness sanity-check with a synthetic all-correct response
+   set; see `tests/eval/test_compound_guard_probe.py` for the row-shape
+   verification, not a model result).
+2. **Paired-positive false-reject rate** — among the 2 positive rows, how many
+   `details.canary` entries have `label: positive` and `outcome: false_reject`. This
+   is the control: a model that rejects the clean guard alongside its mutated
+   siblings is not discriminating, it is pattern-matching "compound guard → reject".
+3. **Grounding/composite diagnostics, reported separately** — `canary_pc_file_
+   grounding_errors`, `canary_pc_role_grounding_errors`, and
+   `canary_pc_consistency_fatal` from the same report. These measure whether a
+   correct reject verdict is backed by a faithful PC trace, independent of whether
+   the raw verdict was correct.
+
+**This is a first measurability signal, not a generalization claim.** Two families
+and 6 rows establish that v1.10-vs-v1.11 comparison on unseen compound guards is now
+possible; they are not enough to claim broad generalization either way. A stronger
+claim needs a third unseen family and more paired cases, queued alongside the next
+normal compound-condition training batch above.
