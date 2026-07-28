@@ -44,3 +44,6 @@ exports/
 
 # local bundle-bootstrap scratch staging (never part of the corpus)
 /tmp/
+
+# sourceRoot gate sidecar — transient (ephemeral tmp path); durable evidence is in patch-normalization.json
+patch-diff-preflight.json

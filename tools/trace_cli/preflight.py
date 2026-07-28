@@ -52,7 +52,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from tools.trace_cli import pinned_source
+from tools.trace_cli import nested_patch, pinned_source
 
 
 EXIT_OK = 0
@@ -60,6 +60,7 @@ EXIT_USAGE = 64
 EXIT_NOT_FOUND = 65
 EXIT_APPLY_FAILED = 66
 EXIT_UNPACK_FAILED = 67
+EXIT_EXTRACT_FAILED = 68
 
 
 def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -105,6 +106,29 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="patch -p<N> strip count. Default: resolved from the pinned "
              "package's patchFlags on the nix path (nixpkgs default 1), or 1 "
              "when --source-tree is used. Pass to override.",
+    )
+    p.add_argument(
+        "--patch-flags",
+        type=str,
+        default=None,
+        metavar="FLAGS",
+        help="(--patch-diff with --source-tree) the package's full patchFlags "
+             "as one whitespace-separated string; use the `=` form so argparse "
+             "accepts dashes, e.g. --patch-flags=-p0 or --patch-flags='-p1 -d "
+             "sub'. Supersedes --strip. Ignored on the nix-unpack path "
+             "(evaluated patchFlags win).",
+    )
+    p.add_argument(
+        "--patch-diff",
+        action="store_true",
+        help="validate the MODEL's patch.diff nested source patch (not "
+             "upstream-fix.patch) against the derivation's EFFECTIVE "
+             "sourceRoot. Catches a path-strip / subdir-sourceRoot mismatch "
+             "(e.g. krb5's sourceRoot=\"krb5-${version}/src\") that the "
+             "raw-tree upstream-fix check cannot see, since the model's "
+             "patch may use different path prefixes than upstream-fix.patch. "
+             "Ignores --patch/discover_source_patches; reads <bundle>/patch.diff. "
+             "Writes an auditable verdict to <bundle>/patch-diff-preflight.json.",
     )
     p.add_argument(
         "--format",
@@ -201,6 +225,9 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         return _emit_error(args.format, EXIT_NOT_FOUND,
                            f"bundle dir not found: {bundle_dir}")
 
+    if getattr(args, "patch_diff", False):
+        return _run_patch_diff(args, bundle_dir)
+
     try:
         patches = discover_source_patches(bundle_dir, args.patches)
     except FileNotFoundError as exc:
@@ -265,6 +292,156 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         results=results,
         all_ok=all_ok,
     )
+
+
+def check_patch_diff_effective_root(
+    bundle_dir: Path, source_tree: Path | None = None, strip: int | None = None,
+    patch_flags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Pure check: does ``bundle_dir``'s `patch.diff` nested/flat source patch
+    apply from the derivation's EFFECTIVE `sourceRoot` with the package's real
+    ``patchFlags``?
+
+    No stdout, no sidecar write — just the result dict (the same shape
+    `--patch-diff` writes to ``patch-diff-preflight.json``). Shared by the
+    `--patch-diff` CLI mode and `bundle.finalize_bundle`'s opt-in
+    ``gate_sourceroot`` check, so both go through one code path (mirrors this
+    module's existing "resolved through one code path" convention for the
+    pinned-source primitive).
+
+    On the nix-unpack path the package's evaluated ``patchFlags`` are used. On
+    the ``source_tree`` path there is no nix eval, so ``patch_flags`` (or the
+    ``-p{strip}`` shorthand) MUST be supplied for any package whose real flags
+    are not the ``-p1`` default — else the gate could pass/fail differently
+    from ``patchPhase``. ``patch_flags`` wins over ``strip``; both default to
+    ``["-p1"]``.
+
+    Raises ``FileNotFoundError`` (missing patch.diff / bad --source-tree),
+    ``nested_patch.NestedPatchError`` (malformed patch.diff), or
+    ``RuntimeError``/``ValueError`` (nix unpack / sourceRoot resolution
+    failure) — the caller decides how each maps to its own error surface.
+    """
+    patch_diff_path = bundle_dir / "patch.diff"
+    if not patch_diff_path.is_file():
+        raise FileNotFoundError(
+            f"no patch.diff in {bundle_dir}; this check requires a bundle "
+            f"with Patcher output already on disk."
+        )
+    inner_text, nested_names = nested_patch.extract_nested_source_patch(
+        patch_diff_path.read_text())
+
+    with tempfile.TemporaryDirectory(prefix="trace-preflight-patchdiff-") as tmp:
+        tmp_root = Path(tmp)
+        source_root: str | None = None
+        preceding_patches: int | None = None
+        if source_tree is not None:
+            effective_root = source_tree.resolve()
+            if not effective_root.is_dir():
+                raise FileNotFoundError(f"--source-tree not a directory: {effective_root}")
+            source_root_mode = "supplied"
+            if patch_flags is not None:
+                patch_flags = list(patch_flags)
+            elif strip is not None:
+                patch_flags = [f"-p{strip}"]
+            else:
+                patch_flags = ["-p1"]
+        else:
+            eff = pinned_source.unpack_pinned_source_with_effective_root(bundle_dir, tmp_root)
+            # patchPhase applies the package's own `patches` list BEFORE the
+            # model patch. A pristine-pkg.src dry-run does not reflect those, so
+            # if any exist (resolved for the build platform) the gate cannot
+            # faithfully mirror the real apply — fail closed and point at the
+            # --source-tree escape hatch (a tree already prepared through them).
+            if eff.preceding_patches > 0:
+                raise RuntimeError(
+                    f"package applies {eff.preceding_patches} preceding "
+                    f"patch(es) before the model patch; a pristine-pkg.src "
+                    f"dry-run may not mirror patchPhase. Pass --source-tree "
+                    f"with a tree already prepared through those patches to "
+                    f"gate this bundle faithfully."
+                )
+            effective_root = eff.effective_root
+            source_root = eff.source_root
+            source_root_mode = "declared" if source_root else "default"
+            patch_flags = [f"-p{strip}"] if strip is not None else eff.patch_flags
+            preceding_patches = eff.preceding_patches
+
+        patch_file = tmp_root / "nested-source.patch"
+        patch_file.write_text(inner_text)
+
+        work = tmp_root / "work"
+        _make_writable_copy(effective_root, work)
+        ok, output = apply_patch(work, patch_file, patch_flags)
+
+    return {
+        "ok": ok,
+        "bundle_dir": str(bundle_dir),
+        "patch_diff": "patch.diff",
+        "nested_patch_files": nested_names,
+        "source_root_mode": source_root_mode,
+        "source_root": source_root,
+        "effective_root": str(effective_root),
+        "patch_flags": patch_flags,
+        "preceding_patches": preceding_patches,
+        "applies": ok,
+        "diagnostics": output[:4096],
+    }
+
+
+def _run_patch_diff(args: argparse.Namespace, bundle_dir: Path) -> int:
+    """`--patch-diff` mode: dry-run the MODEL's own patch.diff against the
+    derivation's EFFECTIVE sourceRoot.
+
+    Distinct from the default upstream-fix.patch flow above: that flow always
+    dry-runs against the raw unpacked ``pkg.src`` tree (nixpkgs' default cd
+    target), which is correct for the common case but blind to a package that
+    overrides ``sourceRoot`` to cd one level deeper (krb5). This mode resolves
+    the real effective root and dry-runs the model's extracted source patch
+    from there — catching a path-strip mismatch the upstream-fix check cannot
+    see, since the model's own transcription may use different path prefixes
+    than upstream-fix.patch. Thin CLI wrapper over
+    :func:`check_patch_diff_effective_root`; writes the sidecar + stdout.
+    """
+    _pf = getattr(args, "patch_flags", None)
+    patch_flags = _pf.split() if isinstance(_pf, str) else _pf
+    try:
+        result = check_patch_diff_effective_root(
+            bundle_dir, source_tree=args.source_tree, strip=args.strip,
+            patch_flags=patch_flags)
+    except FileNotFoundError as exc:
+        return _emit_error(args.format, EXIT_NOT_FOUND, str(exc))
+    except nested_patch.NestedPatchError as exc:
+        return _emit_error(args.format, EXIT_EXTRACT_FAILED, str(exc))
+    except (RuntimeError, ValueError) as exc:
+        return _emit_error(args.format, EXIT_UNPACK_FAILED, str(exc))
+
+    (bundle_dir / "patch-diff-preflight.json").write_text(
+        json.dumps(result, indent=2) + "\n")
+
+    ok = result["ok"]
+    if args.format == "json":
+        json.dump(result, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    else:
+        header = "PATCH-DIFF PREFLIGHT OK" if ok else "PATCH-DIFF PREFLIGHT FAILED"
+        print(header)
+        print(f"  bundle:           {result['bundle_dir']}")
+        print(f"  nested patch(es): {', '.join(result['nested_patch_files']) or '(flat diff)'}")
+        print(f"  source root mode: {result['source_root_mode']}"
+              + (f" ({result['source_root']!r})" if result['source_root'] else ""))
+        print(f"  effective root:   {result['effective_root']}")
+        print(f"  flags:            {' '.join(result['patch_flags'])}")
+        if not ok:
+            for line in result["diagnostics"].splitlines():
+                print(f"      {line}", file=sys.stderr)
+            print(
+                "  → the model's patch.diff does not apply -p1 from the "
+                "derivation's effective sourceRoot. This is a path-strip / "
+                "base mismatch: fix the nested patch's path prefixes (see "
+                "`trace bundle normalize-sourceroot`) before dispatching cert.",
+                file=sys.stderr,
+            )
+    return EXIT_OK if ok else EXIT_APPLY_FAILED
 
 
 def _emit_error(fmt: str, exit_code: int, message: str) -> int:

@@ -98,6 +98,34 @@ def test_no_source_context_stays_1_0_0(tmp_path):
     assert _validate_bundle_json(bd) == []
 
 
+# ── patch-normalization.json is optional-when-present ──────────────────────
+
+def test_patch_normalization_absent_not_manifested(tmp_path):
+    """A bundle that was never sourceRoot-normalized must NOT get a placeholder
+    patch-normalization.json entry (it would claim a signed input that does not
+    exist)."""
+    bd = _seed(tmp_path)
+    _finalize(bd)
+    b = json.loads((bd / "bundle.json").read_text())
+    assert "patch-normalization.json" not in b["files"]
+    signed = {sf["path"] for sf in b["signed_manifest"]["signed_files"]}
+    assert "patch-normalization.json" not in signed
+    assert _validate_bundle_json(bd) == []
+
+
+def test_patch_normalization_present_manifested_and_signed(tmp_path):
+    bd = _seed(tmp_path)
+    (bd / "patch-normalization.json").write_text('{"schema": "trace/patch-normalization/1.0"}\n')
+    _finalize(bd)
+    b = json.loads((bd / "bundle.json").read_text())
+    entry = b["files"]["patch-normalization.json"]
+    assert entry["producer_role"] == "patch-normalizer"
+    assert entry["replay_critical"] is True
+    assert entry["sha256"] != "0" * 64          # a real hash, not a placeholder
+    signed = {sf["path"] for sf in b["signed_manifest"]["signed_files"]}
+    assert "patch-normalization.json" in signed
+
+
 # ── guards ──────────────────────────────────────────────────────────────────
 
 def test_source_context_on_non_source_backport_rejected(tmp_path):

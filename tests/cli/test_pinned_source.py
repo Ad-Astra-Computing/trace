@@ -88,3 +88,118 @@ def test_unpack_rejects_missing_attr(tmp_path: Path) -> None:
     (bd / "bundle.json").write_text(json.dumps({"nixpkgs_rev": "c" * 40}))
     with pytest.raises(RuntimeError, match="attr_path not found"):
         pinned_source.unpack_pinned_source(bd, tmp_path)
+
+
+# ─── eval_source_root: fail closed on eval failure, None only on genuine unset ─
+#
+# A silent None on eval FAILURE would make the gate validate a patch against the
+# tarball root instead of the derivation's real sourceRoot — the exact fail-open
+# (krb5 `sourceRoot = "krb5-.../src"`) the gate exists to catch.
+
+def _fake_run(stdout: str = "", returncode: int = 0):
+    def run(*_a, **_k):
+        return subprocess.CompletedProcess(args=[], returncode=returncode,
+                                           stdout=stdout, stderr="boom")
+    return run
+
+
+def test_eval_source_root_raises_when_nix_instantiate_missing(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: None)
+    with pytest.raises(pinned_source.SourceRootEvalError, match="nix-instantiate not on PATH"):
+        pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]')
+
+
+def test_eval_source_root_raises_on_nonzero_exit(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("", returncode=1))
+    with pytest.raises(pinned_source.SourceRootEvalError, match="failed"):
+        pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]')
+
+
+def test_eval_source_root_raises_on_malformed_output(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("not json", returncode=0))
+    with pytest.raises(pinned_source.SourceRootEvalError, match="malformed"):
+        pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]')
+
+
+def test_eval_source_root_returns_none_on_genuine_unset(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("null", returncode=0))
+    assert pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]') is None
+
+
+def test_eval_source_root_returns_string_override(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run",
+                        _fake_run('"krb5-1.22.1/src"', returncode=0))
+    assert pinned_source.eval_source_root("let pkgs = x {};", '["krb5"]') == "krb5-1.22.1/src"
+
+
+# ─── resolve_effective_source_root ─────────────────────────────────────────
+
+def test_resolve_effective_source_root_none_is_tree(tmp_path: Path) -> None:
+    tree = tmp_path / "pkg-1.0"
+    tree.mkdir()
+    assert pinned_source.resolve_effective_source_root(tree, None) == tree
+
+
+def test_resolve_effective_source_root_dot_fails_closed(tmp_path: Path) -> None:
+    """`sourceRoot = "."` is build-root-relative and ambiguous from the
+    descended tree alone (build root is tree.parent for a single-root archive,
+    tree for a multi-root one) — must fail closed, never guess."""
+    tree = tmp_path / "extracted"
+    tree.mkdir()
+    for sr in (".", "./"):
+        with pytest.raises(ValueError, match="build-root-relative"):
+            pinned_source.resolve_effective_source_root(tree, sr)
+
+
+def test_resolve_effective_source_root_subdir_against_parent(tmp_path: Path) -> None:
+    tree = tmp_path / "krb5-1.22.1"
+    (tree / "src").mkdir(parents=True)
+    assert pinned_source.resolve_effective_source_root(tree, "krb5-1.22.1/src") == tree / "src"
+
+
+def test_resolve_effective_source_root_unresolvable_raises(tmp_path: Path) -> None:
+    tree = tmp_path / "pkg-1.0"
+    tree.mkdir()
+    with pytest.raises(ValueError, match="sourceRoot"):
+        pinned_source.resolve_effective_source_root(tree, "nonexistent/dir")
+
+
+# ─── eval_patch_flags: best-effort by default, strict fails closed ──────────
+
+def test_eval_patch_flags_best_effort_returns_default(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: None)
+    assert pinned_source.eval_patch_flags("p", "[x]") == ["-p1"]           # no raise
+
+
+def test_eval_patch_flags_strict_raises_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("", returncode=1))
+    with pytest.raises(pinned_source.PatchFlagsEvalError):
+        pinned_source.eval_patch_flags("p", "[x]", strict=True)
+
+
+def test_eval_patch_flags_strict_genuine_default_ok(monkeypatch) -> None:
+    """A genuine unset patchFlags resolves to ["-p1"] via the nix `or` default —
+    a successful eval, NOT a failure — so strict must not raise."""
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run('["-p1"]', returncode=0))
+    assert pinned_source.eval_patch_flags("p", "[x]", strict=True) == ["-p1"]
+
+
+# ─── eval_preceding_patches_count: always fails closed ─────────────────────
+
+def test_eval_preceding_patches_count_raises_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("", returncode=1))
+    with pytest.raises(pinned_source.PatchesEvalError):
+        pinned_source.eval_preceding_patches_count("p", "[x]")
+
+
+def test_eval_preceding_patches_count_parses_int(monkeypatch) -> None:
+    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("2", returncode=0))
+    assert pinned_source.eval_preceding_patches_count("p", "[x]") == 2

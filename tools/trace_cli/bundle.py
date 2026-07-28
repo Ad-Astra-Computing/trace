@@ -657,6 +657,9 @@ def finalize_bundle(
     nixpkgs_rev: str | None = None,
     cve_id: str | None = None,
     auto_merge_evidence_path: str | None = None,
+    gate_sourceroot: bool = False,
+    gate_source_tree: Path | None = None,
+    gate_patch_flags: list[str] | None = None,
 ) -> FinalizeResult:
     """Compute file hashes + write bundle.json + replay.json.
 
@@ -673,6 +676,15 @@ def finalize_bundle(
                       upstream-ref.json sha. If a replay.json already
                       exists, its roles[] are preserved (assemble may
                       have written one).
+
+    ``gate_sourceroot`` (opt-in, default False): for a source-backport bundle
+    with a `patch.diff` already on disk, dry-run its extracted source patch
+    against the derivation's EFFECTIVE `sourceRoot` (see
+    `preflight.check_patch_diff_effective_root`) and raise `BundleSchemaError`
+    if it does not apply — catching a path-strip mismatch before cert dispatch
+    rather than after. Writes `patch-diff-preflight.json` either way.
+    ``gate_source_tree`` supplies an already-unpacked EFFECTIVE root (skips
+    the nix unpack; offline use).
     """
     import hashlib
 
@@ -699,6 +711,51 @@ def finalize_bundle(
             f"a previously-assembled bundle."
         )
     upstream_ref = json.loads(upstream_ref_path.read_text())
+
+    # Opt-in sourceRoot gate (2026-07-28): dry-runs the model's own patch.diff
+    # against the derivation's EFFECTIVE sourceRoot (not just the raw tarball
+    # tree) — catches a path-strip mismatch, e.g. krb5's
+    # sourceRoot = "krb5-${version}/src", BEFORE cert dispatch. Deliberately
+    # opt-in rather than always-on: finalize runs for every bundle shape
+    # (verbatim source-backport, non-source-backport, synthetic CVE-0000
+    # fixtures, negative mutations), most of which have never been validated
+    # against this check, and it requires nix + network unless
+    # gate_source_tree is supplied. Callers that DO want it wired into their
+    # bootstrap flow pass gate_sourceroot=True (CLI: `--gate-sourceroot`).
+    if gate_sourceroot:
+        strategy = (upstream_ref.get("eligibility") or {}).get("patch_strategy")
+        if strategy == "source-backport" and (bundle_dir / "patch.diff").is_file():
+            from tools.trace_cli import nested_patch as _nested_patch
+            from tools.trace_cli import preflight as _preflight
+
+            try:
+                gate_result = _preflight.check_patch_diff_effective_root(
+                    bundle_dir, source_tree=gate_source_tree,
+                    patch_flags=gate_patch_flags)
+            except FileNotFoundError as exc:
+                raise BundleSchemaError(f"gate_sourceroot check failed: {exc}") from exc
+            except _nested_patch.NestedPatchError as exc:
+                raise BundleSchemaError(
+                    f"gate_sourceroot check failed to extract a source patch "
+                    f"from patch.diff: {exc}"
+                ) from exc
+            except (RuntimeError, ValueError) as exc:
+                raise BundleSchemaError(
+                    f"gate_sourceroot check could not resolve the pinned "
+                    f"source: {exc}"
+                ) from exc
+            (bundle_dir / "patch-diff-preflight.json").write_text(
+                json.dumps(gate_result, indent=2) + "\n")
+            if not gate_result["ok"]:
+                raise BundleSchemaError(
+                    "gate_sourceroot: patch.diff's source patch does NOT apply "
+                    f"-p1 from the effective sourceRoot "
+                    f"({gate_result['effective_root']}) — a path-strip / base "
+                    f"mismatch that would fail nix patchPhase at cert. Run "
+                    f"`trace bundle normalize-sourceroot {bundle_dir} --apply` "
+                    f"or fix the Patcher output, then re-finalize. "
+                    f"diagnostics: {gate_result['diagnostics'][:2000]}"
+                )
 
     if cve_id is None:
         cve_id = upstream_ref.get("cve_id")
@@ -795,8 +852,13 @@ def finalize_bundle(
     # preflight.json (source-context-extractor) is the deterministic
     # applies_verbatim verdict baked at bootstrap that drives patcher.v4; it is a
     # replay-critical, signed input on the adaptation lane.
+    # patch-normalization.json (patch-normalizer) is emitted ONLY for a bundle
+    # whose model patch was sourceRoot-normalized — most bundles never carry it,
+    # so it must be optional-when-present (never a universal placeholder that
+    # claims a signed input that doesn't exist).
     for fname, producer in (("upstream-fix.patch", "upstream-ref-resolver"),
-                            ("preflight.json", "source-context-extractor")):
+                            ("preflight.json", "source-context-extractor"),
+                            ("patch-normalization.json", "patch-normalizer")):
         path = bundle_dir / fname
         if path.is_file():
             data = path.read_bytes()
@@ -922,7 +984,8 @@ def finalize_bundle(
                 # upstream-fix.patch on source-backport bundles) must also be
                 # signed, or Steward rule 4 rejects the bundle.
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
-                for fname in ("upstream-fix.patch", "preflight.json")
+                for fname in ("upstream-fix.patch", "preflight.json",
+                              "patch-normalization.json")
                 if fname in files_block and files_block[fname].get("replay_critical")
             ] + [
                 # source-context files are replay-critical inputs → signed. Order

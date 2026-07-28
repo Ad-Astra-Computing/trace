@@ -246,6 +246,21 @@ def main(argv: list[str]) -> int:
     b_fin.add_argument("--evidence-path", default=None,
                        choices=("reproducer", "reviewer-attested"),
                        help="auto_merge_evidence_path override (default: preserve from existing bundle.json)")
+    b_fin.add_argument("--gate-sourceroot", action="store_true",
+                       help="opt-in: for a source-backport bundle with patch.diff "
+                            "already on disk, fail closed unless it applies -p1 "
+                            "from the derivation's EFFECTIVE sourceRoot (catches "
+                            "a path-strip mismatch before cert dispatch). Requires "
+                            "nix + network unless --gate-source-tree is given.")
+    b_fin.add_argument("--gate-source-tree", type=Path, default=None,
+                       help="pre-unpacked EFFECTIVE source root for "
+                            "--gate-sourceroot (skips the nix unpack)")
+    b_fin.add_argument("--gate-patch-flags", type=str, default=None, metavar="FLAGS",
+                       help="(with --gate-source-tree) the package's patchFlags "
+                            "as one whitespace-separated string, `=` form so "
+                            "argparse accepts dashes, e.g. --gate-patch-flags=-p0. "
+                            "Without it a supplied tree is gated at -p1; ignored "
+                            "on the nix-unpack path (evaluated patchFlags win).")
     b_fin.add_argument("--format", choices=("human", "json"), default="human")
 
     from tools.trace_cli import verify as _verify_module
@@ -256,6 +271,9 @@ def main(argv: list[str]) -> int:
 
     from tools.trace_cli import preflight as _preflight_module
     _preflight_module.add_parser(b_subs)
+
+    from tools.trace_cli import normalize_sourceroot as _normalize_module
+    _normalize_module.add_parser(b_subs)
 
     rp = subs.add_parser("report", help="rollup reports over on-disk artifacts")
     rp_subs = rp.add_subparsers(dest="report_cmd", required=True)
@@ -387,6 +405,10 @@ def main(argv: list[str]) -> int:
             from tools.trace_cli import preflight as _preflight_module
             from pathlib import Path as _Path
             return _preflight_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+        if args.bundle_cmd == "normalize-sourceroot":
+            from tools.trace_cli import normalize_sourceroot as _normalize_module
+            from pathlib import Path as _Path
+            return _normalize_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
         return EXIT_USAGE
     if args.cmd == "report":
         if args.report_cmd == "throughput":
@@ -856,6 +878,11 @@ def _cmd_bundle_finalize(args: argparse.Namespace) -> int:
             nixpkgs_rev=args.nixpkgs_rev,
             cve_id=args.cve_id,
             auto_merge_evidence_path=getattr(args, "evidence_path", None),
+            gate_sourceroot=getattr(args, "gate_sourceroot", False),
+            gate_source_tree=getattr(args, "gate_source_tree", None),
+            gate_patch_flags=(
+                _gpf.split() if (_gpf := getattr(args, "gate_patch_flags", None)) else None
+            ),
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)

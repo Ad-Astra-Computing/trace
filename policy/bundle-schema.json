@@ -156,6 +156,7 @@
               "upstream-ref-resolver",
               "source-context-extractor",
               "patcher",
+              "patch-normalizer",
               "reproducer",
               "builder",
               "reviewer",
