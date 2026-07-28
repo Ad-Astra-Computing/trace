@@ -1,0 +1,30 @@
+{
+  "audit_id": "compound-positive-audit-2026-07-28",
+  "purpose": "Step 2 of codex balanced-contrastive corpus move (DECISIONS 2026-07-28 v1.10-control HOLD). Audit whether each v1.11-delta compound-condition negative has its exact clean-positive base in train, and size the current compound-shape positive/negative balance to scope step 3.",
+  "source_export": "exports/reviewer-v1.11/reviewer.train.jsonl",
+  "corpus_freeze": "data/reports/reviewer-corpus-2026-07-27-freeze.json",
+  "v11_delta_compound_negatives": [
+    {"family": "proxychains-ng", "cve": "CVE-2025-34451", "mutation_type": "condition-drop-conjunct", "positive_base_bundle_id": "4b59647439510f55", "base_in_train": true},
+    {"family": "proxychains-ng", "cve": "CVE-2025-34451", "mutation_type": "condition-operator-mutation", "positive_base_bundle_id": "4b59647439510f55", "base_in_train": true},
+    {"family": "libxml2_13", "cve": "CVE-2025-6170", "mutation_type": "condition-drop-conjunct", "positive_base_bundle_id": "27f7db298c6ca2dd", "base_in_train": true},
+    {"family": "libxml2_13", "cve": "CVE-2026-0989", "mutation_type": "condition-operator-mutation", "positive_base_bundle_id": "5aaddbc0b9645d20", "base_in_train": true},
+    {"family": "procps", "cve": "CVE-2023-4016", "mutation_type": "condition-drop-conjunct", "positive_base_bundle_id": "c7b1c032dddb87fe", "base_in_train": true}
+  ],
+  "step2_finding": "All 5 v1.11-delta compound-condition negatives (3 drop-conjunct + 2 operator-mutation, spanning 3 CVEs) have their exact clean-positive base present in the corpus-v2 train split (shared bundle_id). No orphaned negatives. All 3 families are train-adjacent families the v1.10 gate already saturates (canary 9/9).",
+  "compound_shaped_positives_in_train": [
+    {"family": "libarchive", "cve": "CVE-2026-15028", "new_in_v11": true},
+    {"family": "libxml2_13", "cve": "CVE-2025-6170", "new_in_v11": false},
+    {"family": "graphite2", "cve": "CVE-2026-50593", "new_in_v11": false},
+    {"family": "libxml2_13", "cve": "CVE-2026-0989", "new_in_v11": false},
+    {"family": "libsixel", "cve": "CVE-2021-45340", "new_in_v11": false},
+    {"family": "libxml2_13", "cve": "CVE-2026-0992", "new_in_v11": false},
+    {"family": "procps", "cve": "CVE-2023-4016", "new_in_v11": false}
+  ],
+  "balance_finding": "Absolute compound-shape balance in train is already positive-heavy (~8 added-guard-line positives across libarchive/libxml2_13/graphite2/libsixel/procps vs 5 compound negatives). The reject-tilt codex flagged is confined to the v1.11 INCREMENTAL delta: +1 compound positive (libarchive CVE-2026-15028) vs +5 compound negatives. codex's 'approximately 1:1 incremental hard-positive/negative mix' therefore means harvest ~4-5 compound-guard positives NEW to v1.11 from non-probe families, not re-weight the absolute set.",
+  "control_evidence": {
+    "v10_probe_report": "data/reports/lora-compound-probe-v1.10-control.json",
+    "failing_row": "ffmpeg_5 CVE-2023-49502 clean positive -> reject (false-reject); model self-contradicted (quoted full compound guard in patch.diff extraction, then declared 'omits height conjunct' in comparison). Probe fixture independently verified to contain both conjuncts -> model error, not probe/bundle defect.",
+    "cross_family_gap": "Every compound positive the model has trained on lives in train-adjacent families it saturates; cross-family compound-positive acceptance (the axis the ffmpeg row failed) is untrained. Donor families for step 3 should be non-probe (not libwebp/ffmpeg) and ideally not the 3 already-saturated families."
+  },
+  "step3_target": "Harvest ~4-5 base-valid compound-guard POSITIVES new to v1.11 from non-probe train families, bringing the v1.11 incremental compound mix to ~1:1. Keep the 5 negatives. Leave libwebp+ffmpeg held out. Promotion gate: v1.11 must improve raw negative rejection WITHOUT increasing positive false-rejects vs this v1.10 control."
+}
