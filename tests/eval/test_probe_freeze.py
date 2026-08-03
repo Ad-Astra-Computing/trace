@@ -55,10 +55,25 @@ def test_freeze_inventory_matches_probe():
 
 def test_every_family_has_exactly_one_paired_clean_positive():
     """The paired positive is what distinguishes real discrimination from
-    'reject anything compound-shaped'. Losing it silently guts the design."""
+    'reject anything compound-shaped'. Losing it silently guts the design.
+
+    libsynthguard is a deliberate, recorded exception (pre-measurement top-up,
+    2026-08-03): it carries TWO clean positives -- the original awkward guard
+    (mixed &&/||, casts, repeated subexpression) plus a second, deliberately
+    PLAIN conventional guard -- so a future miss on this family can be
+    attributed to a specific cause (external/synthetic artifact vs. awkward
+    guard shape) rather than lumped together. No other family gets this
+    exception without an equally explicit, recorded reason.
+    """
     frozen = _freeze()
     for fam, meta in frozen["families"].items():
-        assert meta["positives"] == 1, f"{fam} has {meta['positives']} positives, need exactly 1"
+        if fam == "libsynthguard":
+            assert meta["positives"] == 2, (
+                f"libsynthguard has {meta['positives']} positives, expected exactly 2 "
+                "(awkward + plain, per the 2026-08-03 pre-measurement top-up)"
+            )
+        else:
+            assert meta["positives"] == 1, f"{fam} has {meta['positives']} positives, need exactly 1"
         assert meta["negatives"] >= 2, f"{fam} has too few negatives: {meta['negatives']}"
 
 

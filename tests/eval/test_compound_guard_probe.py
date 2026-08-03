@@ -72,7 +72,15 @@ PROBE_FAMILIES = {"libwebp", "ffmpeg", "krb", "libressl", "libsynthguard"}
 # Every family must carry EXACTLY one clean positive (the paired-control
 # design): more than one would let the model "average out" a false reject,
 # fewer than one leaves no accept-side signal for that family at all.
+#
+# libsynthguard is a deliberate, recorded exception (pre-measurement top-up,
+# 2026-08-03): it carries TWO clean positives -- the original awkward guard
+# (mixed &&/||, casts, repeated subexpression) plus a second, deliberately
+# PLAIN conventional guard -- so a future miss on this family can be
+# attributed to a specific cause (external/synthetic artifact vs. awkward
+# guard shape) instead of lumped together. See docs/DECISIONS.md.
 EXPECTED_CLEAN_POSITIVES_PER_FAMILY = 1
+EXPECTED_CLEAN_POSITIVES_PER_FAMILY_OVERRIDES = {"libsynthguard": 2}
 
 
 def _frozen_families() -> set[str]:
@@ -162,9 +170,11 @@ def test_build_compound_probe_rows_well_formed(tmp_path):
         fam_positives = [r for r in fam_rows if r["label"] == "positive"]
         assert fam_positives, f"{fam}: no paired positive"
         assert any(r["label"] == "negative" for r in fam_rows), f"{fam}: no negative"
-        assert len(fam_positives) == EXPECTED_CLEAN_POSITIVES_PER_FAMILY, (
-            f"{fam}: expected exactly {EXPECTED_CLEAN_POSITIVES_PER_FAMILY} clean positive, "
-            f"got {len(fam_positives)}"
+        expected = EXPECTED_CLEAN_POSITIVES_PER_FAMILY_OVERRIDES.get(
+            fam, EXPECTED_CLEAN_POSITIVES_PER_FAMILY
+        )
+        assert len(fam_positives) == expected, (
+            f"{fam}: expected exactly {expected} clean positive(s), got {len(fam_positives)}"
         )
         for r in fam_positives:
             assert r["provenance"]["positive_source"] == "clean"

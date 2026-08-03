@@ -2,8 +2,20 @@
 
 **Status:** registered before any v1.11 measurement. Probe frozen at
 `data/probes/compound-guard-probe-freeze.json`
-(sha256 `35b4672a11c4b6ce154e14eabdea5c60ba63760e026d84a75e9ce472f322335b`,
-20 rows / 5 families), enforced by `tests/eval/test_probe_freeze.py`.
+(sha256 `bdebcd7d1081be424cf59fc653211187278713f9e38d05ab3f78246e37712f15`,
+**25 rows / 5 families**), enforced by `tests/eval/test_probe_freeze.py`.
+
+**Amendment (pre-measurement, 2026-08-03).** The probe was topped up from 20 to
+25 rows BEFORE any inference was run, on peer instruction; the freeze manifest
+carries the prior sha256 under `previous_freezes` with
+`amended_pre_measurement: true`. Rationale: libwebp and ffmpeg carried only 2
+negatives each — and ffmpeg is the family where the v1.10 over-rejection failure
+actually lives, so leaving it under-probed invited a "the failure family was
+under-probed" objection; and libsynthguard needed a SECOND clean positive
+(plain guard vs the existing awkward one) so that a miss there can be attributed
+to external-artifact failure rather than awkwardness. This was the last
+analytically free moment: after the first measurement any row change would be
+outcome-dependent and is forbidden by §7.
 
 Authorization: Jason authorized the statistical framing ("Option A"), conditional
 on peer endorsement; the peer endorsed it while imposing the staging rule below.
@@ -53,10 +65,47 @@ Order:
    checkpoints. Cheap against a training run. Counts discordant pairs.
 4. Six trainings (2 arms x 3 training seeds) **only if step 3 clears**.
 
-**Stop rule at step 3:** if fewer than **5 rows are discordant**, the sign test
-cannot reach p<0.05 even if every flip goes the hypothesized way. In that case do
-NOT fire; grow the probe first and report the point estimate to Jason before any
-spend.
+### Stop rule at step 3 (corrected arithmetic — this is binding)
+
+An earlier draft said "fire if >=5 discordant." That was wrong in substance. Our
+test is a **one-sided** paired sign test; the achievable p by discordant count k
+and number of wrong-direction ("defecting") rows is:
+
+| k | perfect split | tolerates 1 defector | tolerates 2 |
+|---|---|---|---|
+| 5 | 0.031 (ok) | 0.188 — no | no |
+| 6 | 0.016 (ok) | 0.109 — no | no |
+| 7 | 0.008 (ok) | 0.063 — no | no |
+| 8 | 0.004 (ok) | **0.035 (ok)** | no |
+| 11 | 0.0005 | 0.006 | **0.033 (ok)** |
+
+So k=5 reaches significance **only on a flawless 5-0 split** — a single
+wrong-direction row destroys the primary analysis. Thresholds:
+
+- **k < 5 → STOP.** Cannot reach p<0.05 under any split. Grow the probe, report
+  to Jason, do not fire.
+- **k = 5-7 → AMBER.** Significant only on a perfect split. Do NOT auto-proceed:
+  report to Jason with the discordant table and an explicit statement that one
+  defecting row kills the primary. Default recommendation in amber is to grow
+  the probe.
+- **k >= 8 → GO.** Survives one defector.
+
+(For reference, under a two-sided test the floor would be k>=6; we specify
+one-sided, and the thresholds above are computed for the test we actually run.)
+
+### The pre-stage number is biased LOW — recorded before measurement
+
+The 4-6 hard positives are in NEITHER checkpoint, so the pre-stage compares
+v1.10 against a v1.11 that has not seen the treatment data. Pre-stage discordance
+therefore **underestimates** what the trained arms would show. Consequences,
+committed now:
+
+- Low discordance is **ambiguous** between "probe is insensitive" and "recipe is
+  inert without its hard positives." It must NOT be read as "the recipe does not
+  work."
+- The bias runs in the safe direction for a STOP decision (growing the probe is
+  cheap relative to 6 trainings), which is why a low reading triggers report-and-
+  grow rather than abandonment.
 
 Caveat: if the hard positives are new training data for the treatment arm, the
 existing v1.11 checkpoint is *not* the treatment arm. The pre-stage measures the
@@ -71,12 +120,30 @@ sampling may be reported as an inference-variance error bar but **must not** be
 substituted for training replication, which is the dominant noise term at this
 scale.
 
+### 4.1 Seed aggregation (pre-committed — closes a forking-paths hole)
+
+2 arms x 3 seeds admits many pairings (per-seed tests, 9 cross-pairings, pooled).
+We pre-commit to exactly one: **per-row majority verdict across the 3 seeds
+within each arm, then a SINGLE paired sign test** over those majority verdicts.
+Seed-level disagreement within an arm is reported **descriptively only** and
+never enters the test. No alternative aggregation may be substituted after
+seeing results.
+
 ## 5. Endpoints
 
 - **Primary: RAW verdict**, for both promotion clauses. The diagnostic is
   non-gating, so raw is what production experiences; promoting on
   grounding-corrected verdicts would certify a system we do not ship.
 - **Secondary (reported, not gating):** grounding-corrected verdicts.
+  **Mechanical definition, frozen before measurement:** "grounding-corrected"
+  means the `effective_verdict` produced by `eval/score_gate_pilot.py` at the
+  commit pinned in the run manifest — i.e. the existing deterministic overrides
+  (`check_pc_file_grounding` / `check_pc_role_grounding` firing on a negative
+  canary), and nothing else. No correction may be added, removed or re-tuned
+  after measurement begins.
+- **Conflict rule (pre-committed):** primary-null + secondary-positive = **NULL**.
+  The grounding-corrected secondary is not an escape hatch; it can never rescue
+  a null primary.
 - **Descriptive:** `check_pc_omission_claim` fire counts per arm x seed;
   grounding-override rate per arm; slices by family x mutation-shape x
   clean/mutated.
@@ -95,7 +162,9 @@ with the paired clean-positive design.
 
 ## 7. No post-freeze row exclusions
 
-**No rows are excluded, for any reason, after the freeze.** In particular rows
+**No rows are excluded, for any reason, after the freeze.** This extends to
+**no family exclusions and no reweighting**: every preregistered slice is
+reported even if the result is ugly or embarrassing for a family. In particular rows
 where `check_pc_omission_claim` fires are **kept**: it fires precisely on the
 false-reject shape, so excluding them would mechanically flatter whichever arm
 produces more of them — outcome-dependent exclusion. They are reported as a
@@ -103,7 +172,7 @@ descriptive third category instead.
 
 ## 8. Declared limitations (recorded before measurement)
 
-- **20 rows, below the ~24 target.** Power is the binding constraint; this is a
+- **25 rows** after the pre-measurement amendment (was 20, below the ~24 target). Power is the binding constraint; this is a
   known shortfall, declared now so a later top-up cannot be outcome-dependent.
 - **Unbalanced negatives per family:** libwebp 2, ffmpeg 2, krb5 4, libressl 3,
   libsynthguard 4.
@@ -111,12 +180,18 @@ descriptive third category instead.
   no numeric boundary); krb5 has no "guard dropped entirely" (its fix adds one
   disjunct to a 3-term guard, so that edit is identical to "drop added
   conjunct").
-- **Selection circularity:** 4 of 5 families are trace-authored source-backports
-  and are trace-tractable by construction. Only `libsynthguard` is artifact
-  independent — and it is a hand-authored **synthetic** control
-  (`CVE-0000-00001`, explicitly not a real advisory), not an independently
-  sourced real-world fix. Results must be reported split trace-sourced vs
-  external.
+- **Selection circularity, stated plainly rather than in a footnote:** 4 of 5
+  families are trace-authored source-backports and are trace-tractable by
+  construction. Only `libsynthguard` is artifact independent, and it is a
+  hand-authored **synthetic** control (`CVE-0000-0000{1,2}`, explicitly not real
+  advisories), not an independently sourced real-world fix. It therefore
+  satisfies **pipeline independence** — the actual confound, that
+  pipeline-produced artifacts share quirks a trained model can exploit — but NOT
+  real-world provenance. Consequently: **a probe failure on `libsynthguard`
+  rules out pipeline overfitting, but a probe pass there is weaker evidence than
+  a real independently-sourced fix would be.** Results are reported split
+  trace-sourced vs external. The family now carries two clean positives (one
+  plain, one awkward) so an external miss is not confounded with awkwardness.
 - The v1.10 control's raw per-row responses were never persisted, so that
   specific run cannot be re-scored offline. Fixed going forward in `390c042`.
 
@@ -127,6 +202,14 @@ On null, **v1.11 is not promoted.** The fallback is v1.10 plus promoting
 zero-training-cost mitigation for the quote-then-contradict production risk.
 That fallback existing is precisely why the trainings must earn their keep at
 step 3.
+
+**False-positive budget binding the fallback (pre-committed).** The fallback
+promotes a diagnostic to a gating role on the strength of a handful of authored
+shapes. The pre-stage yields real-artifact false-positive data for free, so the
+fallback is bound to it: **if `check_pc_omission_claim` fires on more than 5% of
+clean-accept rows in live v1.10 outputs, it is NOT promoted to gating**,
+regardless of the primary outcome. A checker that misfires on correct patches
+would convert an over-rejection problem into a different over-rejection problem.
 
 A null is only informative if instrumented, so the run must record: full raw
 per-row responses, decode settings and checkpoint hashes, per-arm data-mix
