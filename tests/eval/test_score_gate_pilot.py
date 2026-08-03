@@ -112,3 +112,72 @@ def test_extraction_order_absent_line_not_flagged_as_order():
         "## upstream-fix.patch extraction\n"
     )
     assert sgp.check_pc_extraction_order(generated, _pilot_rec(_PATCH)) is None
+
+
+# --- check_pc_omission_claim (v1.11 quote-then-contradict) -------------------
+#
+# Reproduces the v1.10 held-out compound-guard probe failure: the model quotes
+# the full multi-conjunct guard in its own patch.diff extraction, then asserts
+# in prose that patch.diff omits one conjunct -> FALSE REJECT on a clean
+# unseen-family positive (ffmpeg CVE-2023-49502).
+
+_FFMPEG_GUARD = (
+    "AV_CEIL_RSHIFT(link->w, desc->log2_chroma_w) < 3 || "
+    "AV_CEIL_RSHIFT(link->h, desc->log2_chroma_h) < 4"
+)
+
+
+def test_omission_claim_flags_quote_then_contradict():
+    generated = (
+        "## patch.diff extraction\n"
+        f"- `+    if ({_FFMPEG_GUARD})`\n"
+        "## upstream-fix extraction\n"
+        f"- `+    if ({_FFMPEG_GUARD})`\n"
+        "## Patch comparison\n"
+        "comparison: mismatch — patch.diff omits the height conjunct "
+        "`AV_CEIL_RSHIFT(link->h, desc->log2_chroma_h) < 4`\n"
+        "## Findings\nverdict: reject\n"
+    )
+    err = sgp.check_pc_omission_claim(generated)
+    assert err is not None
+    assert "omits" in err
+
+
+def test_omission_claim_silent_on_genuine_dropped_conjunct():
+    # The conjunct really is absent from the extraction: a true negative that
+    # must still reject. The check must NOT fire here.
+    generated = (
+        "## patch.diff extraction\n"
+        "- `+    if (AV_CEIL_RSHIFT(link->w, desc->log2_chroma_w) < 3)`\n"
+        "## Patch comparison\n"
+        "comparison: mismatch — patch.diff omits "
+        "`AV_CEIL_RSHIFT(link->h, desc->log2_chroma_h) < 4`\n"
+        "## Findings\nverdict: reject\n"
+    )
+    assert sgp.check_pc_omission_claim(generated) is None
+
+
+def test_omission_claim_silent_on_clean_accept():
+    generated = (
+        "## patch.diff extraction\n"
+        "- `+    if (a && b)`\n"
+        "## Patch comparison\ncomparison: match\n"
+        "## Findings\nverdict: accept\n"
+    )
+    assert sgp.check_pc_omission_claim(generated) is None
+
+
+def test_omission_claim_silent_on_unquoted_hedged_claim():
+    # No backticked token -> conservative: never flag.
+    generated = (
+        "## patch.diff extraction\n"
+        "- `+    if (a && b)`\n"
+        "## Patch comparison\n"
+        "comparison: mismatch — the patch appears to omit a conjunct\n"
+        "## Findings\nverdict: reject\n"
+    )
+    assert sgp.check_pc_omission_claim(generated) is None
+
+
+def test_omission_claim_silent_without_extraction_section():
+    assert sgp.check_pc_omission_claim("no sections here; omits `x && y`") is None

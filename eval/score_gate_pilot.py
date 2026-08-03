@@ -334,6 +334,62 @@ def check_pc_role_grounding(generated: str, pilot_rec: dict) -> str | None:
     return None
 
 
+
+def check_pc_omission_claim(generated: str) -> str | None:
+    """Deterministic self-consistency on PROSE omission claims (v1.11).
+
+    Distinct from `check_pc_consistency`, which compares quoted +lines per hunk
+    and fires only when both sides quote identical text yet `comparison:` says
+    mismatch. The v1.10 held-out compound-guard probe exposed a variant that
+    slips past it: the model quotes the FULL multi-conjunct guard in its own
+    `## patch.diff extraction`, then asserts in prose that patch.diff "omits"
+    one conjunct — a quote-then-contradict failure that produced a FALSE REJECT
+    on a clean unseen-family positive (ffmpeg CVE-2023-49502).
+
+    We flag when a prose omission claim names a backticked token that is in fact
+    PRESENT in the model's own quoted patch.diff extraction. Conservative by
+    construction: fires only on an explicit omission verb plus an explicit
+    backticked token, so an unquoted or hedged claim is never flagged.
+
+    Returns a reason string when a contradicted omission claim is found, else None.
+    """
+    idx = generated.find("## patch.diff extraction")
+    if idx < 0:
+        return None
+    end_m = re.search(r"\n## ", generated[idx + 1:])
+    section = generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
+    quoted = [
+        re.sub(r"\s+", " ", q.strip())
+        for q in re.findall(r"`[+\- ]?\s*(.+?)`", section)
+    ]
+    quoted_blob = " ".join(q for q in quoted if q)
+    if not quoted_blob.strip():
+        return None
+
+    def _norm(t: str) -> str:
+        return re.sub(r"\s+", " ", t).strip()
+
+    quoted_blob = _norm(quoted_blob)
+
+    # Prose omission claims anywhere outside the extraction section itself.
+    rest = generated[:idx] + generated[idx + len(section):]
+    pattern = re.compile(
+        r"(?:omits?|omitted|missing|lacks?|absent|does not (?:include|contain|add)|"
+        r"fails to (?:include|add))\b[^`\n]{0,80}`([^`\n]{3,120})`",
+        re.IGNORECASE,
+    )
+    for m in pattern.finditer(rest):
+        claimed = _norm(m.group(1))
+        if not claimed or len(claimed) < 3:
+            continue
+        if claimed in quoted_blob:
+            return (
+                f"prose claims patch.diff omits {claimed[:60]!r}, but the model's own "
+                f"patch.diff extraction quotes it"
+            )
+    return None
+
+
 def check_pc_consistency(generated: str) -> str | None:
     """Check that `comparison:` verdicts in the PC section are consistent
     with the quoted +lines.
@@ -532,6 +588,7 @@ def main():
         pc_file_grounding_error = check_pc_file_grounding(text, pilot_rec) if split == "canary" else None
         pc_extraction_order_error = check_pc_extraction_order(text, pilot_rec) if split == "canary" else None
         pc_role_grounding_error = check_pc_role_grounding(text, pilot_rec) if split == "canary" else None
+        pc_omission_claim_error = check_pc_omission_claim(text) if split == "canary" else None
 
         entry = {
             "bundle_id": bundle_id,
@@ -552,6 +609,8 @@ def main():
             entry["pc_extraction_order_error"] = pc_extraction_order_error
         if pc_role_grounding_error:
             entry["pc_role_grounding_error"] = pc_role_grounding_error
+        if pc_omission_claim_error:
+            entry["pc_omission_claim_error"] = pc_omission_claim_error
 
         # effective_verdict (v1.8): if patch.diff grounding fires on a NEGATIVE canary
         # that the model accepted, override to reject.  Catches cross-artifact
@@ -639,6 +698,7 @@ def main():
     ]
     canary_pc_file_grounding_errors = [r for r in canary_results if r.get("pc_file_grounding_error")]
     canary_pc_role_grounding_errors = [r for r in canary_results if r.get("pc_role_grounding_error")]
+    canary_pc_omission_claim_errors = [r for r in canary_results if r.get("pc_omission_claim_error")]
     # Non-gating diagnostic (v1.10): extraction-order artifacts. Surfaced separately
     # so an order-artifact reject (e.g. the libxmp reshape false-reject) is
     # distinguishable from a genuine placement-defect reject when reading the gate.
@@ -674,6 +734,8 @@ def main():
             "canary_pc_consistency_grounding_explained": len(canary_pc_consistency_grounding_explained),
             "canary_pc_file_grounding_errors": len(canary_pc_file_grounding_errors),
             "canary_pc_role_grounding_errors": len(canary_pc_role_grounding_errors),
+            # Non-gating diagnostic (v1.11): see check_pc_omission_claim.
+            "canary_pc_omission_claim_errors": len(canary_pc_omission_claim_errors),
             # Non-gating diagnostic (v1.10): see check_pc_extraction_order.
             "canary_pc_extraction_order_errors": len(canary_pc_extraction_order_errors),
             "canary_effective_verdict_overrides": len(canary_effective_overrides),
