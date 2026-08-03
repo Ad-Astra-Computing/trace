@@ -48,7 +48,27 @@ FREEZE_PATH = ROOT / "data" / "reports" / "reviewer-corpus-2026-07-27-freeze.jso
 # (bundle_id 1c4ef238c7b5bc98 / CVE-2026-15028) is leaked too. The README's
 # claim is stale/incorrect for both. See the compound-guard-probe-families
 # DECISIONS entry.
-PROBE_FAMILIES = {"libwebp", "ffmpeg", "krb"}
+#
+# libressl (CVE-2021-41581) added to widen the probe from 3 to 4 families,
+# per the peer-review requirement of >=4 families / ~24 rows before any
+# training spend. Its guard (`if (candidate_local == NULL || candidate_domain
+# == NULL)`) has no numeric boundary term, so the off-by-one/boundary-nudge
+# negative shape is not producible for this family -- recorded explicitly in
+# its mutation.json/probe.json rather than silently unbalancing the mix
+# (mirrors the krb5 "guard dropped entirely" omission above).
+#
+# libsynthguard (CVE-0000-00001) is the 5th family and the FIRST
+# artifact-independent EXTERNAL control: a hand-authored synthetic fixture
+# (not a real CVE, not a real package, not produced by trace's own
+# Patcher/Reviewer/bundler pipeline) that breaks selection circularity, since
+# libwebp/ffmpeg/krb/libressl are all trace-authored source-backport bundles
+# and are therefore by construction trace-tractable. cve_id=CVE-0000-00001 is
+# an intentionally-fake identifier (year "0000" was never issued) --
+# see provenance-note.md alongside its bundles for the full honesty
+# statement. Trivially absent from the frozen corpus-v2 (a synthetic attr
+# path cannot appear in a corpus of real nixpkgs attrs), but still asserted
+# below for a uniform invariant across every PROBE_FAMILIES entry.
+PROBE_FAMILIES = {"libwebp", "ffmpeg", "krb", "libressl", "libsynthguard"}
 # Every family must carry EXACTLY one clean positive (the paired-control
 # design): more than one would let the model "average out" a false reject,
 # fewer than one leaves no accept-side signal for that family at all.
