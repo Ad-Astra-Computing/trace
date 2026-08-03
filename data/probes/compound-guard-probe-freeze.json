@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "frozen_at_commit": "b4cb24368a37efa55cafac7f6dd70a587138b7cd",
+  "probe_file": "data/probes/compound-guard-probe.jsonl",
+  "probe_sha256": "35b4672a11c4b6ce154e14eabdea5c60ba63760e026d84a75e9ce472f322335b",
+  "row_count": 20,
+  "family_count": 5,
+  "families": {
+    "ffmpeg_5": {
+      "rows": 3,
+      "positives": 1,
+      "negatives": 2,
+      "shapes": [
+        "clean-positive",
+        "condition-drop-conjunct",
+        "condition-operator-mutation"
+      ]
+    },
+    "krb5": {
+      "rows": 5,
+      "positives": 1,
+      "negatives": 4,
+      "shapes": [
+        "clean-positive",
+        "condition-drop-conjunct",
+        "condition-operator-mutation"
+      ]
+    },
+    "libressl": {
+      "rows": 4,
+      "positives": 1,
+      "negatives": 3,
+      "shapes": [
+        "clean-positive",
+        "condition-drop-conjunct",
+        "condition-operator-mutation"
+      ]
+    },
+    "libsynthguard": {
+      "rows": 5,
+      "positives": 1,
+      "negatives": 4,
+      "shapes": [
+        "clean-positive",
+        "condition-drop-conjunct",
+        "condition-operator-mutation"
+      ]
+    },
+    "libwebp": {
+      "rows": 3,
+      "positives": 1,
+      "negatives": 2,
+      "shapes": [
+        "clean-positive",
+        "condition-drop-conjunct"
+      ]
+    }
+  },
+  "inventory": {
+    "ffmpeg_5": [
+      {
+        "bundle_id": "a4048808df034459",
+        "cve_id": "CVE-2023-49502",
+        "label": "positive",
+        "shape": "clean-positive"
+      },
+      {
+        "bundle_id": "563cfc21ff1f788a",
+        "cve_id": "CVE-2023-49502",
+        "label": "negative",
+        "shape": "condition-drop-conjunct"
+      },
+      {
+        "bundle_id": "f6706221c6e5039c",
+        "cve_id": "CVE-2023-49502",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      }
+    ],
+    "krb5": [
+      {
+        "bundle_id": "ffd1043372f13913",
+        "cve_id": "CVE-2026-40356",
+        "label": "positive",
+        "shape": "clean-positive"
+      },
+      {
+        "bundle_id": "4133f1bd0a9fd402",
+        "cve_id": "CVE-2026-40356",
+        "label": "negative",
+        "shape": "condition-drop-conjunct"
+      },
+      {
+        "bundle_id": "8a15882d2ec81e43",
+        "cve_id": "CVE-2026-40356",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      },
+      {
+        "bundle_id": "7420ed8a44df0788",
+        "cve_id": "CVE-2026-40356",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      },
+      {
+        "bundle_id": "b78ba1117063036a",
+        "cve_id": "CVE-2026-40356",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      }
+    ],
+    "libressl": [
+      {
+        "bundle_id": "1b495745353deb1d",
+        "cve_id": "CVE-2021-41581",
+        "label": "positive",
+        "shape": "clean-positive"
+      },
+      {
+        "bundle_id": "f785c5d1f5982454",
+        "cve_id": "CVE-2021-41581",
+        "label": "negative",
+        "shape": "condition-drop-conjunct"
+      },
+      {
+        "bundle_id": "551ec40461da83ff",
+        "cve_id": "CVE-2021-41581",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      },
+      {
+        "bundle_id": "0f180fa1d081d35b",
+        "cve_id": "CVE-2021-41581",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      }
+    ],
+    "libsynthguard": [
+      {
+        "bundle_id": "a8dcb65a72559f82",
+        "cve_id": "CVE-0000-00001",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      },
+      {
+        "bundle_id": "439b6a5e59672bd8",
+        "cve_id": "CVE-0000-00001",
+        "label": "positive",
+        "shape": "clean-positive"
+      },
+      {
+        "bundle_id": "b4cf40e5b5ffb383",
+        "cve_id": "CVE-0000-00001",
+        "label": "negative",
+        "shape": "condition-drop-conjunct"
+      },
+      {
+        "bundle_id": "8d20aa08dcbdb8ba",
+        "cve_id": "CVE-0000-00001",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      },
+      {
+        "bundle_id": "063b79faa973e8bd",
+        "cve_id": "CVE-0000-00001",
+        "label": "negative",
+        "shape": "condition-operator-mutation"
+      }
+    ],
+    "libwebp": [
+      {
+        "bundle_id": "757f43e2c309a182",
+        "cve_id": "CVE-2023-4863",
+        "label": "positive",
+        "shape": "clean-positive"
+      },
+      {
+        "bundle_id": "82708fa59d007c20",
+        "cve_id": "CVE-2023-4863",
+        "label": "negative",
+        "shape": "condition-drop-conjunct"
+      },
+      {
+        "bundle_id": "25bebe05a5f9ea98",
+        "cve_id": "CVE-2023-4863",
+        "label": "negative",
+        "shape": "condition-drop-conjunct"
+      }
+    ]
+  },
+  "recorded_gaps": [
+    {
+      "family": "libressl",
+      "missing_shape": "off-by-one boundary nudge",
+      "reason": "guard is a pure NULL equality check with no numeric boundary term"
+    },
+    {
+      "family": "krb5",
+      "missing_shape": "guard dropped entirely",
+      "reason": "fix adds exactly one disjunct to a pre-existing 3-term guard, so \"drop added conjunct\" and \"drop guard entirely\" are the same edit; the count-preserving mutator cannot delete an added line"
+    }
+  ],
+  "known_imbalance": {
+    "note": "libwebp and ffmpeg carry 2 negatives each vs krb5 4 / libressl 3 / libsynthguard 4. Row total is 20, below the ~24 target. Recorded BEFORE any measurement so a later top-up cannot be outcome-dependent."
+  },
+  "external_control": {
+    "family": "libsynthguard",
+    "cve_id": "CVE-0000-00001",
+    "synthetic": true,
+    "why": "artifact independence: the other 4 families are trace-authored source-backports and are trace-tractable by construction."
+  }
+}
