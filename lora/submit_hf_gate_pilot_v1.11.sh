@@ -151,7 +151,14 @@ PYEOF
 N=$(wc -l < "${MERGED_JSONL}")
 MERGED_SHA256="$(sha256sum "${MERGED_JSONL}" | cut -d' ' -f1)"
 echo "Merged file sha256: ${MERGED_SHA256}"
-RESPONSES_PATH="gate_pilot_responses/corpus-v2-eval/responses.jsonl"
+# Per-run uniqueness. The v1.11 design runs this script SIX times (2 arms x 3
+# training seeds); a fixed responses path means each run silently overwrites the
+# previous one -- which is exactly how the 2026-07-28 control run's raw responses
+# became unrecoverable. RUN_TAG makes each dispatch land in its own path, and the
+# job now refuses to clobber an existing one (ALLOW_RESPONSES_OVERWRITE=1 to force).
+RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+RUN_TAG="${RUN_TAG:-$(printf '%s' "${RUN_TIMESTAMP}" | tr -c 'A-Za-z0-9' '-')}"
+RESPONSES_PATH="gate_pilot_responses/corpus-v2-eval/${RUN_TAG}/responses.jsonl"
 
 echo "Uploading gate-pilot-only and probe-only files for provenance ..."
 nix-shell -p python3Packages.huggingface-hub --run \
@@ -184,6 +191,7 @@ hf jobs uv run \
   -e ADAPTER_REPO='${ADAPTER_REPO}' \
   -e EXPECTED_INPUT_SHA256='${MERGED_SHA256}' \
   -e RESPONSES_PATH='${RESPONSES_PATH}' \
+  -e RUN_TIMESTAMP='${RUN_TIMESTAMP}' \
   lora/hf_gate_pilot_job.py
 "
 
@@ -202,3 +210,11 @@ cat > "${PROVENANCE_JSON}" << EOF
 EOF
 echo "Provenance written to ${PROVENANCE_JSON}:"
 cat "${PROVENANCE_JSON}"
+
+echo
+echo "Job dispatched with --detach; raw artifacts are NOT local yet."
+echo "When it completes, pull and hash-verify them BEFORE scoring:"
+echo "  python3 lora/fetch_gate_pilot_run.py \\"
+echo "    --adapter-repo '${ADAPTER_REPO}' \\"
+echo "    --responses-path '${RESPONSES_PATH}' \\"
+echo "    --out-dir 'data/reports/runs/${RUN_TAG}'"
