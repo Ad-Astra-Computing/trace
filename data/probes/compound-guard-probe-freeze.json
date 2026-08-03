@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "frozen_at_commit": "PENDING-local-uncommitted",
+  "frozen_at_commit": "778f907bae3dd6c2894d1eec52de4c9ef9391932",
   "probe_file": "data/probes/compound-guard-probe.jsonl",
   "probe_sha256": "bdebcd7d1081be424cf59fc653211187278713f9e38d05ab3f78246e37712f15",
   "row_count": 25,

@@ -6,13 +6,14 @@
 #      canary + 11 test, already v9 system prompt) — copied UNCHANGED. This is
 #      the non-regression check against the v1.10 gate.
 #   2. The new held-out compound-guard probe (data/probes/compound-guard-probe.jsonl,
-#      6 rows: 2 unseen-family clean positives + 4 mutated negatives, libwebp
-#      CVE-2023-4863 + ffmpeg_5 CVE-2023-49502) — copied UNCHANGED. This is the
+#      25 rows / 5 families: libwebp, ffmpeg_5, krb5, libressl, libsynthguard;
+#      frozen at data/probes/compound-guard-probe-freeze.json and preregistered
+#      in docs/PREREG_REVIEWER_V1.11.md) — copied UNCHANGED. This is the
 #      v1.11 measurability signal.
 #
 # lora/hf_gate_pilot_job.py reads a FIXED filename: /data/gate-pilot.jsonl (no
 # env override). To run both inputs through ONE inference job, we build a
-# MERGED file (gate-pilot + probe, 26 rows) and upload it AS gate-pilot.jsonl —
+# MERGED file (gate-pilot + probe, 45 rows) and upload it AS gate-pilot.jsonl —
 # that is the file the job actually reads. The two source files are ALSO
 # uploaded under their own names for provenance/reproducibility, but they are
 # not what the model sees; the merged file is. Scoring afterwards treats them
@@ -31,9 +32,9 @@
 # sort_keys=True serialization), so MERGED_SHA256 computed here MUST equal the
 # one computed in the control script — that equality is what makes the two
 # arms' inputs provably identical. The two arms still write responses to
-# DISTINCT paths: the control arm scores against gate_pilot_responses/
-# corpus-v2-control/responses.jsonl, this (v1.11) arm scores against
-# gate_pilot_responses/corpus-v2-eval/responses.jsonl. Do not cross-score them.
+# DISTINCT per-run paths: the control arm under gate_pilot_responses/
+# corpus-v2-control/<RUN_TAG>/, this (v1.11) arm under gate_pilot_responses/
+# corpus-v2-eval/<RUN_TAG>/. Do not cross-score them.
 #
 # Run AFTER the training job (adastracomputing/reviewer-lora-v1.11) completes.
 #
@@ -100,9 +101,19 @@ if len(canary) != 9:
 if len(test) != 11:
     raise ValueError(f"Expected 11 test rows in gate pilot, got {len(test)}")
 
-# Sanity: probe unchanged shape (6 rows, all split=canary, v9 system prompt).
-if len(probe_rows) != 6:
-    raise ValueError(f"Expected 6 probe rows, got {len(probe_rows)}")
+# Sanity: probe matches the FROZEN manifest byte-for-byte. The prereg
+# (docs/PREREG_REVIEWER_V1.11.md) binds measurement to this exact freeze;
+# dispatching any other probe bytes would run an unregistered experiment.
+import hashlib
+freeze = json.loads(Path("data/probes/compound-guard-probe-freeze.json").read_text())
+actual_sha = hashlib.sha256(probe_path.read_bytes()).hexdigest()
+if actual_sha != freeze["probe_sha256"]:
+    raise ValueError(
+        f"probe sha256 {actual_sha} != frozen {freeze['probe_sha256']} "
+        "(probe drifted from data/probes/compound-guard-probe-freeze.json)"
+    )
+if len(probe_rows) != freeze["row_count"]:
+    raise ValueError(f"Expected {freeze['row_count']} probe rows, got {len(probe_rows)}")
 if any(r.get("split") != "canary" for r in probe_rows):
     raise ValueError("All probe rows must be split=canary")
 for r in probe_rows:
@@ -175,7 +186,7 @@ echo "Submitting v1.11 gate pilot + compound-guard-probe inference job"
 echo "  flavor:   ${FLAVOR}"
 echo "  adapter:  ${ADAPTER_REPO}"
 echo "  dataset:  ${DATASET}"
-echo "  input:    gate-pilot.jsonl (${N} examples: 9 canary + 11 test + 6 probe, sha256=${MERGED_SHA256})"
+echo "  input:    gate-pilot.jsonl (${N} examples: 9 canary + 11 test + 25 probe, sha256=${MERGED_SHA256})"
 echo "  responses path: ${RESPONSES_PATH}"
 
 nix-shell -p python3Packages.huggingface-hub --run "

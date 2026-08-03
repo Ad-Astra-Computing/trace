@@ -17,6 +17,21 @@ to external-artifact failure rather than awkwardness. This was the last
 analytically free moment: after the first measurement any row change would be
 outcome-dependent and is forbidden by §7.
 
+**Amendment (process disclosure, 2026-08-03).** At dispatch time the "existing
+v1.11 checkpoint" assumed by step 3 was found NOT to exist —
+`adastracomputing/reviewer-lora-v1.11` was never trained; the pre-stage design
+inherited an incorrect premise. Resolution (peer-ruled): dispatch **one**
+control-arm training (seed 42, current corpus, NO hard positives — i.e. one of
+the final experiment's 3 control-arm seeds, brought forward) so the registered
+v1.10-vs-v1.11-sans-hard-positives comparison can run. Hard cap: this one
+training only before the power gate; the remaining 5 (2 control seeds + 3
+treatment seeds) stay behind it. If the gate rules futility, this checkpoint is
+accepted sunk cost and is NOT an argument for continuing. Documented fallback if
+the run fails for infrastructure reasons: v1.9 as second arm — verified clean of
+all 5 probe families by construction (trained 2026-06-23; every probe-family
+artifact entered the repo 2026-06-28 or later) — at the cost of a bias-direction
+amendment (v1.9's larger recipe delta biases discordance HIGH, not LOW).
+
 Authorization: Jason authorized the statistical framing ("Option A"), conditional
 on peer endorsement; the peer endorsed it while imposing the staging rule below.
 See DECISIONS 2026-08-03.

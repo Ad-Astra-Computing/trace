@@ -12,8 +12,8 @@
 # v1.11 (see submit_hf_gate_pilot_v1.11.sh for the full rationale): the
 # existing gate pilot (exports/reviewer-v1.10/gate-pilot.jsonl, 9 canary + 11
 # test, v9 system prompt) plus the held-out compound-guard probe
-# (data/probes/compound-guard-probe.jsonl, 6 rows, 2 unseen families). Both are
-# copied UNCHANGED. lora/hf_gate_pilot_job.py reads a fixed filename
+# (data/probes/compound-guard-probe.jsonl, 25 rows / 5 families, frozen at
+# data/probes/compound-guard-probe-freeze.json). Both are copied UNCHANGED. lora/hf_gate_pilot_job.py reads a fixed filename
 # (/data/gate-pilot.jsonl), so the merged file is uploaded under that name;
 # the gate-pilot-only and probe-only files are also uploaded for provenance.
 #
@@ -80,9 +80,19 @@ if len(canary) != 9:
 if len(test) != 11:
     raise ValueError(f"Expected 11 test rows in gate pilot, got {len(test)}")
 
-# Sanity: probe unchanged shape (6 rows, all split=canary, v9 system prompt).
-if len(probe_rows) != 6:
-    raise ValueError(f"Expected 6 probe rows, got {len(probe_rows)}")
+# Sanity: probe matches the FROZEN manifest byte-for-byte. The prereg
+# (docs/PREREG_REVIEWER_V1.11.md) binds measurement to this exact freeze;
+# dispatching any other probe bytes would run an unregistered experiment.
+import hashlib
+freeze = json.loads(Path("data/probes/compound-guard-probe-freeze.json").read_text())
+actual_sha = hashlib.sha256(probe_path.read_bytes()).hexdigest()
+if actual_sha != freeze["probe_sha256"]:
+    raise ValueError(
+        f"probe sha256 {actual_sha} != frozen {freeze['probe_sha256']} "
+        "(probe drifted from data/probes/compound-guard-probe-freeze.json)"
+    )
+if len(probe_rows) != freeze["row_count"]:
+    raise ValueError(f"Expected {freeze['row_count']} probe rows, got {len(probe_rows)}")
 if any(r.get("split") != "canary" for r in probe_rows):
     raise ValueError("All probe rows must be split=canary")
 for r in probe_rows:
@@ -153,7 +163,7 @@ echo "Submitting v1.10 CONTROL-arm inference job (run this before v1.11)"
 echo "  flavor:   ${FLAVOR}"
 echo "  adapter:  ${ADAPTER_REPO}"
 echo "  dataset:  ${DATASET}"
-echo "  input:    gate-pilot.jsonl (${N} examples: 9 canary + 11 test + 6 probe, sha256=${MERGED_SHA256})"
+echo "  input:    gate-pilot.jsonl (${N} examples: 9 canary + 11 test + 25 probe, sha256=${MERGED_SHA256})"
 echo "  responses path: ${RESPONSES_PATH} (distinct from v1.10's original gate_pilot_responses/responses.jsonl)"
 
 nix-shell -p python3Packages.huggingface-hub --run "
