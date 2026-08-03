@@ -32,7 +32,27 @@ _spec.loader.exec_module(bcp)
 
 PROBE_ROOT = ROOT / "traces" / "probes" / "compound-guard"
 FREEZE_PATH = ROOT / "data" / "reports" / "reviewer-corpus-2026-07-27-freeze.json"
-PROBE_FAMILIES = {"libwebp", "ffmpeg"}
+# krb5 (CVE-2026-40356) added 2026-08-03 to widen the probe past 2 families.
+# NOTE: `_normalize_attr` strips digit runs from every dot-component, so the
+# krb5 attr_path collapses to split_family "krb" (NOT "krb5") -- this is the
+# same normalization the frozen-corpus leakage check below uses, so the key
+# must match exactly or the leakage check silently passes on the wrong key.
+#
+# jq was assessed as a THIRD candidate family (per traces/positives-reorg-
+# reserved/README.md, which names krb5/jq/libarchive as "fresh compound-guard
+# families that are not in the Reviewer train split") and rejected: the
+# frozen corpus (data/reports/reviewer-corpus-2026-07-27-freeze.json)
+# eligible_examples already contains THREE jq positives in the train split,
+# including bundle_id a9dbef381f1d2d4e / CVE-2026-33948 -- the exact base
+# bundle this task would have mutated. jq is family-level leaked; libarchive
+# (bundle_id 1c4ef238c7b5bc98 / CVE-2026-15028) is leaked too. The README's
+# claim is stale/incorrect for both. See the compound-guard-probe-families
+# DECISIONS entry.
+PROBE_FAMILIES = {"libwebp", "ffmpeg", "krb"}
+# Every family must carry EXACTLY one clean positive (the paired-control
+# design): more than one would let the model "average out" a false reject,
+# fewer than one leaves no accept-side signal for that family at all.
+EXPECTED_CLEAN_POSITIVES_PER_FAMILY = 1
 
 
 def _frozen_families() -> set[str]:
@@ -57,11 +77,28 @@ def _run_build(out: Path) -> int:
 
 
 def test_probe_families_absent_from_frozen_corpus():
-    """The whole point of the probe: libwebp/ffmpeg must be unseen by
-    corpus-v2 train/dev/test, or generalization can't be measured."""
+    """The whole point of the probe: every PROBE_FAMILIES entry must be unseen
+    by corpus-v2 train/dev/test, or generalization can't be measured."""
     frozen = _frozen_families()
     leaked = PROBE_FAMILIES & frozen
     assert not leaked, f"probe families leak into frozen corpus-v2: {leaked}"
+
+
+def test_jq_and_libarchive_are_leaked_not_fresh():
+    """Documents why the probe was widened to krb5, not jq (2026-08-03).
+
+    traces/positives-reorg-reserved/README.md claims krb5/jq/libarchive are
+    "fresh compound-guard families that are not in the Reviewer train split".
+    That is true for krb5 (asserted by test_probe_families_absent_from_frozen_
+    corpus above, family key "krb") but FALSE for jq and libarchive: both
+    already have positives in corpus-v2's train split, including the exact jq
+    base bundle (CVE-2026-33948 / a9dbef381f1d2d4e) this task would have
+    mutated. Promoting either into the probe would silently invalidate the
+    held-out measurement it's meant to provide. This test pins the leak so a
+    future README/corpus edit that makes it stale gets caught."""
+    frozen = _frozen_families()
+    assert "jq" in frozen, "jq no longer in frozen corpus-v2 -- README claim may now be correct"
+    assert "libarchive" in frozen, "libarchive no longer in frozen corpus-v2 -- README claim may now be correct"
 
 
 def test_probe_bundles_carry_probe_marker():
@@ -89,7 +126,7 @@ def test_build_compound_probe_rows_well_formed(tmp_path):
     assert rows, "build_compound_probe produced zero rows"
     positives = [r for r in rows if r["label"] == "positive"]
     negatives = [r for r in rows if r["label"] == "negative"]
-    assert len(positives) >= 2, "expected >=1 paired clean positive per family"
+    assert len(positives) >= len(PROBE_FAMILIES), "expected >=1 paired clean positive per family"
     assert len(negatives) >= 3, "expected multiple compound-guard negatives"
 
     families = {r["provenance"]["split_family"] for r in rows}
@@ -97,11 +134,20 @@ def test_build_compound_probe_rows_well_formed(tmp_path):
 
     # Every family must have BOTH a positive and at least one negative (the
     # paired-control design: a probe that only ever rejects can't distinguish
-    # real discrimination from reflexive reject).
+    # real discrimination from reflexive reject), and EXACTLY one clean
+    # positive (not zero, not more than one -- see EXPECTED_CLEAN_POSITIVES_
+    # PER_FAMILY above).
     for fam in PROBE_FAMILIES:
         fam_rows = [r for r in rows if r["provenance"]["split_family"] == fam]
-        assert any(r["label"] == "positive" for r in fam_rows), f"{fam}: no paired positive"
+        fam_positives = [r for r in fam_rows if r["label"] == "positive"]
+        assert fam_positives, f"{fam}: no paired positive"
         assert any(r["label"] == "negative" for r in fam_rows), f"{fam}: no negative"
+        assert len(fam_positives) == EXPECTED_CLEAN_POSITIVES_PER_FAMILY, (
+            f"{fam}: expected exactly {EXPECTED_CLEAN_POSITIVES_PER_FAMILY} clean positive, "
+            f"got {len(fam_positives)}"
+        )
+        for r in fam_positives:
+            assert r["provenance"]["positive_source"] == "clean"
 
     # (bundle_id, mutation_type) must be unique across all rows, or
     # eval/score_gate_pilot.py's responses dict silently drops collisions.
