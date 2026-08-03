@@ -192,8 +192,49 @@ def _jq_demorgan(o):
     return not ((o.p() is not None) or (not o.feof()))
 
 
+def _libxml2_relaxng_orig(o):
+    # if (errno != 0 || *strEnd != 0 || val > INT_MAX)
+    return o.errnum() != 0 or o.strEnd_ch() != 0 or o.val() > _INT_MAX
+
+
+def _libxml2_relaxng_hoist(o):
+    # int val_over_int_max;  ...  val_over_int_max = (val > INT_MAX);
+    # if (errno != 0 || *strEnd != 0 || val_over_int_max)
+    val_over_int_max = o.val() > _INT_MAX
+    return o.errnum() != 0 or o.strEnd_ch() != 0 or val_over_int_max
+
+
+def _libxml2_catalog_split_orig(o):
+    # if (A && B && C && D && E) { ...; break; }
+    ran = []
+    if o.type_is_next() and o.url_eq() and o.value_eq() and o.prefer_eq() and o.group_eq():
+        ran.append("dedup")
+    return ran
+
+
+def _libxml2_catalog_split_rewrite(o):
+    # if (A) { if (B && C && D && E) { ...; break; } }
+    ran = []
+    if o.type_is_next():
+        if o.url_eq() and o.value_eq() and o.prefer_eq() and o.group_eq():
+            ran.append("dedup")
+    return ran
+
+
+def _libxml2_snprintf_orig(o):
+    # if ((size - len > 4) && (buf[len - 1] != '.'))
+    return (o.size() - o.len() > 4) and (o.buf_ch() != _DOT)
+
+
+def _libxml2_snprintf_demorgan(o):
+    # if (!((size - len <= 4) || (buf[len - 1] == '.')))
+    return not ((o.size() - o.len() <= 4) or (o.buf_ch() == _DOT))
+
+
 _SENTINEL = object()
 _BOOL = [0, 1]
+_INT_MAX = 2147483647
+_DOT = ord(".")
 _LEN = [0, 1, 254, 255, 256, 1_000_000_000]
 _SMALL = [-2, -1, 0, 1, 2]
 
@@ -259,12 +300,71 @@ MODELS: dict[str, dict] = {
         ),
         trace_sensitive=True,
     ),
+    "CVE-2026-0989--libxml2-relaxng-limit--guard-hoist": dict(
+        orig=_libxml2_relaxng_orig,
+        rewrite=_libxml2_relaxng_hoist,
+        space={
+            # errno: 0 / EINVAL / ERANGE; *strEnd: NUL / 'x'; val spans the
+            # INT_MAX boundary and the strtoul saturation value.
+            "errnum": [0, 22, 34],
+            "strEnd_ch": [0, ord("x")],
+            "val": [0, 1, _INT_MAX - 1, _INT_MAX, _INT_MAX + 1, 4294967295],
+        },
+        pins=(
+            "if (errno != 0 || *strEnd != 0 || val > INT_MAX) {",
+            "if (errno != 0 || *strEnd != 0 || val_over_int_max) {",
+        ),
+        # A hoist DELIBERATELY changes the evaluation trace (`val > INT_MAX` is
+        # now evaluated even when an earlier disjunct short-circuited past it).
+        # Sound only because it is a pure comparison of two definitely-initialized
+        # scalars — no call, no deref, no side effect on errno — argued in
+        # reorg.json.
+        trace_sensitive=False,
+    ),
+    "CVE-2026-0992--libxml2-catalog-dedup--guard-split": dict(
+        orig=_libxml2_catalog_split_orig,
+        rewrite=_libxml2_catalog_split_rewrite,
+        space={
+            "type_is_next": _BOOL,
+            "url_eq": _BOOL,
+            "value_eq": _BOOL,
+            "prefer_eq": _BOOL,
+            "group_eq": _BOOL,
+        },
+        pins=(
+            "if ((prev->type == XML_CATA_NEXT_CATALOG) &&",
+            "if (prev->type == XML_CATA_NEXT_CATALOG) {",
+        ),
+        # Trace equality is load-bearing: two conjuncts are xmlStrEqual CALLS and
+        # every operand dereferences prev/entry, so the split must preserve which
+        # operands run on which path, not just the branch decision.
+        trace_sensitive=True,
+    ),
+    "CVE-2025-24928--libxml2-xmlsnprintf-sbo--guard-demorgan": dict(
+        orig=_libxml2_snprintf_orig,
+        rewrite=_libxml2_snprintf_demorgan,
+        space={
+            "size": [0, 4, 5, 10, 5000],
+            "len": [0, 1, 5, 4996, 5000],
+            "buf_ch": [_DOT, ord("x")],
+        },
+        pins=(
+            "if ((size - len > 4) && (buf[len - 1] != '.'))",
+            "if (!((size - len <= 4) || (buf[len - 1] == '.')))",
+        ),
+        # The second operand dereferences buf[len - 1]; De Morgan preserves the
+        # short-circuit exactly, so it is read on precisely the same paths. (A
+        # reorder or a hoist of the same guard would NOT be — see reorg.json.)
+        trace_sensitive=True,
+    ),
 }
 
 
 def test_guard_positives_present():
-    """The v1.11 balance move ships at least four hard compound-guard positives."""
-    assert len(GUARD_DIRS) >= 4, f"expected >=4 guard-* positives, found {len(GUARD_DIRS)}"
+    """The v1.11 balance move ships at least six hard compound-guard positives —
+    enough train-eligible hard positives to offset the five compound-condition
+    negatives, plus the probe-reserved ones held out of training."""
+    assert len(GUARD_DIRS) >= 6, f"expected >=6 guard-* positives, found {len(GUARD_DIRS)}"
 
 
 @pytest.mark.parametrize("bundle_dir", GUARD_DIRS, ids=lambda p: p.name)
