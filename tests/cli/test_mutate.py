@@ -396,10 +396,15 @@ def test_condition_guard_not_found_errors(tmp_path):
 
 # --- reviewer-positive-reorg (structure-preserving positive variants) ----------
 
-def _reorg_args(base: Path, reorg: str, out: Path) -> argparse.Namespace:
+def _reorg_args(
+    base: Path, reorg: str, out: Path, guard: list[str] | None = None,
+    rewrite_to: list[str] | None = None, equivalence: str | None = None,
+    hardness: str | None = None,
+) -> argparse.Namespace:
     return argparse.Namespace(
         mutate_scope="reviewer-positive-reorg", base_dir=base, reorg=reorg,
-        out_dir=out, format="json",
+        out_dir=out, guard=guard, rewrite_to=rewrite_to, equivalence=equivalence,
+        hardness=hardness, format="json",
     )
 
 
@@ -578,3 +583,122 @@ def test_context_reshape_refuses_no_trailing_context(tmp_path):
     rc = mut.run(_reorg_args(base, "context-reshape", out))
     assert rc == 2
     assert not out.exists()
+
+
+# --- guard-* reorgs (hard compound-guard positives) ----------------------------
+
+_EQ = "De Morgan: A || B == !(!A && !B); order-preserving, operands unchanged."
+_HARD = "The `|| pl > 255` conjunct disappears and both operators flip."
+
+
+def test_guard_demorgan_rewrites_in_place(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "g1"
+    rc = mut.run(_reorg_args(
+        base, "guard-demorgan", out, guard=[_GUARD],
+        rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
+        equivalence=_EQ, hardness=_HARD,
+    ))
+    assert rc == 0
+    after = (out / "patch.diff").read_text()
+    assert "++\t\tif(!(ul <= 255 && pl <= 255))\n" in after
+    assert _GUARD not in after
+    # same line count -> hunk headers untouched
+    assert "@@ -0,0 +1,5 @@" in after
+    assert "+@@ -10,2 +10,3 @@" in after
+    marker = json.loads((out / "reorg.json").read_text())
+    assert marker["positive_source"] == "reorg"
+    assert marker["reorg_type"] == "guard-demorgan"
+    assert marker["expected_reviewer_verdict"] == "accept"
+    assert marker["equivalence_argument"] == _EQ
+    assert marker["hardness_rationale"] == _HARD
+    assert marker["reorg_details"]["depth"] == 2
+    assert marker["reorg_details"]["line_delta"] == 0
+
+
+def test_guard_rewrite_bumps_enclosing_hunk_counts(tmp_path):
+    """A rewrite that grows the guard bumps BOTH the embedded and the outer
+    new-side counts by the delta (and leaves the old side alone)."""
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "g2"
+    rc = mut.run(_reorg_args(
+        base, "guard-split", out, guard=[_GUARD],
+        rewrite_to=["\t\tif(ul > 255)", "\t\t\tgoto too_long;", "\t\tif(pl > 255)"],
+        equivalence=_EQ, hardness=_HARD,
+    ))
+    assert rc == 0
+    after = (out / "patch.diff").read_text()
+    assert "@@ -0,0 +1,7 @@" in after       # outer: 5 + 2
+    assert "+@@ -10,2 +10,5 @@" in after     # embedded: 3 + 2, old side (2) intact
+    assert json.loads((out / "reorg.json").read_text())["reorg_details"]["line_delta"] == 2
+
+
+def test_guard_rewrite_multi_line_guard(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "g3"
+    rc = mut.run(_reorg_args(
+        base, "guard-hoist", out,
+        guard=[" \tport = parse(s);", _GUARD],
+        rewrite_to=[" \tport = parse(s);", "\t\tif(!(ul <= 255 && pl <= 255))"],
+        equivalence=_EQ, hardness=_HARD,
+    ))
+    # the first guard line is a CONTEXT line in the embedded patch, not an added
+    # one, so the block does not match -> refuse rather than silently mis-edit
+    assert rc == 2
+    assert not out.exists()
+
+
+def test_guard_rewrite_requires_written_justification(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "g4"
+    rc = mut.run(_reorg_args(
+        base, "guard-demorgan", out, guard=[_GUARD],
+        rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
+        equivalence="", hardness=_HARD,
+    ))
+    assert rc == 2
+    assert not out.exists()
+
+
+def test_guard_rewrite_requires_guard_and_rewrite(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "g5"
+    rc = mut.run(_reorg_args(base, "guard-demorgan", out, equivalence=_EQ, hardness=_HARD))
+    assert rc == 2
+    assert not out.exists()
+
+
+def test_guard_rewrite_refuses_unmatched_guard(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "g6"
+    rc = mut.run(_reorg_args(
+        base, "guard-demorgan", out, guard=["\t\tif(nope > 255)"],
+        rewrite_to=["\t\tif(!(nope <= 255))"], equivalence=_EQ, hardness=_HARD,
+    ))
+    assert rc == 2
+    assert not out.exists()
+
+
+def test_guard_rewrite_refuses_noop(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    out = tmp_path / "pos" / "g7"
+    rc = mut.run(_reorg_args(
+        base, "guard-demorgan", out, guard=[_GUARD], rewrite_to=[_GUARD],
+        equivalence=_EQ, hardness=_HARD,
+    ))
+    assert rc == 2
+    assert not out.exists()
+
+
+def test_guard_rewrite_strips_review_and_signing(tmp_path):
+    base = _compound_guard_base(tmp_path / "ex")
+    (base / "review.md").write_text("## Verdict\naccept\n")
+    (base / "bundle.sig").write_text("sig")
+    out = tmp_path / "pos" / "g8"
+    mut.run(_reorg_args(
+        base, "guard-demorgan", out, guard=[_GUARD],
+        rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
+        equivalence=_EQ, hardness=_HARD,
+    ))
+    assert not (out / "review.md").exists()
+    assert not (out / "bundle.sig").exists()

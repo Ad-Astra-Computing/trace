@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "cve_id": "CVE-2026-15028",
+  "source_feeds": [
+    "nvd"
+  ],
+  "severity": {
+    "rating": "high",
+    "cvss_v3_score": 8.1
+  },
+  "published_at": "2026-07-08T00:00:00Z",
+  "summary": "One-byte heap out-of-bounds read (CWE-125) in libarchive's tar reader, reachable while parsing a PAX extended header. tar_atol_base_n() in libarchive/archive_read_support_format_tar.c parses a numeric field one digit at a time, but it reads the next byte with `*++p` before decrementing and checking the remaining byte count, so a numeric field whose digits run exactly to the caller-supplied boundary causes a single-byte read one past the end of the field buffer. This is a latent defect in the tar_atol_base_n() digit loop that upstream fixed defensively; it is not observable as an out-of-bounds access through libarchive's shipping tar reader, because every caller supplies a trailing byte after the numeric field (PAX values are copied into a NUL-terminated buffer via read_bytes_to_string(), which allocates size+1; ustar header fields sit inside the 512-byte header block; GNU-sparse and SUN.holesdata values are delimiter-terminated), so the stray read lands on an allocated byte. Upstream regression coverage observes the read only via a harness whose input buffer is bounded exactly to the field length. Affects the libarchive package at 3.8.7; the fix is merged upstream but not yet in a tagged release.",
+  "affected": [
+    {
+      "attr_path": "libarchive",
+      "drv_path": "/nix/store/00000000000000000000000000015028-libarchive-3.8.7.drv",
+      "pname": "libarchive",
+      "version": "3.8.7",
+      "confidence": "high"
+    }
+  ],
+  "mapping": {
+    "cpe": [
+      "cpe:2.3:a:libarchive:libarchive:3.8.7:*:*:*:*:*:*:*"
+    ],
+    "method": "cpe-exact"
+  },
+  "replay_critical": true
+}

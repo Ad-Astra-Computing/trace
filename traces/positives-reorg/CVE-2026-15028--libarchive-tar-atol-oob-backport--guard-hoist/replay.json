@@ -1,0 +1,209 @@
+{
+  "schema_version": "1.1.0",
+  "bundle_id": "1c4ef238c7b5bc98",
+  "cve_id": "CVE-2026-15028",
+  "nixpkgs_rev": "c530e744f6ac771f7930998f9f70efa82fada903",
+  "policy_version": "0000000000000000000000000000000000000000000000000000000000000000",
+  "bundle_schema_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "routing_config_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "tool_manifest": {
+    "flake_lock_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "tools": [
+      {
+        "name": "python",
+        "version": "3.13"
+      },
+      {
+        "name": "trace-cli",
+        "version": "0.0.0"
+      }
+    ]
+  },
+  "cross_family_rule_honored": true,
+  "roles": [
+    {
+      "role": "upstream-ref-resolver",
+      "invocations": [
+        {
+          "invocation_id": "dc2a3c9a-cfda-47a3-a12c-f12b76addec5",
+          "role": "upstream-ref-resolver",
+          "started_at": "2026-07-26T21:12:34Z",
+          "ended_at": "2026-07-26T21:12:34Z",
+          "model": {
+            "family": "deterministic-no-model",
+            "vendor": "internal",
+            "model_id": "upstream-ref-resolver-deterministic",
+            "version": "1.0.0",
+            "sampling": {
+              "temperature": 0,
+              "top_p": 1,
+              "max_tokens": 1
+            }
+          },
+          "prompt": {
+            "path": "prompts/upstream-ref-resolver.v1.md",
+            "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+          },
+          "inputs": [
+            {
+              "path": "finding.json",
+              "sha256": "2039a3e842c3369c39d3e3908e77ac8154742f663672404c89f349d9ae500376"
+            },
+            {
+              "path": "resolver-input.json",
+              "sha256": "172f678dbdd5f953d19a489b28ff85b2a830191c4dd32e695ae5f087b7d59a1a"
+            }
+          ],
+          "outputs": [
+            {
+              "path": "upstream-ref.json",
+              "sha256": "a38508b1162b61c7ad864db97b24b5ef3174cd417ab8d9e725bc155cd72b5fc8"
+            }
+          ],
+          "rng_seed": null,
+          "validators_passed": [
+            "eligibility-verdict-present"
+          ],
+          "network_policy_applied": "feeds-only"
+        }
+      ]
+    },
+    {
+      "role": "patcher",
+      "invocations": [
+        {
+          "invocation_id": "4e04b52c-636e-4485-8303-7e263edcc070",
+          "role": "patcher",
+          "started_at": "2026-07-27T05:04:16Z",
+          "ended_at": "2026-07-27T05:04:44Z",
+          "model": {
+            "family": "anthropic",
+            "vendor": "anthropic",
+            "model_id": "claude-opus-4-7",
+            "version": "opus-4-7",
+            "sampling": {
+              "temperature": 0.0,
+              "top_p": 1.0,
+              "max_tokens": 8192
+            }
+          },
+          "prompt": {
+            "path": "prompts/patcher.v3.md",
+            "sha256": "66ee5695e4855a10978974b8c0bf39c3594e408d26ae131ede7d30fa127bfd8c"
+          },
+          "inputs": [
+            {
+              "path": "finding.json",
+              "sha256": "7b3924c807ab363271a9dd37943f1af4bf57409ae94977b051e0a4c08c239480"
+            },
+            {
+              "path": "upstream-ref.json",
+              "sha256": "a38508b1162b61c7ad864db97b24b5ef3174cd417ab8d9e725bc155cd72b5fc8"
+            },
+            {
+              "path": "impact.json",
+              "sha256": "170fc1907f946edc41c55694b7fbac92d53389eb66cc07ad34bbca4113d6632b"
+            },
+            {
+              "path": "maintainers.json",
+              "sha256": "0e66a4c9652d0f61fcdbb924a1084de633a96431eb3e9a5b1a4981e65a1cffec"
+            },
+            {
+              "path": "package.nix",
+              "sha256": "0e85c518350c13a692b514aec50c2200e574021d0a4f14762499f77cfed0141d"
+            },
+            {
+              "path": "upstream-fix.patch",
+              "sha256": "81f4efaf94027c2134f4cc9d158e8525e127e3cfce29f6ada96898716d3cc378"
+            }
+          ],
+          "outputs": [
+            {
+              "path": "patch.diff",
+              "sha256": "ee4fbfc4b42d821cd6295bb96bcd2fa8b844b1da67e664e5f1ea67bbdbb51ec3"
+            },
+            {
+              "path": "patch-rationale.md",
+              "sha256": "87940faf8fef456f25670a8d3ccacf584ad7f72a292b277d7a1252692fb2a769"
+            }
+          ],
+          "rng_seed": null,
+          "validators_passed": [
+            "schema-valid-output"
+          ],
+          "network_policy_applied": "none"
+        },
+        {
+          "invocation_id": "d64b8cdf-e594-4323-93d1-9c25f7da47b7",
+          "role": "patcher",
+          "started_at": "2026-07-27T07:32:47Z",
+          "ended_at": "2026-07-27T07:33:32Z",
+          "model": {
+            "family": "anthropic",
+            "vendor": "anthropic",
+            "model_id": "claude-opus-4-7",
+            "version": "opus-4-7",
+            "sampling": {
+              "temperature": 0.0,
+              "top_p": 1.0,
+              "max_tokens": 8192
+            }
+          },
+          "prompt": {
+            "path": "prompts/patcher.v4.md",
+            "sha256": "79d57cf3fb7aafac1d59fb1c6be72f731863dc2d335e16f531fffaccb4be6163"
+          },
+          "inputs": [
+            {
+              "path": "finding.json",
+              "sha256": "7b3924c807ab363271a9dd37943f1af4bf57409ae94977b051e0a4c08c239480"
+            },
+            {
+              "path": "upstream-ref.json",
+              "sha256": "a38508b1162b61c7ad864db97b24b5ef3174cd417ab8d9e725bc155cd72b5fc8"
+            },
+            {
+              "path": "impact.json",
+              "sha256": "170fc1907f946edc41c55694b7fbac92d53389eb66cc07ad34bbca4113d6632b"
+            },
+            {
+              "path": "maintainers.json",
+              "sha256": "0e66a4c9652d0f61fcdbb924a1084de633a96431eb3e9a5b1a4981e65a1cffec"
+            },
+            {
+              "path": "package.nix",
+              "sha256": "0e85c518350c13a692b514aec50c2200e574021d0a4f14762499f77cfed0141d"
+            },
+            {
+              "path": "upstream-fix.patch",
+              "sha256": "81f4efaf94027c2134f4cc9d158e8525e127e3cfce29f6ada96898716d3cc378"
+            },
+            {
+              "path": "source-context/libarchive/archive_read_support_format_tar.c",
+              "sha256": "e5817f71681b892af9d14f84e18f08feeb7ed1c67b354869ec5ed7cbaccd38cc"
+            },
+            {
+              "path": "preflight.json",
+              "sha256": "d422a1ed8fbe4562f7b01cf8b97c4e59f82538e346cc4159002af5ebc2099cb6"
+            }
+          ],
+          "outputs": [
+            {
+              "path": "patch.diff",
+              "sha256": "00f0cf4f307bea58544f2fd115e8299120473935f93b9ba133b9777ce4f72784"
+            },
+            {
+              "path": "patch-rationale.md",
+              "sha256": "d3d8ffec11221274044609750b1a2d891bfef40a95e4ada9512f97e917f333ff"
+            }
+          ],
+          "rng_seed": null,
+          "validators_passed": [
+            "schema-valid-output"
+          ],
+          "network_policy_applied": "none"
+        }
+      ]
+    }
+  ]
+}

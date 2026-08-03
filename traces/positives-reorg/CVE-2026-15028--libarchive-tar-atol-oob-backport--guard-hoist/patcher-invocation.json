@@ -1,0 +1,30 @@
+{
+  "adapter": "anthropic",
+  "budget": {
+    "actual_cost_usd": 1.226186,
+    "hard_cap_usd": null,
+    "soft_cap_usd": null
+  },
+  "cve_id": "CVE-2026-15028",
+  "ended_at": "2026-07-27T07:33:32Z",
+  "invocation_id": "d64b8cdf-e594-4323-93d1-9c25f7da47b7",
+  "kind": "patch",
+  "model_id": "claude-opus-4-7",
+  "prompt_sha256": "79d57cf3fb7aafac1d59fb1c6be72f731863dc2d335e16f531fffaccb4be6163",
+  "raw_response_sha256": "79735bbaed5c7ef430e75d1454386f66277c83543ad08090d8de5f693ce85a9a",
+  "role": "patcher",
+  "sampling": {
+    "max_tokens": 8192,
+    "temperature": 0.0,
+    "top_p": 1.0
+  },
+  "schema_version": "1.0.0",
+  "started_at": "2026-07-27T07:32:47Z",
+  "usage": {
+    "cache_creation_input_tokens": 5651,
+    "cache_read_input_tokens": 0,
+    "input_tokens": 60432,
+    "output_tokens": 2850
+  },
+  "user_content_sha256": "ef5ab3e5f6030cf3ca632acd41d74bdc52020a7f05dc2a90451e4c4a5c16a3df"
+}

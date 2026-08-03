@@ -66,10 +66,37 @@ MUTATION_TYPES = (
 # layout of patch.diff (hunk/section order) without altering the fix content, so
 # the bundle stays a valid accept. Teaches CTW-equivalence under reordering (the
 # v1.8 zlib false-reject failure mode).
+#
+# The `guard-*` family is the HARD half (v1.11 compound-guard balance): the added
+# compound guard is rewritten into a semantically EQUIVALENT form whose token
+# string no longer matches the upstream fix, so a lexical reader mistakes it for a
+# dropped conjunct / flipped operator (i.e. for one of the condition-* negatives).
+# Every guard-* mint carries a written equivalence argument + hardness rationale;
+# they are NOT machine-derivable, so the minter requires them explicitly.
+#   guard-demorgan — De Morgan rewrite (`a && b` -> `!(!a || !b)` and friends).
+#                    Short-circuit order is preserved exactly, so it is sound even
+#                    when an operand has side effects or can fault.
+#   guard-hoist    — a subexpression is hoisted into a named local, so the tokens
+#                    leave the guard line. Sound only when the hoisted expression
+#                    is side-effect-free AND cannot fault when evaluated on the
+#                    path where the original short-circuited past it.
+#   guard-split    — one guard split into nested ifs (`if (a && b) S` ->
+#                    `if (a) { if (b) S }`). Order-preserving; check for an else
+#                    clause that could re-bind, and brace the outer if.
+#   guard-reorder  — conjuncts reordered. Sound ONLY when every operand is pure
+#                    and non-faulting (never for `p && p->x`).
 REORG_TYPES = (
     "reorder-hunks",
     "context-reshape",
+    "guard-demorgan",
+    "guard-hoist",
+    "guard-split",
+    "guard-reorder",
 )
+
+# The subset of REORG_TYPES that rewrites an added guard in place (needs --guard /
+# --rewrite-to / --equivalence / --hardness).
+GUARD_REWRITE_TYPES = ("guard-demorgan", "guard-hoist", "guard-split", "guard-reorder")
 
 # A syntactically-valid but deliberately-wrong SRI hash (base64 of 32 zero bytes).
 _DECOY_SRI = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -142,6 +169,26 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     rp.add_argument("--base-dir", type=Path, required=True, help="known-good positive bundle dir")
     rp.add_argument("--reorg", choices=REORG_TYPES, required=True)
     rp.add_argument("--out-dir", type=Path, required=True, help="destination bundle dir (created)")
+    rp.add_argument(
+        "--guard", action="append", default=None, metavar="LINE",
+        help="guard-* reorgs: an ADDED source line of the compound guard to rewrite "
+             "(verbatim, sans diff prefix). Repeat, in order, for a multi-line guard.",
+    )
+    rp.add_argument(
+        "--rewrite-to", action="append", default=None, metavar="LINE",
+        help="guard-* reorgs: a replacement source line (verbatim, sans diff prefix). "
+             "Repeat, in order; the replacement may have a different line count.",
+    )
+    rp.add_argument(
+        "--equivalence", default=None,
+        help="guard-* reorgs: the written proof that the rewrite is semantically "
+             "equivalent to the original guard (recorded in reorg.json).",
+    )
+    rp.add_argument(
+        "--hardness", default=None,
+        help="guard-* reorgs: why this rewrite sits near the rejection boundary — "
+             "what a string-level reader would mistake for a missing conjunct.",
+    )
     rp.add_argument("--format", choices=["human", "json"], default="human")
     return p
 
@@ -499,9 +546,105 @@ def _reshape_context(out_dir: Path) -> dict[str, Any]:
     raise ValueError("no hunk with a droppable trailing context line to reshape")
 
 
-def _apply_reorg(out_dir: Path, reorg: str) -> dict[str, Any]:
+def _find_added_block(lines: list[str], guard: list[str]) -> list[tuple[int, int]]:
+    """All (start_index, depth) where `lines[start:start+len(guard)]` are ADDED
+    diff lines whose source content is exactly `guard`, all at the same depth."""
+    hits: list[tuple[int, int]] = []
+    n = len(guard)
+    for i in range(len(lines) - n + 1):
+        depths = [_added_line_match(lines[i + j], g) for j, g in enumerate(guard)]
+        if all(d is not None for d in depths) and len(set(depths)) == 1:
+            hits.append((i, depths[0]))  # type: ignore[arg-type]
+    return hits
+
+
+_HUNK_HDR_COUNTS_RE = re.compile(
+    r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$"
+)
+
+
+def _bump_new_count(header: str, delta: int, depth: int) -> str:
+    """Add `delta` to the NEW-side line count of a `@@ -a,b +c,d @@` header at
+    nesting `depth`, leaving the old side and the start lines alone.
+
+    Deliberately a delta bump rather than a recount: some corpus patch.diff
+    headers carry counts that already differ from a strict recount, and a
+    positive variant must not silently rewrite bytes outside the guard it is
+    there to vary."""
+    prefix = header[:depth]
+    m = _HUNK_HDR_COUNTS_RE.match(header[depth:])
+    if not m:
+        raise ValueError(f"not a hunk header: {header!r}")
+    a, b, c, d, heading = m.groups()
+    old_side = f"-{a}" + (f",{b}" if b is not None else "")
+    new_count = (int(d) if d is not None else 1) + delta
+    if new_count < 0:
+        raise ValueError(f"bump would make a negative line count: {header!r}")
+    return f"{prefix}@@ {old_side} +{c},{new_count} @@{heading}"
+
+
+def _rewrite_guard(out_dir: Path, guard: list[str], rewrite_to: list[str]) -> dict[str, Any]:
+    """Replace an ADDED compound-guard block in patch.diff with an equivalent
+    rewrite, recomputing the enclosing hunk header(s) so the diff stays
+    well-formed. Only the added side changes; the old side (context + removed
+    lines) is untouched, so the patch still applies.
+
+    Semantic equivalence of the rewrite is the CALLER's responsibility — this
+    function is a mechanical editor, and the minter demands a written argument."""
+    if not guard or not rewrite_to:
+        raise ValueError("guard rewrite requires both --guard and --rewrite-to")
+    if guard == rewrite_to:
+        raise ValueError("--rewrite-to is identical to --guard (a no-op is not a rewrite)")
+    patch_path = out_dir / "patch.diff"
+    diff = patch_path.read_text()
+    lines = diff.splitlines()
+
+    hits = _find_added_block(lines, guard)
+    if len(hits) != 1:
+        raise ValueError(
+            f"--guard matched {len(hits)} added block(s), need exactly 1: {guard!r}"
+        )
+    idx, depth = hits[0]
+    prefix = "+" * depth
+    new_block = [prefix + l for l in rewrite_to]
+    lines[idx:idx + len(guard)] = new_block
+    last = idx + len(new_block) - 1
+
+    # Fix up the enclosing hunk header(s): only the NEW side changed, by exactly
+    # `delta` lines. An embedded (depth-2) guard sits inside an added file, so
+    # BOTH the embedded `+@@` header and the outer `@@` header count it.
+    delta = len(new_block) - len(guard)
+    if delta:
+        headers: list[int] = []
+        for d in range(depth, 0, -1):
+            h = _hunk_header_of(lines, last, depth=d)
+            if h is None:
+                raise ValueError(f"no depth-{d} hunk header precedes the guard")
+            headers.append(h)
+        for d, h in zip(range(depth, 0, -1), headers):
+            lines[h] = _bump_new_count(lines[h], delta, depth=d - 1)
+
+    patch_path.write_text("\n".join(lines) + ("\n" if diff.endswith("\n") else ""))
+    return {
+        "depth": depth,
+        "guard": list(guard),
+        "rewritten_to": list(rewrite_to),
+        "line_index": idx,
+        "line_delta": len(rewrite_to) - len(guard),
+    }
+
+
+def _apply_reorg(
+    out_dir: Path,
+    reorg: str,
+    guard: list[str] | None = None,
+    rewrite_to: list[str] | None = None,
+) -> dict[str, Any]:
     """Reorganize the staged bundle's patch.diff layout in-place; return marker
-    details. Content (the set of +/- change lines) is preserved exactly."""
+    details. Content (the set of +/- change lines) is preserved exactly, except
+    for the guard-* types, which replace one guard with an equivalent rewrite."""
+    if reorg in GUARD_REWRITE_TYPES:
+        return _rewrite_guard(out_dir, guard or [], rewrite_to or [])
     if reorg == "context-reshape":
         return _reshape_context(out_dir)
     if reorg != "reorder-hunks":  # pragma: no cover - guarded by argparse choices
@@ -605,9 +748,30 @@ def _run_reorg(args: argparse.Namespace) -> int:
         print(f"error: out-dir already exists: {out}")
         return 2
 
+    guard = getattr(args, "guard", None)
+    rewrite_to = getattr(args, "rewrite_to", None)
+    equivalence = (getattr(args, "equivalence", None) or "").strip()
+    hardness = (getattr(args, "hardness", None) or "").strip()
+    if args.reorg in GUARD_REWRITE_TYPES:
+        if not guard or not rewrite_to:
+            print(
+                f"error: --reorg {args.reorg} requires --guard and --rewrite-to "
+                "(repeat each for a multi-line guard)"
+            )
+            return 2
+        # A guard rewrite is only a POSITIVE if it is semantically equivalent, and
+        # that is not machine-checkable here. Refuse to mint one without the written
+        # argument: an unproven 'equivalent' rewrite silently poisons the corpus.
+        if not equivalence or not hardness:
+            print(
+                f"error: --reorg {args.reorg} requires --equivalence and --hardness "
+                "(the written equivalence proof and the near-boundary rationale)"
+            )
+            return 2
+
     _stage_copy(base, out)
     try:
-        details = _apply_reorg(out, args.reorg)
+        details = _apply_reorg(out, args.reorg, guard=guard, rewrite_to=rewrite_to)
     except Exception as exc:
         shutil.rmtree(out, ignore_errors=True)
         print(f"error: reorg failed ({args.reorg}): {exc}")
@@ -629,6 +793,15 @@ def _run_reorg(args: argparse.Namespace) -> int:
             "unchanged; only patch.diff layout was reorganized)."
         ),
     }
+    if args.reorg in GUARD_REWRITE_TYPES:
+        marker["equivalence_argument"] = equivalence
+        marker["hardness_rationale"] = hardness
+        marker["note"] = (
+            "Run `trace replay --execute --role reviewer --model <m>` against this "
+            "dir, then keep only if the Reviewer genuinely accepts. The guard was "
+            "rewritten into a PROVABLY EQUIVALENT form (see equivalence_argument), "
+            "so a reject here is a false reject, not a corpus defect."
+        )
     (out / "reorg.json").write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n")
 
     if args.format == "json":

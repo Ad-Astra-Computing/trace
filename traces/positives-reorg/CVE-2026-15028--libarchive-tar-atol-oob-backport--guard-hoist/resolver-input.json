@@ -1,0 +1,41 @@
+{
+  "cve_id": "CVE-2026-15028",
+  "current_version": "3.8.7",
+  "attr_path": "libarchive",
+  "candidate_refs": [
+    {
+      "version": "3.8.7",
+      "tag": "v3.8.7",
+      "release_url": "https://github.com/libarchive/libarchive/commit/c16162083a247efd4a2bc71401489bec3090ae7c",
+      "changelog_url": "https://github.com/libarchive/libarchive/commit/c16162083a247efd4a2bc71401489bec3090ae7c",
+      "advisory_urls": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2026-15028",
+        "https://github.com/libarchive/libarchive/pull/3253"
+      ],
+      "upstream_fix_commits": [
+        {
+          "repo_url": "https://github.com/libarchive/libarchive",
+          "commit_sha": "c16162083a247efd4a2bc71401489bec3090ae7c",
+          "message": "tar: fix 1-byte OOB read in number parsing (tar_atol_base_n) (CVE-2026-15028); upstream-fix.patch carries the archive_read_support_format_tar.c change"
+        }
+      ],
+      "delta": {
+        "transitive_package_changes": 0,
+        "new_direct_deps": [],
+        "removed_direct_deps": [],
+        "crosses_large_delta_threshold": false,
+        "threshold_policy": "v0-default"
+      },
+      "tier_hint": "source-backport",
+      "prefetch_hashes": [],
+      "eligibility": {
+        "verdict": "eligible-requires-human-review",
+        "verdict_reason": "SOURCE-BACKPORT (experimental). CVE-2026-15028 1-byte OOB read in libarchive 3.8.7 tar_atol_base_n during PAX numeric-field parsing; upstream fix c161620 reads each digit only while bytes remain. patch_strategy=source-backport; upstream-fix.patch is the ground-truth archive_read_support_format_tar.c change.",
+        "human_review_trigger": "source-backport-experimental",
+        "patch_strategy": "source-backport",
+        "kind": "human-review-required",
+        "kind_reason": "source-backport-experimental"
+      }
+    }
+  ]
+}
