@@ -108,10 +108,43 @@ if dropped_ids != {"c3ad8fadc690f28e"}:
         "Corpus drift — re-audit before dispatch."
     )
 rows = [r for r in rows if not _v10_shaped(r)]
+print(f"contract-drift exclusion: dropped {len(drifted)} v10-shaped target(s) {dropped_ids}; {len(rows)} rows remain")
+
+# Probe-family exclusion (2026-08-03): the v1.11 probe froze at 5 families
+# (data/probes/compound-guard-probe-freeze.json). krb5 went cert-green AFTER
+# the 2026-07-28 corpus pin, so the live export now includes its positive
+# (bundle 6f3c4f8c8f9b6c52) — training on it would contaminate the krb5 probe
+# rows and invalidate the held-out measurement. Drop it, loudly: any OTHER
+# probe-family row appearing here is unexpected corpus drift and must fail.
+import hashlib, re
+freeze = json.loads(Path("data/probes/compound-guard-probe-freeze.json").read_text())
+if hashlib.sha256(Path(freeze["probe_file"]).read_bytes()).hexdigest() != freeze["probe_sha256"]:
+    raise ValueError("probe file drifted from its freeze manifest — re-audit before dispatch")
+probe_rows_frozen = [
+    json.loads(l) for l in Path(freeze["probe_file"]).read_text().splitlines() if l.strip()
+]
+def _norm_attr(a):
+    # Same family key as tools/trace_cli/export.py::_normalize_attr: strip
+    # digit runs so ffmpeg_5/ffmpeg and krb5/krb compare as one family.
+    return re.sub(r"\d+", "", (a or "")).strip("_-.")
+probe_cves = {r["provenance"]["cve_id"] for r in probe_rows_frozen}
+probe_attrs = {_norm_attr(r["provenance"]["attr_path"]) for r in probe_rows_frozen}
+def _probe_family(r):
+    p = r.get("provenance", {})
+    return p.get("cve_id") in probe_cves or _norm_attr(p.get("attr_path")) in probe_attrs
+probe_leaked = [r for r in rows if _probe_family(r)]
+leaked_ids = {r["provenance"]["bundle_id"] for r in probe_leaked}
+if leaked_ids != {"6f3c4f8c8f9b6c52"}:
+    raise ValueError(
+        f"probe-family filter expected to drop exactly krb5 6f3c4f8c8f9b6c52, "
+        f"got {leaked_ids} ({len(probe_leaked)} rows). Corpus drift — re-audit "
+        "before dispatch."
+    )
+rows = [r for r in rows if not _probe_family(r)]
 (out / "reviewer.jsonl").write_text(
     "\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n"
 )
-print(f"contract-drift exclusion: dropped {len(drifted)} v10-shaped target(s) {dropped_ids}; {len(rows)} rows remain")
+print(f"probe-family exclusion: dropped {len(probe_leaked)} row(s) {leaked_ids}; {len(rows)} rows remain")
 
 # Pre-registered corpus shape (2026-07-28 dry export, post-exclusion). Fail
 # loudly if the corpus has drifted from what the v1.11 preregistration assumes.
@@ -151,15 +184,13 @@ if any(r["split"] != "train" or r["label"] != "negative" for r in mis):
     raise ValueError("misplacement negatives must all be train/negative")
 print(f"misplacement negatives: {len(mis)} (all train/negative) OK")
 
-# Absence assertion: the held-out compound-guard probe's two families
-# (libwebp CVE-2023-4863, ffmpeg_5 CVE-2023-49502) must not appear ANYWHERE
-# in the eligible export, not just train. A leak here would invalidate the
-# probe as a held-out measurability signal for the v1.10-vs-v1.11 delta.
-probe_cves = {"CVE-2023-4863", "CVE-2023-49502"}
-leaked = [r for r in rows if r.get("provenance", {}).get("cve_id") in probe_cves]
-if leaked:
-    raise ValueError(f"compound-guard-probe CVEs leaked into the export: {leaked}")
-print("compound-guard-probe absence (libwebp/ffmpeg_5): confirmed 0 hits OK")
+# Absence post-condition: after the probe-family exclusion above, NO probe
+# family may remain anywhere in the eligible export (any split).
+still_leaked = [r for r in rows if _probe_family(r)]
+if still_leaked:
+    ids = [(r["provenance"].get("cve_id"), r["provenance"].get("attr_path")) for r in still_leaked]
+    raise ValueError(f"compound-guard-probe families leaked into the export: {ids}")
+print(f"compound-guard-probe absence ({len(probe_attrs)} families, {len(probe_cves)} CVEs): confirmed 0 hits OK")
 
 for s in ("train", "dev", "test"):
     rows_s = [r for r in rows if r["split"] == s]
