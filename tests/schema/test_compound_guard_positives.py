@@ -31,6 +31,19 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POSITIVES_ROOT = REPO_ROOT / "traces" / "positives-reorg"
+# Hard positives whose base family is reserved for the held-out probe live here
+# instead, deliberately excluded from training (see that dir's README). Their
+# equivalence proofs must stay under test regardless of which side they sit on.
+RESERVED_ROOT = REPO_ROOT / "traces" / "positives-reorg-reserved"
+POSITIVE_ROOTS = (POSITIVES_ROOT, RESERVED_ROOT)
+
+
+def _bundle_dir(name: str):
+    for root in POSITIVE_ROOTS:
+        cand = root / name
+        if (cand / "reorg.json").exists():
+            return cand
+    raise AssertionError(f"no reorg bundle named {name!r} under {POSITIVE_ROOTS}")
 EXAMPLE_ROOT = REPO_ROOT / "traces" / "example"
 
 GUARD_REORG_TYPES = {"guard-demorgan", "guard-hoist", "guard-split", "guard-reorder"}
@@ -38,7 +51,8 @@ GUARD_REORG_TYPES = {"guard-demorgan", "guard-hoist", "guard-split", "guard-reor
 
 def _guard_positive_dirs() -> list[Path]:
     out = []
-    for marker in sorted(POSITIVES_ROOT.glob("CVE-*/reorg.json")):
+    markers = [m for root in POSITIVE_ROOTS for m in root.glob("CVE-*/reorg.json")]
+    for marker in sorted(markers):
         if json.loads(marker.read_text()).get("reorg_type") in GUARD_REORG_TYPES:
             out.append(marker.parent)
     return out
@@ -346,7 +360,7 @@ def test_guard_rewrite_is_semantically_equivalent(name: str):
     the original, with the same operand-evaluation trace (except where a hoist
     deliberately changes it and the operands are proven pure)."""
     model = MODELS[name]
-    bundle_dir = POSITIVES_ROOT / name
+    bundle_dir = _bundle_dir(name)
     assert bundle_dir.is_dir(), f"modelled positive is missing on disk: {name}"
     details = json.loads((bundle_dir / "reorg.json").read_text())["reorg_details"]
     guard_text = "\n".join(details["guard"])
