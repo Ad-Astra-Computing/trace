@@ -383,6 +383,48 @@ def test_guard_positive_marker_is_complete(bundle_dir: Path):
     assert details["guard"] != details["rewritten_to"]
 
 
+def _baseline_lines(bundle_dir: Path, marker: dict) -> list[str]:
+    """The comparison baseline for a reorg variant's patch.diff.
+
+    Plain lane: the base bundle's patch.diff verbatim (defects preserved,
+    headers delta-bumped never recounted). Adaptation lane (the variant carries
+    patch-applicability.json): the minter runs the canonical compiler on the
+    reorged patch, which recounts headers and normalizes structure — so the
+    like-for-like baseline is the CANONICALIZED base patch, compiled with the
+    same compiler against the same source-context. Comparing against the raw
+    base there would flag the compiler's own corrections as reorg edits."""
+    base = EXAMPLE_ROOT / marker["base_bundle_dir"]
+    raw = (base / "patch.diff").read_text()
+    if not (bundle_dir / "patch-applicability.json").is_file():
+        return raw.splitlines()
+    from tools.trace_cli.hunk_normalizer import canonicalize_backport_patch
+
+    # Canonicalize against the BASE bundle's source-context, not the variant's:
+    # a tampered variant could otherwise rewrite its own source-context/ AND
+    # patch.diff consistently and slide non-guard context edits past this test.
+    # First pin the variant's source-context byte-identical to the base's, so
+    # the Reviewer sees the same code context the equivalence proof was written
+    # against.
+    base_sc = base / "source-context"
+    var_sc = bundle_dir / "source-context"
+    base_files = {
+        p.relative_to(base_sc).as_posix(): p.read_bytes()
+        for p in sorted(base_sc.rglob("*"))
+        if p.is_file()
+    }
+    var_files = {
+        p.relative_to(var_sc).as_posix(): p.read_bytes()
+        for p in sorted(var_sc.rglob("*"))
+        if p.is_file()
+    }
+    assert var_files == base_files, (
+        f"{bundle_dir.name}: variant source-context/ differs from its base — "
+        "a reorg must not alter the code context, only patch.diff's guard"
+    )
+    source_context = {rel: data.decode() for rel, data in base_files.items()}
+    return canonicalize_backport_patch(raw, source_context).text.splitlines()
+
+
 @pytest.mark.parametrize("bundle_dir", GUARD_DIRS, ids=lambda p: p.name)
 def test_guard_rewrite_is_the_only_content_change(bundle_dir: Path):
     """The variant's patch.diff differs from its base only in the guard block and
@@ -391,7 +433,7 @@ def test_guard_rewrite_is_the_only_content_change(bundle_dir: Path):
     details = marker["reorg_details"]
     depth = details["depth"]
     prefix = "+" * depth
-    base_lines = (EXAMPLE_ROOT / marker["base_bundle_dir"] / "patch.diff").read_text().splitlines()
+    base_lines = _baseline_lines(bundle_dir, marker)
     var_lines = (bundle_dir / "patch.diff").read_text().splitlines()
 
     removed = [l for l in base_lines if l not in var_lines]
@@ -422,7 +464,7 @@ def test_hunk_header_offsets_are_preserved(bundle_dir: Path):
 
     marker = json.loads((bundle_dir / "reorg.json").read_text())
     delta = marker["reorg_details"]["line_delta"]
-    base_lines = (EXAMPLE_ROOT / marker["base_bundle_dir"] / "patch.diff").read_text().splitlines()
+    base_lines = _baseline_lines(bundle_dir, marker)
     var_lines = (bundle_dir / "patch.diff").read_text().splitlines()
 
     hdr = re.compile(r"^(\++)?@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")

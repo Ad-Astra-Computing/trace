@@ -738,6 +738,74 @@ def _stage_copy(base: Path, out: Path) -> None:
             pass
 
 
+def _emit_applicability_attestation(out: Path) -> dict[str, Any] | None:
+    """Adaptation lane: re-run the canonical compiler on the reorged patch.diff.
+
+    A reorg rewrites patch.diff, so the base bundle's patch-applicability.json
+    (if any) can never be carried — its canonical_patch_sha256 would not match
+    and the Reviewer's fail-closed gate would (correctly) refuse. The only
+    honest attestation is a fresh one: run the SAME canonical compiler the
+    Patcher path uses (tools/trace_cli/execute.py) against the bundle's own
+    source-context, and emit verdicts that are true by construction because
+    canonicalize_backport_patch fail-closes on any ungroundable, ambiguous, or
+    overlapping hunk. Raises on failure, which _run_reorg turns into a mint
+    refusal + rollback — an unattestable reorg must not be minted.
+
+    Returns None for non-adaptation-lane bundles (no source-context files).
+    """
+    sc_dir = out / "source-context"
+    if not sc_dir.is_dir():
+        return None
+    relpaths = [
+        p.relative_to(sc_dir).as_posix()
+        for p in sorted(sc_dir.rglob("*"))
+        if p.is_file()
+    ]
+    if not relpaths:
+        return None
+    import hashlib
+
+    from tools.trace_cli.hunk_normalizer import (
+        CANONICALIZER_VERSION,
+        canonicalize_backport_patch,
+    )
+
+    source_context = {rel: (sc_dir / rel).read_text() for rel in relpaths}
+    patch_path = out / "patch.diff"
+    raw_text = patch_path.read_text()
+    pre_sha = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+    canon = canonicalize_backport_patch(raw_text, source_context)
+    # Forgery edge: a patch whose sections are ALL out-of-context passes through
+    # the compiler verbatim with zero proven hunks — attesting fuzz-0/uniqueness
+    # over nothing would be a true-by-vacuity lie. Refuse instead.
+    if not canon.files:
+        raise ValueError(
+            "adaptation-lane reorg grounded zero hunks in source-context; "
+            "refusing to emit an attestation over nothing"
+        )
+    text = canon.text
+    # Same trailing-newline guarantee as the Patcher path: strict tools report
+    # "corrupt patch" without it.
+    if text and not text.endswith("\n"):
+        text += "\n"
+    diff_bytes = text.encode("utf-8")
+    patch_path.write_bytes(diff_bytes)
+    attestation = {
+        "schema_version": "1.0.0",
+        "canonicalizer_version": CANONICALIZER_VERSION,
+        "raw_patch_sha256": pre_sha,
+        "canonical_patch_sha256": hashlib.sha256(diff_bytes).hexdigest(),
+        "canonicalized": canon.changed,
+        "unique_source_match": True,
+        "applies_at_fuzz0": True,
+        "files": canon.files,
+    }
+    (out / "patch-applicability.json").write_text(
+        json.dumps(attestation, indent=2, sort_keys=True) + "\n"
+    )
+    return attestation
+
+
 def _run_reorg(args: argparse.Namespace) -> int:
     base: Path = args.base_dir
     out: Path = args.out_dir
@@ -772,6 +840,7 @@ def _run_reorg(args: argparse.Namespace) -> int:
     _stage_copy(base, out)
     try:
         details = _apply_reorg(out, args.reorg, guard=guard, rewrite_to=rewrite_to)
+        applicability = _emit_applicability_attestation(out)
     except Exception as exc:
         shutil.rmtree(out, ignore_errors=True)
         print(f"error: reorg failed ({args.reorg}): {exc}")
@@ -793,6 +862,9 @@ def _run_reorg(args: argparse.Namespace) -> int:
             "unchanged; only patch.diff layout was reorganized)."
         ),
     }
+    if applicability is not None:
+        marker["patch_applicability_regenerated"] = True
+        marker["canonical_patch_sha256"] = applicability["canonical_patch_sha256"]
     if args.reorg in GUARD_REWRITE_TYPES:
         marker["equivalence_argument"] = equivalence
         marker["hardness_rationale"] = hardness
