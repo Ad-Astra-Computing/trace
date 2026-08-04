@@ -10,6 +10,7 @@
     "canary_pc_consistency_grounding_explained": 2,
     "canary_pc_file_grounding_errors": 3,
     "canary_pc_role_grounding_errors": 1,
+    "canary_pc_omission_claim_errors": 2,
     "canary_pc_extraction_order_errors": 2,
     "canary_effective_verdict_overrides": 1,
     "test_total": 11,
@@ -90,6 +91,7 @@
         "verdict": "reject",
         "pc_consistency_error": "PC conclusion says accept but verdict is reject (reject not valid when all hunks match)",
         "pc_file_grounding_error": "patch.diff extraction quotes 'if (copy > have) copy = have;' not found in patch.diff block; patch.diff extraction quotes 'if (state->head != Z_NULL &&' not found in patch.diff block; patch.diff extraction quotes 'state->head->extra != Z_NULL &&' not found in patch.diff block; patch.diff extraction quotes '(len = state->head->extra_len - state->length) <' not found in patch.diff block; patch.diff extraction quotes 'state->head->extra_max) {' not found in patch.diff block; patch.diff extraction quotes 'zmemcpy(state->head->extra + len, next,' not found in patch.diff block; patch.diff extraction quotes 'len + copy > state->head->extra_max ?' not found in patch.diff block; patch.diff extraction quotes 'state->head->extra_max - len : copy);' not found in patch.diff block",
+        "pc_omission_claim_error": "prose claims patch.diff omits '(len = state->head->extra_len - state->length) < state->head', but the model's own patch.diff extraction quotes it",
         "pc_consistency_grounding_explained": true,
         "outcome": "correct"
       },
@@ -104,6 +106,7 @@
         "pc_consistency_error": "PC conclusion says accept but verdict is reject (reject not valid when all hunks match)",
         "pc_extraction_order_error": "patch.diff extraction lists 'state->head->extra != Z_NULL &&' out of file order (occurs at [14] but all precede cursor 17)",
         "pc_role_grounding_error": "patch.diff extraction presents 'state->head->extra != Z_NULL &&' as an APPLIED (+) line, but it is a REMOVED (-) line in patch.diff",
+        "pc_omission_claim_error": "prose claims patch.diff omits '(len = state->head->extra_len - state->length) < state->head', but the model's own patch.diff extraction quotes it",
         "pc_consistency_grounding_explained": true,
         "outcome": "correct"
       },

@@ -1,0 +1,21 @@
+{
+  "task": "reviewer-lora-gate-pilot",
+  "timestamp": "2026-08-04T16:57:21Z",
+  "base_model": "Qwen/Qwen2.5-Coder-14B-Instruct",
+  "base_model_revision": "aedcc2d42b622764e023cf882b6652e646b95671",
+  "adapter_repo": "adastracomputing/reviewer-lora-v1.11",
+  "adapter_revision": "f353fc919558209abc9c65fd483e92a091692f5c",
+  "decode": {
+    "do_sample": false,
+    "max_new_tokens": 1024,
+    "temperature": null,
+    "top_p": null,
+    "seed": null,
+    "pad_token_id": 151645
+  },
+  "input_filename": "gate-pilot.jsonl",
+  "input_sha256": "74afb8ecf4178f4a54b22bc35ecd93e013f01d9fa414e10274fc3ef5f154576b",
+  "row_count": 45,
+  "responses_path": "gate_pilot_responses/corpus-v2-eval/2026-08-04T16-57-21Z/responses.jsonl",
+  "response_sha256": "abd99be71ae4eece91baf96fe2303d748d5541681dbaeb2fc4350e52c10ab273"
+}

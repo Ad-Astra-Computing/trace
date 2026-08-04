@@ -1,0 +1,244 @@
+{
+  "gate_pass": true,
+  "summary": {
+    "canary_total": 9,
+    "canary_correct": 9,
+    "canary_pass": true,
+    "canary_parse_fails": 0,
+    "canary_pc_consistency_errors": 2,
+    "canary_pc_consistency_fatal": 0,
+    "canary_pc_consistency_grounding_explained": 2,
+    "canary_pc_file_grounding_errors": 4,
+    "canary_pc_role_grounding_errors": 0,
+    "canary_pc_omission_claim_errors": 2,
+    "canary_pc_extraction_order_errors": 1,
+    "canary_effective_verdict_overrides": 1,
+    "test_total": 11,
+    "test_correct": 11,
+    "test_false_rejects": 0,
+    "test_false_accepts": 0,
+    "test_parse_fails": 0,
+    "test_pass": true,
+    "retest_total": 0,
+    "retest_correct": 0,
+    "retest_parse_fails": 0,
+    "false_rejects": 0,
+    "false_accepts": 0
+  },
+  "details": {
+    "canary": [
+      {
+        "bundle_id": "dc5657a2a24de9f8",
+        "cve_id": "CVE-2022-37434",
+        "attr_path": "zlib",
+        "label": "positive",
+        "split": "canary",
+        "mutation_type": null,
+        "verdict": "accept",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "3434890336b654e2",
+        "cve_id": "CVE-2025-48060",
+        "attr_path": "jq",
+        "label": "positive",
+        "split": "canary",
+        "mutation_type": null,
+        "verdict": "accept",
+        "pc_extraction_order_error": "patch.diff extraction lists 's->data[length] = 0;' out of file order (occurs at [14] but all precede cursor 16)",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "a9dbef381f1d2d4e",
+        "cve_id": "CVE-2026-33948",
+        "attr_path": "jq",
+        "label": "positive",
+        "split": "canary",
+        "mutation_type": null,
+        "verdict": "accept",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "af6669707aea576e",
+        "cve_id": "CVE-2026-39979",
+        "attr_path": "jq",
+        "label": "positive",
+        "split": "canary",
+        "mutation_type": null,
+        "verdict": "accept",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "dc5657a2a24de9f8",
+        "cve_id": "CVE-2022-37434",
+        "attr_path": "zlib",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "source-backport-condition-mutation",
+        "verdict": "accept",
+        "pc_file_grounding_error": "patch.diff extraction quotes '(len = state->head->extra_len - state->length) <' not found in patch.diff block",
+        "effective_verdict": "reject",
+        "effective_reason": "patch.diff extraction quotes line absent from patch.diff \u2014 model accepted on hallucinated content",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "dc5657a2a24de9f8",
+        "cve_id": "CVE-2022-37434",
+        "attr_path": "zlib",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "source-backport-missing-hunk",
+        "verdict": "reject",
+        "pc_consistency_error": "PC conclusion says accept but verdict is reject (reject not valid when all hunks match)",
+        "pc_file_grounding_error": "patch.diff extraction quotes 'if (state->head != Z_NULL &&' not found in patch.diff block; patch.diff extraction quotes 'state->head->extra != Z_NULL &&' not found in patch.diff block; patch.diff extraction quotes '(len = state->head->extra_len - state->length) <' not found in patch.diff block; patch.diff extraction quotes 'state->head->extra_max) {' not found in patch.diff block; patch.diff extraction quotes 'zmemcpy(state->head->extra + len, next,' not found in patch.diff block; patch.diff extraction quotes 'len + copy > state->head->extra_max ?' not found in patch.diff block; patch.diff extraction quotes 'state->head->extra_max - len : copy);' not found in patch.diff block",
+        "pc_omission_claim_error": "prose claims patch.diff omits 'len =', but the model's own patch.diff extraction quotes it",
+        "pc_consistency_grounding_explained": true,
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "dc5657a2a24de9f8",
+        "cve_id": "CVE-2022-37434",
+        "attr_path": "zlib",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "source-backport-reversed-hunk",
+        "verdict": "reject",
+        "pc_omission_claim_error": "prose claims patch.diff omits '(len = state->head->extra_len - state->length) < state->head', but the model's own patch.diff extraction quotes it",
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "3434890336b654e2",
+        "cve_id": "CVE-2025-48060",
+        "attr_path": "jq",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "source-backport-missing-line",
+        "verdict": "reject",
+        "pc_consistency_error": "PC conclusion says accept but verdict is reject (reject not valid when all hunks match)",
+        "pc_file_grounding_error": "patch.diff extraction quotes 's->data[length] = 0;' not found in patch.diff block",
+        "pc_consistency_grounding_explained": true,
+        "outcome": "correct"
+      },
+      {
+        "bundle_id": "3434890336b654e2",
+        "cve_id": "CVE-2025-48060",
+        "attr_path": "jq",
+        "label": "negative",
+        "split": "canary",
+        "mutation_type": "source-backport-off-by-one",
+        "verdict": "reject",
+        "pc_file_grounding_error": "patch.diff extraction quotes 's->data[length] = 0;' not found in patch.diff block; upstream-fix.patch extraction quotes 's->data[length-1] = 0;' not found in upstream-fix.patch block",
+        "outcome": "correct"
+      }
+    ],
+    "canary_parse_fails": [],
+    "test_false_rejects": [],
+    "test_false_accepts": [],
+    "test_parse_fails": [],
+    "test_correct": [
+      {
+        "bundle_id": "7cc38be5045d8ab0",
+        "cve_id": "CVE-2025-26625",
+        "attr_path": "git-lfs",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "extra-unrelated-hunk",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "8710c88ee94ca1ef",
+        "cve_id": "CVE-2025-12888",
+        "attr_path": "wolfssl",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "wrong-target-version",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "beda9b90019b692a",
+        "cve_id": "CVE-2025-2337",
+        "attr_path": "matio",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "patch-touches-unrelated-file",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "d783738d314604ec",
+        "cve_id": "CVE-2024-8176",
+        "attr_path": "expat",
+        "label": "negative",
+        "split": "test",
+        "mutation_type": "patch-touches-unrelated-file",
+        "verdict": "reject"
+      },
+      {
+        "bundle_id": "31c27b69bfd0bda2",
+        "cve_id": "CVE-2025-59375",
+        "attr_path": "expat",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "7cc38be5045d8ab0",
+        "cve_id": "CVE-2025-26625",
+        "attr_path": "git-lfs",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "8710c88ee94ca1ef",
+        "cve_id": "CVE-2025-12888",
+        "attr_path": "wolfssl",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "a98203b889f4c032",
+        "cve_id": "CVE-2025-53859",
+        "attr_path": "nginxMainline",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "b59e00d340a71555",
+        "cve_id": "CVE-2026-3308",
+        "attr_path": "mupdf",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "beda9b90019b692a",
+        "cve_id": "CVE-2025-2337",
+        "attr_path": "matio",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      },
+      {
+        "bundle_id": "d783738d314604ec",
+        "cve_id": "CVE-2024-8176",
+        "attr_path": "expat",
+        "label": "positive",
+        "split": "test",
+        "mutation_type": null,
+        "verdict": "accept"
+      }
+    ],
+    "retest": [],
+    "retest_parse_fails": [],
+    "false_rejects": [],
+    "false_accepts": []
+  }
+}
