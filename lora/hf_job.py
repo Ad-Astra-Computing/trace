@@ -54,7 +54,11 @@ from trl import SFTConfig, SFTTrainer
 # --- Pinned identity (reproducibility) -------------------------------------
 MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
 MODEL_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"  # main @ 2025-01-12
-SEED = 42
+# Env-overridable for the v1.11 multi-seed design (3 training seeds per arm).
+# Default 42 preserves the historical behavior: every consumer (set_seed, the
+# SFTConfig seed, the run manifest) reads this one constant, so an unset SEED
+# is byte-for-byte the code path all prior adapters trained under.
+SEED = int(os.environ.get("SEED", "42"))
 
 # LoRA hyperparameters — match lora/mlx_config.yaml (rank=16, alpha=rank)
 LORA_RANK = 16
