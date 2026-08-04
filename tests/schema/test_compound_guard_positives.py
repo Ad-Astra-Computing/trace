@@ -340,23 +340,9 @@ MODELS: dict[str, dict] = {
         # operands run on which path, not just the branch decision.
         trace_sensitive=True,
     ),
-    "CVE-2025-24928--libxml2-xmlsnprintf-sbo--guard-demorgan": dict(
-        orig=_libxml2_snprintf_orig,
-        rewrite=_libxml2_snprintf_demorgan,
-        space={
-            "size": [0, 4, 5, 10, 5000],
-            "len": [0, 1, 5, 4996, 5000],
-            "buf_ch": [_DOT, ord("x")],
-        },
-        pins=(
-            "if ((size - len > 4) && (buf[len - 1] != '.'))",
-            "if (!((size - len <= 4) || (buf[len - 1] == '.')))",
-        ),
-        # The second operand dereferences buf[len - 1]; De Morgan preserves the
-        # short-circuit exactly, so it is read on precisely the same paths. (A
-        # reorder or a hoist of the same guard would NOT be — see reorg.json.)
-        trace_sensitive=True,
-    ),
+    # CVE-2025-24928 (libxml2 xmlsnprintf demorgan) was DROPPED 2026-08-04: its
+    # base bundle predates the patch-rationale requirement, and hand-authoring
+    # one would contaminate provenance. See DECISIONS 2026-08-04.
 }
 
 
