@@ -635,6 +635,32 @@ def main():
                     "model accepted on hallucinated content"
                 )
 
+        # Escalation (v1.11 §9 fallback, promoted 2026-08-04): the omission-claim
+        # diagnostic fires on the quote-then-contradict shape — the model quotes
+        # a token in its own extraction and then claims that token is omitted.
+        # When that shape drives a REJECT, the verdict is untrustworthy in the
+        # over-rejection direction, so it is escalated to a human instead of
+        # being consumed as a machine reject. Preconditions met before this
+        # promotion (docs/PREREG_REVIEWER_V1.11.md §9): the experiment
+        # terminated without promotion of v1.11, and the FP budget passed at 0%
+        # fires on clean-accept rows in live v1.10 output — so this cannot
+        # suppress a correct accept (it only ever fires on rejects here).
+        # No label condition: production has no ground-truth label, so the
+        # escalation fires on ANY reject carrying the shape. On a true reject
+        # the human confirms it (cost: one review); on a false reject the
+        # human overturns it (the win this promotion buys).
+        if (
+            split == "canary"
+            and verdict == "reject"
+            and pc_omission_claim_error
+        ):
+            entry["effective_verdict"] = "escalate-human"
+            entry["effective_reason"] = (
+                "reject rests on an omission claim contradicting the model's own "
+                "quoted extraction — escalating to human review instead of "
+                "trusting the machine reject"
+            )
+
         # Reconciliation (v1.11): a PC-consistency contradiction is NON-FATAL only
         # when the model made the SAFE decision (correctly rejected a negative) AND a
         # deterministic layer (patch.diff-side grounding) independently caught the
@@ -669,9 +695,14 @@ def main():
         elif split == "canary":
             expected = "accept" if label == "positive" else "reject"
             effective = entry.get("effective_verdict", verdict)
-            entry["outcome"] = "correct" if effective == expected else (
-                "false_reject" if label == "positive" else "false_accept"
-            )
+            if effective == "escalate-human":
+                # Escalated rows are neither machine-correct nor machine-wrong:
+                # the machine declined to decide. Reported as a third category.
+                entry["outcome"] = "escalated"
+            else:
+                entry["outcome"] = "correct" if effective == expected else (
+                    "false_reject" if label == "positive" else "false_accept"
+                )
             canary_results.append(entry)
         else:
             if label == "positive" and verdict == "reject":
@@ -736,6 +767,9 @@ def main():
             "canary_pc_role_grounding_errors": len(canary_pc_role_grounding_errors),
             # Non-gating diagnostic (v1.11): see check_pc_omission_claim.
             "canary_pc_omission_claim_errors": len(canary_pc_omission_claim_errors),
+            "canary_escalations": len(
+                [r for r in canary_results if r.get("outcome") == "escalated"]
+            ),
             # Non-gating diagnostic (v1.10): see check_pc_extraction_order.
             "canary_pc_extraction_order_errors": len(canary_pc_extraction_order_errors),
             "canary_effective_verdict_overrides": len(canary_effective_overrides),
