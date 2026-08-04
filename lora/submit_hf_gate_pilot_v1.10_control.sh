@@ -170,7 +170,7 @@ nix-shell -p python3Packages.huggingface-hub --run "
 hf jobs uv run \
   --flavor '${FLAVOR}' \
   --namespace '${NAMESPACE}' \
-  --timeout 1h \
+  --timeout 2h \
   --detach \
   --secrets HF_TOKEN \
   -v 'hf://datasets/${DATASET}:/data:ro' \
