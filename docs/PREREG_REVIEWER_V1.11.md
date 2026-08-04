@@ -126,6 +126,29 @@ Caveat: if the hard positives are new training data for the treatment arm, the
 existing v1.11 checkpoint is *not* the treatment arm. The pre-stage measures the
 discordance base rate and probe power — **not** the treatment effect.
 
+## 3.1 Hard-positive accept-pass failure policy (pre-committed, before the pass runs)
+
+The 8 authored hard positives become corpus members only via a live Reviewer
+accept pass. Decided BEFORE any pass runs, so the choice cannot be made after
+seeing which bundle failed:
+
+- **Reviewer rejects a hard positive → DROP it** (train on fewer). The bundle
+  stays in `traces/positives-reorg/` with its reject transcript recorded; it is
+  not exported and not reworked.
+- **Single exception:** if the rejection names a *mechanical artifact defect*
+  (hunk-header arithmetic, file path, staging error) unrelated to the semantic
+  equivalence claim, ONE fix + ONE re-run is allowed, and the fix must not
+  touch the guard rewrite itself. A second rejection is a drop, no appeals.
+- All accept AND reject transcripts are committed, and the treatment corpus is
+  frozen + hashed after the pass with the transcripts referenced from its
+  manifest.
+- **Analysis conditions carried forward (peer, 2026-08-04):** the treatment
+  comparison runs against the **v1.11 control recipe** (matched corpus minus
+  hard positives — cancels the corpus-growth confound; the pre-stage showed
+  that confound alone moves FA 9→14 vs v1.10), and the treatment-stage sign
+  test must beat the measured **36% no-treatment discordance base rate**
+  directionally, per §6, with the biased-low note restated there.
+
 ## 4. Seeds
 
 "3 seeds" means **training seeds** — 3 LoRA retrains per arm, including the
