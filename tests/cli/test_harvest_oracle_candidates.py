@@ -496,3 +496,51 @@ def test_main_writes_files_and_returns_zero(tmp_path: Path) -> None:
     assert rc == 0
     assert (out_dir / "oracle-candidates.jsonl").is_file()
     assert (out_dir / "oracle-candidates.md").is_file()
+
+
+# --- regression: signals must not come from commit trailers ----------------
+#
+# skypilot CVE-2026-13482 is a clean `git format-patch` cherry-pick whose
+# commit message carries `Co-Authored-By: Claude Opus 4.8 (1M context)`. The
+# old bare-word "context" signal fired on that trailer and promoted the patch
+# into `likely-adaptation`, where a human would have wasted an adjudication
+# pass on a verbatim copy.
+
+
+def test_co_authored_by_trailer_does_not_manufacture_a_signal():
+    header = (
+        "[PATCH] mark non-security hashes\n"
+        "\n"
+        "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>\n"
+    )
+    assert hoc._find_adaptation_signals(header) == []
+
+
+def test_other_trailers_are_stripped_too():
+    header = "fix overflow\n\nSigned-off-by: A Maintainer (rebased tree) <a@b.c>\n"
+    assert hoc._find_adaptation_signals(header) == []
+
+
+def test_bare_context_word_is_not_a_signal():
+    # Prose mentioning "context" in passing is not a claim of adaptation.
+    assert hoc._find_adaptation_signals("resets the security context\n") == []
+
+
+def test_context_phrase_is_a_signal():
+    for header in (
+        "backport with context lines adjusted\n",
+        "adjusted the context to apply here\n",
+        "refreshed context lines\n",
+    ):
+        signals = hoc._find_adaptation_signals(header)
+        assert any(s.startswith("context-phrase:") for s in signals), header
+
+
+def test_real_adaptation_header_still_detected():
+    # python-multipart CVE-2026-40347-part-2: the shape an oracle needs.
+    header = (
+        "Based on upstream d4452a78bbde94995dd3c0d1b4aff3610a5c472f, adjusted\n"
+        "to apply to 0.0.22\n"
+    )
+    signals = hoc._find_adaptation_signals(header)
+    assert any(s.startswith("version-target:") for s in signals), signals

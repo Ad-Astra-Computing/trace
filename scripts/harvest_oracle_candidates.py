@@ -144,8 +144,29 @@ ADAPTATION_WORDS: tuple[str, ...] = (
     "adapted",
     "adapt for",
     "modified",
-    "context",
     "rebased",
+)
+
+# "context" was previously a bare word in ADAPTATION_WORDS. It fired on
+# skypilot CVE-2026-13482 -- a clean `git format-patch` cherry-pick -- because
+# the commit message carried a `Co-Authored-By: Claude Opus 4.8 (1M context)`
+# trailer. Word boundaries are not enough: the collision is with ordinary prose,
+# not with an identifier. The maintainer sense we actually want is "I refreshed
+# the context lines to make this apply", so require the phrase.
+CONTEXT_PHRASE_RE = re.compile(
+    r"\b(context (?:lines? )?(?:adjust|refresh|fix|updat)\w*"
+    r"|(?:adjust|refresh|updat)\w* (?:the )?context(?: lines?)?"
+    r"|context lines?)\b",
+    re.IGNORECASE,
+)
+
+# Commit trailers are metadata appended by tooling/reviewers, not a
+# maintainer's statement about adapting the fix. Strip them before signal
+# matching so trailer prose cannot manufacture an adaptation signal.
+TRAILER_RE = re.compile(
+    r"^\s*(?:Co-Authored-By|Signed-off-by|Reviewed-by|Acked-by|Tested-by"
+    r"|Reported-by|Suggested-by|Cc|Fixes|Link|Change-Id)\s*:",
+    re.IGNORECASE,
 )
 
 _ADAPTATION_WORD_RES: dict[str, re.Pattern[str]] = {
@@ -305,7 +326,21 @@ def parse_pinned_version(anchor_dir: Path | None) -> str | None:
     return None
 
 
+def _strip_trailers(header_text: str) -> str:
+    """Drop commit-trailer lines from a header region.
+
+    A trailer is tooling/reviewer metadata, so its prose says nothing about
+    whether the maintainer adapted the fix. Leaving trailers in let a
+    `Co-Authored-By: ... (1M context)` line masquerade as an adaptation
+    signal on an otherwise verbatim cherry-pick.
+    """
+    return "\n".join(
+        line for line in header_text.splitlines() if not TRAILER_RE.match(line)
+    )
+
+
 def _find_adaptation_signals(header_text: str) -> list[str]:
+    header_text = _strip_trailers(header_text)
     signals: list[str] = []
     for word in ADAPTATION_WORDS:
         if not _ADAPTATION_WORD_RES[word].search(header_text):
@@ -315,6 +350,9 @@ def _find_adaptation_signals(header_text: str) -> list[str]:
         if word == "backport" and "backported" in signals:
             continue
         signals.append(word)
+    m = CONTEXT_PHRASE_RE.search(header_text)
+    if m:
+        signals.append(f"context-phrase:{m.group(0).strip().lower()}")
     m = VERSION_TARGET_RE.search(header_text)
     if m:
         signals.append(f"version-target:{m.group(0).strip()}")

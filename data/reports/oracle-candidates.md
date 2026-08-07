@@ -7,8 +7,8 @@ wired: 37 / unwired: 12 (unwired = orphaned patch, no derivation applies it → 
 
 | classification | count |
 |---|---|
-| likely-adaptation | 33 |
-| likely-verbatim | 16 |
+| likely-adaptation | 32 |
+| likely-verbatim | 17 |
 | unknown | 0 |
 
 ## Ranked candidates (best-first)
@@ -36,22 +36,22 @@ wired: 37 / unwired: 12 (unwired = orphaned patch, no derivation applies it → 
 | 19 | 98.17 | CVE-2020-14315 | bsdiff | yes | likely-adaptation | 1 | 4 | +178/-83 | - | `pkgs/by-name/bs/bsdiff/CVE-2020-14315.patch` |
 | 20 | 92.08 | CVE-2013-4276 | lcms1 | yes | likely-adaptation | 2 | 6 | +9/-5 | - | `pkgs/by-name/lc/lcms1/cve-2013-4276.patch` |
 | 21 | 91.60 | CVE-2025-31163 | fig2dev | yes | likely-adaptation | 2 | 6 | +22/-8 | - | `pkgs/by-name/fi/fig2dev/CVE-2025-31163.patch` |
-| 22 | 91.36 | CVE-2026-13482 | skypilot | yes | likely-adaptation | 17 | 22 | +61/-27 | context | `pkgs/by-name/sk/skypilot/CVE-2026-13482.patch` |
-| 23 | 90.53 | CVE-2015-1419 | vsftpd | yes | likely-adaptation | 3 | 5 | +48/-1 | - | `pkgs/by-name/vs/vsftpd/CVE-2015-1419.patch` |
-| 24 | 86.83 | CVE-2022-0529, CVE-2022-0530 | unzip | yes | likely-adaptation | 2 | 9 | +69/-20 | - | `pkgs/by-name/un/unzip/28-cve-2022-0529-and-cve-2022-0530.patch` |
-| 25 | 85.21 | CVE-2019-5544 | openslp | yes | likely-adaptation | 3 | 9 | +83/-10 | - | `pkgs/by-name/op/openslp/CVE-2019-5544.patch` |
-| 26 | 80.98 | CVE-2026-0989 | libxml2 | yes | likely-adaptation | 3 | 12 | +130/-4 | - | `pkgs/development/libraries/libxml2/2.13-CVE-2026-0989.patch` |
-| 27 | 8.91 | CVE-2012-4409 | mcrypt | yes | likely-verbatim | 1 | 1 | +2/-1 | - | `pkgs/by-name/mc/mcrypt/overflow_CVE-2012-4409.patch` |
-| 28 | 8.91 | CVE-2026-39979 | jq | yes | likely-verbatim | 1 | 1 | +2/-1 | - | `pkgs/by-name/jq/jq/CVE-2026-39979.patch` |
-| 29 | 8.91 | CVE-2026-42250 | bzip2 | yes | likely-verbatim | 1 | 1 | +1/-2 | - | `pkgs/tools/compression/bzip2/patches/CVE-2026-42250.patch` |
-| 30 | 8.88 | CVE-2021-40633 | giflib | yes | likely-verbatim | 1 | 1 | +3/-1 | - | `pkgs/by-name/gi/giflib/CVE-2021-40633.patch` |
-| 31 | 8.43 | CVE-2026-0992 | libxml2 | yes | likely-verbatim | 1 | 1 | +18/-1 | - | `pkgs/development/libraries/libxml2/2.13-CVE-2026-0992.patch` |
-| 32 | 7.79 | CVE-2026-40355, CVE-2026-40356 | krb5 | yes | likely-verbatim | 1 | 2 | +6/-1 | - | `pkgs/by-name/kr/krb5/CVE-2026-40355-and-CVE-2026-40356.patch` |
-| 33 | 7.67 | CVE-2026-32316 | jq | yes | likely-verbatim | 1 | 2 | +10/-1 | - | `pkgs/by-name/jq/jq/CVE-2026-32316.patch` |
-| 34 | 5.37 | CVE-2026-33947 | jq | yes | likely-verbatim | 1 | 4 | +21/-0 | - | `pkgs/by-name/jq/jq/CVE-2026-33947.patch` |
-| 35 | -3.83 | CVE-2021-4217 | unzip | yes | likely-verbatim | 2 | 2 | +9/-2 | - | `pkgs/by-name/un/unzip/CVE-2021-4217.patch` |
-| 36 | -3.92 | CVE-2026-33948 | jq | yes | likely-verbatim | 2 | 2 | +7/-7 | - | `pkgs/by-name/jq/jq/CVE-2026-33948.patch` |
-| 37 | -6.58 | CVE-2026-40164 | jq | yes | likely-verbatim | 2 | 4 | +34/-2 | - | `pkgs/by-name/jq/jq/CVE-2026-40164.patch` |
+| 22 | 90.53 | CVE-2015-1419 | vsftpd | yes | likely-adaptation | 3 | 5 | +48/-1 | - | `pkgs/by-name/vs/vsftpd/CVE-2015-1419.patch` |
+| 23 | 86.83 | CVE-2022-0529, CVE-2022-0530 | unzip | yes | likely-adaptation | 2 | 9 | +69/-20 | - | `pkgs/by-name/un/unzip/28-cve-2022-0529-and-cve-2022-0530.patch` |
+| 24 | 85.21 | CVE-2019-5544 | openslp | yes | likely-adaptation | 3 | 9 | +83/-10 | - | `pkgs/by-name/op/openslp/CVE-2019-5544.patch` |
+| 25 | 80.98 | CVE-2026-0989 | libxml2 | yes | likely-adaptation | 3 | 12 | +130/-4 | - | `pkgs/development/libraries/libxml2/2.13-CVE-2026-0989.patch` |
+| 26 | 8.91 | CVE-2012-4409 | mcrypt | yes | likely-verbatim | 1 | 1 | +2/-1 | - | `pkgs/by-name/mc/mcrypt/overflow_CVE-2012-4409.patch` |
+| 27 | 8.91 | CVE-2026-39979 | jq | yes | likely-verbatim | 1 | 1 | +2/-1 | - | `pkgs/by-name/jq/jq/CVE-2026-39979.patch` |
+| 28 | 8.91 | CVE-2026-42250 | bzip2 | yes | likely-verbatim | 1 | 1 | +1/-2 | - | `pkgs/tools/compression/bzip2/patches/CVE-2026-42250.patch` |
+| 29 | 8.88 | CVE-2021-40633 | giflib | yes | likely-verbatim | 1 | 1 | +3/-1 | - | `pkgs/by-name/gi/giflib/CVE-2021-40633.patch` |
+| 30 | 8.43 | CVE-2026-0992 | libxml2 | yes | likely-verbatim | 1 | 1 | +18/-1 | - | `pkgs/development/libraries/libxml2/2.13-CVE-2026-0992.patch` |
+| 31 | 7.79 | CVE-2026-40355, CVE-2026-40356 | krb5 | yes | likely-verbatim | 1 | 2 | +6/-1 | - | `pkgs/by-name/kr/krb5/CVE-2026-40355-and-CVE-2026-40356.patch` |
+| 32 | 7.67 | CVE-2026-32316 | jq | yes | likely-verbatim | 1 | 2 | +10/-1 | - | `pkgs/by-name/jq/jq/CVE-2026-32316.patch` |
+| 33 | 5.37 | CVE-2026-33947 | jq | yes | likely-verbatim | 1 | 4 | +21/-0 | - | `pkgs/by-name/jq/jq/CVE-2026-33947.patch` |
+| 34 | -3.83 | CVE-2021-4217 | unzip | yes | likely-verbatim | 2 | 2 | +9/-2 | - | `pkgs/by-name/un/unzip/CVE-2021-4217.patch` |
+| 35 | -3.92 | CVE-2026-33948 | jq | yes | likely-verbatim | 2 | 2 | +7/-7 | - | `pkgs/by-name/jq/jq/CVE-2026-33948.patch` |
+| 36 | -6.58 | CVE-2026-40164 | jq | yes | likely-verbatim | 2 | 4 | +34/-2 | - | `pkgs/by-name/jq/jq/CVE-2026-40164.patch` |
+| 37 | -48.64 | CVE-2026-13482 | skypilot | yes | likely-verbatim | 17 | 22 | +61/-27 | - | `pkgs/by-name/sk/skypilot/CVE-2026-13482.patch` |
 | 38 | -868.12 | CVE-2026-40347 | python-multipart | **no** | likely-adaptation | 2 | 5 | +30/-24 | version-target:apply to 0.0.22 | `pkgs/development/python-modules/python-multipart/CVE-2026-40347-part-2.patch` |
 | 39 | -891.06 | CVE-2017-10140 | db | **no** | likely-adaptation | 1 | 1 | +1/-1 | - | `pkgs/development/libraries/db/CVE-2017-10140-4.8-cwd-db_config.patch` |
 | 40 | -891.06 | CVE-2017-10140 | db | **no** | likely-adaptation | 1 | 1 | +1/-1 | - | `pkgs/development/libraries/db/CVE-2017-10140-cwd-db_config.patch` |
