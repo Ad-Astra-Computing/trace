@@ -544,3 +544,33 @@ def test_real_adaptation_header_still_detected():
     )
     signals = hoc._find_adaptation_signals(header)
     assert any(s.startswith("version-target:") for s in signals), signals
+
+
+# --- regression: live_at_ref must survive package relocation ---------------
+#
+# A history entry records the path at FIRST ADD. nixpkgs relocates packages
+# constantly (the by-name migration moved thousands), so comparing full paths
+# marked the registered maxima oracle as deleted: added under
+# pkgs/applications/science/math/maxima/, now at pkgs/by-name/ma/maxima/.
+
+
+def test_live_at_ref_matches_across_a_package_move(monkeypatch, tmp_path):
+    moved_old = "pkgs/applications/science/math/maxima/5.47.0-CVE-2024-34490.patch"
+    moved_new = "pkgs/by-name/ma/maxima/5.47.0-CVE-2024-34490.patch"
+
+    def fake_git(repo, *args):
+        if args[0] == "ls-tree":
+            return (moved_new + "\n").encode()
+        if args[0] == "show":
+            target = args[1]
+            if target.endswith(".patch"):
+                return b"--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n"
+            return b'version = "5.47.0";\n'
+        return b""
+
+    monkeypatch.setattr(hoc, "_git", fake_git)
+    entry = {"path": moved_old, "commit": "0" * 40, "date": "2024-01-01T00:00:00Z"}
+    live = {Path(moved_new).name}
+    cand = hoc.build_candidate_from_history(tmp_path, entry, live)
+    assert cand is not None
+    assert cand["live_at_ref"] is True, "relocated patch must still count as live"

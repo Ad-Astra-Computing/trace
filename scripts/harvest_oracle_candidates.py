@@ -117,6 +117,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -497,6 +498,165 @@ def build_candidate(patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path) -> dic
     }
 
 
+# ─── history mode ──────────────────────────────────────────────────────────
+#
+# The tree scan above sees only patches that are LIVE at one ref. nixpkgs
+# DELETES a `*CVE-*.patch` file once the package is bumped past the fix, so a
+# tree scan systematically misses every backport whose package later moved on
+# — measured 2026-08-07 at 46 live vs 263 ever-added on upstream/master, a
+# ~5.7x undercount. A deleted patch is not a worse oracle: it is still a human
+# maintainer's adaptation, and the version it was pinned against is recoverable
+# from the commit that added it. History mode recovers those.
+
+
+def _git(repo: Path, *args: str) -> bytes:
+    """Run git in `repo`, returning raw stdout. Returns b"" on failure rather
+    than raising: a missing blob or an unparseable path must skip one
+    candidate, never abort a 263-patch scan."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return b""
+    return proc.stdout if proc.returncode == 0 else b""
+
+
+def find_cve_patches_history(repo: Path, ref: str) -> list[dict[str, str]]:
+    """Every `*CVE-*.patch` path ever ADDED on `ref`, with the commit that
+    first added it.
+
+    `git log` walks newest-first, so for a path added, deleted and re-added we
+    keep overwriting until the OLDEST add wins — that is the commit whose tree
+    carries the version the patch was originally written against.
+    """
+    out = _git(
+        repo,
+        "log",
+        "--diff-filter=A",
+        "--name-only",
+        "--pretty=format:%x00%H %cI",
+        ref,
+        "--",
+        "*CVE-*.patch",
+        "*cve-*.patch",
+    )
+    first: dict[str, tuple[str, str]] = {}
+    commit = date = ""
+    for chunk in out.decode("utf-8", errors="replace").split("\x00"):
+        if not chunk.strip():
+            continue
+        lines = chunk.splitlines()
+        head = lines[0].strip().split(" ", 1)
+        if len(head) != 2:
+            continue
+        commit, date = head[0], head[1]
+        for path in lines[1:]:
+            path = path.strip()
+            if path and CVE_ID_RE.search(Path(path).name):
+                first[path] = (commit, date)  # oldest add wins (newest-first walk)
+    return [
+        {"path": p, "commit": c, "date": d}
+        for p, (c, d) in sorted(first.items())
+    ]
+
+
+def _pinned_version_at(repo: Path, commit: str, pkg_dir: str) -> str | None:
+    for fname in ("package.nix", "default.nix"):
+        blob = _git(repo, "show", f"{commit}:{pkg_dir}/{fname}")
+        if not blob:
+            continue
+        m = VERSION_RE.search(blob.decode("utf-8", errors="replace"))
+        if m:
+            return m.group(1)
+    return None
+
+
+def _wired_at(repo: Path, commit: str, pkg_dir: str, patch_name: str) -> bool:
+    for fname in ("package.nix", "default.nix"):
+        blob = _git(repo, "show", f"{commit}:{pkg_dir}/{fname}")
+        if blob and patch_name in blob.decode("utf-8", errors="replace"):
+            return True
+    return False
+
+
+def build_candidate_from_history(
+    repo: Path, entry: dict[str, str], live_paths: set[str]
+) -> dict[str, Any] | None:
+    rel = entry["path"]
+    commit = entry["commit"]
+    raw = _git(repo, "show", f"{commit}:{rel}")
+    if not raw:
+        return None
+    parsed = parse_patch(raw)
+    classification = classify(
+        parsed["is_format_patch"], parsed["adaptation_signals"], parsed["n_hunks"]
+    )
+    pkg_dir = str(Path(rel).parent)
+    patch_name = Path(rel).name
+    wired = _wired_at(repo, commit, pkg_dir, patch_name)
+    score = rank_score(
+        classification,
+        n_files=parsed["n_files"],
+        n_hunks=parsed["n_hunks"],
+        added_lines=parsed["added_lines"],
+        removed_lines=parsed["removed_lines"],
+        adaptation_signals=parsed["adaptation_signals"],
+        wired=wired,
+    )
+    return {
+        "kind": "oracle-candidate",
+        "source": "history",
+        "cve_ids": parse_cve_ids(patch_name),
+        "package": Path(pkg_dir).name,
+        "patch_path": rel,
+        "patch_sha256": sha256_hex(raw),
+        "pinned_version": _pinned_version_at(repo, commit, pkg_dir),
+        "first_added_commit": commit,
+        "first_added_at": entry["date"],
+        "live_at_ref": Path(rel).name in live_paths,
+        "n_files": parsed["n_files"],
+        "n_hunks": parsed["n_hunks"],
+        "added_lines": parsed["added_lines"],
+        "removed_lines": parsed["removed_lines"],
+        "is_format_patch": parsed["is_format_patch"],
+        "upstream_commit": parsed["upstream_commit"],
+        "adaptation_signals": parsed["adaptation_signals"],
+        "wired": wired,
+        "classification": classification,
+        "rank_score": score,
+    }
+
+
+def harvest_history(repo: Path, ref: str, limit: int | None = None) -> list[dict[str, Any]]:
+    # Match on BASENAME, not full path. A history entry records the path at
+    # FIRST ADD, and nixpkgs relocates packages constantly (the by-name
+    # migration moved thousands), so full-path equality reports live=False for
+    # every package that ever moved — it wrongly marked the registered maxima
+    # oracle as deleted, since it was added under
+    # pkgs/applications/science/math/ and now lives under pkgs/by-name/ma/.
+    # Basenames carry a CVE id and usually a version prefix, so they are
+    # specific enough; a cross-package basename collision would at worst call
+    # a deleted patch live, which is the harmless direction.
+    live = {
+        Path(line.strip()).name
+        for line in _git(repo, "ls-tree", "-r", "--name-only", ref)
+        .decode("utf-8", errors="replace")
+        .splitlines()
+        if line.strip() and CVE_ID_RE.search(Path(line.strip()).name)
+    }
+    entries = find_cve_patches_history(repo, ref)
+    candidates = [
+        c
+        for c in (build_candidate_from_history(repo, e, live) for e in entries)
+        if c is not None
+    ]
+    candidates.sort(key=_sort_key)
+    return candidates[:limit] if limit is not None else candidates
+
+
 def _sort_key(c: dict[str, Any]) -> tuple[float, int, str]:
     first_cve = c["cve_ids"][0] if c["cve_ids"] else ""
     return (-c["rank_score"], c["n_hunks"], first_cve)
@@ -522,7 +682,20 @@ def build_header(nixpkgs_dir: Path, all_candidates: list[dict[str, Any]]) -> dic
     for c in all_candidates:
         counts[c["classification"]] = counts.get(c["classification"], 0) + 1
     wired_count = sum(1 for c in all_candidates if c["wired"])
+    hist = [c for c in all_candidates if c.get("source") == "history"]
+    history_fields: dict[str, Any] = {}
+    if hist:
+        live = sum(1 for c in hist if c.get("live_at_ref"))
+        history_fields = {
+            "scan_mode": "history",
+            "live_at_ref_count": live,
+            # The whole point of history mode: these are invisible to a tree scan.
+            "deleted_since_count": len(hist) - live,
+        }
+    else:
+        history_fields = {"scan_mode": "tree"}
     return {
+        **history_fields,
         "kind": "harvest-header",
         "schema_version": SCHEMA_VERSION,
         "nixpkgs_dir": str(nixpkgs_dir),
@@ -614,6 +787,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="output directory (default: data/reports/)",
     )
     parser.add_argument(
+        "--history",
+        action="store_true",
+        help=(
+            "scan git HISTORY for every CVE patch ever added, not just those "
+            "live at one ref (nixpkgs deletes a patch once the package is "
+            "bumped past the fix; a tree scan misses ~5.7x the population). "
+            "Requires --nixpkgs to point at a git checkout."
+        ),
+    )
+    parser.add_argument(
+        "--ref",
+        default="HEAD",
+        help="(--history) git ref to walk (default: HEAD)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -627,12 +815,19 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[1:])
 
     nixpkgs_dir = resolve_nixpkgs_dir(args.nixpkgs)
-    pkgs_root = nixpkgs_dir / "pkgs"
-    patch_paths = find_cve_patches(nixpkgs_dir)
-    all_candidates = [
-        build_candidate(p, nixpkgs_dir, pkgs_root) for p in patch_paths
-    ]
-    all_candidates.sort(key=_sort_key)
+    if args.history:
+        if not (nixpkgs_dir / ".git").exists():
+            raise SystemExit(
+                f"error: --history needs a git checkout; {nixpkgs_dir} has no .git"
+            )
+        all_candidates = harvest_history(nixpkgs_dir, args.ref)
+    else:
+        pkgs_root = nixpkgs_dir / "pkgs"
+        patch_paths = find_cve_patches(nixpkgs_dir)
+        all_candidates = [
+            build_candidate(p, nixpkgs_dir, pkgs_root) for p in patch_paths
+        ]
+        all_candidates.sort(key=_sort_key)
 
     header = build_header(nixpkgs_dir, all_candidates)
     candidates = all_candidates[: args.limit] if args.limit is not None else all_candidates
