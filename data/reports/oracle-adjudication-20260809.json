@@ -6,10 +6,11 @@
  "adjudicator": "analyst (header-evidence pass; ambiguous rows need an upstream diff to resolve)",
  "counts": {
   "total": 26,
-  "genuine": 17,
-  "ambiguous": 5,
-  "reject": 4,
-  "distinct_projects_genuine": 13
+  "genuine": 15,
+  "genuine_upstream_confirmed": 13,
+  "genuine_header_only": 2,
+  "reject": 11,
+  "distinct_projects_confirmed": 10
  },
  "distinct_projects_genuine": [
   "binutils",
@@ -17,13 +18,10 @@
   "curl",
   "ffmpeg",
   "gmp",
-  "libheif",
-  "maxima",
   "onnx",
   "python-multipart",
   "qdrant",
   "sanic",
-  "sqlite",
   "tightvnc"
  ],
  "clustering_note": "Two clustering axes, not one. (1) PROJECT: 3 of the genuine rows are tightvnc and 3 are curl. (2) MAINTAINER: 5 genuine rows (binutils, curl x3, gmp) are all by nixpkgs maintainer 'ris', who shares one adaptation idiom ('compensate for lack of <commit>'). An independence unit of PROJECT alone does not absorb the maintainer axis.",
@@ -44,7 +42,8 @@
     "removed": 45,
     "hunks": 3,
     "files": 1
-   }
+   },
+   "verification": "upstream-diff-confirmed"
   },
   {
    "cve_id": "CVE-2019-8287",
@@ -61,7 +60,9 @@
     "removed": 1,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.0
   },
   {
    "cve_id": "CVE-2024-6387",
@@ -78,7 +79,8 @@
     "removed": 0,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "header-evidence-only (upstream not machine-fetchable)"
   },
   {
    "cve_id": "CVE-2019-11471",
@@ -87,15 +89,17 @@
    "adaptation_signals": [
     "adapted"
    ],
-   "verdict": "genuine",
-   "rationale": "adapted from named upstream commit into tightvnc-derived tree",
+   "verdict": "reject",
+   "rationale": "diff body is byte-identical to the named upstream commit after normalising headers/paths/whitespace \u2014 the maintainer's adaptation wording describes format or series maintenance, not content",
    "nixpkgs_maintainer": null,
    "diff": {
     "added": 5,
     "removed": 0,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "upstream-diff-VERBATIM",
+   "overlap_with_upstream": 1.0
   },
   {
    "cve_id": "CVE-2019-15678",
@@ -112,7 +116,9 @@
     "removed": 0,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.29
   },
   {
    "cve_id": "CVE-2019-15679",
@@ -129,7 +135,9 @@
     "removed": 1,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.08
   },
   {
    "cve_id": "CVE-2022-46908",
@@ -146,7 +154,8 @@
     "removed": 2,
     "hunks": 2,
     "files": 1
-   }
+   },
+   "verification": "header-evidence-only (upstream not machine-fetchable)"
   },
   {
    "cve_id": "CVE-2015-1283",
@@ -163,7 +172,8 @@
     "removed": 2,
     "hunks": 2,
     "files": 1
-   }
+   },
+   "verification": "header-evidence-only (upstream not machine-fetchable)"
   },
   {
    "cve_id": "CVE-2020-27619",
@@ -172,15 +182,16 @@
    "adaptation_signals": [
     "rebased"
    ],
-   "verdict": "ambiguous",
-   "rationale": "cpython-2.7 Gentoo series [PATCH 05/36]; clean format-patch + upstream sha. 'rebased' may describe series maintenance, not content change - needs upstream diff to resolve",
+   "verdict": "reject",
+   "rationale": "diff body is byte-identical to the named upstream commit after normalising headers/paths/whitespace \u2014 the maintainer's adaptation wording describes format or series maintenance, not content",
    "nixpkgs_maintainer": null,
    "diff": {
     "added": 9,
     "removed": 16,
     "hunks": 2,
     "files": 2
-   }
+   },
+   "verification": "upstream-diff-VERBATIM"
   },
   {
    "cve_id": "CVE-2020-26116",
@@ -189,15 +200,16 @@
    "adaptation_signals": [
     "rebased"
    ],
-   "verdict": "ambiguous",
-   "rationale": "cpython-2.7 Gentoo series; same reasoning",
+   "verdict": "reject",
+   "rationale": "diff body is byte-identical to the named upstream commit after normalising headers/paths/whitespace \u2014 the maintainer's adaptation wording describes format or series maintenance, not content",
    "nixpkgs_maintainer": null,
    "diff": {
     "added": 37,
     "removed": 1,
     "hunks": 4,
     "files": 2
-   }
+   },
+   "verification": "upstream-diff-VERBATIM"
   },
   {
    "cve_id": "CVE-2026-40347",
@@ -214,7 +226,9 @@
     "removed": 24,
     "hunks": 5,
     "files": 2
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.93
   },
   {
    "cve_id": "CVE-2020-8492",
@@ -223,15 +237,16 @@
    "adaptation_signals": [
     "rebased"
    ],
-   "verdict": "ambiguous",
-   "rationale": "cpython-2.7 Gentoo series; same reasoning",
+   "verdict": "reject",
+   "rationale": "diff body is byte-identical to the named upstream commit after normalising headers/paths/whitespace \u2014 the maintainer's adaptation wording describes format or series maintenance, not content",
    "nixpkgs_maintainer": null,
    "diff": {
     "added": 101,
     "removed": 41,
     "hunks": 3,
     "files": 2
-   }
+   },
+   "verification": "upstream-diff-VERBATIM"
   },
   {
    "cve_id": "CVE-2024-34490",
@@ -248,7 +263,8 @@
     "removed": 8,
     "hunks": 5,
     "files": 3
-   }
+   },
+   "verification": "header-evidence-only (upstream not machine-fetchable)"
   },
   {
    "cve_id": "CVE-2021-22876",
@@ -265,7 +281,9 @@
     "removed": 3,
     "hunks": 4,
     "files": 3
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.89
   },
   {
    "cve_id": "CVE-2021-3177",
@@ -274,15 +292,16 @@
    "adaptation_signals": [
     "rebased"
    ],
-   "verdict": "ambiguous",
-   "rationale": "cpython-2.7 series; same reasoning",
+   "verdict": "reject",
+   "rationale": "diff body is byte-identical to the named upstream commit after normalising headers/paths/whitespace \u2014 the maintainer's adaptation wording describes format or series maintenance, not content",
    "nixpkgs_maintainer": null,
    "diff": {
     "added": 69,
     "removed": 26,
     "hunks": 4,
     "files": 3
-   }
+   },
+   "verification": "upstream-diff-VERBATIM"
   },
   {
    "cve_id": "CVE-2022-35920",
@@ -299,7 +318,9 @@
     "removed": 16,
     "hunks": 6,
     "files": 2
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.84
   },
   {
    "cve_id": "CVE-2015-7747",
@@ -316,7 +337,8 @@
     "removed": 1,
     "hunks": 4,
     "files": 3
-   }
+   },
+   "verification": "header-evidence-only (upstream not machine-fetchable)"
   },
   {
    "cve_id": "CVE-2024-3078",
@@ -333,7 +355,9 @@
     "removed": 29,
     "hunks": 4,
     "files": 4
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.73
   },
   {
    "cve_id": "CVE-2024-27318",
@@ -350,7 +374,9 @@
     "removed": 94,
     "hunks": 11,
     "files": 6
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.9
   },
   {
    "cve_id": "CVE-2021-23336",
@@ -359,15 +385,16 @@
    "adaptation_signals": [
     "rebased"
    ],
-   "verdict": "ambiguous",
-   "rationale": "cpython-2.7 series; same reasoning",
+   "verdict": "reject",
+   "rationale": "diff body is byte-identical to the named upstream commit after normalising headers/paths/whitespace \u2014 the maintainer's adaptation wording describes format or series maintenance, not content",
    "nixpkgs_maintainer": null,
    "diff": {
     "added": 100,
     "removed": 41,
     "hunks": 24,
     "files": 7
-   }
+   },
+   "verification": "upstream-diff-VERBATIM"
   },
   {
    "cve_id": "CVE-2021-22901",
@@ -376,15 +403,17 @@
    "adaptation_signals": [
     "modified"
    ],
-   "verdict": "genuine",
-   "rationale": "modified to apply WITHOUT a prerequisite commit",
+   "verdict": "reject",
+   "rationale": "diff body is byte-identical to the named upstream commit after normalising headers/paths/whitespace \u2014 the maintainer's adaptation wording describes format or series maintenance, not content",
    "nixpkgs_maintainer": "ris",
    "diff": {
     "added": 172,
     "removed": 50,
     "hunks": 22,
     "files": 13
-   }
+   },
+   "verification": "upstream-diff-VERBATIM",
+   "overlap_with_upstream": 1.0
   },
   {
    "cve_id": "CVE-2021-22890",
@@ -401,7 +430,9 @@
     "removed": 45,
     "hunks": 36,
     "files": 10
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.44
   },
   {
    "cve_id": "CVE-2019-19126",
@@ -418,7 +449,8 @@
     "removed": 2,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "header-evidence-only (upstream not machine-fetchable)"
   },
   {
    "cve_id": "CVE-2021-43618",
@@ -435,7 +467,8 @@
     "removed": 1,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "upstream-diff-confirmed"
   },
   {
    "cve_id": "CVE-2023-49502",
@@ -452,7 +485,9 @@
     "removed": 4,
     "hunks": 1,
     "files": 1
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.32
   },
   {
    "cve_id": "CVE-2020-25659",
@@ -469,7 +504,11 @@
     "removed": 32,
     "hunks": 2,
     "files": 2
-   }
+   },
+   "verification": "upstream-diff-confirmed",
+   "overlap_with_upstream": 0.38
   }
- ]
+ ],
+ "verification_method": "Fetched each named upstream commit and compared normalised diff bodies (+/- content lines; headers, index lines, hunk offsets, file paths, format-patch signature and whitespace ignored). Identical body => VERBATIM => reject regardless of the maintainer's wording.",
+ "verification_note": "This pass OVERTURNED 2 of the header-evidence 'genuine' verdicts: libheif CVE-2019-11471 and curl CVE-2021-22901 are byte-identical to upstream despite the latter's header claiming 'modified by ris to apply without <commit>'. It also resolved all 5 previously-ambiguous cpython rows as VERBATIM. Header evidence alone is not sufficient to admit an item into the oracle set."
 }
