@@ -574,3 +574,105 @@ def test_live_at_ref_matches_across_a_package_move(monkeypatch, tmp_path):
     cand = hoc.build_candidate_from_history(tmp_path, entry, live)
     assert cand is not None
     assert cand["live_at_ref"] is True, "relocated patch must still count as live"
+
+
+# --- payload verification against upstream ---------------------------------
+#
+# Codifies the 2026-08-09 lesson: header wording is not admissible; a
+# maintainer patch is a genuine adaptation only if its PAYLOAD differs from the
+# named upstream commit. Real regressions from that pass are pinned below.
+
+_UP = """From abc Mon Sep 17 00:00:00 2001
+Subject: [PATCH] fix overflow
+
+diff --git a/f.c b/f.c
+index 111..222 100644
+--- a/f.c
++++ b/f.c
+@@ -10,3 +10,3 @@ void f(void)
+-  int n = read_len();
++  size_t n = read_len();
+   use(n);
+"""
+
+
+def test_verbatim_copy_detected_despite_different_headers_and_offsets():
+    # Same payload, but a different apply location, index line, and a
+    # maintainer header claiming adaptation. Must still read as a copy.
+    maint = """Adapted by a maintainer to apply without <commit>.
+
+Index: old/sub/f.c
+--- a/sub/f.c
++++ b/sub/f.c
+@@ -812,3 +812,3 @@
+-  int n = read_len();
++  size_t n = read_len();
+   use(n);
+"""
+    r = hoc.verify_against_upstream(maint, _UP)
+    assert r["verdict"] == "verbatim-copy"
+    assert r["identical"] is True
+    assert r["overlap"] == 1.0
+
+
+def test_genuine_adaptation_detected():
+    # A different fix shape (hand-expanded), low payload overlap.
+    maint = """Based on upstream abc, adapted for the 1.x tree.
+
+--- a/f.c
++++ b/f.c
+@@ -10,3 +10,4 @@
+-  int n = read_len();
++  unsigned long n = read_len();
++  if (n > CAP) return -1;
+   use(n);
+"""
+    r = hoc.verify_against_upstream(maint, _UP)
+    assert r["verdict"] == "genuine-adaptation"
+    assert r["identical"] is False
+    assert r["overlap"] < hoc.PROVENANCE_REVIEW_OVERLAP
+
+
+def test_provenance_ambiguous_when_overlap_is_very_high():
+    # Payload nearly identical — one extra line against a large shared base, so
+    # overlap stays high. Could be a branch variant or a squash, so flag for
+    # provenance review rather than trusting it as an adaptation.
+    shared = "".join(f"+  a{i} = f{i}();\n" for i in range(20))
+    up = f"--- a/f.c\n+++ b/f.c\n@@ -1,20 +1,20 @@\n{shared}"
+    maint = f"Based on abc, minor adjust.\n--- a/f.c\n+++ b/f.c\n@@ -1,20 +1,21 @@\n{shared}+  extra = g();\n"
+    r = hoc.verify_against_upstream(maint, up)
+    assert r["verdict"] == "provenance-ambiguous", r
+    assert r["overlap"] >= hoc.PROVENANCE_REVIEW_OVERLAP
+    assert r["identical"] is False
+
+
+def test_context_only_change_is_not_a_payload_difference():
+    # The maintainer touched only a surrounding context line. Payload is
+    # unchanged, so this is a verbatim copy for adjudication purposes.
+    maint = _UP.replace("   use(n);", "   use_v2(n); /* renamed in 1.x */")
+    r = hoc.verify_against_upstream(maint, _UP)
+    assert r["verdict"] == "verbatim-copy"
+
+
+def test_format_patch_signature_is_not_a_removed_line():
+    with_sig = _UP + "-- \n2.39.1\n"
+    r = hoc.verify_against_upstream(with_sig, _UP)
+    assert r["verdict"] == "verbatim-copy", r
+
+
+def test_empty_when_a_side_has_no_payload():
+    r = hoc.verify_against_upstream("just a prose note, no diff\n", _UP)
+    assert r["verdict"] == "empty"
+
+
+def test_verify_pair_cli(tmp_path, capsys):
+    import json as _json
+    a = tmp_path / "maint.patch"
+    b = tmp_path / "up.patch"
+    a.write_text(_UP)
+    b.write_text(_UP)
+    rc = hoc.main(["prog", "--verify-pair", str(a), str(b)])
+    assert rc == 0
+    out = _json.loads(capsys.readouterr().out)
+    assert out["verdict"] == "verbatim-copy"
+    assert out["maintainer_patch"] == str(a)

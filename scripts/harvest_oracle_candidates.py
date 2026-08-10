@@ -419,6 +419,105 @@ def classify(is_format_patch: bool, adaptation_signals: list[str], n_hunks: int)
     return "likely-adaptation"
 
 
+# ─── payload verification against upstream ─────────────────────────────────
+#
+# The classifier above reads a patch's HEADER. The 2026-08-09 verification pass
+# proved header wording is not admissible: 7 of 20 candidates whose headers
+# claimed adaptation ("rebased", "modified ... to apply without <commit>") were
+# byte-identical to the named upstream commit once headers/paths/offsets were
+# normalised away. Whether a maintainer patch is a GENUINE content adaptation
+# or a verbatim copy is only decidable by comparing PAYLOAD lines — the `+`/`-`
+# content — against the real upstream diff. This is the reusable core of that
+# pass: pure text, no network, no execution. The fetch layer that supplies the
+# upstream text is a separate concern (host allowlist / sha256 / no-exec), kept
+# out of this function deliberately so the comparison stays trivially testable.
+
+# Lines that are diff STRUCTURE, not payload: file headers, hunk headers, index
+# lines, format-patch metadata, and the format-patch signature separator.
+_NONPAYLOAD_PREFIXES = (
+    "+++", "---", "diff ", "index ", "@@", "Index:", "# ",
+    "From ", "Date:", "Subject:", "From:",
+)
+
+
+def payload_lines(text: str) -> list[str]:
+    """Normalised `+`/`-` PAYLOAD lines of a unified diff.
+
+    Ignores file headers, hunk headers/offsets, index lines, format-patch
+    metadata and its `--` signature separator, and collapses internal
+    whitespace — so two diffs that differ only in where they apply, how their
+    hunks are numbered, or their indentation compare EQUAL. Context lines (no
+    `+`/`-`) are excluded entirely: a change to surrounding context is not a
+    content adaptation, so it must not register as a payload difference.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        if line.startswith(_NONPAYLOAD_PREFIXES):
+            continue
+        stripped = line.rstrip()
+        if stripped == "--" or stripped.startswith("-- "):
+            continue  # git format-patch signature, not a removed payload line
+        if line[:1] in "+-":
+            collapsed = " ".join(line[1:].split())
+            if collapsed:
+                out.append(line[0] + collapsed)
+    return out
+
+
+# Above this Jaccard overlap, a non-identical maintainer patch is close enough
+# to upstream that the difference may be a WRONG-REFERENCE artifact (the
+# maintainer cherry-picked from a release branch whose fix differs from master,
+# or squashed several commits) rather than a real adaptation. Flag for the
+# provenance check fable raised (2026-08-09) rather than silently trusting it.
+PROVENANCE_REVIEW_OVERLAP = 0.85
+
+
+def verify_against_upstream(
+    maintainer_patch: str, upstream_patch: str
+) -> dict[str, Any]:
+    """Decide whether a maintainer patch genuinely ADAPTS the upstream fix or
+    merely COPIES it, by comparing normalised payload lines.
+
+    Returns a verdict dict; never raises. Verdicts:
+      - ``verbatim-copy``       — payload identical to upstream ⇒ nothing to
+        adjudicate; reject as an oracle regardless of header wording.
+      - ``genuine-adaptation``  — payload differs materially from upstream.
+      - ``provenance-ambiguous``— payload differs, but overlap is so high the
+        reference commit may be wrong (branch variant / squash). Needs a human
+        provenance check before it counts as an adaptation.
+      - ``empty``               — one side has no payload (unfetchable /
+        unparsable); cannot decide here.
+    """
+    a = payload_lines(maintainer_patch)
+    b = payload_lines(upstream_patch)
+    if not a or not b:
+        return {
+            "verdict": "empty",
+            "overlap": 0.0,
+            "maintainer_payload_lines": len(a),
+            "upstream_payload_lines": len(b),
+            "identical": False,
+        }
+    sa, sb = set(a), set(b)
+    overlap = len(sa & sb) / len(sa | sb)
+    identical = a == b
+    if identical:
+        verdict = "verbatim-copy"
+    elif overlap >= PROVENANCE_REVIEW_OVERLAP:
+        verdict = "provenance-ambiguous"
+    else:
+        verdict = "genuine-adaptation"
+    return {
+        "verdict": verdict,
+        "overlap": round(overlap, 3),
+        "maintainer_payload_lines": len(a),
+        "upstream_payload_lines": len(b),
+        "maintainer_only_lines": len(sa - sb),
+        "upstream_only_lines": len(sb - sa),
+        "identical": identical,
+    }
+
+
 def rank_score(
     classification: str,
     *,
@@ -807,12 +906,37 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="cap the number of candidates written (ranking still computed over all)",
     )
+    parser.add_argument(
+        "--verify-pair",
+        nargs=2,
+        metavar=("MAINTAINER_PATCH", "UPSTREAM_PATCH"),
+        help=(
+            "offline: compare a maintainer patch against the upstream fix it "
+            "claims to adapt, by normalised payload lines, and print the "
+            "verdict (verbatim-copy / genuine-adaptation / provenance-ambiguous). "
+            "Header wording is not trusted. No network; the two patch files must "
+            "already be on disk."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str]) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv[1:])
+
+    # Offline verify mode: needs no nixpkgs tree, so short-circuit before
+    # resolving one.
+    if args.verify_pair:
+        maint_path, up_path = (Path(p) for p in args.verify_pair)
+        result = verify_against_upstream(
+            maint_path.read_text(errors="replace"),
+            up_path.read_text(errors="replace"),
+        )
+        result["maintainer_patch"] = str(maint_path)
+        result["upstream_patch"] = str(up_path)
+        print(json.dumps(result, indent=2))
+        return 0 if result["verdict"] != "empty" else 3
 
     nixpkgs_dir = resolve_nixpkgs_dir(args.nixpkgs)
     if args.history:

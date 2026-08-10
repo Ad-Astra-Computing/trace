@@ -62,7 +62,9 @@
     "files": 1
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.0
+   "overlap_with_upstream": 0.0,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.0
   },
   {
    "cve_id": "CVE-2024-6387",
@@ -99,7 +101,9 @@
     "files": 1
    },
    "verification": "upstream-diff-VERBATIM",
-   "overlap_with_upstream": 1.0
+   "overlap_with_upstream": 1.0,
+   "tool_verdict": "verbatim-copy",
+   "payload_overlap": 1.0
   },
   {
    "cve_id": "CVE-2019-15678",
@@ -118,7 +122,9 @@
     "files": 1
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.29
+   "overlap_with_upstream": 0.29,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.286
   },
   {
    "cve_id": "CVE-2019-15679",
@@ -137,7 +143,9 @@
     "files": 1
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.08
+   "overlap_with_upstream": 0.08,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.083
   },
   {
    "cve_id": "CVE-2022-46908",
@@ -228,7 +236,10 @@
     "files": 2
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.93
+   "overlap_with_upstream": 0.93,
+   "tool_verdict": "provenance-ambiguous",
+   "payload_overlap": 0.927,
+   "provenance_review": "pending \u2014 payload overlap >= 0.85; confirm upstream ref is the right ancestor (not a branch variant / squash) before counting"
   },
   {
    "cve_id": "CVE-2020-8492",
@@ -283,7 +294,10 @@
     "files": 3
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.89
+   "overlap_with_upstream": 0.89,
+   "tool_verdict": "provenance-ambiguous",
+   "payload_overlap": 0.892,
+   "provenance_review": "pending \u2014 payload overlap >= 0.85; confirm upstream ref is the right ancestor (not a branch variant / squash) before counting"
   },
   {
    "cve_id": "CVE-2021-3177",
@@ -320,7 +334,9 @@
     "files": 2
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.84
+   "overlap_with_upstream": 0.84,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.843
   },
   {
    "cve_id": "CVE-2015-7747",
@@ -357,7 +373,9 @@
     "files": 4
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.73
+   "overlap_with_upstream": 0.73,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.727
   },
   {
    "cve_id": "CVE-2024-27318",
@@ -376,7 +394,10 @@
     "files": 6
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.9
+   "overlap_with_upstream": 0.9,
+   "tool_verdict": "provenance-ambiguous",
+   "payload_overlap": 0.895,
+   "provenance_review": "pending \u2014 payload overlap >= 0.85; confirm upstream ref is the right ancestor (not a branch variant / squash) before counting"
   },
   {
    "cve_id": "CVE-2021-23336",
@@ -413,7 +434,9 @@
     "files": 13
    },
    "verification": "upstream-diff-VERBATIM",
-   "overlap_with_upstream": 1.0
+   "overlap_with_upstream": 1.0,
+   "tool_verdict": "verbatim-copy",
+   "payload_overlap": 1.0
   },
   {
    "cve_id": "CVE-2021-22890",
@@ -432,7 +455,9 @@
     "files": 10
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.44
+   "overlap_with_upstream": 0.44,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.439
   },
   {
    "cve_id": "CVE-2019-19126",
@@ -487,7 +512,9 @@
     "files": 1
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.32
+   "overlap_with_upstream": 0.32,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.32
   },
   {
    "cve_id": "CVE-2020-25659",
@@ -506,10 +533,22 @@
     "files": 2
    },
    "verification": "upstream-diff-confirmed",
-   "overlap_with_upstream": 0.38
+   "overlap_with_upstream": 0.38,
+   "tool_verdict": "genuine-adaptation",
+   "payload_overlap": 0.38
   }
  ],
  "verification_method": "Fetched each named upstream commit and compared normalised diff bodies (+/- content lines; headers, index lines, hunk offsets, file paths, format-patch signature and whitespace ignored). Identical body => VERBATIM => reject regardless of the maintainer's wording.",
  "verification_note": "This pass OVERTURNED 2 of the header-evidence 'genuine' verdicts: libheif CVE-2019-11471 and curl CVE-2021-22901 are byte-identical to upstream despite the latter's header claiming 'modified by ris to apply without <commit>'. It also resolved all 5 previously-ambiguous cpython rows as VERBATIM. Header evidence alone is not sufficient to admit an item into the oracle set.",
- "unverified_note": "2 items could not be machine-verified and are held OUT of the confirmed count rather than assumed genuine. sqlite CVE-2022-46908: sqlite.org's /src/vpatch view is JS-rendered, so the diff is absent from the fetched HTML; the upstream ids are fossil hashes, so the GitHub mirror cannot be substituted. maxima CVE-2024-34490: SourceForge's diff UI likewise returns a page, not a patch \u2014 but this item is the ALREADY-REGISTERED oracle, human-adjudicated previously, so it is the one case where header evidence is backed by a prior independent judgement."
+ "unverified_note": "2 items could not be machine-verified and are held OUT of the confirmed count rather than assumed genuine. sqlite CVE-2022-46908: sqlite.org's /src/vpatch view is JS-rendered, so the diff is absent from the fetched HTML; the upstream ids are fossil hashes, so the GitHub mirror cannot be substituted. maxima CVE-2024-34490: SourceForge's diff UI likewise returns a page, not a patch \u2014 but this item is the ALREADY-REGISTERED oracle, human-adjudicated previously, so it is the one case where header evidence is backed by a prior independent judgement.",
+ "tool_verification": {
+  "tool": "scripts/harvest_oracle_candidates.py verify_against_upstream",
+  "agreement_with_manual": "13/13 on the verbatim/genuine split",
+  "provenance_review_flagged": [
+   "CVE-2026-40347",
+   "CVE-2021-22876",
+   "CVE-2024-27318"
+  ],
+  "note": "The codified verifier reproduces the manual verbatim-vs-genuine split exactly and ADDITIONALLY flags 3 confirmed-genuine items as provenance-ambiguous (payload overlap 0.85-0.93): close enough to upstream that the named reference commit may be a branch variant or squash rather than the true ancestor. These need a provenance check before counting toward independent units. python-multipart CVE-2026-40347 was already read closely and genuinely rewrites the epilogue handling despite 0.93 overlap, so the flag is a REVIEW trigger, not a reject."
+ }
 }
