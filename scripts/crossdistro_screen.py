@@ -33,7 +33,9 @@ from pathlib import Path
 from typing import Any
 
 FETCH_DELAY_S = 0.3  # politeness toward sources.debian.org
-MAX_CANDIDATES = 1500  # operational ceiling; recorded if hit
+MAX_CANDIDATES = 3000  # >= 672 packages x 4 CVEs, so the PRE-REG stop (41
+# eligible OR pool exhausted) governs, not this operational backstop.
+_CACHE_DIR: Path | None = None  # set from --cache; a URL fetched once is reused
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.harvest_oracle_candidates import verify_against_upstream
@@ -68,6 +70,16 @@ def fetch(url: str, timeout: int = 45) -> tuple[bytes, str] | None:
     host = _host(url)
     if host not in ALLOWED_HOSTS:
         return None
+    cache_file = None
+    if _CACHE_DIR is not None:
+        key = hashlib.sha256(url.encode()).hexdigest()
+        cache_file = _CACHE_DIR / key
+        miss = cache_file.with_suffix(".miss")
+        if cache_file.exists():
+            body = cache_file.read_bytes()
+            return body, hashlib.sha256(body).hexdigest()
+        if miss.exists():
+            return None  # a prior fetch of this URL failed; don't retry-hammer
     try:
         time.sleep(FETCH_DELAY_S)
         req = urllib.request.Request(url, headers={"User-Agent": "trace-crossdistro-screen"})
@@ -77,7 +89,11 @@ def fetch(url: str, timeout: int = 45) -> tuple[bytes, str] | None:
                 return None
             body = resp.read()
     except Exception:
+        if cache_file is not None:
+            cache_file.with_suffix(".miss").write_bytes(b"")
         return None
+    if cache_file is not None:
+        cache_file.write_bytes(body)
     return body, hashlib.sha256(body).hexdigest()
 
 
@@ -247,7 +263,13 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--tracker", type=Path, help="path to a pre-fetched security-tracker JSON")
     ap.add_argument("--out", type=Path, default=Path("data/reports"))
+    ap.add_argument("--cache", type=Path, help="dir to cache fetches (reused across runs; polite re-runs)")
     args = ap.parse_args(argv[1:])
+
+    global _CACHE_DIR
+    if args.cache:
+        args.cache.mkdir(parents=True, exist_ok=True)
+        _CACHE_DIR = args.cache
 
     if args.tracker and args.tracker.exists():
         raw = args.tracker.read_bytes()
