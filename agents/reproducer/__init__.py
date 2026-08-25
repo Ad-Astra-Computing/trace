@@ -17,12 +17,22 @@ from agents.reproducer.runner import (
     assemble_user_content,
     run_reproducer,
 )
+from agents.reproducer.sampling import (
+    DrawResult,
+    ProbeVerdict,
+    SamplingResult,
+    build_probe_fn,
+    default_temperature_schedule,
+    sample_reproducer,
+)
 
 __all__ = [
+    "DrawResult",
     "LogSection",
     "PASSTHRU_KIND_ENUM",
     "PROXY_REASON_ENUM",
     "PassthruEntry",
+    "ProbeVerdict",
     "ProxyMetadata",
     "ReproducerOutputMalformed",
     "ReproducerParseResult",
@@ -31,7 +41,11 @@ __all__ = [
     "SIGNAL_GENERIC_TOKEN_FORBIDDEN",
     "SIGNAL_LENGTH_MAX",
     "SIGNAL_LENGTH_MIN",
+    "SamplingResult",
     "assemble_user_content",
+    "build_probe_fn",
+    "default_temperature_schedule",
     "parse_reproducer_output",
     "run_reproducer",
+    "sample_reproducer",
 ]
