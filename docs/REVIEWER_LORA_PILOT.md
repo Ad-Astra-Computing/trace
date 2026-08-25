@@ -1,7 +1,7 @@
 # Reviewer-first LoRA pilot — execution plan
 
 The first fine-tune trace runs. Goal: replace the frontier Reviewer (sonnet) with a
-LoRA-tuned open-weight model on the binary accept/reject task — the easier objective,
+LoRA-tuned open-weight model on the binary accept/reject task, the easier objective,
 chosen first ([[trace-finetuning-plan]]). The pilot is also a **pipeline dry-run**:
 it de-risks the training harness, the data-format contract, and the eval-fold
 plumbing on the track with abundant data and a forgiving objective, before the
@@ -18,21 +18,21 @@ The green-light is **50 positives + 25 negatives**, NOT 50 total. (The codex-pee
 | positives | 28 | 50 | **+22** |
 | negatives | 25 | 25 | done |
 
-*(B1 bundle 1, postgresql_14 CVE-2026-2003, was attempted 2026-06-12 and DEFERRED — not
-banked — pending a Patcher hash-grounding fix for split/`generic.nix` packages. See
+*(B1 bundle 1, postgresql_14 CVE-2026-2003, was attempted 2026-06-12 and DEFERRED, not
+banked, pending a Patcher hash-grounding fix for split/`generic.nix` packages. See
 DECISIONS 2026-06-12 "B1 attempt: postgresql_14 — DEFERRED".)*
 
-**Reviewer-positives are any VALID bundle** — auto-merge cert-green OR
+**Reviewer-positives are any VALID bundle**: auto-merge cert-green OR
 human-review-valid (the Reviewer's job is accept/reject across all shapes;
 auto-merge *refusals* are negatives, not positives). So the +24 gap draws from the
-**25 auto-merge-eligible version-bump candidates** in `eval/candidates.jsonl` — cheap,
+**25 auto-merge-eligible version-bump candidates** in `eval/candidates.jsonl`, cheap,
 abundant raw material, unlike the Authoring track's narrow source-backport need. The
 positive gap is a **bootstrap-batch** problem (well-documented workflow, ~$5/batch,
 batches of 10, checkpoint each batch), not a Scout-harvest problem.
 
 ## Why the baseline is NOT frozen yet (deliberate)
 
-The frontier baseline must be frozen over the **held-out fold before training** — but
+The frontier baseline must be frozen over the **held-out fold before training**, but
 the fold changes when the +24 positives land, so freezing now would produce an
 apples-to-oranges comparison and waste live spend re-running it. **Freeze the
 methodology + stratification today; freeze the numbers once the positive set is
@@ -45,23 +45,23 @@ A baseline you can't reproduce exactly makes the LoRA comparison uninterpretable
 When the positive set is final, freeze ALL of:
 
 1. **Exact Reviewer prompt text** (the `prompts/reviewer.vN.md` SHA, not just the path).
-2. **Model id + decoding params** — full model string (e.g. `claude-sonnet-4-5-20250929`),
+2. **Model id + decoding params**: full model string (e.g. `claude-sonnet-4-5-20250929`),
    plus temperature / top-p / seed (or "unset" recorded explicitly).
-3. **Held-out fold row ids** — the exact bundle/example ids in the test fold, so the
+3. **Held-out fold row ids**: the exact bundle/example ids in the test fold, so the
    LoRA is evaluated on the *same* rows the frontier baseline saw.
-4. **Per-metric breakdown, not just the composite** — record each sub-metric
+4. **Per-metric breakdown, not just the composite**: record each sub-metric
    (verdict-correctness, evidence-citation, attestation, refusal-class) separately.
    If the frontier Reviewer is already near-ceiling on the composite, the sub-metrics
    are where a LoRA could plausibly have headroom; a composite-only baseline invites a
    null-result surprise.
 
 Both `composite` AND `patch_rate`-equivalent (accept/reject-rate) are tracked, per
-the cohort-cadence discipline — a high composite from contract-correct *refusals* is
+the cohort-cadence discipline: a high composite from contract-correct *refusals* is
 not the same signal as discrimination accuracy.
 
 ## Stratification rule (frozen now)
 
-- Split by **package and CWE-family**, never random row — else the test fold measures
+- Split by **package and CWE-family**, never random row, else the test fold measures
   "saw a sibling in training." Mirrors the exporter's `_split_for` family hashing.
 - ≤2 examples per family in any single fold (the negative-minting cap already enforces
   this; positives must match).
@@ -72,34 +72,34 @@ not the same signal as discrimination accuracy.
 
 1. ✅ Exporter (`trace export reviewer`) built + validated (N=20 milestone, 2026-06-10).
 2. ✅ Negatives: 25 minted, round-trip clean (`trace mutate reviewer-negative`).
-3. **Positives 26 → 50** — bootstrap ~24 reviewer-positive bundles. Batches of 10,
+3. **Positives 26 → 50**: bootstrap ~24 reviewer-positive bundles. Batches of 10,
    $5/batch ceiling, stop after 3 consecutive retirements. *(next executable work)*
 
-   **Recon 2026-06-12 — the corpus can't fully close this; a harvest pass is also
+   **Recon 2026-06-12: the corpus can't fully close this; a harvest pass is also
    needed.** `eval/candidates.jsonl` has only **6 unbundled auto-merge** +
    **~8 unbundled human-review** valid-bundle candidates = ~14 max → even draining it
    lands near **N=40, ~10 short of 50**. So track (c) needs a candidate-harvest pass
-   too (version-bump shapes — distinct from the (a) source-backport harvest), runnable
+   too (version-bump shapes, distinct from the (a) source-backport harvest), runnable
    alongside the bootstrap batch.
 
-   **Cheapest-first ordering — human-review-valid before auto-merge.** A
+   **Cheapest-first ordering: human-review-valid before auto-merge.** A
    human-review-valid bundle is a valid reviewer-positive that needs **no
    reproducer/cert** (just Patcher → Reviewer-accept, 2 live calls), where an
    auto-merge bundle needs the full Builder+Steward+reproducer cert. So bank the
    human-review positives first. Candidate batch **B1** (cheapest reviewer-positives,
    clean patch-release bumps): `postgresql_14` ⏸️ **DEFERRED 2026-06-12** (CVE-2026-2003,
-   14.20→14.21 — split `14.nix`/`generic.nix` package; Patcher hash-grounding only
+   14.20→14.21, split `14.nix`/`generic.nix` package; Patcher hash-grounding only
    ~1/3 reliable, see Finding below), `samba` (CVE-2025-9640, 4.22.x point release),
    `grafana` (CVE-2026-21722, v12.3.3 patch release). **Screen package shape first**:
    prefer single-file `pkgs/by-name` `package.nix` where `hash` lives in a `src`
    fetcher (like expat); skip split/`generic.nix` packages until the Patcher fix lands.
    Preflight each (the named release must actually contain the fix). Auto-merge
-   candidates (chromium, discourse, jruby, openssh_gssapi) are batch B2 — costlier (cert).
+   candidates (chromium, discourse, jruby, openssh_gssapi) are batch B2, costlier (cert).
 
    **Findings from the postgres attempt (DECISIONS 2026-06-12):**
    - **Patcher hash-grounding fails on split/`generic.nix` packages** (`hash` is a bare
      argument, not `src = fetchFromGitHub { hash = … }`). Grounded correctly ~1/3 runs.
-     **Prompt-level fix** — the higher-leverage one; unblocks a whole class of
+     **Prompt-level fix**: the higher-impact one; unblocks a whole class of
      version-bump candidates. Until it lands, B1 must avoid split packages.
    - **Auto `--fetchzip` mis-substitutes non-dotted tags** (`REL_14_20` vs `14.20`) →
      wrong hash; manual-pin + FOD-verify, or a resolver-side normalization fix.
@@ -107,9 +107,9 @@ not the same signal as discrimination accuracy.
      human-review-required`); do NOT pass `--evidence-path reviewer-attested` (drops the
      schema-required `reproducer.nix` placeholder); sequence is patcher → reviewer →
      finalize then STOP (re-running patcher after a reviewer-accept overwrites the good patch).
-4. **Harness smoke-test (parallel, runnable now)** — train a throwaway LoRA on the
+4. **Harness smoke-test (parallel, runnable now)**: train a throwaway LoRA on the
    current 51 usable to prove the HF plumbing + data-format contract end-to-end. A
-   harness bug found here is free; found at N=50 it's expensive. Not a real result —
+   harness bug found here is free; found at N=50 it's expensive. Not a real result:
    a dry-run.
 5. **Freeze the frontier baseline** over the final held-out fold, per the methodology
    above.
@@ -119,7 +119,7 @@ not the same signal as discrimination accuracy.
 ## Parallel track (do not serialize behind this)
 
 The Authoring corpus expansion (`docs/AUTHORING_TRAINING.md` step 3) is **search-bound**
-(finding source-backport CVEs), while this pilot is **compute/eval-bound** — they do
+(finding source-backport CVEs), while this pilot is **compute/eval-bound**; they do
 not contend, so run them in parallel. The source-backport candidate harvest filter is
 in `docs/CORPUS.md` § Curation filters → *Source-backport authoring-candidate filter*.
 
@@ -131,7 +131,7 @@ produces volume, one session owns the integration gate). It shells out to
 `trace export {reviewer,authoring} --format json` and reports in one place:
 positive/negative counts vs the 50+25 threshold (with the gap), train/dev/test split
 + `leakage_check_ok` (the training-validity invariant), an actionable exclusion
-breakdown (TRIAGE: attestation-mismatch / no-review — may yield +positives if a
+breakdown (TRIAGE: attestation-mismatch / no-review, may yield +positives if a
 genuine reviewer bundle; STRUCTURAL: dedupe / parser-fail), the authoring count, and a
 **baseline-freeze / pilot-ready verdict**. Exit 0 when pilot-ready, 1 otherwise (so it
 can gate CI or signal the fleet to stop). `--pos/--neg` override the thresholds; `--json`
@@ -143,9 +143,9 @@ before any baseline freeze; freeze only when it prints READY.
 
 Snapshot 2026-07-27: **84 cert-green positives / 55 negatives, verdict READY**
 (`pilot_ready=true`, `blocking=[]`). The enumerator now excludes two non-pollution
-classes via fail-closed guards — 6 self-declared schema-negative authoring fixtures
+classes via fail-closed guards: 6 self-declared schema-negative authoring fixtures
 (own `expect.json` declares `overall=invalid` + `expected_failure.doc=upstream-ref.json`,
-test-asserted-invalid) and 21 authoring-only training pairs — kept visible in the
+test-asserted-invalid) and 21 authoring-only training pairs, kept visible in the
 report. Frozen as **corpus-v2** (`data/reports/reviewer-corpus-2026-07-27-freeze.json`,
 139 examples, splits 112/16/11, CVE-disjoint, jsonl `097bd49c…`, commit `f27fc9c`).
 
@@ -167,7 +167,7 @@ without a trustworthy *reason* is not auto-merge-safe. So the gate hardened in l
 with the prompt's **required reasoning artifact** for source-backport reviews: a
 `## Patch comparison` (PC) section that quotes the actual `+/-` lines and concludes
 match/mismatch. Each version closed a way the model could reach a verdict via a
-**hallucinated or inconsistent PC trace** — the central failure class, and (per the
+**hallucinated or inconsistent PC trace**: the central failure class, and (per the
 unfaithful-chain-of-thought literature, DECISIONS 2026-06-25) a known mid-size-model
 limitation rather than a corpus bug.
 
@@ -181,7 +181,7 @@ limitation rather than a corpus bug.
 | v1.7 | — | 7/9 | condition-mutation (`<`→`<=`) + missing-line false-accepts → prompt **v8** critical-token-window (CTW) sub-bullet + token-boundary scorer |
 | v1.8 | v8 CTW corpus | — | CTW shipped; canary still imperfect |
 | v1.9 | +8 context-reshape **positives** | **zlib positive FIXED**, 9/9 verdicts, gate **FAIL** | reshaping taught CTW-equivalence under context-count differences. But 2 PC-consistency errors remained (PC concludes accept, verdict rejects) |
-| v1.10 | prompt **v9** order/placement-sensitive `comparison:` + 4 token-preserving-misplacement negatives + A-full v9 regeneration of the whole SB corpus | 9/9 verdicts, gate **FAIL→PASS** (reconciled) | the 2 remaining failures were **NOT** placement defects — they were absence/role hallucination, so order-sensitivity was orthogonal. Fixed at the **gate definition**, not the model (below) |
+| v1.10 | prompt **v9** order/placement-sensitive `comparison:` + 4 token-preserving-misplacement negatives + A-full v9 regeneration of the whole SB corpus | 9/9 verdicts, gate **FAIL→PASS** (reconciled) | the 2 remaining failures were **NOT** placement defects: they were absence/role hallucination, so order-sensitivity was orthogonal. Fixed at the **gate definition**, not the model (below) |
 
 ## The v1.10 resolution (current state)
 
@@ -194,27 +194,27 @@ present/applied. We reconciled the gate (not the model), grounded in the CoT-fai
 
 - A PC-consistency contradiction is **non-fatal** only when ALL hold: label=negative,
   raw verdict=reject, effective verdict=reject, PC says match/accept, AND a deterministic
-  layer falsifies the hallucinated evidence — **`pc_file_grounding`** (quoted line is
+  layer falsifies the hallucinated evidence: **`pc_file_grounding`** (quoted line is
   ABSENT from patch.diff) OR **`pc_role_grounding`** (a `+`-quoted "applied" line is
-  actually a REMOVED `-` line — the reversed-hunk case). Fatal for any positive, any
+  actually a REMOVED `-` line, the reversed-hunk case). Fatal for any positive, any
   accept, any false-accept, any ungrounded contradiction.
 - **Gate guarantee:** no unsafe accepts, no ungrounded/un-role-checked accepts, every PC
   contradiction on a reject is deterministically explained.
 
 This also corrected an earlier mis-read: 2 context-reshape positives that flipped under
 v9 were **false-rejects** (the model mis-extracted line order on a narrowed-context
-hunk), not genuine defects — dropped from training, not relabeled.
+hunk), not genuine defects, dropped from training, not relabeled.
 
 ## Operational findings worth keeping
 
 - **The live-reviewer prompt constant was stale** (`reviewer.v4.md`) for the whole
   v1.6–v1.9 line, so v8/v9's CTW + ordered-PC machinery never reached a *generated*
-  target — only the export's *system* prompt. Surfaced + fixed during the v1.10 A-full
+  target, only the export's *system* prompt. Surfaced + fixed during the v1.10 A-full
   regeneration; default bumped to v9 once v1.10 passed.
 - **Corpus consistency is a real cost.** Targets generated under mixed prompt versions
   (v2–v4) silently violate a newer prompt's required-section contract. A-full
   regeneration under one prompt is the clean baseline.
-- **`NO_CREDITS` mid-run** is a billing stop, not a failure — the adapter only pushes at
+- **`NO_CREDITS` mid-run** is a billing stop, not a failure: the adapter only pushes at
   run end, so a killed run leaves no adapter; re-dispatch is idempotent.
 
 ## Queued for the next batch
@@ -288,7 +288,7 @@ python3 scripts/build_compound_probe.py \
 ```
 
 Rows are labeled `split: "canary"` so `eval/score_gate_pilot.py` applies its full
-canary-grade treatment with **zero scorer changes** — mandatory correctness plus the
+canary-grade treatment with **zero scorer changes**: mandatory correctness plus the
 PC-consistency / `pc_file_grounding` / `pc_role_grounding` checks. This is a reused
 label, not a claim that this is the v1.10 gate's zlib/jq canary; the probe is always
 scored as its own isolated file, never merged into the real gate-pilot JSONL. Score
@@ -304,15 +304,15 @@ python3 eval/score_gate_pilot.py \
 **Read the result as three separate numbers, not one accuracy.** Label the run
 "unseen-family compound-guard probe, n=6" and report:
 
-1. **Raw verdict accuracy** — `canary_correct / canary_total` from the report
+1. **Raw verdict accuracy**: `canary_correct / canary_total` from the report
    summary (6/6 in the harness sanity-check with a synthetic all-correct response
    set; see `tests/eval/test_compound_guard_probe.py` for the row-shape
    verification, not a model result).
-2. **Paired-positive false-reject rate** — among the 2 positive rows, how many
+2. **Paired-positive false-reject rate**: among the 2 positive rows, how many
    `details.canary` entries have `label: positive` and `outcome: false_reject`. This
    is the control: a model that rejects the clean guard alongside its mutated
    siblings is not discriminating, it is pattern-matching "compound guard → reject".
-3. **Grounding/composite diagnostics, reported separately** — `canary_pc_file_
+3. **Grounding/composite diagnostics, reported separately**: `canary_pc_file_
    grounding_errors`, `canary_pc_role_grounding_errors`, and
    `canary_pc_consistency_fatal` from the same report. These measure whether a
    correct reject verdict is backed by a faithful PC trace, independent of whether
@@ -343,7 +343,7 @@ train split.
 The exact added examples (v1.10 → v1.11), reconstructed from git history:
 
 - **+1 positive:** libarchive CVE-2026-15028 (source-backport adaptation).
-- **+5 negatives — all compound-condition**, added in commit `c4d4bd5`
+- **+5 negatives: all compound-condition**, added in commit `c4d4bd5`
   (2026-06-25, "5 compound-condition Reviewer negatives (v1.11 queue)"), which
   postdates the v1.10 training run (v1.10 corpus had 0 compound-condition
   negatives). They are the SAME mutation class as the held-out probe
@@ -358,8 +358,8 @@ is framed as a targeted compound-guard hard-negative intervention: the probe
 measures cross-family transfer of exactly the mutation class the added
 negatives teach, not memorization (train and probe families are disjoint).
 
-**Contract-drift exclusion.** One otherwise-eligible target — maxima
-CVE-2024-34490 (bundle `c3ad8fadc690f28e`, a train negative added 2026-07-27) —
+**Contract-drift exclusion.** One otherwise-eligible target, maxima
+CVE-2024-34490 (bundle `c3ad8fadc690f28e`, a train negative added 2026-07-27),
 carries a `## Equivalence assessment` section. That section was introduced in
 reviewer.v10 (adaptation lane); reviewer.v9 defines only `## Verdict`,
 `## Reasoning`, and `## Patch comparison` and never emits it. Pairing that
@@ -380,7 +380,7 @@ could not be attributed to corpus growth alone.
 **Count reconciliation.** The corpus-v2 freeze (above) reports 139 total / 84
 positive because it used default splits with no canary carve-out. The
 reviewer-v1.8 manifest used here holds out 4 gate-pilot canary bundles (zlib
-CVE-2022-37434, jq CVE-2025-48060, jq CVE-2026-33948, jq CVE-2026-39979 — all
+CVE-2022-37434, jq CVE-2025-48060, jq CVE-2026-33948, jq CVE-2026-39979, all
 positive base bundles), so 139 = 134 trained + 4 gate-pilot canary (held out)
 + 1 maxima (v10-shaped target excluded under v9, see Contract-drift exclusion
 above) and 84 positive = 80 trained + 4 canary positives (maxima is a negative,
@@ -390,7 +390,7 @@ prompt-target-mismatched row.
 
 **Pre-registered expected outcomes.** This is a small, negative-heavy
 intervention (+6 train examples, 5 of which are negative), so a large probe
-gain is NOT the expected outcome — a jump from 0/6 to 6/6 on the
+gain is NOT the expected outcome: a jump from 0/6 to 6/6 on the
 compound-guard probe would itself be a surprising result worth scrutinizing
 rather than taking at face value. The probe instead measures whether even
 this small corpus shift moves held-out compound-guard behavior at all, in
@@ -402,10 +402,10 @@ as follows:
 
 | v1.10 control | v1.11 | Interpretation |
 |---|---|---|
-| fails | passes | improvement — more corpus measurably helped |
+| fails | passes | improvement: more corpus measurably helped |
 | passes (6/6) | passes (6/6) | probe already saturated; v1.11 shows non-regression only, not a gain |
 | fails | fails identically | no measurable gain from the added corpus |
-| passes | fails | regression — investigate before promoting v1.11 |
+| passes | fails | regression: investigate before promoting v1.11 |
 
 Do not report a v1.11 6/6 result as an improvement unless the v1.10 control
 scores lower on the same input. A v1.11 score read in isolation says nothing
@@ -419,7 +419,7 @@ about whether the retrain helped.
   pattern-matching "compound guard → reject", not discriminating.
 - **Raw verdict vs `effective_verdict`**: report both. A grounding override
   (raw `accept` flipped to `effective_verdict: reject` by deterministic
-  patch.diff-side grounding) must NOT count as a model success — it is the
+  patch.diff-side grounding) must NOT count as a model success: it is the
   gate's safety net catching a hallucinated accept, not the model getting the
   call right.
 - **Results by `mutation_type`**: `condition-operator-mutation` (off-by-one)
@@ -430,8 +430,8 @@ about whether the retrain helped.
   (libwebp CVE-2023-4863 and ffmpeg_5 CVE-2023-49502 each contribute
   `condition-drop-conjunct` rows); (2) operator-mutation behavior is measured
   on ONE unseen family only (ffmpeg_5 CVE-2023-49502), n=1; (3) NO
-  operator-mutation cross-family transfer claim will be made from this probe
-  — a single-family, n=1 result cannot support one.
+  operator-mutation cross-family transfer claim will be made from this probe:
+  a single-family, n=1 result cannot support one.
 - **Parse/schema failures**: any response that does not yield a parseable
   verdict is reported as its own category, not folded into false-reject or
   false-accept counts.
@@ -441,7 +441,7 @@ about whether the retrain helped.
   is visible even when the raw verdict is right.
 - **Family-level behavior**: report libwebp and ffmpeg_5 separately. One
   family passing all 3 of its rows while the other fails is NOT cross-family
-  transfer — it is a single-family result and should be labeled as such.
+  transfer: it is a single-family result and should be labeled as such.
 
 **Preregistration guards.**
 
@@ -461,7 +461,7 @@ about whether the retrain helped.
 - The 26-row merged inference input (gate pilot + probe) is bound by SHA-256:
   the dispatch script computes `MERGED_SHA256` and passes it as
   `EXPECTED_INPUT_SHA256` to the job, which aborts with `RuntimeError` if the
-  mounted `gate-pilot.jsonl` does not hash-match — the shared dataset filename
+  mounted `gate-pilot.jsonl` does not hash-match: the shared dataset filename
   is mutable, so this binds the job to the exact 26-row file built at dispatch
   time. Each arm writes raw model responses to a distinct immutable path
   (control → `gate_pilot_responses/corpus-v2-control/responses.jsonl`, v1.11 →
@@ -481,7 +481,7 @@ attestation sections; the 62 source-backport rows additionally carry
 `patch.diff` extraction, `upstream-fix.patch` extraction, and a Patch
 comparison section; exactly one row (maxima CVE-2024-34490) carries an
 Equivalence assessment section, a coherent v9 adaptation-equivalence result.
-No later-version-only sections appear anywhere in the export — v9 is the
+No later-version-only sections appear anywhere in the export: v9 is the
 latest reviewer prompt, so there is nothing later to leak in.
 
 **Absence assertion.** All 6 probe records (both families, matched by
