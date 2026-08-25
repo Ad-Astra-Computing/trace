@@ -14,6 +14,13 @@ from agents.scout import discover_nix_cli
 from agents.scout.feed_client import FeedRateLimit, FeedTransientError
 from agents.scout.nix_discovery import NixCvesSnapshot, NixpkgsCve
 
+# Ledger TTL is measured against the real clock (discover_nix_cli uses
+# datetime.now()), so a hardcoded last_evaluated date silently ages past the
+# default 30-day TTL and flips skip tests to re-emit. Compute it relative to
+# now so these tests stay stable over time.
+from datetime import datetime, timedelta, timezone
+_RECENT_EVAL = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 def _cve(cid: str, published: str = "2026-07-20T00:00:00Z",
          cve_ids: list[str] | None = None) -> NixpkgsCve:
@@ -128,7 +135,7 @@ def test_ledger_skips_terminally_seen_unchanged(tmp_path, capsys):
     fp = "h:" + "0" * 16  # matches an all-default entry only if state matches; use updated_at instead
     _write_ledger(ledger, [{
         "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
-        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "skipped-irrelevant",
+        "last_evaluated": _RECENT_EVAL, "outcome": "skipped-irrelevant",
         "fingerprint": "u:2026-07-19T00:00:00Z",
     }])
     entry = NixpkgsCve(
@@ -152,7 +159,7 @@ def test_ledger_re_emits_on_fingerprint_change(tmp_path, capsys):
     ledger = tmp_path / "seen.jsonl"
     _write_ledger(ledger, [{
         "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
-        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "written",
+        "last_evaluated": _RECENT_EVAL, "outcome": "written",
         "fingerprint": "u:OLD",
     }])
     entry = NixpkgsCve(
@@ -173,7 +180,7 @@ def test_ledger_re_emits_when_second_record_changed(tmp_path, capsys):
     ledger = tmp_path / "seen.jsonl"
     _write_ledger(ledger, [{
         "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
-        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "written",
+        "last_evaluated": _RECENT_EVAL, "outcome": "written",
         "fingerprint": "u:A",  # matches record #1 only
     }])
     rec1 = NixpkgsCve(
@@ -198,7 +205,7 @@ def test_ledger_skips_multi_record_when_aggregate_unchanged(tmp_path, capsys):
     ledger = tmp_path / "seen.jsonl"
     _write_ledger(ledger, [{
         "cve_id": "CVE-2026-1001", "first_seen": "2026-07-20T00:00:00Z",
-        "last_evaluated": "2026-07-20T00:00:00Z", "outcome": "written",
+        "last_evaluated": _RECENT_EVAL, "outcome": "written",
         "fingerprint": agg,
     }])
     rec1 = NixpkgsCve(
