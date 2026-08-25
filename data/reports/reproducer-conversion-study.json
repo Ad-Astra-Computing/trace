@@ -116,8 +116,44 @@
     "generalizable": true,
     "root_cause": "reproducer prompt v13 line 671 shows the filter example as `!lib.hasSuffix ...` (correct for hasSuffix, a boolean); a model swapping in builtins.match keeps the `!` and hits the null-not-boolean trap",
     "fix": "prompt-level: show/require `builtins.match pat (toString p) == null` in the filter example, or warn that builtins.match is not boolean"
+   },
+   {
+    "bundle": "CVE-2025-31344--giflib-backport",
+    "model": "claude-sonnet-4-5-20250929",
+    "prompt": "reproducer.v14",
+    "attempt": 2,
+    "cert_run": "https://github.com/Ad-Astra-Computing/trace/actions/runs/32885975171",
+    "cert_conclusion": "failure",
+    "failure_mode": "binary-fixture-quality",
+    "detail": "v14 fixed the predicate (reproducer now BUILDS); crafted OOB GIF is defective \u2014 'GIF-LIB error: Image is defective, decoding aborted', so gif2rgb never reaches the OOB read. Binary-fixture crafting limit."
+   },
+   {
+    "bundle": "CVE-2024-47081--requests-backport",
+    "model": "claude-sonnet-4-5-20250929",
+    "prompt": "reproducer.v14",
+    "attempt": 1,
+    "cert_run": "https://github.com/Ad-Astra-Computing/trace/actions/runs/32886735290",
+    "cert_conclusion": "failure",
+    "failure_mode": "wrong-scenario-non-discriminating",
+    "detail": "correct predicate + builds; PATCHED arm still LEAK_DETECTED. Model tested Authorization-header-on-redirect leak, but CVE-2024-47081 fixes a netrc-credential leak, so the patch does not fix the tested scenario and the arms do not discriminate."
+   },
+   {
+    "bundle": "CVE-2025-26625--git-lfs",
+    "model": "claude-sonnet-4-5-20250929",
+    "prompt": "reproducer.v14",
+    "attempt": 1,
+    "cert_run": "https://github.com/Ad-Astra-Computing/trace/actions/runs/32887958347",
+    "cert_conclusion": "failure",
+    "failure_mode": "missing-test-dependency",
+    "detail": "both arms fail at fixture setup: 'git: lfs is not a git command' \u2014 the model used `git lfs checkout` but did not add git-lfs to the fixture derivation's buildInputs/PATH."
    }
   ]
  },
- "phase_2_finding": "Phase 2 first data point failed cert on a GENERALIZABLE nix-predicate bug seeded by the prompt's filter example. Fix is prompt-level (reproducer.v14), not per-bundle. This is the study working as intended: it revealed the next Reproducer bottleneck."
+ "phase_2_finding": "Phase 2 first data point failed cert on a GENERALIZABLE nix-predicate bug seeded by the prompt's filter example. Fix is prompt-level (reproducer.v14), not per-bundle. This is the study working as intended: it revealed the next Reproducer bottleneck.",
+ "phase_2_summary": {
+  "first_pass_cert_success": "0/3 (giflib, requests, git-lfs; all behavioral shapes)",
+  "v14_effect": "resolved the generalizable format/predicate failure (attempt confirms builds now succeed past nix eval)",
+  "revealed_bottleneck": "reproducer DESIGN quality on behavioral CVEs: valid fixture construction, correct-scenario targeting, and test-dependency wiring. Three bundles, three distinct design failures. Not format, not predicate.",
+  "next_arc": "verifier-guided reproducer sampling (pass@K over reproducers, cert as the behavioral filter, first-green wins) \u2014 directly parallel to the AUTHORING arc's pass@K lever that recovered edit-precision. One-shot structure is right; sampling + the cert verifier should recover discrimination."
+ }
 }
