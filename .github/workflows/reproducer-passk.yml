@@ -1,0 +1,200 @@
+name: reproducer-passk
+
+# Manual-dispatch verifier-guided pass@K sampling for a bundle's Reproducer,
+# run on a clean CI runner (fat disk, stable network) where the local sandbox
+# cannot reliably build. This is the behavioral MEASUREMENT the local screen
+# could not complete: sample K reproducers, screen each through the two-arm
+# Builder, keep the first that discriminates. See docs/DECISIONS.md
+# (2026-08-25 pass@K slice entries) and agents/reproducer/sampling.py.
+#
+# It runs `trace reproducer sample` against a COPY of the bundle staged in
+# RUNNER_TEMP (the corpus is never mutated), re-finalized so its manifest
+# matches its inputs (the sampler refuses a stale-manifest bundle by design).
+# nixpkgs is cloned at the bundle's pinned rev and left at detached FETCH_HEAD
+# so HEAD equals nixpkgs_rev, which the sampler's checkout guard requires.
+#
+# Requires the ANTHROPIC_API_KEY secret. Exit codes from the sampler:
+# 0 winner committed, 3 no discriminating draw, 4 infra failure (retry),
+# 2 usage/config error. Only 2 fails the job; 0/3/4 are valid measurements.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "Bundle directory under traces/example/ (e.g. CVE-2025-31344--giflib-backport)"
+        required: true
+        type: string
+      model:
+        description: "Reproducer model id (must differ in family from the Patcher; must sample temperature)"
+        required: false
+        default: "claude-sonnet-4-5-20250929"
+        type: string
+      k:
+        description: "Number of candidates to sample"
+        required: false
+        default: "4"
+        type: string
+      builder_timeout_seconds:
+        description: "Per-build timeout for Builder phases (seconds)"
+        required: false
+        default: "3600"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  passk:
+    name: reproducer pass@K (${{ inputs.bundle }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify ANTHROPIC_API_KEY is present
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+            echo "::error::ANTHROPIC_API_KEY secret is required."
+            exit 1
+          fi
+          echo "ANTHROPIC_API_KEY is present (length=${#ANTHROPIC_API_KEY})"
+
+      - name: Resolve bundle metadata
+        id: meta
+        env:
+          BUNDLE_INPUT: ${{ inputs.bundle }}
+        run: |
+          set -euo pipefail
+          BUNDLE_PATH="traces/example/${BUNDLE_INPUT}"
+          if [[ ! -d "${BUNDLE_PATH}" ]]; then
+            echo "::error::bundle directory not found: ${BUNDLE_PATH}"
+            exit 64
+          fi
+          NIXPKGS_REV=$(BUNDLE_PATH="${BUNDLE_PATH}" python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['BUNDLE_PATH'],'bundle.json')))['nixpkgs_rev'])")
+          echo "bundle_path=${BUNDLE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs_rev=${NIXPKGS_REV}" >> "$GITHUB_OUTPUT"
+          echo "resolved: nixpkgs_rev=${NIXPKGS_REV}"
+        # BUNDLE_PATH is set as a python env var above to avoid interpolating the
+        # untrusted input directly into the -c source.
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      - name: Clone pinned nixpkgs revision
+        env:
+          NIXPKGS_REV: ${{ steps.meta.outputs.nixpkgs_rev }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/nixpkgs"
+          cd "${RUNNER_TEMP}/nixpkgs"
+          git init -q
+          git remote add origin https://github.com/NixOS/nixpkgs.git
+          git fetch --depth=1 origin "${NIXPKGS_REV}"
+          # Detached at the pinned rev: HEAD == nixpkgs_rev, clean tree — the
+          # sampler's checkout guard requires exactly this. No anchor commit.
+          git checkout -q --detach FETCH_HEAD
+          echo "nixpkgs HEAD: $(git rev-parse HEAD)"
+
+      - name: Stage + re-finalize a bundle copy
+        id: stage
+        env:
+          BUNDLE_PATH: ${{ steps.meta.outputs.bundle_path }}
+        run: |
+          set -euo pipefail
+          COPY="${RUNNER_TEMP}/bundle"
+          mkdir -p "${COPY}"
+          cp -R "${BUNDLE_PATH}/." "${COPY}/"
+          # Re-finalize the COPY so its manifest matches its inputs (the sampler
+          # refuses a stale-manifest bundle), preserving the corpus bundle's kind
+          # and created_at so the copy's routing is identical.
+          KIND=$(COPY="${COPY}" python3 -c "import json,os;print(json.load(open(os.path.join(os.environ['COPY'],'bundle.json'))).get('kind','human-review-required'))")
+          CREATED=$(COPY="${COPY}" python3 -c "import json,os;print(json.load(open(os.path.join(os.environ['COPY'],'bundle.json'))).get('created_at','2026-01-01T00:00:00Z'))")
+          nix develop --command python -m tools.trace_cli bundle finalize \
+            --bundle-dir "${COPY}" --kind "${KIND}" --created-at "${CREATED}"
+          echo "copy=${COPY}" >> "$GITHUB_OUTPUT"
+
+      - name: Run pass@K sampling
+        id: sample
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL_INPUT: ${{ inputs.model }}
+          K_INPUT: ${{ inputs.k }}
+          TIMEOUT_INPUT: ${{ inputs.builder_timeout_seconds }}
+          COPY: ${{ steps.stage.outputs.copy }}
+        run: |
+          set -uo pipefail
+          EXIT=0
+          nix develop --command python -m tools.trace_cli reproducer sample \
+            --bundle "${COPY}" \
+            --model "${MODEL_INPUT}" \
+            --k "${K_INPUT}" \
+            --nixpkgs-checkout "${RUNNER_TEMP}/nixpkgs" \
+            --builder-timeout-seconds "${TIMEOUT_INPUT}" \
+            --probe-root "${RUNNER_TEMP}/probes" \
+            --overwrite \
+            > "${RUNNER_TEMP}/sample-stdout.log" 2>&1 || EXIT=$?
+          echo "sampler exit code: ${EXIT}"
+          tail -40 "${RUNNER_TEMP}/sample-stdout.log" || true
+          echo "sample_exit=${EXIT}" >> "$GITHUB_OUTPUT"
+          # A usage/config error (2) fails the job; 0 (winner), 3 (no winner),
+          # 4 (infra) are all valid measurement outcomes.
+          if [[ "${EXIT}" == "2" ]]; then
+            echo "::error::sampler exited 2 (usage/config error)"
+            exit 1
+          fi
+
+      - name: Summarize the measurement
+        if: ${{ always() }}
+        env:
+          COPY: ${{ steps.stage.outputs.copy }}
+          SAMPLE_EXIT: ${{ steps.sample.outputs.sample_exit }}
+        run: |
+          set -uo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          from pathlib import Path
+          copy = Path(os.environ["COPY"])
+          exit_code = os.environ.get("SAMPLE_EXIT", "?")
+          verdict = {"0": "WINNER committed", "3": "no discriminating draw",
+                     "4": "infrastructure failure", "2": "usage/config error"}.get(exit_code, "unknown")
+          print(f"## reproducer pass@K\n")
+          print(f"- sampler exit: `{exit_code}` ({verdict})")
+          sc = copy / "reproducer-sampling.json"
+          attempts = sorted((copy / ".reproducer-sampling-attempts").glob("*.json")) if (copy / ".reproducer-sampling-attempts").is_dir() else []
+          rec = None
+          if sc.is_file():
+              rec = json.loads(sc.read_text()); print(f"- provenance: canonical sidecar")
+          elif attempts:
+              rec = json.loads(attempts[-1].read_text()); print(f"- provenance: attempt record (existing reproducer preserved)")
+          if rec:
+              print(f"- k={rec.get('k')} model=`{rec.get('model_id')}` winner={rec.get('winner')}")
+              print(f"\n| draw | temp | kind | u | p | discriminates |\n|--|--|--|--|--|--|")
+              for d in rec.get("draws", []):
+                  print(f"| {d['index']} | {d['temperature']} | {d['kind']} | {d['signal_unpatched_present']} | {d['signal_patched_present']} | {d['discriminates']} |")
+          PY
+
+      - name: Upload sampling artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: ${{ always() }}
+        with:
+          name: reproducer-passk-${{ inputs.bundle }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/bundle/reproducer-sampling.json
+            ${{ runner.temp }}/bundle/.reproducer-sampling-attempts/
+            ${{ runner.temp }}/bundle/reproducer.nix
+            ${{ runner.temp }}/bundle/reproducer-log.txt
+            ${{ runner.temp }}/bundle/passthru-tests.json
+            ${{ runner.temp }}/probes/*/build.json
+            ${{ runner.temp }}/probes/*/reproducer.nix
+            ${{ runner.temp }}/sample-stdout.log
+          if-no-files-found: warn
+          retention-days: 90
