@@ -570,8 +570,8 @@ def test_reproducer_in_model_backed_roles_set():
     assert "reproducer" in MODEL_BACKED_ROLES
 
 
-def test_reproducer_prompt_path_default_is_v9():
-    """Locked: the runner loads `prompts/reproducer.v13.md` by default.
+def test_reproducer_prompt_path_default_is_v14():
+    """Locked: the runner loads `prompts/reproducer.v14.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit. v12
     bans fallback-fires-signal predicates (a reproducer must not emit SIGNAL on
@@ -581,8 +581,8 @@ def test_reproducer_prompt_path_default_is_v9():
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v13.md", (
-        f"runner default reproducer prompt should be v13 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v14.md", (
+        f"runner default reproducer prompt should be v14 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
         "If you are bumping the prompt, update this test in the same commit."
     )
     assert REPRODUCER_PROMPT_PATH_DEFAULT.is_file(), (
@@ -604,6 +604,18 @@ def test_reproducer_v12_has_fetchpatch_config_sensitive_and_fallback_signal_clau
     # v12 fallback-fires-signal ban
     assert "fallback-fires-signal" in text
     assert "benign" in text and "non-discriminating" in text
+
+
+def test_reproducer_v14_has_filter_predicate_boolean_clause():
+    """Regression lock: v14 adds the source-backport filter-predicate rule
+    (giflib CVE-2025-31344 conversion-study cert fail): builtins.match returns
+    null-or-list, not a boolean, so the old.patches filter must use
+    `builtins.match ... == null`, never `!(builtins.match ...)`."""
+    from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
+
+    text = REPRODUCER_PROMPT_PATH_DEFAULT.read_text()
+    assert "== null" in text and "builtins.match" in text
+    assert "expected a Boolean but found null" in text
 
 
 def test_reproducer_v13_has_editor_tui_sandbox_home_clause():
