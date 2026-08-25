@@ -25,6 +25,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: read  # gh run list --workflow hits /actions/workflows
 
 # Serialise all alert bookkeeping; never cancel an in-flight one (each must run
 # to completion so the issue state converges deterministically).
