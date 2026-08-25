@@ -47,7 +47,7 @@ If you are reporting a security issue rather than fixing one, please use [`SECUR
 
 ## Code of conduct
 
-Be technical, be specific, be respectful. Disagreements about design tradeoffs are fine and welcome; ad hominem and dismissiveness are not. We follow the [Contributor Covenant](https://www.contributor-covenant.org/) in spirit; the repo will adopt a formal Code of Conduct when the contributor base is large enough that "in spirit" no longer suffices.
+Be technical, be specific, be respectful. Disagreements about design tradeoffs are fine and welcome; ad hominem and dismissiveness are not. We follow the [Contributor Covenant](https://www.contributor-covenant.org/).
 
 ## Local development
 
@@ -58,4 +58,4 @@ python3 -m pytest            # full Python test suite
 opa test policy/             # Rego policy tests (when present)
 ```
 
-Pre-commit hooks (gitleaks + light hygiene) run locally; install via `pre-commit install` from inside `nix develop`. The hooks must pass before any push; do not bypass with `--no-verify`.
+Local git hooks run before each commit: a secret scan (gitleaks when installed, else a regex fallback), an invisible-character and bidi check, a house-style prose check, and a commit-message check. They must pass; do not bypass with `--no-verify`.

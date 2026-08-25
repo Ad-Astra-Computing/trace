@@ -9,7 +9,7 @@ Read [`CONCEPTS.md`](CONCEPTS.md) first for the *what*. This doc is the *where* 
 ```
 trace/
 ├── SPEC.md                  v0 design (rev 3, 22 April 2026). The framing doc.
-├── README.md                Dev-shell + tests; intentionally thin.
+├── README.md                Quick start, pipeline overview, boundaries.
 │
 ├── agents/                  Role implementations, one subdir per role.
 ├── tools/                   The trace CLI; everything callable from outside the agents.
