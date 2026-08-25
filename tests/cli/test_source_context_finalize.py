@@ -126,6 +126,39 @@ def test_patch_normalization_present_manifested_and_signed(tmp_path):
     assert "patch-normalization.json" in signed
 
 
+# ── reproducer-sampling.json is optional-when-present ──────────────────────
+
+def test_reproducer_sampling_absent_not_manifested(tmp_path):
+    """A bundle whose reproducer was authored single-shot must NOT get a
+    placeholder reproducer-sampling.json entry."""
+    bd = _seed(tmp_path)
+    _finalize(bd)
+    b = json.loads((bd / "bundle.json").read_text())
+    assert "reproducer-sampling.json" not in b["files"]
+    signed = {sf["path"] for sf in b["signed_manifest"]["signed_files"]}
+    assert "reproducer-sampling.json" not in signed
+    assert _validate_bundle_json(bd) == []
+
+
+def test_reproducer_sampling_present_manifested_and_signed(tmp_path):
+    """The pass@K selection record is replay-critical + signed when present, so
+    the verifier-selection provenance cannot be altered without breaking the
+    signature."""
+    bd = _seed(tmp_path)
+    (bd / "reproducer-sampling.json").write_text(
+        '{"schema_version": 1, "winner": {"draw_index": 0}}\n'
+    )
+    _finalize(bd)
+    b = json.loads((bd / "bundle.json").read_text())
+    entry = b["files"]["reproducer-sampling.json"]
+    assert entry["producer_role"] == "reproducer"
+    assert entry["replay_critical"] is True
+    assert entry["sha256"] != "0" * 64
+    signed = {sf["path"] for sf in b["signed_manifest"]["signed_files"]}
+    assert "reproducer-sampling.json" in signed
+    assert _validate_bundle_json(bd) == []
+
+
 # ── guards ──────────────────────────────────────────────────────────────────
 
 def test_source_context_on_non_source_backport_rejected(tmp_path):

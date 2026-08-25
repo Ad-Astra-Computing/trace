@@ -280,6 +280,11 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import report as _report_module
     _report_module.add_parser(rp_subs)
 
+    rs = subs.add_parser("reproducer", help="reproducer-stage tooling")
+    rs_subs = rs.add_subparsers(dest="reproducer_cmd", required=True)
+    from tools.trace_cli import reproducer_sample as _reproducer_sample_module
+    _reproducer_sample_module.add_parser(rs_subs)
+
     from tools.trace_cli import export as _export_module
     _export_module.add_parser(subs)
 
@@ -383,6 +388,11 @@ def main(argv: list[str]) -> int:
     if args.cmd == "backport-fixtures":
         from tools.trace_cli import backport_patch as _backport_module
         return _backport_module.run_fixtures(args)
+    if args.cmd == "reproducer":
+        if args.reproducer_cmd == "sample":
+            from tools.trace_cli import reproducer_sample as _reproducer_sample_module
+            return _reproducer_sample_module.run(args)
+        return EXIT_USAGE
     if args.cmd == "replay":
         return _cmd_replay(args)
     if args.cmd == "review":

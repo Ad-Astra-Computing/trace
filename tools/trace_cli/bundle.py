@@ -856,9 +856,15 @@ def finalize_bundle(
     # whose model patch was sourceRoot-normalized — most bundles never carry it,
     # so it must be optional-when-present (never a universal placeholder that
     # claims a signed input that doesn't exist).
+    # reproducer-sampling.json is the verifier-guided pass@K selection record
+    # (why THIS reproducer was chosen: model, prompt sha, per-draw verdict,
+    # winning draw). It is replay-critical when present so the selection
+    # provenance cannot be altered without breaking the signature; absent on
+    # bundles whose reproducer was authored single-shot.
     for fname, producer in (("upstream-fix.patch", "upstream-ref-resolver"),
                             ("preflight.json", "source-context-extractor"),
-                            ("patch-normalization.json", "patch-normalizer")):
+                            ("patch-normalization.json", "patch-normalizer"),
+                            ("reproducer-sampling.json", "reproducer")):
         path = bundle_dir / fname
         if path.is_file():
             data = path.read_bytes()
@@ -985,7 +991,7 @@ def finalize_bundle(
                 # signed, or Steward rule 4 rejects the bundle.
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
                 for fname in ("upstream-fix.patch", "preflight.json",
-                              "patch-normalization.json")
+                              "patch-normalization.json", "reproducer-sampling.json")
                 if fname in files_block and files_block[fname].get("replay_critical")
             ] + [
                 # source-context files are replay-critical inputs → signed. Order
