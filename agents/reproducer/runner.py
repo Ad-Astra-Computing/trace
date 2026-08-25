@@ -33,10 +33,15 @@ from agents.reproducer.parser import (
 )
 
 
+# max_tokens is 16384, not 8192: the three-block reproducer output (a full Nix
+# expression, the predicted run log, and passthru-tests.json) after a large
+# system prompt routinely ran past 8192 and truncated mid-output, losing the
+# reproducer-log.txt / passthru-tests.json blocks. The larger ceiling is only an
+# upper bound: a short reproducer still bills only the tokens it emits.
 _DEFAULT_SAMPLING: dict[str, Any] = {
     "temperature": 0.0,
     "top_p": 1.0,
-    "max_tokens": 8192,
+    "max_tokens": 16384,
 }
 
 

@@ -512,8 +512,11 @@ def test_reproducer_malformed_output_writes_no_files(tmp_path):
     bundle_dir = _build_post_patcher_bundle(tmp_path)
     pre_replay = (bundle_dir / "replay.json").read_text()
 
-    bad_response = "Hi! Here is my reproducer.\n\n" + _valid_reproducer_response()
-    with pytest.raises(ExecutionError, match=r"malformed|preamble"):
+    # A long prose preamble (over the tolerated lead-in cap) is genuine format
+    # breakdown, so it still fails and must write nothing. (A SHORT lead-in is
+    # now tolerated and parses; see test_short_preamble_before_first_marker.)
+    bad_response = ("This is a long explanation of what I did. " * 20) + "\n\n" + _valid_reproducer_response()
+    with pytest.raises(ExecutionError, match=r"malformed|shape is broken"):
         execute(
             role="reproducer",
             bundle_dir=bundle_dir,

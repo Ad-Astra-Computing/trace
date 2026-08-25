@@ -222,9 +222,20 @@ def test_refusal_rule_in_range_accepted(rule_n: int) -> None:
 # ─── preamble / postamble forbidden ──────────────────────────────────────
 
 
-def test_prose_preamble_before_first_marker_is_forbidden() -> None:
+def test_short_preamble_before_first_marker_is_tolerated() -> None:
+    # A one-line lead-in ("Here is my reproducer:") is a cosmetic artifact some
+    # models emit; strip it and parse the intact three-block body rather than
+    # discarding valid output.
     raw = "Here is my reproducer:\n\n" + _wrap_three_files()
-    with pytest.raises(ReproducerOutputMalformed, match="preamble"):
+    result = parse_reproducer_output(raw)
+    assert result.kind == "reproducer"
+
+
+def test_long_prose_preamble_is_still_forbidden() -> None:
+    # A response that is mostly prose with a marker buried far down is genuine
+    # format breakdown, not a lead-in, and must fail loudly.
+    raw = ("This is a long explanation. " * 20) + "\n\n" + _wrap_three_files()
+    with pytest.raises(ReproducerOutputMalformed, match="output shape is broken"):
         parse_reproducer_output(raw)
 
 

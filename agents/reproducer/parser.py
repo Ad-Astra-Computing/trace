@@ -244,6 +244,12 @@ _WRAPPING_FENCE_RE = re.compile(
 )
 
 
+# A lead-in like "Here is the reproducer:" is tolerated; anything longer is
+# genuine format breakdown (prose response with a marker buried inside it) and
+# must still fail loudly.
+_MAX_TOLERATED_PREAMBLE = 240
+
+
 def _strip_wrapping_code_fence(text: str) -> str:
     """Remove a markdown code fence that wraps the entire response.
 
@@ -285,12 +291,21 @@ def parse_reproducer_output(raw: str) -> ReproducerParseResult:
         raise ReproducerOutputMalformed(
             "no '=== BEGIN reproducer.nix ===' or '=== BEGIN refusal ===' marker found"
         )
+    # A short preamble before the first marker ("Here is the reproducer:") is a
+    # cosmetic artifact some models emit, in the same class as a wrapping code
+    # fence, which is already tolerated above. Strip it rather than discarding
+    # otherwise-valid output: the parser enforces output SHAPE, and the shape is
+    # intact once we start from the first marker. Cap the tolerated preamble so a
+    # response that is mostly prose with a marker buried in it still fails loudly
+    # (that is genuine format breakdown, not a one-line lead-in).
     before = text[: first.start()].strip()
-    if before:
+    if len(before) > _MAX_TOLERATED_PREAMBLE:
         raise ReproducerOutputMalformed(
-            "content before the first '=== BEGIN' marker is forbidden; "
-            f"found {len(before)} chars of preamble"
+            f"{len(before)} chars of content before the first '=== BEGIN' marker "
+            f"(over the {_MAX_TOLERATED_PREAMBLE}-char tolerance); output shape is broken"
         )
+    if before:
+        text = text[first.start() :]
 
     if first.group(1) == "refusal":
         return _parse_refusal(text)
