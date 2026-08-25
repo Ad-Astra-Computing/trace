@@ -1,0 +1,105 @@
+{
+ "schema_version": "1.0.0",
+ "kind": "reproducer-conversion-study",
+ "date": "2026-08-25",
+ "scope": "phase-1: first-pass parse rate + content convention (behavioral/cert = phase-2 via CI, local store corrupt)",
+ "reproducer_model": "claude-sonnet-4-5-20250929 (Sonnet; Haiku fails source-backport filter convention, see DECISIONS)",
+ "sample_size": 10,
+ "first_pass_parsed": 8,
+ "model_parse_rate_excl_data_issues": "8/9",
+ "failure_modes": {
+  "bundle_data_missing_patch_rationale": [
+   "CVE-2023-4863--libwebp-huffman-backport"
+  ],
+  "malformed_output": [
+   "CVE-2023-4016--procps-ng-xxcalloc"
+  ]
+ },
+ "correct_filter_convention_on_source_backports": [
+  "CVE-2025-31344--giflib-backport",
+  "CVE-2024-47081--requests-backport"
+ ],
+ "controls": "analyst reproducers in traces/example left UNTOUCHED; study ran on scratch copies",
+ "items": [
+  {
+   "bundle": "CVE-2023-4863--libwebp-huffman-backport",
+   "patcher_family": "",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": false,
+   "convention": null,
+   "note": "FAILED: error: reproducer requires patch-rationale.md in bundle_dir "
+  },
+  {
+   "bundle": "CVE-2025-2337--matio",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "other",
+   "note": "PARSED|conv=other"
+  },
+  {
+   "bundle": "CVE-2025-26625--git-lfs",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "other",
+   "note": "PARSED|conv=other"
+  },
+  {
+   "bundle": "CVE-2023-4016--procps-ng-xxcalloc",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": false,
+   "convention": null,
+   "note": "FAILED: error: reproducer output malformed: reproducer output malfor"
+  },
+  {
+   "bundle": "CVE-2024-8176--expat",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "other",
+   "note": "PARSED|conv=other"
+  },
+  {
+   "bundle": "CVE-2025-31344--giflib-backport",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "filter",
+   "note": "PARSED|conv=filter"
+  },
+  {
+   "bundle": "CVE-2022-35920--sanic-backport",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "other",
+   "note": "PARSED|conv=other"
+  },
+  {
+   "bundle": "CVE-2024-47081--requests-backport",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "filter",
+   "note": "PARSED|conv=filter"
+  },
+  {
+   "bundle": "CVE-2025-47256--libxmp",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "other",
+   "note": "PARSED|conv=other"
+  },
+  {
+   "bundle": "CVE-2021-45340--libsixel-backport",
+   "patcher_family": "claude-opus-4-7",
+   "reproducer_model": "claude-sonnet-4-5-20250929",
+   "first_pass_parsed": true,
+   "convention": "other",
+   "note": "PARSED|conv=other"
+  }
+ ]
+}
