@@ -356,7 +356,9 @@ def run(
         # the existing reproducer. The canonical sidecar describes the reproducer
         # on disk, so a preserving sweep records to a separate attempts file (when
         # a reproducer exists) rather than clobbering its provenance.
-        had_probe_error = any(d.kind == "probe-error" for d in result.draws)
+        # probe-error (build infra) and model-error (adapter/API) both mean a
+        # draw was never actually evaluated — the sweep is incomplete.
+        had_infra_error = any(d.kind in ("probe-error", "model-error") for d in result.draws)
         evaluated = any(d.kind == "reproducer" for d in result.draws)
 
         def _record_preserving() -> str:
@@ -365,15 +367,16 @@ def run(
             _atomic_write_bytes(canonical_sidecar, sidecar_bytes)
             return f"Sidecar: {canonical_sidecar}"
 
-        if had_probe_error:
-            # Incomplete sweep: a probe error means that candidate was never
-            # evaluated (nix daemon / store down, a local false negative), so we
-            # cannot conclude no fixture discriminates. Preserve, report infra.
+        if had_infra_error:
+            # Incomplete sweep: a probe error (build infra) or model error
+            # (adapter/API) means a candidate was never evaluated, so we cannot
+            # conclude no fixture discriminates. Preserve, report infra.
             note = _record_preserving()
             print(
-                f"probe infrastructure failed on at least one of {result.k} draws; "
-                f"incomplete sweep, not a verdict. {note}. Retry on a clean builder "
-                f"or escalate to CI. Probe workspaces: {probe_root}",
+                f"infrastructure failure on at least one of {result.k} draws "
+                f"(build or model call); incomplete sweep, not a verdict. {note}. "
+                f"Retry on a clean builder/network or escalate to CI. "
+                f"Probe workspaces: {probe_root}",
                 flush=True,
             )
             return EXIT_PROBE_INFRA

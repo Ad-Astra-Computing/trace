@@ -9,6 +9,7 @@ probe seam produces a correct verdict off a Builder-shaped build.json.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -269,6 +270,107 @@ def test_proxy_draw_is_its_own_class_not_a_winner(tmp_path: Path) -> None:
     assert res.winner_index == 1
 
 
+def test_model_error_is_recorded_and_sweep_continues(tmp_path: Path) -> None:
+    # A model-call failure on one draw must not crash the sweep or lose later
+    # draws: it is recorded as kind="model-error" and sampling continues.
+    class FlakyAdapter:
+        def __init__(self, model_id: str, script: list[Any]):
+            self.model_id = model_id
+            self._script = list(script)
+
+        def invoke(self, *, system_prompt, user_content, sampling):
+            item = self._script.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return ModelResponse(text=item, model_id=self.model_id, input_tokens=None,
+                                 output_tokens=None, stop_reason="end_turn", extras={})
+
+    adapter = FlakyAdapter("m", [ConnectionError("API down"), _repro_output()])
+    probe = QueueProbe([_DISCRIMINATES])
+    res = sample_reproducer(
+        inputs=_inputs(), adapter=adapter, probe_fn=probe,
+        prompt_path=REPRO_PROMPT, probe_root=tmp_path, k=2,
+    )
+    assert res.draws[0].kind == "model-error"
+    assert "ConnectionError" in res.draws[0].detail
+    assert res.draws[0].discriminates is False
+    assert res.winner_index == 1  # the sweep recovered on the next draw
+
+
+def test_programming_error_in_model_call_reraises(tmp_path: Path) -> None:
+    # A programming error (not a transient adapter error) must NOT be laundered
+    # into a model-error draw; it surfaces as a traceback.
+    class BuggyAdapter:
+        model_id = "m"
+        def invoke(self, *, system_prompt, user_content, sampling):
+            raise TypeError("regression in runner logic")
+
+    with pytest.raises(TypeError, match="regression"):
+        sample_reproducer(
+            inputs=_inputs(), adapter=BuggyAdapter(), probe_fn=lambda *a: _DISCRIMINATES,
+            prompt_path=REPRO_PROMPT, probe_root=tmp_path, k=1,
+        )
+
+
+def _bj(unpatched=None, patched=None, patched_build=None):
+    """Build a build.json-shaped dict; each arm is (exit_code, stdout)."""
+    def arm(spec):
+        if spec is None:
+            return {"exit_code": 0, "stdout_stderr": ""}
+        code, out = spec
+        return {"exit_code": code, "stdout_stderr": out}
+    return {"unpatched": arm(unpatched), "patched": arm(patched),
+            "patched_build": arm(patched_build)}
+
+
+def test_infra_marker_only_trusted_with_nix_context(tmp_path: Path) -> None:
+    # A download marker counts only when the line also names a nix resource;
+    # fixture output that prints a network phrase is not misread as infra.
+    from agents.reproducer.sampling import _build_looks_infra_broken
+    assert _build_looks_infra_broken(_bj(patched=(0, "test: server returned 'connection refused' as expected\n"))) is False
+    assert _build_looks_infra_broken(_bj(unpatched=(1, "error: unable to download 'http://example.com/x'\n"))) is False
+    # Genuine nix diagnostics (cache host / store path) do count.
+    assert _build_looks_infra_broken(_bj(unpatched=(1, "error: unable to download 'https://cache.nixos.org/x.narinfo': Could not resolve host\n"))) is True
+    assert _build_looks_infra_broken(_bj(unpatched=(1, "error: getting status of '/nix/store/abc-perl-man': Stale file handle\n"))) is True
+
+
+def test_runner_level_failures_are_infra(tmp_path: Path) -> None:
+    # Runner/OS failures the substring+nix-context path would miss.
+    from agents.reproducer.sampling import _build_looks_infra_broken
+    # exit_code None on a reproducer arm = runner could not invoke nix-build.
+    assert _build_looks_infra_broken(_bj(unpatched=(None, "nix-build not on PATH (looked for 'nix-build')"))) is True
+    # disk exhaustion (no nix context, but unambiguous OS failure)
+    assert _build_looks_infra_broken(_bj(patched=(1, "builder failed: OSError: [Errno 28] No space left on device\n"))) is True
+    # a healthy build with the signal absent is NOT infra
+    assert _build_looks_infra_broken(_bj(unpatched=(1, "ran fine, no signal\n"), patched=(0, "ok\n"))) is False
+    # a SILENT timeout: exit_code None, empty log, outcome timed-out
+    silent_timeout = {
+        "unpatched": {"exit_code": None, "outcome": "timed-out", "stdout_stderr": ""},
+        "patched": {"exit_code": 0, "stdout_stderr": "ok\n"},
+    }
+    assert _build_looks_infra_broken(silent_timeout) is True
+
+
+def test_transient_vs_permanent_adapter_errors() -> None:
+    # 429 + 5xx SDK errors and stdlib connection/timeout are transient; permanent
+    # 4xx (auth, bad request) and programming errors are not absorbed.
+    from agents.reproducer.sampling import _is_transient_adapter_error
+
+    class APIStatusError(Exception):
+        def __init__(self, status): self.status_code = status
+
+    class RateLimitError(APIStatusError): pass
+    class AuthenticationError(APIStatusError): pass
+
+    assert _is_transient_adapter_error(ConnectionError("net")) is True
+    assert _is_transient_adapter_error(TimeoutError("slow")) is True
+    assert _is_transient_adapter_error(RateLimitError(429)) is True
+    assert _is_transient_adapter_error(APIStatusError(503)) is True
+    assert _is_transient_adapter_error(AuthenticationError(401)) is False  # permanent
+    assert _is_transient_adapter_error(APIStatusError(400)) is False       # bad request
+    assert _is_transient_adapter_error(TypeError("bug")) is False          # programming error
+
+
 def test_probe_error_is_classified_separately(tmp_path: Path) -> None:
     # An infra failure (store corruption) is a false negative, not an oracle
     # fail: it must be its own class, and sampling keeps going.
@@ -426,7 +528,11 @@ def test_build_probe_fn_restores_checkout_before_build(tmp_path: Path) -> None:
 
     runner = FakeBuildRunner(response=_outcome_with("ok\n", 0))
     probe = build_probe_fn(bundle_dir=bundle, build_runner=runner, nixpkgs_checkout=checkout)
-    probe(tmp_path / "probe", _NIX.encode(), _LOG.encode(), _PASSTHRU.encode())
+    # The fake checkout is not a real nixpkgs, so run_builder's patch-apply
+    # yields an unbuilt (exit_code None) arm and the probe raises infra AFTER its
+    # finally-restore; restoration is what this test asserts, so tolerate it.
+    with contextlib.suppress(RuntimeError):
+        probe(tmp_path / "probe", _NIX.encode(), _LOG.encode(), _PASSTHRU.encode())
     # Restored to pristine HEAD: tracked reverted, untracked addition removed.
     assert tracked.read_text() == "pristine\n"
     assert not added.exists()
@@ -457,12 +563,32 @@ def test_build_probe_fn_restores_checkout_after_probe(tmp_path: Path) -> None:
             return _outcome_with("ok\n", 0)
 
     probe = build_probe_fn(bundle_dir=bundle, build_runner=DirtyingRunner(), nixpkgs_checkout=checkout)
-    probe(tmp_path / "probe", _NIX.encode(), _LOG.encode(), _PASSTHRU.encode())
+    # The DirtyingRunner returns exit 0, but run_builder against a non-nixpkgs
+    # checkout yields an unbuilt arm, so the probe raises infra after its
+    # finally-restore. The post-probe cleanliness is what this test asserts.
+    with contextlib.suppress(RuntimeError):
+        probe(tmp_path / "probe", _NIX.encode(), _LOG.encode(), _PASSTHRU.encode())
     status = subprocess.run(
         ["git", "-C", str(checkout), "status", "--porcelain"],
         capture_output=True, text=True,
     )
     assert status.stdout == ""  # clean tree after the probe
+
+
+def test_build_probe_fn_raises_on_infra_broken_build(tmp_path: Path) -> None:
+    # A build that failed because the binary cache was unreachable must be an
+    # infra probe-error, not a false "signal absent" non-discriminating verdict.
+    bundle = _seed_bundle(tmp_path)
+    netfail = "error: unable to download 'https://cache.nixos.org/x.narinfo': Could not resolve host"
+    runner = FakeBuildRunner(responses=[
+        _outcome_with(netfail, 1),   # unpatched.test
+        _outcome_with(netfail, 1),   # patched-build
+        _outcome_with(netfail, 1),   # patched.test
+    ])
+    probe = build_probe_fn(bundle_dir=bundle, build_runner=runner, nixpkgs_checkout=None)
+    import pytest as _pytest
+    with _pytest.raises(RuntimeError, match="infrastructure"):
+        probe(tmp_path / "probe", _NIX.encode(), _LOG.encode(), _PASSTHRU.encode())
 
 
 def test_build_probe_fn_non_discriminating_when_signal_absent(tmp_path: Path) -> None:

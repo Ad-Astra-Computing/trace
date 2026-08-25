@@ -52,6 +52,85 @@ from agents.reproducer.runner import run_reproducer
 _DEFAULT_MAX_TEMPERATURE = 0.9
 _FLOOR_TEMPERATURE = 0.2
 
+# Substrings that mark a build that failed on infrastructure (no network to the
+# binary cache, daemon down, store corruption), NOT on the reproducer's own
+# logic. A build that never ran cannot testify that a fixture does not
+# discriminate, so the probe treats these as an infra failure (probe-error).
+# These are only trusted on a NIX-LEVEL diagnostic line (see below), so a
+# fixture that itself prints "connection refused" is not misread as infra.
+_BUILD_INFRA_MARKERS = (
+    "could not resolve host",
+    "unable to download",
+    "temporary failure in name resolution",
+    "cannot connect to daemon",
+    "cannot connect to nix daemon",
+    "unable to start any build",
+    "stale file handle",
+)
+
+
+# Tokens that reliably identify a line as a nix-level diagnostic (binary cache
+# host, store/var path, daemon). A network/download marker is only trusted on a
+# line that also carries one of these, so fixture output that merely prints
+# "error: unable to download http://example.com" is not misread as infra.
+_NIX_CONTEXT_TOKENS = (
+    "cache.nixos.org",
+    ".nixos.org",
+    "/nix/store",
+    "/nix/var",
+    "nix-daemon",
+)
+
+# Runner-level / OS failures that mean the build could not run at all. These are
+# unambiguous infra (a passing fixture does not emit them), so unlike the
+# download markers they need no nix-context qualifier.
+_RUNNER_INFRA_MARKERS = (
+    "no space left on device",
+    "errno 28",  # ENOSPC
+    "cannot allocate memory",
+    "errno 12",  # ENOMEM
+    "nix-build not on path",
+    "input/output error",
+)
+
+# Arms whose build the probe actually depends on. patched_build may be skipped
+# by instrumentation (disable_doCheck), so its exit_code is not a reliable
+# infra signal; the two reproducer arms always run in a probe.
+_PROBE_REQUIRED_ARMS = ("unpatched", "patched")
+
+
+def _build_looks_infra_broken(build_json: dict[str, Any]) -> bool:
+    """True iff a build phase failed on infrastructure rather than the fixture.
+
+    Three structural signals, in order of reliability:
+      1. a reproducer arm with `exit_code is None` and output — the runner could
+         not even invoke nix-build (per BuildOutcome, that IS an infra failure);
+      2. an unambiguous runner/OS failure marker (out of disk, OOM, no nix-build
+         on PATH) in any arm — these need no nix qualifier;
+      3. a network/download marker on a line that also names a nix resource
+         (binary cache host, store path) — qualified so fixture output that
+         merely mentions a download error is not misread as infra.
+    """
+    def _arm(name: str) -> dict[str, Any]:
+        v = build_json.get(name)
+        return v if isinstance(v, dict) else {}
+
+    for name in _PROBE_REQUIRED_ARMS:
+        arm = _arm(name)
+        # A required arm always runs (applied=True) in a probe, so exit_code
+        # None there means the runner could not invoke nix-build or it timed out
+        # — infra, regardless of whether any output was captured (a silent
+        # timeout records an empty log). "timed-out" is checked explicitly too.
+        if arm.get("exit_code") is None or arm.get("outcome") == "timed-out":
+            return True
+        if any(m in (arm.get("stdout_stderr") or "").lower() for m in _RUNNER_INFRA_MARKERS):
+            return True
+    for name in ("unpatched", "patched", "patched_build"):
+        for line in (_arm(name).get("stdout_stderr") or "").lower().splitlines():
+            if any(m in line for m in _BUILD_INFRA_MARKERS) and any(t in line for t in _NIX_CONTEXT_TOKENS):
+                return True
+    return False
+
 
 def default_temperature_schedule(k: int) -> list[float]:
     """A ramp from a near-deterministic first draw to exploratory later draws.
@@ -122,6 +201,43 @@ class SamplingResult:
     @property
     def discriminating_draws(self) -> int:
         return sum(1 for d in self.draws if d.discriminates)
+
+
+# Leaf class names of the transient transport / rate-limit / server errors the
+# Anthropic and OpenAI SDKs raise. Matched by name across the exception's MRO so
+# we neither import the SDKs into this fake-testable core nor absorb programming
+# errors (TypeError, AttributeError, ...) that must surface as tracebacks.
+_TRANSIENT_ADAPTER_ERROR_NAMES = frozenset({
+    "APIConnectionError",
+    "APITimeoutError",
+    "APIStatusError",
+    "APIError",
+    "RateLimitError",
+    "InternalServerError",
+    "ServiceUnavailableError",
+    "OverloadedError",
+})
+
+
+def _is_transient_adapter_error(exc: BaseException) -> bool:
+    """True for a transient model-call failure (transport / rate-limit / 5xx).
+
+    Stdlib ConnectionError / TimeoutError count; SDK errors are matched by class
+    name across the MRO so both the Anthropic and OpenAI adapters are covered
+    without importing either. Programming errors return False (they re-raise).
+    An SDK error carrying an HTTP status is absorbed ONLY for 429 and 5xx: a
+    permanent 4xx (auth failure, bad request, unknown model) must surface as a
+    configuration error, not be retried K times.
+    """
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    if not any(c.__name__ in _TRANSIENT_ADAPTER_ERROR_NAMES for c in type(exc).__mro__):
+        return False
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status == 429 or status >= 500
+    # Connection / timeout SDK errors carry no status and are transient by nature.
+    return True
 
 
 def _sha256(b: bytes) -> str:
@@ -244,6 +360,16 @@ def build_probe_fn(
             _json.dumps(result.build_json, indent=2, ensure_ascii=False) + "\n"
         )
 
+        # A build that failed on infrastructure (no binary-cache network, daemon
+        # down, store corruption, out of disk) never actually exercised the
+        # fixture, so its missing signal is not evidence of non-discrimination.
+        # Raise so the sampler records a probe-error, not a false verdict.
+        if _build_looks_infra_broken(result.build_json):
+            raise RuntimeError(
+                "build failed on infrastructure (binary cache / daemon / store / "
+                "disk), not on the fixture; treating as a probe error"
+            )
+
         unpatched = ReproUnpatchedFailsScorer().score(bundle_dir=probe_dir, invocation=invocation)
         patched = ReproPatchedPassesScorer().score(bundle_dir=probe_dir, invocation=invocation)
         specificity = ReproSignalSpecificityScorer().score(bundle_dir=probe_dir, invocation=invocation)
@@ -311,6 +437,22 @@ def sample_reproducer(
                 signal_unpatched_present=None, signal_patched_present=None,
                 discriminates=False, signal_specificity_ok=None,
                 reproducer_nix_sha256=None, detail=f"output malformed: {exc}",
+            ))
+            continue
+        except Exception as exc:
+            # A transient model-call failure on one draw must not crash the whole
+            # sweep and discard earlier draws' work. But only TRANSIENT adapter
+            # errors are absorbed as a `model-error` draw; a programming error
+            # (TypeError, AttributeError, a runner regression) must still surface
+            # as a traceback rather than be laundered into an infra result.
+            if not _is_transient_adapter_error(exc):
+                raise
+            draws.append(DrawResult(
+                index=i, temperature=temp, kind="model-error",
+                signal_unpatched_present=None, signal_patched_present=None,
+                discriminates=False, signal_specificity_ok=None,
+                reproducer_nix_sha256=None,
+                detail=f"model call failed: {type(exc).__name__}: {exc}",
             ))
             continue
 

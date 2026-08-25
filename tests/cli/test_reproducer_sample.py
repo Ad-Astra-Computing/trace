@@ -392,6 +392,23 @@ def test_validate_finalized_bundle_accepts_matching_input_hash(tmp_path: Path) -
     assert rs._validate_finalized_bundle(b) is None
 
 
+def test_run_all_model_error_is_infra_preserves(tmp_path: Path) -> None:
+    # Every draw's model call failed (API down): infra, not a verdict; the
+    # existing reproducer is preserved and not quarantined.
+    b = _seed_bundle(tmp_path)
+    (b / "reproducer.nix").write_text("existing\n")
+
+    class DeadAdapter:
+        def __init__(self, mid): self.model_id = mid
+        def invoke(self, **kw): raise ConnectionError("API unreachable")
+
+    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: DeadAdapter(m),
+                  _probe_fn=lambda *a: _DISC)
+    assert code == rs.EXIT_PROBE_INFRA
+    assert (b / "reproducer.nix").read_text() == "existing\n"
+    assert not (b / ".reproducer-sampling-quarantine").exists()
+
+
 def test_run_rejects_temperature_ignoring_model(tmp_path: Path) -> None:
     # pass@K on a model whose adapter drops temperature would draw K identical
     # candidates; reject before any spend.
