@@ -101,5 +101,23 @@
    "convention": "other",
    "note": "PARSED|conv=other"
   }
- ]
+ ],
+ "phase_2": {
+  "scope": "first-pass cert success via disposable per-bundle branch (fable mechanism: identical cert path, no corpus/machinery change)",
+  "attempts": [
+   {
+    "bundle": "CVE-2025-31344--giflib-backport",
+    "model": "claude-sonnet-4-5-20250929",
+    "attempt": 1,
+    "cert_run": "https://github.com/Ad-Astra-Computing/trace/actions/runs/32884455699",
+    "cert_conclusion": "failure",
+    "failure_mode": "nix-filter-predicate-semantics",
+    "detail": "model wrote `patches = builtins.filter (p: !(builtins.match \".*CVE.*\" (toString p))) old.patches` \u2014 builtins.match returns null/list not a boolean, so `!match` throws 'expected a Boolean but found null'. Correct form (the analyst control's): `builtins.match ... == null`.",
+    "generalizable": true,
+    "root_cause": "reproducer prompt v13 line 671 shows the filter example as `!lib.hasSuffix ...` (correct for hasSuffix, a boolean); a model swapping in builtins.match keeps the `!` and hits the null-not-boolean trap",
+    "fix": "prompt-level: show/require `builtins.match pat (toString p) == null` in the filter example, or warn that builtins.match is not boolean"
+   }
+  ]
+ },
+ "phase_2_finding": "Phase 2 first data point failed cert on a GENERALIZABLE nix-predicate bug seeded by the prompt's filter example. Fix is prompt-level (reproducer.v14), not per-bundle. This is the study working as intended: it revealed the next Reproducer bottleneck."
 }
