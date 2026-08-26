@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -189,6 +190,9 @@ def apply_patch(
     patch_bin = shutil.which("patch")
     if patch_bin is None:
         return False, "error: `patch` not found on PATH"
+    # Baseline the escaping symlinks already in the tree (legitimate ones can ship
+    # in the pinned source) so only patch-introduced escapes are attributed here.
+    before = _escaping_symlinks(tree)
     proc = subprocess.run(
         [
             patch_bin,
@@ -202,7 +206,51 @@ def apply_patch(
         text=True,
     )
     out = (proc.stdout + proc.stderr).strip()
-    return proc.returncode == 0, out
+    if proc.returncode != 0:
+        return False, out
+    # Defense-in-depth: `patch` honours git `mode 120000` and creates symlinks, so
+    # a crafted patch can plant a link pointing outside the work tree that a later
+    # patch in the cumulative series then writes through — an arbitrary-write
+    # primitive against a model-authored / feed-sourced patch. Refuse any escape
+    # this patch introduced (or redirected out of the tree).
+    after = _escaping_symlinks(tree)
+    introduced = {p: t for p, t in after.items() if before.get(p) != t}
+    if introduced:
+        listing = ", ".join(f"{p} -> {t}" for p, t in sorted(introduced.items()))
+        return False, (
+            "refused: patch introduced symlink(s) escaping the work tree "
+            f"(path-traversal write primitive): {listing}"
+            + (f"\n{out}" if out else "")
+        )
+    return True, out
+
+
+def _escaping_symlinks(tree: Path) -> dict[str, str]:
+    """Map ``symlink path -> readlink target`` for every symlink under ``tree``
+    whose resolved destination lands outside ``tree``.
+
+    Walks without following symlinks (``os.walk`` default) so a symlinked dir
+    cannot redirect the traversal out of the tree. Resolution failures (loops,
+    unreadable) are treated as escapes: fail closed.
+    """
+    root = tree.resolve()
+    escaping: dict[str, str] = {}
+    for dirpath, dirnames, filenames in os.walk(tree):
+        for name in (*dirnames, *filenames):
+            p = Path(dirpath) / name
+            if not p.is_symlink():
+                continue
+            try:
+                target = p.resolve()
+                escapes = not target.is_relative_to(root)
+            except (OSError, RuntimeError):
+                escapes = True
+            if escapes:
+                try:
+                    escaping[str(p)] = os.readlink(p)
+                except OSError:
+                    escaping[str(p)] = "<unreadable>"
+    return escaping
 
 
 def _make_writable_copy(src: Path, dst: Path) -> None:

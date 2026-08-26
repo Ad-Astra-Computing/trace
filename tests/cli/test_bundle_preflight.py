@@ -71,6 +71,86 @@ def test_apply_patch_fails_on_base_mismatch(tmp_path: Path) -> None:
     assert "FAILED" in output or "malformed" in output.lower() or output
 
 
+# ─── symlink-escape defense-in-depth ────────────────────────────────────────
+
+def _symlink_patch(tmp: Path, name: str, target: str) -> Path:
+    """A git-style patch that creates symlink ``name`` -> ``target`` (mode 120000).
+
+    GNU patch honours the 120000 mode and creates a real symlink, so this
+    exercises the exact write primitive the guard defends against.
+    """
+    patch = tmp / f"{name}.patch"
+    patch.write_text(
+        f"diff --git a/{name} b/{name}\n"
+        "new file mode 120000\n"
+        "index 0000000..abc1234\n"
+        "--- /dev/null\n"
+        f"+++ b/{name}\n"
+        "@@ -0,0 +1 @@\n"
+        f"+{target}\n"
+        "\\ No newline at end of file\n"
+    )
+    return patch
+
+
+def test_apply_patch_refuses_symlink_escaping_work_tree(tmp_path: Path) -> None:
+    """A patch that plants a symlink pointing outside the work tree is refused —
+    defense-in-depth against a cumulative-series write primitive, even though the
+    single link creation applies cleanly at the `patch` layer."""
+    patch = _symlink_patch(tmp_path, "evil", "/etc/passwd")
+    tree = _source_tree(tmp_path, "src-escape", _SRC_BEFORE)
+    ok, output = preflight.apply_patch(tree, patch, ["-p1"])
+    assert ok is False
+    assert "escap" in output.lower()
+    assert "evil" in output
+
+
+def test_apply_patch_refuses_relative_symlink_escape(tmp_path: Path) -> None:
+    """A relative `../..` traversal target escapes the tree just as an absolute
+    one does; resolution through the link must catch it."""
+    patch = _symlink_patch(tmp_path, "evil", "../../../../etc/passwd")
+    tree = _source_tree(tmp_path, "src-rel-escape", _SRC_BEFORE)
+    ok, output = preflight.apply_patch(tree, patch, ["-p1"])
+    assert ok is False
+    assert "escap" in output.lower()
+
+
+def test_apply_patch_allows_intree_symlink(tmp_path: Path) -> None:
+    """A symlink resolving *within* the tree is legitimate and must not trip the
+    guard."""
+    patch = _symlink_patch(tmp_path, "alias.c", "foo.c")
+    tree = _source_tree(tmp_path, "src-intree", _SRC_BEFORE)
+    ok, output = preflight.apply_patch(tree, patch, ["-p1"])
+    assert ok is True, output
+    assert (tree / "alias.c").is_symlink()
+
+
+def test_apply_patch_grandfathers_preexisting_escaping_symlink(tmp_path: Path) -> None:
+    """A symlink escaping the tree that was ALREADY in the pinned source (not
+    introduced by the patch) must not block an unrelated clean patch — only
+    patch-introduced escapes are refused."""
+    patch = _make_patch(tmp_path, _SRC_BEFORE, _SRC_AFTER)
+    tree = _source_tree(tmp_path, "src-grandfather", _SRC_BEFORE)
+    (tree / "pre-existing-link").symlink_to("/etc/hostname")
+    ok, output = preflight.apply_patch(tree, patch, ["-p1"])
+    assert ok is True, output
+    assert (tree / "foo.c").read_text() == _SRC_AFTER
+
+
+def test_escaping_symlinks_helper(tmp_path: Path) -> None:
+    """Unit-level: the helper flags out-of-tree targets (absolute + dangling) and
+    ignores in-tree ones."""
+    tree = tmp_path / "t"
+    tree.mkdir()
+    (tree / "inside.txt").write_text("x")
+    (tree / "ok-link").symlink_to("inside.txt")               # in-tree → ignored
+    (tree / "abs-escape").symlink_to("/etc/passwd")           # out → flagged
+    (tree / "dangling-escape").symlink_to("../../nowhere")    # out (dangling) → flagged
+    escaping = preflight._escaping_symlinks(tree)
+    names = {Path(p).name for p in escaping}
+    assert names == {"abs-escape", "dangling-escape"}
+
+
 # ─── discover_source_patches ───────────────────────────────────────────────
 
 def test_discover_defaults_to_upstream_fix(tmp_path: Path) -> None:
