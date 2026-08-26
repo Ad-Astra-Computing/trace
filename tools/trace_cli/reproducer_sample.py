@@ -324,6 +324,7 @@ def run(
     probe_root = args.probe_root or Path(tempfile.mkdtemp(prefix="trace-repro-sample-"))
     probe_root.mkdir(parents=True, exist_ok=True)
 
+    sample_started_at = _utc_now_iso()
     result = sample_reproducer(
         inputs=inputs,
         adapter=adapter,
@@ -333,6 +334,7 @@ def run(
         k=args.k,
         exhaustive=args.exhaustive,
     )
+    sample_ended_at = _utc_now_iso()
 
     provenance = build_sampling_provenance(
         result,
@@ -410,13 +412,34 @@ def run(
         return EXIT_NO_WINNER
 
     _atomic_write_bytes(canonical_sidecar, sidecar_bytes)
-    commit_winner(bundle_dir, result)
+    outputs = commit_winner(bundle_dir, result)
     print(
         f"winner: draw {result.winner_index} "
         f"(temp {provenance['winner']['temperature']}). Committed reproducer.nix + "
         f"reproducer-log.txt + passthru-tests.json.",
         flush=True,
     )
+
+    # Provenance parity with the single-shot executor: record the winner as a
+    # first-class Reproducer invocation in replay.json + a cost sidecar that
+    # bills the full sweep. No-op on an un-finalized bundle (no replay.json).
+    from tools.trace_cli.execute import record_sampled_reproducer_invocation
+
+    invocation = record_sampled_reproducer_invocation(
+        bundle_dir=bundle_dir,
+        winning_run=result.winning_run,
+        billed_runs=result.billed_runs,
+        outputs=outputs,
+        started_at=sample_started_at,
+        ended_at=sample_ended_at,
+    )
+    if invocation is not None:
+        print(
+            f"recorded reproducer invocation {invocation['invocation_id']} in "
+            f"replay.json (+ reproducer-invocation.json cost sidecar).",
+            flush=True,
+        )
+
     print("next: `trace bundle finalize` to refresh manifest hashes, then dispatch "
           "bundle-linux-cert.yml to certify the winner in a clean environment.", flush=True)
     return EXIT_OK

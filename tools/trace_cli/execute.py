@@ -2425,6 +2425,86 @@ def _append_reproducer_replay_entry(
     _atomic_write_bytes(replay_path, body.encode("utf-8"))
 
 
+def record_sampled_reproducer_invocation(
+    *,
+    bundle_dir: Path,
+    winning_run: Any,
+    billed_runs: tuple[Any, ...],
+    outputs: list[dict[str, Any]],
+    started_at: str,
+    ended_at: str,
+) -> dict[str, Any] | None:
+    """Record a pass@K winner as a first-class Reproducer invocation.
+
+    Gives verifier-guided sampling provenance PARITY with the single-shot
+    executor: appends a standard reproducer invocation to replay.json's
+    roles[] and writes the reproducer-invocation.json cost sidecar, exactly
+    as `_execute_reproducer` does for a single-shot run. The invocation shape
+    is intentionally identical (no schema change) — the full pass@K story
+    (k, per-draw verdicts, winner temperature, verifier) lives in the signed
+    `reproducer-sampling.json`. This invocation's output sha256 is the hash of
+    the committed reproducer.nix on disk (the bytes finalize signs); the
+    sampling sidecar records the same winning draw by index + raw-output sha,
+    so the two records describe one winner (the raw and committed hashes match
+    unless commit added a trailing newline the model omitted). The winner's
+    real sampling temperature carried in the model block is the implicit
+    sampled-vs-single-shot signal.
+
+    Cost honesty: the sidecar bills the WHOLE sweep, not just the winning
+    draw — every draw that reached the model (`billed_runs`) is summed via
+    `extra_usages`, so `trace report` sees the true pass@K spend.
+
+    Requires a pre-existing valid replay.json (the Patcher anchor). Returns
+    the invocation dict, or None when replay.json is absent (a minimal /
+    un-finalized bundle — the real sampler path guarantees it is present).
+    """
+    if not (bundle_dir / "replay.json").is_file():
+        return None
+
+    reproducer_run_meta: dict[str, Any] = {
+        "prompt_sha256": winning_run.prompt_sha256,
+        "user_content_sha256": winning_run.user_content_sha256,
+        "raw_response_sha256": winning_run.raw_response_sha256,
+        "model_id": winning_run.model_response.model_id,
+        "sampling": winning_run.sampling,
+        "kind": winning_run.kind,
+        "is_proxy": winning_run.parsed.is_proxy,
+        "refusal_rule": winning_run.parsed.refusal_rule,
+        "refusal_reason": winning_run.parsed.refusal_reason,
+        "adapter": winning_run.model_response.extras.get("adapter"),
+    }
+
+    patcher_family = _read_patcher_family_from_replay(bundle_dir)
+    invocation = _build_reproducer_invocation(
+        bundle_dir=bundle_dir,
+        reproducer_run=reproducer_run_meta,
+        outputs=outputs,
+        started_at=started_at,
+        ended_at=ended_at,
+        patcher_family_recorded=patcher_family,
+    )
+
+    # Bill every draw's model spend, not only the winner's. The winner leads
+    # (model_id / shas come from it); the other billed draws ride as extra
+    # usages so the summed token totals reflect the full sweep.
+    extra_usages = [
+        r.model_response for r in billed_runs if r is not winning_run
+    ]
+    _write_role_invocation_sidecar(
+        bundle_dir=bundle_dir,
+        role="reproducer",
+        cve_id=_read_bundle_cve_id(bundle_dir),
+        invocation_id=invocation["invocation_id"],
+        started_at=started_at,
+        ended_at=ended_at,
+        role_run_meta=reproducer_run_meta,
+        model_response=winning_run.model_response,
+        extra_usages=extra_usages,
+    )
+    _append_reproducer_replay_entry(bundle_dir=bundle_dir, invocation=invocation)
+    return invocation
+
+
 # ─── builder execution (deterministic; runner-backed) ───────────────────
 
 

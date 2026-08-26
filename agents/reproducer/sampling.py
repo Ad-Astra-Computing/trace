@@ -190,6 +190,14 @@ class SamplingResult:
     `winner_index` is None when no draw discriminated (the caller routes the
     bundle to human-review / refusal, not a fabricated pass). `winning_files`
     carries the winner's bytes for the caller to commit; None when no winner.
+
+    `winning_run` is the winning draw's ReproducerRunResult (model_response +
+    prompt/response shas), so the caller can record a replay.json invocation
+    with provenance parity to the single-shot executor; None when no winner.
+    `billed_runs` are every draw's ReproducerRunResult that reached the model
+    (reproducer / refusal / proxy / probe-error kinds) — malformed and
+    model-error draws produce no run — so the caller can bill the FULL sweep
+    spend, not only the winner's tokens.
     """
 
     k: int
@@ -197,6 +205,8 @@ class SamplingResult:
     draws: tuple[DrawResult, ...]
     winning_files: dict[str, bytes] | None
     temperatures: tuple[float, ...]
+    winning_run: Any | None = None
+    billed_runs: tuple[Any, ...] = ()
 
     @property
     def discriminating_draws(self) -> int:
@@ -421,6 +431,8 @@ def sample_reproducer(
     draws: list[DrawResult] = []
     winner_index: int | None = None
     winning_files: dict[str, bytes] | None = None
+    winning_run: Any | None = None
+    billed_runs: list[Any] = []
 
     for i in range(k):
         temp = temps[i]
@@ -455,6 +467,10 @@ def sample_reproducer(
                 detail=f"model call failed: {type(exc).__name__}: {exc}",
             ))
             continue
+
+        # The model responded (may be a refusal / proxy / later a probe-error);
+        # its tokens are spent regardless of outcome, so bill it.
+        billed_runs.append(run)
 
         if run.kind != "reproducer":
             draws.append(DrawResult(
@@ -517,6 +533,7 @@ def sample_reproducer(
 
         if verdict.discriminates and winner_index is None:
             winner_index = i
+            winning_run = run
             winning_files = {
                 "reproducer.nix": nix_bytes,
                 "reproducer-log.txt": log_bytes,
@@ -531,6 +548,8 @@ def sample_reproducer(
         draws=tuple(draws),
         winning_files=winning_files,
         temperatures=tuple(temps),
+        winning_run=winning_run,
+        billed_runs=tuple(billed_runs),
     )
 
 

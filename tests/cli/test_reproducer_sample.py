@@ -428,6 +428,89 @@ def test_run_real_probe_rejects_non_git_checkout(tmp_path: Path) -> None:
     assert code == rs.EXIT_USAGE
 
 
+# ─── replay-invocation parity (pass@K is a first-class Reproducer producer) ─
+
+
+class TokenedQueueAdapter:
+    """Like QueueAdapter but reports token usage, so full-sweep billing is
+    observable in the cost sidecar."""
+
+    def __init__(self, model_id: str, responses: list[str], *, in_tok: int, out_tok: int):
+        self.model_id = model_id
+        self._responses = list(responses)
+        self._in, self._out = in_tok, out_tok
+
+    def invoke(self, *, system_prompt: str, user_content: str, sampling: dict[str, Any]) -> ModelResponse:
+        return ModelResponse(
+            text=self._responses.pop(0), model_id=self.model_id,
+            input_tokens=self._in, output_tokens=self._out,
+            stop_reason="end_turn", extras={"adapter": "anthropic"},
+        )
+
+
+def test_run_records_replay_invocation_on_winner(tmp_path: Path) -> None:
+    """A pass@K winner is recorded as a standard reproducer invocation in
+    replay.json (provenance parity with the single-shot executor), carrying the
+    winner's sampling temperature and the committed reproducer.nix sha."""
+    b = _seed_bundle(tmp_path)
+    _finalize_replay(b)  # patcher anchor present -> recording fires
+    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    probe = QueueProbe([_NODISC, _DISC])  # winner = draw 1
+
+    code = rs.run(_args(b), _adapter_factory=lambda m: adapter, _probe_fn=probe)
+    assert code == rs.EXIT_OK
+
+    replay = json.loads((b / "replay.json").read_text())
+    repro_roles = [r for r in replay["roles"] if r["role"] == "reproducer"]
+    assert len(repro_roles) == 1
+    invs = repro_roles[0]["invocations"]
+    assert len(invs) == 1
+    inv = invs[0]
+    assert inv["role"] == "reproducer"
+    # Winner is draw 1; the k=2 schedule is [0.2, 0.9].
+    assert inv["model"]["sampling"]["temperature"] == 0.9
+    # The invocation's reproducer.nix output sha is the committed file's sha.
+    committed_sha = next(o["sha256"] for o in inv["outputs"] if o["path"] == "reproducer.nix")
+    from tools.trace_cli.execute import sha256_hex
+    assert committed_sha == sha256_hex((b / "reproducer.nix").read_bytes())
+    # Cost sidecar written too.
+    assert (b / "reproducer-invocation.json").is_file()
+
+
+def test_run_bills_full_sweep_not_just_winner(tmp_path: Path) -> None:
+    """The cost sidecar sums EVERY drawn model call, not only the winner — the
+    non-winning draws still spent tokens."""
+    b = _seed_bundle(tmp_path)
+    _finalize_replay(b)
+    adapter = TokenedQueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()],
+        in_tok=5, out_tok=7,
+    )
+    probe = QueueProbe([_NODISC, _DISC])  # both draws billed, winner = draw 1
+
+    code = rs.run(_args(b), _adapter_factory=lambda m: adapter, _probe_fn=probe)
+    assert code == rs.EXIT_OK
+
+    sidecar = json.loads((b / "reproducer-invocation.json").read_text())
+    assert sidecar["usage"]["attempts"] == 2          # both draws
+    assert sidecar["usage"]["input_tokens"] == 10     # 5 + 5
+    assert sidecar["usage"]["output_tokens"] == 14    # 7 + 7
+
+
+def test_run_winner_without_replay_skips_invocation(tmp_path: Path) -> None:
+    """On an un-finalized bundle (no replay.json) the winner still commits, but
+    invocation recording no-ops rather than crashing."""
+    b = _seed_bundle(tmp_path)  # NO _finalize_replay
+    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    probe = QueueProbe([_NODISC, _DISC])
+
+    code = rs.run(_args(b), _adapter_factory=lambda m: adapter, _probe_fn=probe)
+    assert code == rs.EXIT_OK
+    assert (b / "reproducer.nix").is_file()
+    assert not (b / "replay.json").exists()
+    assert not (b / "reproducer-invocation.json").exists()
+
+
 # ─── _validate_checkout preconditions ─────────────────────────────────────
 
 

@@ -197,6 +197,12 @@ def test_first_green_wins_and_early_exits(tmp_path: Path) -> None:
     assert len(adapter.calls) == 2
     assert res.draws[0].discriminates is False
     assert res.draws[1].discriminates is True
+    # Provenance/cost seams: winning_run is the winner's run; both drawn model
+    # calls are billed (the losing draw 0 still spent tokens).
+    assert res.winning_run is not None
+    assert res.winning_run.kind == "reproducer"
+    assert len(res.billed_runs) == 2
+    assert res.winning_run is res.billed_runs[1]
 
 
 def test_no_winner_when_none_discriminate(tmp_path: Path) -> None:
@@ -208,6 +214,8 @@ def test_no_winner_when_none_discriminate(tmp_path: Path) -> None:
     )
     assert res.winner_index is None
     assert res.winning_files is None
+    assert res.winning_run is None
+    assert len(res.billed_runs) == 2  # both non-winning draws still spent tokens
     assert len(res.draws) == 2
     assert res.discriminating_draws == 0
 
@@ -251,6 +259,9 @@ def test_malformed_draw_is_recorded_not_winner(tmp_path: Path) -> None:
     assert res.draws[0].discriminates is False
     assert len(probe.calls) == 1
     assert res.winner_index == 1
+    # A malformed draw produced no run object, so it is not billed; only the
+    # winning draw reached a model result.
+    assert len(res.billed_runs) == 1
 
 
 def test_proxy_draw_is_its_own_class_not_a_winner(tmp_path: Path) -> None:
