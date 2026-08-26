@@ -107,7 +107,7 @@ def _sampling_result(winner: int | None) -> SamplingResult:
 def test_provenance_records_winner_and_all_draws() -> None:
     prov = rs.build_sampling_provenance(
         _sampling_result(1), model_id="claude-sonnet-4-5-20250929",
-        prompt_path="prompts/reproducer.v14.md", prompt_sha256="deadbeef",
+        prompt_path="prompts/reproducer.v15.md", prompt_sha256="deadbeef",
         tool_version="0.7.0", generated_at="2026-08-25T00:00:00Z",
         verifier="local-screen", exhaustive=False,
     )
@@ -179,7 +179,7 @@ def test_run_commits_winner_and_writes_sidecar(tmp_path: Path) -> None:
     sidecar = json.loads((b / "reproducer-sampling.json").read_text())
     assert sidecar["winner"]["draw_index"] == 1
     assert len(sidecar["draws"]) == 2
-    assert sidecar["prompt_path"] == "prompts/reproducer.v14.md"
+    assert sidecar["prompt_path"] == "prompts/reproducer.v15.md"
 
 
 def test_run_no_winner_routes_human_review(tmp_path: Path) -> None:
