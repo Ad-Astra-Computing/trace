@@ -584,9 +584,47 @@ def test_build_report_retry_summary_counts_reviewer_retry(tmp_path: Path) -> Non
     retry = r.derived["retry_summary"]
     assert retry["roles_with_retry"] == 1
     assert retry["total_extra_calls"] == 1
+    assert retry["total_retry_extra_calls"] == 1
+    # A reviewer retry is NOT sampling overhead.
+    assert retry["roles_with_sampling"] == 0
+    assert retry["total_sampling_extra_calls"] == 0
     assert retry["total_model_call_attempts"] == 3  # patcher attempts=1 + reviewer attempts=2
     assert retry["reviewer_first_attempt_nonconformant"] == 1
     assert retry["reviewer_first_attempt_conformant"] == 0
+
+
+def test_build_report_attributes_reproducer_attempts_to_sampling_not_retry(
+    tmp_path: Path,
+) -> None:
+    """A Reproducer sidecar with usage.attempts>1 is pass@K sampling overhead,
+    NOT a retry (only the Reviewer retries). The report must attribute the extra
+    draws to sampling so the two cost drivers stay distinguishable."""
+    traces = tmp_path / "traces"
+    bundle_dir = _seed_bundle(
+        traces, "CVE-2025-70001",
+        patcher_invocation={
+            "model_id": "claude-opus-4-7",
+            "usage": {"input_tokens": 100, "output_tokens": 50, "attempts": 1},
+            "budget": {"actual_cost_usd": 0.01},
+        },
+    )
+    # Sampled reproducer: K=4 draws billed into one sidecar (attempts=4).
+    _write_json(bundle_dir / "reproducer-invocation.json", {
+        "model_id": "claude-sonnet-4-5-20250929",
+        "usage": {"input_tokens": 4000, "output_tokens": 900, "attempts": 4},
+        "budget": {"actual_cost_usd": 0.05},
+    })
+    scout = report.load_scout_runs(tmp_path / "missing.jsonl")
+    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+
+    retry = r.derived["retry_summary"]
+    assert retry["roles_with_sampling"] == 1
+    assert retry["total_sampling_extra_calls"] == 3   # 4 draws - 1
+    # No reviewer retry present.
+    assert retry["roles_with_retry"] == 0
+    assert retry["total_retry_extra_calls"] == 0
+    assert retry["total_extra_calls"] == 3            # all from sampling
+    assert retry["total_model_call_attempts"] == 5    # patcher 1 + reproducer 4
 
 
 def test_build_report_retry_summary_zero_for_sidecars_without_retry_fields(

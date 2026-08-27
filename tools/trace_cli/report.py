@@ -568,8 +568,10 @@ def _retry_summary(bundles: list[BundleSummary]) -> dict[str, Any]:
     all; those default to 1 (no retry), matching the "always >= 1" contract
     documented at the sidecar-write site."""
     roles_with_retry = 0
+    roles_with_sampling = 0
     total_model_call_attempts = 0
-    total_extra_calls = 0
+    total_retry_extra_calls = 0
+    total_sampling_extra_calls = 0
     reviewer_first_attempt_conformant = 0
     reviewer_first_attempt_nonconformant = 0
     for b in bundles:
@@ -577,9 +579,20 @@ def _retry_summary(bundles: list[BundleSummary]) -> dict[str, Any]:
             attempts = usage.get("attempts")
             attempts = attempts if isinstance(attempts, int) else 1
             total_model_call_attempts += attempts
-            if attempts > 1:
-                roles_with_retry += 1
-                total_extra_calls += attempts - 1
+            extra = attempts - 1
+            if extra > 0:
+                # Only the Reviewer has a bounded auto-retry path. A Reproducer
+                # with >1 attempt spent them on pass@K sampling DRAWS, not
+                # retries (verifier-guided sampling bills every draw into the
+                # sidecar). Attributing the two separately keeps the report
+                # honest about WHY the extra spend happened rather than
+                # mislabelling sampling overhead as retries.
+                if role == "reproducer":
+                    roles_with_sampling += 1
+                    total_sampling_extra_calls += extra
+                else:
+                    roles_with_retry += 1
+                    total_retry_extra_calls += extra
             if role == "reviewer":
                 conformant = usage.get("first_attempt_conformant")
                 if conformant is True:
@@ -588,8 +601,13 @@ def _retry_summary(bundles: list[BundleSummary]) -> dict[str, Any]:
                     reviewer_first_attempt_nonconformant += 1
     return {
         "roles_with_retry": roles_with_retry,
+        "roles_with_sampling": roles_with_sampling,
         "total_model_call_attempts": total_model_call_attempts,
-        "total_extra_calls": total_extra_calls,
+        # total_extra_calls stays the retry + sampling sum for continuity; the
+        # split below says which is which.
+        "total_extra_calls": total_retry_extra_calls + total_sampling_extra_calls,
+        "total_retry_extra_calls": total_retry_extra_calls,
+        "total_sampling_extra_calls": total_sampling_extra_calls,
         "reviewer_first_attempt_conformant": reviewer_first_attempt_conformant,
         "reviewer_first_attempt_nonconformant": reviewer_first_attempt_nonconformant,
     }
@@ -721,18 +739,26 @@ def _md_role_usage_section(usages: list[dict[str, Any]]) -> str:
 
 def _md_retry_summary_section(retry: dict[str, Any]) -> str:
     lines: list[str] = []
-    lines.append("## Reviewer retry summary")
+    lines.append("## Retry & sampling overhead")
     lines.append("")
     if retry["total_extra_calls"] == 0:
         lines.append(
-            "No retries observed in this corpus (the seed corpus predates "
-            "bounded Reviewer auto-retry, so 0 extra calls is the expected "
-            "current value)."
+            "No extra model calls observed (no Reviewer retries, no pass@K "
+            "sampling): every role ran a single call. The seed corpus predates "
+            "both bounded Reviewer auto-retry and verifier-guided sampling, so "
+            "0 extra calls is the expected current value."
         )
         lines.append("")
-    lines.append(f"- roles with retry (attempts > 1): {retry['roles_with_retry']}")
     lines.append(f"- total model-call attempts (all roles): {retry['total_model_call_attempts']}")
-    lines.append(f"- total extra calls attributable to retry: {retry['total_extra_calls']}")
+    lines.append(
+        f"- reviewer retries: {retry['roles_with_retry']} role(s), "
+        f"{retry['total_retry_extra_calls']} extra call(s)"
+    )
+    lines.append(
+        f"- reproducer pass@K sampling: {retry.get('roles_with_sampling', 0)} role(s), "
+        f"{retry.get('total_sampling_extra_calls', 0)} extra draw(s)"
+    )
+    lines.append(f"- total extra calls (retry + sampling): {retry['total_extra_calls']}")
     lines.append(
         f"- reviewer first-attempt conformant: {retry['reviewer_first_attempt_conformant']}"
     )
