@@ -275,6 +275,9 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import normalize_sourceroot as _normalize_module
     _normalize_module.add_parser(b_subs)
 
+    from tools.trace_cli import normalize_context as _normalize_ctx_module
+    _normalize_ctx_module.add_parser(b_subs)
+
     rp = subs.add_parser("report", help="rollup reports over on-disk artifacts")
     rp_subs = rp.add_subparsers(dest="report_cmd", required=True)
     from tools.trace_cli import report as _report_module
@@ -419,6 +422,10 @@ def main(argv: list[str]) -> int:
             from tools.trace_cli import normalize_sourceroot as _normalize_module
             from pathlib import Path as _Path
             return _normalize_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+        if args.bundle_cmd == "normalize-context":
+            from tools.trace_cli import normalize_context as _normalize_ctx_module
+            from pathlib import Path as _Path
+            return _normalize_ctx_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
         return EXIT_USAGE
     if args.cmd == "report":
         if args.report_cmd == "throughput":
