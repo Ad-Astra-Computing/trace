@@ -471,6 +471,116 @@ def _perl_wiring_diff(*patch_basenames: str) -> str:
     )
 
 
+def _canonical_backport_diff(patch_basename: str, *, wire: bool = True) -> str:
+    """A canonical (bundle-relative) source-backport diff: a `package.nix` edit
+    that wires in `./<patch_basename>` plus a new-file `<patch_basename>` payload.
+    `wire=False` omits the wiring reference (for the unreferenced-payload case)."""
+    wiring_line = f"+    ./{patch_basename}\n" if wire else "+    # unrelated\n"
+    return (
+        f"diff --git a/{patch_basename} b/{patch_basename}\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        f"+++ b/{patch_basename}\n"
+        "@@ -0,0 +1 @@\n"
+        "+the authored upstream fix\n"
+        "diff --git a/package.nix b/package.nix\n"
+        "--- a/package.nix\n"
+        "+++ b/package.nix\n"
+        "@@ -1,3 +1,4 @@\n"
+        "   patches = [\n"
+        "     ./old.patch\n"
+        f"{wiring_line}"
+        "   ];\n"
+    )
+
+
+def test_canonical_source_backport_eligible_valid() -> None:
+    """A package.nix edit + a wired-in new *.patch payload, both bare basenames,
+    is the eligible canonical source-backport shape (perl-core-interpreter case)."""
+    from agents.builder.runner import _canonical_source_backport_eligible
+    paths = ["CVE-2026-8376.patch", "package.nix"]
+    diff = _canonical_backport_diff("CVE-2026-8376.patch")
+    assert _canonical_source_backport_eligible(paths, diff)
+
+
+def test_canonical_source_backport_rejects_single_file() -> None:
+    """A lone package.nix (no payload) is NOT this shape (it's the single-file
+    remap handled separately)."""
+    from agents.builder.runner import _canonical_source_backport_eligible
+    assert not _canonical_source_backport_eligible(["package.nix"], "")
+
+
+def test_canonical_source_backport_rejects_unreferenced_payload() -> None:
+    """A payload the package.nix diff never wires in is rejected."""
+    from agents.builder.runner import _canonical_source_backport_eligible
+    paths = ["CVE-2026-8376.patch", "package.nix"]
+    diff = _canonical_backport_diff("CVE-2026-8376.patch", wire=False)
+    assert not _canonical_source_backport_eligible(paths, diff)
+
+
+def test_canonical_source_backport_rejects_non_patch_payload() -> None:
+    """A non-.patch sibling (e.g. a second .nix) is rejected."""
+    from agents.builder.runner import _canonical_source_backport_eligible
+    paths = ["common.nix", "package.nix"]
+    diff = _canonical_backport_diff("common.nix")
+    assert not _canonical_source_backport_eligible(paths, diff)
+
+
+def test_canonical_source_backport_rejects_traversal() -> None:
+    """Any path component (slash / '..' / absolute / backslash) in a payload
+    breaks the bare-basename containment guard and makes the patch ineligible."""
+    from agents.builder.runner import _canonical_source_backport_eligible
+    diff = _canonical_backport_diff("CVE.patch")
+    assert not _canonical_source_backport_eligible(
+        ["sub/CVE.patch", "package.nix"], diff)
+    assert not _canonical_source_backport_eligible(
+        ["../../etc/evil.patch", "package.nix"], diff)
+    assert not _canonical_source_backport_eligible(
+        ["/etc/evil.patch", "package.nix"], diff)
+    assert not _canonical_source_backport_eligible(
+        ["a\\b.patch", "package.nix"], diff)
+
+
+def test_apply_patch_core_interpreter_source_backport(tmp_path: Path, monkeypatch) -> None:
+    """The perl-core-interpreter case end to end: a canonical source-backport
+    (package.nix edit wiring ./CVE.patch + a new CVE.patch) authored against a
+    package whose real file is default.nix. The Builder remaps package.nix ->
+    default.nix (content-match), applies under --directory, and writes BOTH the
+    remapped wiring edit and the new payload into the package dir. The committed
+    patch.diff is never mutated."""
+    if not _git_on_path():
+        pytest.skip("git not on PATH")
+    from agents.builder import runner as R
+    checkout = tmp_path / "checkout"
+    pkg = checkout / "pkgs" / "development" / "interpreters" / "perl"
+    pkg.mkdir(parents=True)
+    default_nix = "  patches = [\n    ./old.patch\n  ];\n"
+    (pkg / "default.nix").write_text(default_nix)
+    (pkg / "old.patch").write_text("# pre-existing\n")
+    _init_git_checkout(checkout)
+    monkeypatch.setattr(R, "_resolve_attr_package_dir",
+                        lambda co, attr: "pkgs/development/interpreters/perl")
+    patch = tmp_path / "patch.diff"
+    diff = _canonical_backport_diff("CVE-2026-8376.patch")
+    patch.write_text(diff)
+    # bundled package.nix == default.nix bytes => unique content-match remap.
+    (tmp_path / "package.nix").write_text(default_nix)
+
+    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="perl")
+    assert res["applied"] is True, res
+    assert res["apply_mode"] == "canonical-source-backport-remap"
+    assert res["package_file_remap"] == (
+        "package.nix -> pkgs/development/interpreters/perl/default.nix (content-match)"
+    )
+    assert set(res["files_changed"]) == {
+        "pkgs/development/interpreters/perl/default.nix",
+        "pkgs/development/interpreters/perl/CVE-2026-8376.patch",
+    }
+    assert (pkg / "CVE-2026-8376.patch").read_text() == "the authored upstream fix\n"
+    assert "./CVE-2026-8376.patch" in (pkg / "default.nix").read_text()
+    assert patch.read_text() == diff  # committed patch untouched
+
+
 def test_split_package_perl_eligible_valid() -> None:
     """Codex case 1: perl-packages.nix wiring + a referenced perl-modules/*.patch
     is the eligible split-package shape."""

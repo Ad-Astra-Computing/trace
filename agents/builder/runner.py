@@ -425,6 +425,9 @@ def _apply_patch(
     direct_package_dir = False
     split_package = False
     direct_changed: list[str] = []
+    # New `.patch` payloads carried by a canonical source-backport remap (empty
+    # for the single-file package.nix remap and for the direct/split modes).
+    remap_payloads: list[str] = []
     if not (abs_dir / "package.nix").is_file():
         # --recount so the path-extraction tolerates the SAME off-by-one hunk
         # counts the real apply tolerates (model-authored source-backport patches
@@ -494,12 +497,31 @@ def _apply_patch(
                 direct_changed = numstat_paths
                 apply_mode = "split-package-perl-modules"
         if not direct_package_dir and not split_package:
-            if numstat.returncode != 0 or numstat_paths != ["package.nix"]:
+            # Two canonical (bundle-relative `package.nix`) shapes reach the
+            # remap: (1) a single `package.nix` edit, and (2) a source-backport
+            # authored against a package whose real file is default.nix — a
+            # `package.nix` edit plus new `.patch` payload(s) wired in, every
+            # path a bare basename so `--directory=<pkgdir>` cannot escape the
+            # package dir. Both remap package.nix->the real basename and apply
+            # under --directory; (2) additionally carries its payloads. The
+            # `not _unsafe_diff` precondition on (2) is load-bearing: it blocks
+            # deletes/renames/copies/mode-changes/symlinks so the numstat paths
+            # equal what git apply actually writes.
+            single_canonical = (
+                numstat.returncode == 0 and numstat_paths == ["package.nix"]
+            )
+            source_backport_canonical = (
+                numstat.returncode == 0
+                and not _unsafe_diff
+                and _canonical_source_backport_eligible(numstat_paths, diff_text)
+            )
+            if not (single_canonical or source_backport_canonical):
                 return _failed(
                     f"attr {attr!r} resolves to dir {package_dir_rel!r} which has no "
                     f"package.nix; patch.diff is none of: a single canonical "
-                    f"package.nix change, a source-backport contained in the "
-                    f"package dir, or a perlPackages split-package "
+                    f"package.nix change, a canonical source-backport (package.nix "
+                    f"+ wired-in *.patch payloads), a source-backport contained in "
+                    f"the package dir, or a perlPackages split-package "
                     f"(perl-packages.nix + perl-modules/*.patch) shape (git apply "
                     f"--numstat paths={numstat_paths!r}, rc={numstat.returncode}, "
                     f"unsafe_diff={_unsafe_diff}); refusing to apply onto a "
@@ -524,7 +546,11 @@ def _apply_patch(
             patch_to_apply = Path(tmp.name)
             cleanup_tmp = patch_to_apply
             remap_note = f"package.nix -> {package_dir_rel}/{target_basename} ({method})"
-            apply_mode = "canonical-package-remap"
+            if source_backport_canonical:
+                remap_payloads = [p for p in numstat_paths if p != "package.nix"]
+                apply_mode = "canonical-source-backport-remap"
+            else:
+                apply_mode = "canonical-package-remap"
 
     # --recount: infer hunk line-counts from the patch body rather than trusting
     # the `@@ -a,b +c,d @@` headers. Model-authored patches (especially the
@@ -574,7 +600,12 @@ def _apply_patch(
         # numstat paths are already full nixpkgs-relative paths; no re-prefix.
         files_changed_prefixed = direct_changed
     else:
-        effective_changed = [target_basename] if remap_note else files_changed
+        # A source-backport remap also writes its new `.patch` payload(s); the
+        # single-file remap writes only the remapped target (remap_payloads is
+        # empty there).
+        effective_changed = (
+            [target_basename, *remap_payloads] if remap_note else files_changed
+        )
         files_changed_prefixed = [
             f"{package_dir_rel}/{p}" for p in effective_changed
         ]
@@ -652,6 +683,49 @@ def _split_package_perl_eligible(paths: list[str], diff_text: str) -> bool:
     for p in payloads:
         base = p.rsplit("/", 1)[1]
         if not any(base in ln for ln in wiring_added):
+            return False
+    return True
+
+
+def _canonical_source_backport_eligible(paths: list[str], diff_text: str) -> bool:
+    """True iff `paths` (git --numstat paths) is the canonical by-name
+    source-backport shape authored against a package whose real file is
+    default.nix (e.g. the core `perl` interpreter): exactly a canonical
+    `package.nix` edit plus one or more `*.patch` payload files, EVERY path a
+    bare basename (no directory component), each payload basename REFERENCED by
+    an added line of the package.nix diff section (the model must wire in the
+    patch it adds), and nothing else.
+
+    This is the multi-file sibling of the single-file `package.nix`->real-file
+    remap: the caller remaps package.nix onto the real basename and applies the
+    whole diff under `--directory=<pkgdir>`, so the payloads land directly in
+    the package dir. The bare-basename rule is the load-bearing containment
+    guard — with `--directory` in play, any path carrying a '/', '..', '.',
+    empty segment, leading '/', or backslash could escape the package dir, so
+    such a patch is ineligible. The caller additionally requires
+    `not _unsafe_diff` (no deletes/renames/copies/mode-changes/symlinks) before
+    taking this branch, so the numstat paths equal what git apply writes.
+    """
+    if "package.nix" not in paths:
+        return False
+    payloads = [p for p in paths if p != "package.nix"]
+    if not payloads:
+        return False  # the single-file package.nix remap is handled separately
+    for p in paths:
+        # Bare basename only: reject anything with a path component so
+        # --directory cannot place (or escape) the file outside the package dir.
+        if not p or p.startswith("/") or "\\" in p or "/" in p:
+            return False
+        if p in (".", ".."):
+            return False
+    for p in payloads:
+        if not p.endswith(".patch"):
+            return False
+    # Each payload basename must be referenced by an ADDED line of the
+    # package.nix diff section (the wiring `patches = [ ./CVE-xxxx.patch ]`).
+    wiring_added = _added_lines_for_file(diff_text, "package.nix")
+    for p in payloads:
+        if not any(p in ln for ln in wiring_added):
             return False
     return True
 
