@@ -157,6 +157,7 @@
               "source-context-extractor",
               "patcher",
               "patch-normalizer",
+              "context-normalizer",
               "reproducer",
               "builder",
               "reviewer",

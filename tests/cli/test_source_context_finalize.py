@@ -126,6 +126,35 @@ def test_patch_normalization_present_manifested_and_signed(tmp_path):
     assert "patch-normalization.json" in signed
 
 
+# ── patch-context-normalization.json is optional-when-present ───────────────
+
+def test_patch_context_normalization_absent_not_manifested(tmp_path):
+    bd = _seed(tmp_path)
+    _finalize(bd)
+    b = json.loads((bd / "bundle.json").read_text())
+    assert "patch-context-normalization.json" not in b["files"]
+    signed = {sf["path"] for sf in b["signed_manifest"]["signed_files"]}
+    assert "patch-context-normalization.json" not in signed
+
+
+def test_patch_context_normalization_present_manifested_and_signed(tmp_path):
+    """The context-normalization attestation records a model-output mutation
+    (identity proofs + reviewer re-attestation); when present it must be
+    hash-manifested and signed or the mutation record could be altered
+    without breaking the signature."""
+    bd = _seed(tmp_path)
+    (bd / "patch-context-normalization.json").write_text(
+        '{"schema": "trace/patch-context-normalization/1.0"}\n')
+    _finalize(bd)
+    b = json.loads((bd / "bundle.json").read_text())
+    entry = b["files"]["patch-context-normalization.json"]
+    assert entry["producer_role"] == "context-normalizer"
+    assert entry["replay_critical"] is True
+    assert entry["sha256"] != "0" * 64
+    signed = {sf["path"] for sf in b["signed_manifest"]["signed_files"]}
+    assert "patch-context-normalization.json" in signed
+
+
 # ── reproducer-sampling.json is optional-when-present ──────────────────────
 
 def test_reproducer_sampling_absent_not_manifested(tmp_path):
