@@ -231,7 +231,7 @@ def main():
         "base_model": MODEL_ID,
         "base_model_revision": MODEL_REVISION,
         "corpus_freeze_sha": os.environ.get("CORPUS_FREEZE_SHA", "unknown"),
-        "dataset_repo": "adastracomputing/authoring-lora-data-v10-clean",
+        "dataset_repo": "adastracomputing/authoring-lora-data-v13-diversefold",
         "dataset_commit": os.environ.get("DATASET_COMMIT", "unknown"),
         "trace_commit": os.environ.get("TRACE_COMMIT", "unknown"),
         "hardware": os.environ.get("HF_JOB_FLAVOR", "a100-large"),

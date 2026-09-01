@@ -168,11 +168,22 @@ adapter GREEDY and best-of-16 (temp 0.7) on the 4 frozen canaries, and report th
 GRADED metrics (edit-distance-to-target, hunk match, add/rem recall) via
 `lora/score_canaries_graded.py`, not just byte-exact 0/4.
 
+**Substrate note (2026-09-01).** The authoring-LoRA HF footprint was archived
+(all adapters + the v10-clean/v9/v6 datasets garbage-collected; only
+`authoring-lora-data-v13-diversefold` survives, 95 train / 5 dev, all 4 canaries
+held out). This run trains on v13-diversefold. That is not a matched-dataset A/B
+against a live v10-clean adapter, but it does not need to be: the byte-exact 0/4
+canary ceiling is robustly dataset-INSENSITIVE across v1.0-v1.3, v10-clean, and
+v11 (that insensitivity is itself a prior finding), so a completion-only run that
+moves the graded metrics above that established floor is informative on its own,
+and a null retires the last caveat.
+
 **Pre-committed kill criterion.** If completion-only loss + sampled + graded eval
-shows no movement over the v10-clean baseline, the authoring-LoRA capability lane
-is retired with no remaining recorded caveats. Do not re-litigate data / format
-/ objective. Prior on a null lowered by the strong dilution pre-check; prior on a
-move raised by the same.
+shows no movement over the established dataset-insensitive baseline (byte 0/4,
+pass@16 add-recall ~0.36), the authoring-LoRA capability lane is retired with no
+remaining recorded caveats. Do not re-litigate data / format / objective. Prior
+on a null lowered by the strong dilution pre-check; prior on a move raised by the
+same.
 
 ## What's open (lower priority, not required for the result)
 

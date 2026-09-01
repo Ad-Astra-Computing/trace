@@ -42,7 +42,7 @@ $HF jobs uv run \
   --timeout 120m \
   --detach \
   --secrets HF_TOKEN \
-  -v "hf://datasets/adastracomputing/authoring-lora-data-v10-clean:/data:ro" \
+  -v "hf://datasets/adastracomputing/authoring-lora-data-v13-diversefold:/data:ro" \
   -e "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
   -e "HF_HOME=/tmp/hf" \
   -e "ADAPTER_DIR=/tmp/authoring-lora-lossmask" \
