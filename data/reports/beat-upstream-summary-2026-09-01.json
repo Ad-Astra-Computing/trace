@@ -1,0 +1,14 @@
+{
+  "window": "14-day NVD (lookback-hours 336)",
+  "run_date": "2026-09-01",
+  "snapshot_records": 99972,
+  "screened": 6297,
+  "survivors": 0,
+  "reject_breakdown": {
+    "poll:skipped-irrelevant": 5308,
+    "not-source-backport-tier": 984,
+    "poll:fetch-failed": 5
+  },
+  "mapped_to_nixpkgs": 984,
+  "note": "0 survivors: all 984 nixpkgs-mapped CVEs were not-source-backport-tier (version-bump or ineligible). Full per-CVE verdicts regenerable via eval/beat_upstream_screen.py."
+}
