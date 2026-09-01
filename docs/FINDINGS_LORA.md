@@ -146,9 +146,37 @@ The authoring edit-precision question is answered with a defensible **lever / ce
 - **Retired:** "more data fixes it", byte-exact-on-free-form-diff as a metric, the bare "beats frontier" framing.
 - **What holds up:** export-time integrity gates (91->79 validated corpus) + careful measurement (graded ladder, memorization diagnostic, this ledger).
 
+## Pre-registration: completion-only loss experiment (2026-09-01, before dispatch)
+
+The one training-objective lever the arc left explicitly untested. Every prior
+authoring run (v0.1 through v10-clean, and the SR run) computes loss over the
+FULL rendered conversation. Pre-check on the v10-clean corpus (validated locally
+with the pinned Qwen tokenizer, response template `<|im_start|>assistant\n` ->
+ids `[151644, 77091, 198]`, found exactly once in all 78 examples): the fix-diff
+completion is a **median 21.5% / mean 23.2% of tokens** (max 45.2%), so ~78% of
+the gradient models the source-context prompt, not the fix.
+
+**Hypothesis.** The byte-exact 0/4 canary ceiling (insensitive to +data,
+SR-format, DPO) is a training-OBJECTIVE artifact (prompt tokens diluting the
+loss), not a fundamental capability limit. Masking the prompt to -100
+(`hf_authoring_job_lossmask.py`, `DataCollatorForCompletionOnlyLM`) roughly 5x-es
+the effective weight on the fix tokens; everything else is byte-identical to
+v10-clean (same dataset, base, LoRA config, seed 42, steps).
+
+**Eval (kills both recorded caveats in one run; Fable-amended).** Score the
+adapter GREEDY and best-of-16 (temp 0.7) on the 4 frozen canaries, and report the
+GRADED metrics (edit-distance-to-target, hunk match, add/rem recall) via
+`lora/score_canaries_graded.py`, not just byte-exact 0/4.
+
+**Pre-committed kill criterion.** If completion-only loss + sampled + graded eval
+shows no movement over the v10-clean baseline, the authoring-LoRA capability lane
+is retired with no remaining recorded caveats. Do not re-litigate data / format
+/ objective. Prior on a null lowered by the strong dilution pre-check; prior on a
+move raised by the same.
+
 ## What's open (lower priority, not required for the result)
 
-- **SR + loss-masking**, and an **SR pass@K**: the untested half of the format intervention.
+- **SR + loss-masking**, and an **SR pass@K**: the untested half of the format intervention. (Loss-masking now UNDER TEST as a standalone diff-format run, see pre-registration above.)
 - ~~**DPO on the model's own guard-clip failures**: the direct edit-shape lever.~~: DONE
   (2026-07-17), **negative result** (validated harness, two hyperparameter points): built 94
   on-policy DPO pairs (chosen = condition-fold reference, rejected = the model's own guard-clip
