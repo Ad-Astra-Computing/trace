@@ -187,7 +187,7 @@ same.
 
 ## What's open (lower priority, not required for the result)
 
-- **SR + loss-masking**, and an **SR pass@K**: the untested half of the format intervention. (Loss-masking now UNDER TEST as a standalone diff-format run, see pre-registration above.)
+- ~~**SR + loss-masking**~~: DONE (2026-09-02), **negative result**. Completion-only loss (mask the prompt to -100, train only on the fix diff; ~78% of tokens masked, validated locally) trained byte-identically to v10-clean on v13-diversefold. Graded canary result: byte-exact **0/4** greedy and pass@16 (identical to every prior run), pass@16 mean add-recall **0.27** (does not exceed the ~0.36 floor), greedy 0.02. The dilution hypothesis (edit-precision is a loss-objective artifact) is **not supported**. Per the pre-registered kill criterion the authoring capability lane is retired with no remaining caveats. HF jobs: train `6a97362021c5aa7c8364c4f1`, eval `6a9770170718b0f6d890eda7`; adapter `adastracomputing/authoring-lora-lossmask`. (An SR pass@K remains formally untried but is moot: no lever has moved the byte-exact ceiling, and pass@K sampling is already the production path.)
 - ~~**DPO on the model's own guard-clip failures**: the direct edit-shape lever.~~: DONE
   (2026-07-17), **negative result** (validated harness, two hyperparameter points): built 94
   on-policy DPO pairs (chosen = condition-fold reference, rejected = the model's own guard-clip

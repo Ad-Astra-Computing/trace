@@ -1,0 +1,73 @@
+{
+  "canary_set": "<session-scratchpad>/canary-export/authoring-canary.jsonl",
+  "models": {
+    "canary-greedy-responses": {
+      "CVE-2022-37434": {
+        "add_recall": 0.0,
+        "byte_exact": false,
+        "k": 1,
+        "key_token_frac": 0.5,
+        "norm_exact": false,
+        "rem_recall": 0.0
+      },
+      "CVE-2024-47081": {
+        "add_recall": 0.0,
+        "byte_exact": false,
+        "k": 1,
+        "key_token_frac": 0.4,
+        "norm_exact": false,
+        "rem_recall": 0.0
+      },
+      "CVE-2026-42250": {
+        "add_recall": 0.0,
+        "byte_exact": false,
+        "k": 1,
+        "key_token_frac": 0.5,
+        "norm_exact": false,
+        "rem_recall": 0.0
+      },
+      "CVE-2026-48526": {
+        "add_recall": 0.095,
+        "byte_exact": false,
+        "k": 1,
+        "key_token_frac": 0.154,
+        "norm_exact": false,
+        "rem_recall": 1.0
+      }
+    },
+    "canary-passk-responses": {
+      "CVE-2022-37434": {
+        "add_recall": 0.0,
+        "byte_exact": false,
+        "k": 16,
+        "key_token_frac": 1.0,
+        "norm_exact": false,
+        "rem_recall": 0.5
+      },
+      "CVE-2024-47081": {
+        "add_recall": 1.0,
+        "byte_exact": false,
+        "k": 16,
+        "key_token_frac": 1.0,
+        "norm_exact": false,
+        "rem_recall": 0.333
+      },
+      "CVE-2026-42250": {
+        "add_recall": 0.0,
+        "byte_exact": false,
+        "k": 16,
+        "key_token_frac": 1.0,
+        "norm_exact": false,
+        "rem_recall": 0.0
+      },
+      "CVE-2026-48526": {
+        "add_recall": 0.095,
+        "byte_exact": false,
+        "k": 16,
+        "key_token_frac": 0.308,
+        "norm_exact": false,
+        "rem_recall": 1.0
+      }
+    }
+  }
+}
