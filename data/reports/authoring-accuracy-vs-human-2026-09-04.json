@@ -1,0 +1,626 @@
+{
+  "scope": "authoring-expansion-screen",
+  "n": 43,
+  "dispositions": {
+    "viable-exact": 5,
+    "viable-judge-only": 11,
+    "reject-judge": 14,
+    "needs-review": 11,
+    "unscreenable-no-source": 2
+  },
+  "results": [
+    {
+      "cve": "CVE-2011-10007",
+      "verdict": "exact",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": null,
+      "disposition": "viable-exact"
+    },
+    {
+      "cve": "CVE-2021-28918",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate's regex `^(?:0|[1-9]\\d{0,2})$` accepts only \"0\" or numbers without leading zeros, rejecting all leading-zero octets (e.g. \"010\", \"0\") exactly as the reference does, preventing octal misinterpretation."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2021-41581",
+      "verdict": "exact",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": null,
+      "disposition": "viable-exact"
+    },
+    {
+      "cve": "CVE-2021-45340",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate patches a different function (stbi__pic_load) for a size-overflow, but CVE-2021-45340 is a NULL-pointer dereference in stbi__convert_format, which the candidate never guards against."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2022-35920",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe candidate keeps the flawed `\"../\" in __file_uri__` check and only swaps `abspath` for `realpath`; while `realpath` resolves symlinks, the startswith check compares against an un-realpathed root and doesn't cover backslash separators or the pre-join decoding path the reference handles."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2022-37434",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate adds the identical `len < extra_max` bounds check in the condition; the redundant reassignment of `len` is harmless since it computes the same value, closing the same overflow path."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2022-46908",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe candidate correctly fixes the SQLITE_FUNCTION case to check the actual function name (zA2/argument 4), but for SQLITE_FUNCTION the authorizer's 4th argument is zA2 (index 4 in `sqlite3_set_authorizer` maps to the 4th `char*` param, i.e. zA2), and while the function-name fix appears corr"
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2022-47016",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe candidate only patches control.c but leaves the NULL-return checks missing in file.c (file_write_open, file_read_open) and window.c (window_pane_set_event) that the reference fixes."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2023-4863",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe candidate merely adds a redundant post-hoc check after BuildHuffmanTable already wrote into root_table, doing nothing to bound the write or pre-validate the total size, so the heap overflow from insufficiently sized tables remains."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2023-49502",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate applies the same chroma-plane-aware dimension check after obtaining the pixel format descriptor, closing the identical undersized-plane code path."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2024-12254",
+      "verdict": "exact",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": null,
+      "disposition": "viable-exact"
+    },
+    {
+      "cve": "CVE-2024-23334",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate leaves url_for unchanged and in _handle still calls .resolve() (following symlinks) before relative_to in the follow_symlinks branch, so the symlink escape path remains open, while also breaking the non-follow-symlinks case by removing resolution."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2024-34490",
+      "verdict": "skip",
+      "reason": "could not fetch pre-fix source",
+      "disposition": "unscreenable-no-source"
+    },
+    {
+      "cve": "CVE-2024-41810",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\nThe candidate applies the same HTML-escaping (escape(URL.decode(\"utf-8\")).encode(\"utf-8\")) to the URL used in both interpolation points, matching the reference fix exactly."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2024-47081",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate replaces the vulnerable netloc-splitting logic with `ri.hostname`, the same mechanism as the reference, correctly extracting the host and closing the malformed-URL netrc-leak path."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2025-0938",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe candidate only tweaks `_check_bracketed_host` but never changes the caller, so it still uses the naive `netloc.partition('[')[2].partition(']')[0]` extraction and fails to reject data before the bracket or between the bracket and port, leaving those injection paths open."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2025-11230",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nBy clamping the exponent to \u00b1308 (the practical double-precision range), the candidate bounds the iterative loop to at most 308 iterations, eliminating the DoS on all number-parsing paths just as the reference does."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2025-31162",
+      "verdict": "skip",
+      "reason": "could not fetch pre-fix source",
+      "disposition": "unscreenable-no-source"
+    },
+    {
+      "cve": "CVE-2025-31344",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate adds the identical bounds check on `GifRow[j] >= ColorMap->ColorCount` before the same array access, differing only in the exit message string."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2025-34451",
+      "verdict": "exact",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": null,
+      "disposition": "viable-exact"
+    },
+    {
+      "cve": "CVE-2025-40928",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe candidate only fixes the first digit-skip loop but leaves the main parsing loop and the exponent-scanning loop unchanged, so paths where those char comparisons cause the vulnerability remain open."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2025-47256",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe candidate only changes `!= 0` to `> 0` (functionally equivalent for these values) and fails to initialize `k = 0` before the pattern-processing loop, which is the actual fix preventing use of an uninitialized/stale `k` index causing out-of-bounds access."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2025-48060",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate sets a length field but never writes the null terminator at `s->data[length]`, leaving the out-of-bounds read/missing terminator unfixed."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2025-5278",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate contains no actual code change, only a description, so it fixes nothing."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2025-60876",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate performs the identical control-character/space check over the entire URL before any parsing, closing the same injection path as the reference."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2025-6170",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe candidate bounds the `arg` buffer copy but leaves the `command` buffer overflow loop unbounded, closing only one of the two overflow paths the reference fixes."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2025-64503",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate only adjusts indentation/whitespace and adds no bounds check to clamp page dimensions, so the integer overflow and undersized buffer allocation remain."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-15028",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate breaks out of the loop before dereferencing `*++p` when `char_cnt` reaches zero, closing the same 1-byte OOB read at the boundary."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2026-33947",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe candidate guards all three functions but uses a limit of 65536 instead of 10000, leaving paths of depth 10001\u201365536 unbounded and still capable of stack overflow."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-33948",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate contains no actual code change\u2014only a prose description\u2014so it does not modify the vulnerable `strlen` path at all."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-39979",
+      "verdict": "exact",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": null,
+      "disposition": "viable-exact"
+    },
+    {
+      "cve": "CVE-2026-40198",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nThe candidate's `return if !$empty and @nums < (7 or 8)` is equivalent to the reference's `return unless $empty or @nums == (6 or 8)` since the upper bound (`@nums > 6` for ipv4, and 8 groups without ipv4) is already enforced above, making the checks functionally identical for closing the unde"
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2026-40199",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "GOLD",
+        "reason": "GOLD\n\nWhen `$ipv4` is empty/false, `substr($ipv4,1)` yields the same empty string, so the conditional is functionally identical to the reference's unconditional `substr($ipv4, 1)`."
+      },
+      "disposition": "viable-judge-only"
+    },
+    {
+      "cve": "CVE-2026-40347",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate modifies unrelated boundary re-scan logic and does not touch the START state leading CR/LF handling or the END state epilogue handling that the reference fixes, leaving the DoS paths open."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-40356",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate contains only a description of the vulnerability with no actual code changes, so it fixes neither the null-check path nor the header_len underflow path."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-42250",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe vulnerability is the off-by-one overflow when writing `bStart[currBlock]`/`bEnd[currBlock]` at index `BZ_MAX_HANDLED_BLOCKS`; the candidate only bounds `rbCtr` (the second array) but leaves the `currBlock` array writes unprotected, missing the path the reference closes."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-45190",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\n\nThe vulnerability stems from `^`/`$` matching at newlines (multiline-like anchor bypass), which the reference fixes by switching to `\\A`/`\\z` across multiple functions; the candidate only tweaks the leading-zero pattern in `_pack_ipv4`, leaving all the `^`/`$` anchor bypasses (including in `a"
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-45191",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\nThe candidate adds the leading-zero regex fix but omits the `defined $mask` check, leaving a gap when no mask is provided (undef triggers a warning/uninitialized-value path rather than the intended confess)."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-4539",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\nThe candidate fixes the GUID alternation ReDoS and bounds most `\\w+` in archetype_id, but leaves the `\\.\\w+[\\w-]*` segment unbounded, retaining a potential backtracking path the reference closes with `\\w{1,100}`."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-48526",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\nThe candidate adds the empty-key check but omits the JWK JSON rejection, which is the core algorithm-confusion gap the reference closes."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-50593",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "WRONG",
+        "reason": "WRONG\nThe candidate makes no change at all\u2014it leaves `slotat(x)` as the unbounded `map[(x)]` access, so the out-of-bounds read is not fixed."
+      },
+      "disposition": "reject-judge"
+    },
+    {
+      "cve": "CVE-2026-7598",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\nThe candidate adds the first two bounds checks but omits the third fix at the password-change path (`username_len + password_len + 44`), leaving that overflow path unaddressed."
+      },
+      "disposition": "needs-review"
+    },
+    {
+      "cve": "CVE-2026-8376",
+      "verdict": "differs",
+      "src_origin": "cache",
+      "reproducer_kind": "behavioral",
+      "behavioral": {
+        "status": "not-gated",
+        "reason": "no --behavioral build_fn"
+      },
+      "judge": {
+        "judge": "PARTIAL",
+        "reason": "PARTIAL\n\nThe candidate guards the `mincount * l` overflow at the SvGROW/repeatcpy site inside the `mincount > 1` branch, but it does not cover the reference's `old > SSize_t_MAX - mincount * l` addition-overflow path (nor the `mincount == 1` scenario the reference guards earlier)."
+      },
+      "disposition": "needs-review"
+    }
+  ],
+  "guardrail": "screening only; training label stays the curated upstream-fix.patch"
+}
