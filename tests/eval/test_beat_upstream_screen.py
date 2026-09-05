@@ -295,3 +295,19 @@ def test_fixed_release_is_a_tag_not_a_reject_by_default(tmp_path, monkeypatch):
 
     dropped = m.screen_cve("CVE-2026-1", reject_when_fixed_release=True, **kw)
     assert dropped["reject"] == "fixed-release-exists"
+
+
+def test_fixed_release_checks_every_cherry_picked_sha():
+    """A fix lands on main and is cherry-picked per release branch under different
+    shas. Testing only the first sha reported 'clear' for openexr CVE-2026-59981
+    when v3.4.14 carries the release-branch pick."""
+    ref = {"upstream_fix_commits": [
+        {"repo_url": "https://github.com/o/r", "commit_sha": "a" * 40},   # main
+        {"repo_url": "https://github.com/o/r", "commit_sha": "b" * 40},   # release pick
+    ]}
+    contains = {("b" * 40, "v3.4.14"): True}
+    status, tag = _fixed_release_status(
+        ref, "3.4.13", tag_cache={},
+        list_tags=lambda slug: ["v3.4.14"],
+        tag_contains=lambda slug, sha, t: contains.get((sha, t), False))
+    assert (status, tag) == ("reject", "v3.4.14")

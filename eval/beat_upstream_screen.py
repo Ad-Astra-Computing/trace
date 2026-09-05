@@ -211,7 +211,9 @@ def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: 
       'incomplete' -> the check could not run (non-GitHub upstream, API/parse failure)
     Only tags newer than the packaged version are checked (a bump can only go forward);
     unparseable tags are checked too (can't rule them out). Newest-first, early-exit on the
-    first stable containment. list_tags/tag_contains are injectable for offline tests.
+    first stable containment. Every sha in upstream_fix_commits is tested, since a fix is
+    commonly cherry-picked per release branch under a different sha.
+    list_tags/tag_contains are injectable for offline tests.
     """
     commits = ref.get("upstream_fix_commits") or []
     if not commits:
@@ -219,8 +221,13 @@ def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: 
     slug = _repo_slug(commits[0].get("repo_url", ""))
     if slug is None:
         return ("incomplete", None)  # non-GitHub upstream: gh ancestry unavailable
-    fix_sha = commits[0].get("commit_sha", "")
-    if not fix_sha:
+    # Every fix sha, not just the first. A fix is routinely cherry-picked onto each
+    # maintained release branch, so the main-branch commit is absent from a release
+    # tag that nonetheless carries the same fix under a different sha. Checking only
+    # commits[0] reported "clear" for openexr CVE-2026-59981 when v3.4.14 contains
+    # the release-branch pick.
+    fix_shas = [c.get("commit_sha", "") for c in commits if c.get("commit_sha")]
+    if not fix_shas:
         return ("incomplete", None)
 
     if slug not in tag_cache:
@@ -242,11 +249,10 @@ def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: 
     prerelease_hit = None
     any_failed = False
     for _tv, tag in cands:
-        contains = tag_contains(slug, fix_sha, tag)
-        if contains is None:
+        results = [tag_contains(slug, sha, tag) for sha in fix_shas]
+        if any(r is None for r in results):
             any_failed = True
-            continue
-        if contains:
+        if any(r is True for r in results):
             if _is_prerelease(tag):
                 prerelease_hit = prerelease_hit or tag
             else:
