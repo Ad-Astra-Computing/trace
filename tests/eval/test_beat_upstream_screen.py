@@ -1,6 +1,9 @@
 """Tests for eval/beat_upstream_screen classification logic (no network)."""
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 from eval.beat_upstream_screen import (
     _advisory_symbols,
     _fix_shape_class,
@@ -38,7 +41,20 @@ def test_source_backport_ref_picks_the_backport_tier():
 
 
 def test_source_backport_ref_none_for_bump_only():
+    """A ref with no fix commit is nothing to backport from, whatever its tier."""
     assert _source_backport_ref({"candidate_refs": [{"tier_hint": "security-patch-release"}]}) is None
+
+
+def test_source_backport_ref_accepts_a_fix_commit_on_a_bump_tier():
+    """Scout tags source-backport only when no fixed version is derivable, which
+    drops the common case of a released fix nixpkgs has not shipped. The fix
+    commit is what matters."""
+    ri = {"candidate_refs": [
+        {"tier_hint": "security-patch-release",
+         "upstream_fix_commits": [{"repo_url": "r", "commit_sha": "s"}]},
+    ]}
+    ref = _source_backport_ref(ri)
+    assert ref is not None and ref["upstream_fix_commits"][0]["commit_sha"] == "s"
 
 
 def test_source_backport_ref_none_for_empty():
@@ -238,3 +254,44 @@ def test_fix_shape_class_design_freedom_for_multi_hunk():
     c = _fix_shape_class(_commit("add CSRF defense", [{"filename": "auth.go", "patch": patch}]))
     assert c["n_hunks"] >= 3
     assert c["fix_shape_class"] == "design-freedom"
+
+
+def test_fixed_release_is_a_tag_not_a_reject_by_default(tmp_path, monkeypatch):
+    """A released fix nixpkgs has not shipped is still trace's work: stable
+    branches backport, and the comparison against nixpkgs' eventual shape is the
+    measurement. Only --reject-when-fixed-release drops it."""
+    import eval.beat_upstream_screen as m
+
+    resolver_input = {
+        "attr_path": "demo",
+        "current_version": "1.0.0",
+        "candidate_refs": [{
+            "tier_hint": "security-patch-release",
+            "upstream_fix_commits": [{"repo_url": "https://github.com/o/r",
+                                      "commit_sha": "a" * 40}],
+        }],
+    }
+    entry = tmp_path / "CVE-2026-1"
+    entry.mkdir()
+    (entry / "resolver-input.json").write_text(json.dumps(resolver_input))
+
+    monkeypatch.setattr(m, "poll_one", lambda cve_id, **kw: SimpleNamespace(action="written"))
+    monkeypatch.setattr(m, "process_entry",
+                        lambda p, **kw: SimpleNamespace(finding_status="finding",
+                                                        resolver_status="eligible"))
+    monkeypatch.setattr(m, "_fixed_release_status", lambda *a, **kw: ("reject", "v1.0.1"))
+    monkeypatch.setattr(m, "_nixpkgs_pr_exists", lambda cve_id: False)
+    monkeypatch.setattr(m, "_nixpkgs_code_mentions", lambda cve_id: False)
+    monkeypatch.setattr(m, "_verify_fix_commit", lambda commit, adv: ("verified", ""))
+    monkeypatch.setattr(m, "_fix_shape_class", lambda commit: {"fix_shape_class": "canonical"})
+
+    kw = dict(graph=None, inbox=tmp_path, nvd_api_key=None, check_nixpkgs=True,
+              fetch_commit=lambda slug, sha: {"files": [], "commit": {"message": "fix"}})
+
+    kept = m.screen_cve("CVE-2026-1", **kw)
+    assert kept["reject"] is None
+    assert kept["fix_available_as"] == "release"
+    assert kept["fixed_release_tag"] == "v1.0.1"
+
+    dropped = m.screen_cve("CVE-2026-1", reject_when_fixed_release=True, **kw)
+    assert dropped["reject"] == "fixed-release-exists"

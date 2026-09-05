@@ -33,8 +33,9 @@ tokens. Two further no-spend annotations ride the same fetch:
     for operator sequencing, NEVER a reject — design-freedom source-backports are the
     high-value thesis cases. The tag-lag gate is ancestry-based: for each upstream release tag newer than the
 packaged version, `git compare fix...tag` reveals whether the tag contains the fix commit.
-Containment in a STABLE tag is a hard reject (`fixed-release-exists`); containment only in
-a pre-release tag is a flag (`fixed_prerelease_only`), not a reject — nixpkgs won't bump to
+Containment in a STABLE tag tags the CVE `fix_available_as: release` (pass
+--reject-when-fixed-release to make it a hard reject instead); containment only in
+a pre-release tag is a flag (`fixed_prerelease_only`) — nixpkgs won't bump to
 an rc. Known v1 blind spot: a fix cherry-picked onto a release branch has a different SHA,
 so ancestry misses it and such a candidate survives wrongly (wastes a bootstrap, not spend
 on a bad claim). Symbol-reachability stays a manual follow-up (needs a build).
@@ -84,9 +85,21 @@ def _is_kernel(attr_path: str) -> bool:
 
 
 def _source_backport_ref(resolver_input: dict) -> dict | None:
-    """Return the first candidate_ref tagged source-backport, else None."""
-    for ref in resolver_input.get("candidate_refs") or []:
+    """Return the candidate_ref to backport from, else None.
+
+    A ref tagged `source-backport` wins when one exists. Otherwise any ref naming
+    an upstream fix commit is accepted: Scout only tags source-backport when NO
+    fixed version is derivable, which excludes the common and valuable case of a
+    project that has released a fix nixpkgs has not shipped. The fix commit is
+    what the Patcher needs; whether a release also exists is a routing tag, set by
+    the tag-lag gate below, not a reason to drop the CVE.
+    """
+    refs = resolver_input.get("candidate_refs") or []
+    for ref in refs:
         if ref.get("tier_hint") == "source-backport":
+            return ref
+    for ref in refs:
+        if ref.get("upstream_fix_commits"):
             return ref
     return None
 
@@ -351,6 +364,7 @@ def _fix_shape_class(commit: dict) -> dict:
 def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
                nvd_api_key: str | None, check_nixpkgs: bool,
                tag_cache: dict | None = None,
+               reject_when_fixed_release: bool = False,
                fetch_commit=_gh_commit) -> dict:
     """Run one CVE through poll -> process -> classify. Returns a verdict dict."""
     v: dict = {"cve_id": cve_id, "survives": False, "reject": None}
@@ -374,9 +388,10 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
 
     ref = _source_backport_ref(resolver_input)
     if ref is None:
-        v["reject"] = "not-source-backport-tier"  # bump-shaped or no fix commit
+        v["reject"] = "no-fix-commit"  # nothing to backport from
         return v
     v["fix_commits"] = ref.get("upstream_fix_commits", [])
+    v["tier_hint"] = ref.get("tier_hint")
 
     if _is_kernel(attr):
         v["reject"] = "kernel-bump-shaped"
@@ -389,9 +404,16 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
             ref, v.get("current_version"), tag_cache=tag_cache if tag_cache is not None else {})
         v["fixed_release_status"] = status
         if status == "reject":
+            # A stable release carrying the fix means nixpkgs' own remediation is
+            # likely a version bump. That is a routing tag, not a reject: stable
+            # NixOS branches backport rather than bump, and comparing trace's patch
+            # against whichever shape nixpkgs lands is the measurement. Pass
+            # --reject-when-fixed-release for the old bump-shaped-only behaviour.
             v["fixed_release_tag"] = tag
-            v["reject"] = "fixed-release-exists"
-            return v
+            v["fix_available_as"] = "release"
+            if reject_when_fixed_release:
+                v["reject"] = "fixed-release-exists"
+                return v
         if status == "prerelease":
             v["fixed_prerelease_only"] = tag  # survives; nixpkgs won't bump to a pre-release
         elif status == "incomplete":
@@ -454,6 +476,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--since", help="ISO-8601 window start (overrides --lookback-hours)")
     ap.add_argument("--until", help="ISO-8601 window end (default: now)")
     ap.add_argument("--check-nixpkgs", action="store_true", help="run gh PR/code negative-evidence checks")
+    ap.add_argument("--reject-when-fixed-release", action="store_true",
+                    help="drop a CVE whose fix already ships in a stable upstream release "
+                         "(the pre-2026-09-05 behaviour; by default such a CVE survives with "
+                         "fix_available_as=release)")
     ap.add_argument("--inbox", type=Path, default=None, help="inbox dir (default: a temp dir)")
     ap.add_argument("--out", type=Path, default=None, help="write full verdict JSON here")
     ap.add_argument("--limit", type=int, default=None, help="cap CVEs screened (discovery order)")
@@ -488,6 +514,7 @@ def main(argv: list[str] | None = None) -> int:
             verdicts.append(screen_cve(
                 cid, graph=graph, inbox=inbox,
                 nvd_api_key=nvd_api_key, check_nixpkgs=args.check_nixpkgs,
+                reject_when_fixed_release=args.reject_when_fixed_release,
                 tag_cache=tag_cache,
             ))
     finally:
