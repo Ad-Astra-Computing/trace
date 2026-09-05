@@ -23,6 +23,7 @@
   },
   "pr_convention": {
     "title_format": "{cve_id}: {attr_path} -> {target_version}",
+    "review_title_format": "{cve_id}: {attr_path}, backport upstream fix (no version bump)",
     "title_examples": [
       "CVE-2025-4598: systemd -> 257.6",
       "CVE-2026-25949: traefik -> 3.6.8"

@@ -318,12 +318,7 @@ def run(args: argparse.Namespace) -> int:
         bundle_id_short=bundle_id,
     )
 
-    title_fmt = policy["pr_convention"]["title_format"]
-    pr_title = title_fmt.format(
-        cve_id=cve_id,
-        attr_path=attr_path,
-        target_version=target_version or "unknown",
-    )
+    pr_title = _pr_title(policy, review_mode, cve_id, attr_path, target_version)
 
     # ── 6. set up nixpkgs checkout ─────────────────────────────────────────
     if args.nixpkgs_checkout:
@@ -640,6 +635,32 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
     if len(files) == 1 and files[0].endswith("/package.nix"):
         return {"package_dir": posixpath.dirname(files[0]), "patch_path": patch_diff_path,
                 "mode": "by-name"}, None
+    # by-name-package-nix source-backport: the Builder applied a bundle-relative
+    # diff (`a/package.nix` + the authored `a/<CVE>.patch`) with --directory into
+    # ONE package dir, and recorded the resulting repo paths. Replay exactly that:
+    # every recorded path must share a single pkgs/ dir, and the patch's effective
+    # (bare) paths must all be basenames of the record: the same fail-closed
+    # subset rule as repo-root mode, in the Builder's coordinate system.
+    dirs = {posixpath.dirname(f) for f in files}
+    if len(dirs) == 1 and pa.get("apply_mode") == "by-name-package-nix":
+        pkg_dir = dirs.pop()
+        if not pkg_dir.startswith("pkgs/"):
+            return None, f"build.json by-name record is not pkgs/-contained: {files!r}"
+        effective = _diff_effective_paths(patch_diff_path.read_text())
+        if any("/" in e for e in effective):
+            return None, (
+                "build.json records a by-name-package-nix apply but patch.diff carries "
+                f"nested paths {sorted(effective)!r}; re-cert to refresh build.json"
+            )
+        unlisted = sorted(effective - {posixpath.basename(f) for f in files})
+        if unlisted:
+            return None, (
+                f"patch.diff modifies paths absent from build.json files_changed: "
+                f"{unlisted!r}: the signed apply record is inconsistent with the patch; "
+                "re-cert to refresh build.json"
+            )
+        return {"package_dir": pkg_dir, "patch_path": patch_diff_path,
+                "mode": "by-name-package-nix", "files_changed": list(files)}, None
     # multi-file / non-package.nix → repo-root apply (paths already pkgs/-contained).
     # Carry the verified file list so staging is exact — a repo-root `git add` must
     # not sweep unrelated WIP from a dirty --nixpkgs-checkout into the PR (M2).
@@ -658,6 +679,22 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
         )
     return {"package_dir": "", "patch_path": patch_diff_path, "mode": "repo-root",
             "files_changed": list(files)}, None
+
+
+REVIEW_TITLE_FORMAT_DEFAULT = "{cve_id}: {attr_path}, backport upstream fix (no version bump)"
+
+
+def _pr_title(policy: dict, review_mode: bool, cve_id: str, attr_path: str,
+              target_version: str | None) -> str:
+    """Auto-merge PRs bump to `target_version`. Review-mode PRs author an in-tree
+    backport at the CURRENT version, so the bump-shaped title would misread as a
+    version bump; they use `pr_convention.review_title_format` (policy) instead."""
+    conv = policy["pr_convention"]
+    fmt = conv["title_format"]
+    if review_mode:
+        fmt = conv.get("review_title_format", REVIEW_TITLE_FORMAT_DEFAULT)
+    return fmt.format(cve_id=cve_id, attr_path=attr_path,
+                      target_version=target_version or "unknown")
 
 
 def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:

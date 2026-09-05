@@ -612,6 +612,57 @@ def test_derive_plan_repo_root_multifile(tmp_path: Path) -> None:
     assert plan["files_changed"] == ["pkgs/a/default.nix", "pkgs/b/thing.patch"]
 
 
+_BY_NAME_BACKPORT_DIFF = (
+    "--- /dev/null\n+++ b/CVE-2025-0001.patch\n@@ -0,0 +1 @@\n+x\n"
+    "--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n-a\n+b\n"
+)
+
+
+def test_derive_plan_by_name_package_nix_backport(tmp_path: Path) -> None:
+    """A by-name source-backport: bundle-relative diff (package.nix + authored
+    <CVE>.patch) applied with --directory into one package dir. The record carries
+    repo paths; the plan replays the Builder's --directory apply."""
+    bj = {"patch_apply": {"apply_mode": "by-name-package-nix", "files_changed": [
+        "pkgs/by-name/ex/example/CVE-2025-0001.patch", "pkgs/by-name/ex/example/package.nix"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert err is None and plan["mode"] == "by-name-package-nix"
+    assert plan["package_dir"] == "pkgs/by-name/ex/example"
+    assert plan["patch_path"] == patch
+    assert plan["files_changed"] == bj["patch_apply"]["files_changed"]
+
+
+def test_derive_plan_by_name_package_nix_rejects_unlisted_basename(tmp_path: Path) -> None:
+    """The record lists a different authored patch than the one patch.diff adds:
+    staging the recorded set would drop the real file, so refuse."""
+    bj = {"patch_apply": {"apply_mode": "by-name-package-nix", "files_changed": [
+        "pkgs/by-name/ex/example/other.patch", "pkgs/by-name/ex/example/package.nix"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert plan is None and "CVE-2025-0001.patch" in err and "inconsistent" in err
+
+
+def test_derive_plan_by_name_package_nix_rejects_nested_patch_paths(tmp_path: Path) -> None:
+    """The record says --directory apply, but the patch names repo paths: the
+    coordinate systems disagree, so refuse rather than guess."""
+    bj = {"patch_apply": {"apply_mode": "by-name-package-nix", "files_changed": [
+        "pkgs/a/default.nix", "pkgs/a/thing.patch"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(
+        "--- a/pkgs/a/default.nix\n+++ b/pkgs/a/default.nix\n@@ -1 +1 @@\n-a\n+b\n")
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert plan is None and "nested paths" in err
+
+
+def test_derive_plan_multifile_without_by_name_mode_stays_repo_root(tmp_path: Path) -> None:
+    """Without the by-name apply_mode marker a same-dir multi-file record keeps the
+    repo-root rule (patch paths must be the recorded repo paths)."""
+    bj = {"patch_apply": {"files_changed": [
+        "pkgs/by-name/ex/example/CVE-2025-0001.patch", "pkgs/by-name/ex/example/package.nix"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert plan is None and "inconsistent" in err
+
+
 def test_derive_plan_repo_root_rejects_record_missing_patched_file(tmp_path: Path) -> None:
     """Fail closed when files_changed omits a path the patch actually modifies —
     staging only the listed subset would silently ship an incomplete PR (audit
@@ -693,3 +744,17 @@ def test_verify_manifest_hashes_and_parses_same_bytes(tmp_path: Path) -> None:
     manifest = {"files": {"build.json": {"sha256": hashlib.sha256(raw).hexdigest()}}}
     bj, err = pr_mod._verify_build_json(bd, manifest)
     assert err is None and bj["patch_apply"]["files_changed"] == ["pkgs/x/package.nix"]
+
+
+def test_review_title_is_not_bump_shaped():
+    """A review-mode (source-backport) PR keeps the package at its current version;
+    its title must say so rather than reading `attr -> version` like a bump."""
+    policy = {"pr_convention": {"title_format": "{cve_id}: {attr_path} -> {target_version}"}}
+    bump = pr_mod._pr_title(policy, False, "CVE-2026-1", "foo", "1.2.3")
+    review = pr_mod._pr_title(policy, True, "CVE-2026-1", "foo", "1.2.3")
+    assert bump == "CVE-2026-1: foo -> 1.2.3"
+    assert review == "CVE-2026-1: foo, backport upstream fix (no version bump)"
+    assert "->" not in review and "1.2.3" not in review
+    # policy may override the review format
+    policy["pr_convention"]["review_title_format"] = "{cve_id}: {attr_path} [backport]"
+    assert pr_mod._pr_title(policy, True, "CVE-2026-1", "foo", None) == "CVE-2026-1: foo [backport]"
