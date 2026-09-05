@@ -83,9 +83,42 @@ def bucket_one(cve_dir: Path) -> dict:
     return row
 
 
+_CVE_LIST_URL = "https://cveawg.mitre.org/api/cve/{cve_id}"
+
+
+def cross_check_cve_list(cve_id: str, *, opener=None) -> dict:
+    """Ask the authoritative CVE record what references the CVE actually cites.
+
+    Scout's dossier fast-path normalizes only aggregator provenance links, so a
+    fix-commit URL present in the CVE record can be absent from `scout-input.json`.
+    This measures that loss. Returns {} when the record cannot be fetched.
+    """
+    import urllib.request
+
+    opener = opener or (lambda url: urllib.request.urlopen(url, timeout=30))
+    try:
+        with opener(_CVE_LIST_URL.format(cve_id=cve_id)) as fh:
+            rec = json.load(fh)
+    except Exception:  # noqa: BLE001 - a missing/failed record is data, not a crash
+        return {}
+    cna = (rec.get("containers") or {}).get("cna") or {}
+    refs = [r.get("url", "") for r in (cna.get("references") or [])]
+    fix_refs = [u for u in refs if _FIXLIKE_RE.search(u)]
+    affected = cna.get("affected") or []
+    has_bound = any(
+        v.get("lessThan") or v.get("lessThanOrEqual")
+        for a in affected for v in (a.get("versions") or [])
+    )
+    return {"cve_list_refs": len(refs), "cve_list_fix_refs": fix_refs, "cve_list_has_bound": has_bound}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--inbox", type=Path, required=True, help="persistent inbox dir from the screen run")
+    ap.add_argument("--cross-check-cve-list", action="store_true",
+                    help="fetch each CVE's authoritative record and count fix-commit references the "
+                         "feed normalizer dropped (network; no model spend)")
+    ap.add_argument("--sleep-s", type=float, default=0.4, help="delay between cross-check fetches")
     ap.add_argument("--verdicts", type=Path, default=None,
                     help="screen --out JSON; restricts the audit to CVEs the screen mapped to nixpkgs")
     ap.add_argument("--out", type=Path, default=None, help="write per-CVE rows + counts here")
@@ -107,6 +140,12 @@ def main(argv: list[str] | None = None) -> int:
             continue
         rows.append(bucket_one(d))
 
+    if args.cross_check_cve_list:
+        import time
+        for r in rows:
+            r.update(cross_check_cve_list(r["cve_id"]))
+            time.sleep(args.sleep_s)
+
     counts = Counter(r["bucket"] for r in rows)
     regex_miss = sum(1 for r in rows if r.get("regex_miss"))
     summary = {
@@ -116,6 +155,15 @@ def main(argv: list[str] | None = None) -> int:
         "window_candidates_B_plus_D": counts.get("B-release-nixpkgs-behind", 0)
         + counts.get("D-ambiguous-fixed-version", 0),
     }
+    if args.cross_check_cve_list:
+        checked = [r for r in rows if "cve_list_refs" in r]
+        dropped = [r for r in checked if r["cve_list_fix_refs"] and not r.get("fix_commits")]
+        summary["cross_check"] = {
+            "records_fetched": len(checked),
+            "cve_cites_fix_commit": sum(1 for r in checked if r["cve_list_fix_refs"]),
+            "cve_has_version_bound": sum(1 for r in checked if r["cve_list_has_bound"]),
+            "fix_commit_dropped_by_feed": len(dropped),
+        }
     print(json.dumps(summary, indent=2))
     if args.out:
         args.out.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2) + "\n")

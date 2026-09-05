@@ -74,3 +74,39 @@ def test_main_counts_and_verdict_filter(tmp_path, capsys):
     assert summary["audited"] == 1
     assert summary["window_candidates_B_plus_D"] == 1
     assert "B-release-nixpkgs-behind" in capsys.readouterr().out
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._p = payload
+
+    def read(self):
+        import json as _j
+        return _j.dumps(self._p).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_cross_check_reports_dropped_fix_commit():
+    from eval.beat_upstream_tier_audit import cross_check_cve_list
+    payload = {"containers": {"cna": {
+        "references": [{"url": "https://github.com/o/r/commit/" + "b" * 40},
+                       {"url": "https://example.org/advisory"}],
+        "affected": [{"versions": [{"lessThan": "1.2.3"}]}]}}}
+    got = cross_check_cve_list("CVE-2026-9", opener=lambda url: _FakeResp(payload))
+    assert got["cve_list_refs"] == 2
+    assert len(got["cve_list_fix_refs"]) == 1
+    assert got["cve_list_has_bound"] is True
+
+
+def test_cross_check_swallows_fetch_failure():
+    from eval.beat_upstream_tier_audit import cross_check_cve_list
+
+    def boom(url):
+        raise OSError("network down")
+
+    assert cross_check_cve_list("CVE-2026-10", opener=boom) == {}
