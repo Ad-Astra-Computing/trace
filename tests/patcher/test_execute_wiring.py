@@ -457,3 +457,53 @@ def test_model_backed_roles_set_is_stable():
     out of MODEL_BACKED_ROLES until the Linux-builder readiness gate is
     resolved."""
     assert MODEL_BACKED_ROLES == frozenset({"patcher", "reviewer", "reproducer"})
+
+
+# ─── output budget override (--max-tokens) ─────────────────────────────────
+
+
+def test_patcher_max_tokens_override_reaches_sampling(tmp_path):
+    """`execute(max_tokens=N)` must flow into the runner's sampling and be
+    recorded in patcher_run.sampling, so a regeneration under a larger output
+    budget is auditable from replay.json (libwebp CVE-2023-4863: a 340-line
+    upstream fix truncated the two-block output at the 8192 default)."""
+    bundle_dir = _build_dispatchable_bundle(tmp_path)
+    result = execute(
+        role="patcher",
+        bundle_dir=bundle_dir,
+        invocation=_fresh_invocation(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_valid_patch_response()),
+        max_tokens=16384,
+    )
+    assert result["patcher_run"]["sampling"]["max_tokens"] == 16384
+    # The other sampling knobs keep their defaults: the override is narrow.
+    assert result["patcher_run"]["sampling"]["temperature"] == 0.0
+
+
+def test_patcher_max_tokens_default_unchanged(tmp_path):
+    bundle_dir = _build_dispatchable_bundle(tmp_path)
+    result = execute(
+        role="patcher",
+        bundle_dir=bundle_dir,
+        invocation=_fresh_invocation(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_valid_patch_response()),
+    )
+    assert result["patcher_run"]["sampling"]["max_tokens"] == 8192
+
+
+def test_patcher_max_tokens_rejects_non_positive(tmp_path):
+    bundle_dir = _build_dispatchable_bundle(tmp_path)
+    with pytest.raises(ExecutionError, match="max-tokens"):
+        execute(
+            role="patcher",
+            bundle_dir=bundle_dir,
+            invocation=_fresh_invocation(),
+            verify=False,
+            model_id="fake-opus-4-7",
+            adapter_factory=_factory(_valid_patch_response()),
+            max_tokens=0,
+        )

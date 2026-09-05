@@ -95,6 +95,7 @@ def execute(
     nixpkgs_checkout: Path | None = None,
     builder_timeout_seconds: int | None = None,
     reviewer_prompt_path: Path | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Execute one role invocation for one replay record.
 
@@ -120,6 +121,8 @@ def execute(
             raise ExecutionError(
                 f"{role} requires explicit --model <id>; no default live model"
             )
+        if max_tokens is not None and max_tokens < 1:
+            raise ExecutionError("--max-tokens must be a positive integer")
         if role == "patcher":
             return _execute_patcher(
                 bundle_dir=bundle_dir,
@@ -127,6 +130,7 @@ def execute(
                 verify=verify,
                 model_id=model_id,
                 adapter_factory=adapter_factory,
+                max_tokens=max_tokens,
             )
         if role == "reviewer":
             return _execute_reviewer(
@@ -136,6 +140,7 @@ def execute(
                 model_id=model_id,
                 adapter_factory=adapter_factory,
                 prompt_path=reviewer_prompt_path,
+                max_tokens=max_tokens,
             )
         if role == "reproducer":
             return _execute_reproducer(
@@ -481,6 +486,7 @@ def _execute_patcher(
     verify: bool,
     model_id: str,
     adapter_factory: object | None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Patcher dispatcher: dispatch-guards, load inputs, run, atomic-write.
 
@@ -698,6 +704,7 @@ def _execute_patcher(
             inputs=inputs,
             adapter=adapter,
             prompt_path=patcher_prompt_path,
+            sampling=({"max_tokens": max_tokens} if max_tokens is not None else None),
         )
     except PatcherOutputMalformed as exc:
         _persist_role_failure(
@@ -1250,6 +1257,7 @@ def _execute_reviewer(
     model_id: str,
     adapter_factory: object | None,
     prompt_path: Path | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Reviewer dispatcher: dispatch-guards, load inputs, run, atomic-write.
 
@@ -1537,6 +1545,7 @@ def _execute_reviewer(
             inputs=inputs,
             adapter=adapter,
             prompt_path=reviewer_prompt,
+            sampling=({"max_tokens": max_tokens} if max_tokens is not None else None),
         )
 
         # Adaptation-lane contract enforcement (reviewer.v10). In this lane the

@@ -165,6 +165,18 @@ def main(argv: list[str]) -> int:
             "reviewer role."
         ),
     )
+    r.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help=(
+            "override the model output budget (sampling.max_tokens, default 8192) "
+            "for --execute --role patcher|reviewer. Use when a large upstream fix "
+            "truncates the two-block output (the failure lands in "
+            ".<role>-failures/<uuid>/raw-response.txt). The value used is recorded "
+            "in the invocation's sampling block."
+        ),
+    )
 
     b = subs.add_parser("bundle", help="bundle-assembly tooling")
     b_subs = b.add_subparsers(dest="bundle_cmd", required=True)
@@ -1081,6 +1093,7 @@ def _do_execute(
                 nixpkgs_checkout=args.nixpkgs_checkout,
                 builder_timeout_seconds=args.builder_timeout,
                 reviewer_prompt_path=getattr(args, "reviewer_prompt", None),
+                max_tokens=getattr(args, "max_tokens", None),
             )
         except HashMismatch as exc:
             print(f"hash-mismatch: {exc}", file=sys.stderr)
