@@ -631,6 +631,46 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
         tf.close()
         return {"package_dir": pkg_dir, "patch_path": Path(tf.name),
                 "mode": "canonical-package-remap"}, None
+    # canonical-source-backport-remap: a multi-file source-backport (bundle-relative
+    # package.nix wiring + authored <CVE>.patch) whose package.nix the Builder
+    # remapped onto the real non-by-name file (e.g. default.nix) by content match
+    # and applied with --directory into one package dir. Replay exactly that: one
+    # pkgs/ dir, bare patch paths, the remap target is the one recorded .nix file,
+    # and every payload the patch adds is in the record (fail-closed subset rule).
+    if remap and pa.get("apply_mode") == "canonical-source-backport-remap":
+        dirs = {posixpath.dirname(f) for f in files}
+        if len(dirs) != 1 or not next(iter(dirs)).startswith("pkgs/"):
+            return None, f"build.json remap record does not name one pkgs/ dir: {files!r}"
+        pkg_dir = dirs.pop()
+        nix_targets = [posixpath.basename(f) for f in files if f.endswith(".nix")]
+        if len(nix_targets) != 1 or not _NIX_BASENAME_RE.match(nix_targets[0]):
+            return None, f"build.json remap record has no single .nix target: {files!r}"
+        target = nix_targets[0]
+        effective = _diff_effective_paths(patch_diff_path.read_text())
+        if any("/" in e for e in effective):
+            return None, (
+                "build.json records a canonical-source-backport-remap apply but "
+                f"patch.diff carries nested paths {sorted(effective)!r}; re-cert to "
+                "refresh build.json"
+            )
+        if "package.nix" not in effective:
+            return None, "build.json records a package.nix remap but patch.diff does not touch package.nix"
+        remapped_effective = {target if e == "package.nix" else e for e in effective}
+        unlisted = sorted(remapped_effective - {posixpath.basename(f) for f in files})
+        if unlisted:
+            return None, (
+                f"patch.diff modifies paths absent from build.json files_changed: "
+                f"{unlisted!r}: the signed apply record is inconsistent with the patch; "
+                "re-cert to refresh build.json"
+            )
+        remapped = _remap_diff_basename(patch_diff_path.read_text(), "package.nix", target)
+        tf = tempfile.NamedTemporaryFile(mode="w", suffix=".remapped.diff",
+                                         dir=str(tmpdir), delete=False)
+        tf.write(remapped)
+        tf.close()
+        return {"package_dir": pkg_dir, "patch_path": Path(tf.name),
+                "mode": "canonical-source-backport-remap",
+                "files_changed": list(files)}, None
     # single package.nix, no remap → by-name (unchanged behaviour)
     if len(files) == 1 and files[0].endswith("/package.nix"):
         return {"package_dir": posixpath.dirname(files[0]), "patch_path": patch_diff_path,

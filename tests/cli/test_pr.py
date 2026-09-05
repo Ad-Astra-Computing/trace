@@ -758,3 +758,51 @@ def test_review_title_is_not_bump_shaped():
     # policy may override the review format
     policy["pr_convention"]["review_title_format"] = "{cve_id}: {attr_path} [backport]"
     assert pr_mod._pr_title(policy, True, "CVE-2026-1", "foo", None) == "CVE-2026-1: foo [backport]"
+
+
+def test_derive_plan_canonical_source_backport_remap(tmp_path: Path) -> None:
+    """A non-by-name source-backport: the Builder remapped the bundle's package.nix
+    onto default.nix by content match and applied the two-file diff with
+    --directory. The plan rewrites the package.nix basename in a temp copy and
+    replays the --directory apply, staging exactly the recorded files."""
+    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
+          "package_file_remap": "package.nix -> pkgs/tools/misc/tmux/default.nix (content-match)",
+          "files_changed": ["pkgs/tools/misc/tmux/default.nix",
+                            "pkgs/tools/misc/tmux/CVE-2025-0001.patch"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert err is None and plan["mode"] == "canonical-source-backport-remap"
+    assert plan["package_dir"] == "pkgs/tools/misc/tmux"
+    assert plan["files_changed"] == bj["patch_apply"]["files_changed"]
+    text = Path(plan["patch_path"]).read_text()
+    assert "+++ b/default.nix" in text and "package.nix" not in text
+    assert "+++ b/CVE-2025-0001.patch" in text
+
+
+def test_derive_plan_canonical_source_backport_remap_rejects_unlisted(tmp_path: Path) -> None:
+    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
+          "package_file_remap": "package.nix -> pkgs/tools/misc/tmux/default.nix (content-match)",
+          "files_changed": ["pkgs/tools/misc/tmux/default.nix",
+                            "pkgs/tools/misc/tmux/other.patch"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert plan is None and "CVE-2025-0001.patch" in err and "inconsistent" in err
+
+
+def test_derive_plan_canonical_source_backport_remap_rejects_nested_paths(tmp_path: Path) -> None:
+    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
+          "package_file_remap": "package.nix -> pkgs/a/default.nix (content-match)",
+          "files_changed": ["pkgs/a/default.nix", "pkgs/a/thing.patch"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(
+        "--- a/pkgs/a/default.nix\n+++ b/pkgs/a/default.nix\n@@ -1 +1 @@\n-a\n+b\n")
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert plan is None and "nested paths" in err
+
+
+def test_derive_plan_canonical_source_backport_remap_requires_single_dir(tmp_path: Path) -> None:
+    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
+          "package_file_remap": "package.nix -> pkgs/a/default.nix (content-match)",
+          "files_changed": ["pkgs/a/default.nix", "pkgs/b/CVE-2025-0001.patch"]}}
+    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
+    assert plan is None and "one pkgs/ dir" in err
