@@ -229,3 +229,103 @@ def test_outcome_carries_cve_id_for_logging(tmp_path: Path) -> None:
     graph = CannedGraphLookup([])
     out = poll_one("CVE-2024-13978", graph=graph, root=tmp_path, http=http)
     assert out.cve_id == "CVE-2024-13978"
+
+
+_NVD_BODY_WITH_PATCH = json.dumps({
+    "vulnerabilities": [{
+        "cve": {
+            "id": "CVE-2024-13978",
+            "published": "2025-08-01T21:32:07.000",
+            "descriptions": [{"lang": "en", "value": "LibTIFF null deref"}],
+            "configurations": [{
+                "nodes": [{
+                    "operator": "OR",
+                    "negate": False,
+                    "cpeMatch": [{
+                        "vulnerable": True,
+                        "criteria": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*",
+                    }],
+                }],
+            }],
+            "references": [
+                {"url": "https://gitlab.com/libtiff/libtiff/-/commit/" + "c" * 40,
+                 "tags": ["Patch"]},
+            ],
+        },
+    }],
+    "totalResults": 1,
+}).encode()
+
+
+def _dossier_with_refs(refs: list[dict[str, str]]) -> bytes:
+    body = json.loads(_DOSSIER_BODY)
+    body["data"]["provenance"] = [{"url": r["url"]} for r in refs]
+    return json.dumps(body).encode()
+
+
+def test_dossier_without_fix_commit_is_enriched_from_nvd(tmp_path: Path) -> None:
+    """The aggregator dropped its embedded reference list, so the fix commit must
+    come from the authoritative record or nothing is ever source-backport tier."""
+    http = _multi_http([(200, _DOSSIER_BODY), (200, _NVD_BODY_WITH_PATCH)])
+    graph = CannedGraphLookup([_LIBTIFF])
+
+    out = poll_one("CVE-2024-13978", graph=graph, root=tmp_path, http=http)
+
+    assert out.action == "written"
+    assert out.feed_used == "dossier"
+    written = json.loads((out.entry_path / "scout-input.json").read_text())
+    kinds = [r["kind"] for r in written["references"]]
+    assert "upstream-commit" in kinds
+    enriched = written["aggregator"]["enriched_from"]
+    assert enriched["feed"] == "nvd"
+    assert "references" in enriched["fields_merged"]
+    assert len(enriched["response_sha256"]) == 64
+    # the merged fields must be reconstructible from stored bytes, not a hash alone
+    import hashlib
+    stored = (out.entry_path / "raw-nvd-enrichment.json").read_bytes()
+    assert hashlib.sha256(stored).hexdigest() == enriched["response_sha256"]
+    meta = json.loads((out.entry_path / "fetch-meta.json").read_text())
+    assert meta["extra_raw"]["raw_filename"] == "raw-nvd-enrichment.json"
+
+
+def test_dossier_carrying_fix_commit_skips_the_second_fetch(tmp_path: Path) -> None:
+    body = json.loads(_DOSSIER_BODY)
+    body["data"]["sources"]["nvd"]["nvdReferences"] = [
+        {"url": "https://github.com/o/libtiff/commit/" + "d" * 40, "tags": ["Patch"]},
+    ]
+    http = _http_returning(200, json.dumps(body).encode())
+    graph = CannedGraphLookup([_LIBTIFF])
+
+    out = poll_one("CVE-2024-13978", graph=graph, root=tmp_path, http=http)
+
+    assert out.action == "written"
+    assert http.call_count == 1
+    written = json.loads((out.entry_path / "scout-input.json").read_text())
+    assert "enriched_from" not in written["aggregator"]
+
+
+def test_failed_enrichment_still_writes_the_dossier_record(tmp_path: Path) -> None:
+    http = _multi_http([(200, _DOSSIER_BODY), (404, b"{}")])
+    graph = CannedGraphLookup([_LIBTIFF])
+
+    out = poll_one("CVE-2024-13978", graph=graph, root=tmp_path, http=http)
+
+    assert out.action == "written"
+    written = json.loads((out.entry_path / "scout-input.json").read_text())
+    assert "enriched_from" not in written["aggregator"]
+
+
+def test_untagged_commit_url_counts_as_a_fix_reference(tmp_path: Path) -> None:
+    """NVD adds the Patch tag days after disclosure; the URL shape is the signal."""
+    body = json.loads(_DOSSIER_BODY)
+    body["data"]["provenance"] = [
+        {"url": "https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40},
+    ]
+    http = _http_returning(200, json.dumps(body).encode())
+    graph = CannedGraphLookup([_LIBTIFF])
+
+    out = poll_one("CVE-2024-13978", graph=graph, root=tmp_path, http=http)
+
+    assert out.action == "written"
+    assert http.call_count == 1
+    assert not (out.entry_path / "raw-nvd-enrichment.json").exists()

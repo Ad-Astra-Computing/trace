@@ -1,0 +1,19 @@
+{
+  "scope": "beat-upstream tier audit, partial inbox of the 2026-09-05 14-day screen",
+  "run_date": "2026-09-05",
+  "summary": {
+    "audited": 304,
+    "buckets": {
+      "A-no-fix-commit": 304
+    },
+    "A_regex_miss": 0,
+    "window_candidates_B_plus_D": 0,
+    "cross_check": {
+      "records_fetched": 304,
+      "cve_cites_fix_commit": 88,
+      "cve_has_version_bound": 231,
+      "fix_commit_dropped_by_feed": 88
+    }
+  },
+  "note": "Every nixpkgs-mapped CVE landed in bucket A (no candidate_refs) because the vulnpatch dossier response no longer carries its sources block, so the normalizer sees only aggregator provenance links. Cross-check against the authoritative CVE records shows 88 of 304 cite a fix commit, all dropped by the feed. 13 of those 88 are a pname collision (haskellPackages.zephyr matched Zephyr RTOS CVEs), a separate mapping issue."
+}

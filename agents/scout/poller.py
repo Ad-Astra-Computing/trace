@@ -45,6 +45,7 @@ from agents.scout.feed_client import (
 )
 from agents.scout.graph_lookup import GraphLookup
 from agents.scout.inbox import write_inbox_entry
+from agents.scout.processor import match_commit_url
 from agents.scout.relevance import is_relevant_to_nixpkgs
 
 
@@ -74,13 +75,28 @@ def poll_one(
         return dossier_attempt.outcome
 
     if dossier_attempt.scout_input is not None:
+        scout_input = dossier_attempt.scout_input
+        extra_raw: tuple[str, bytes] | None = None
+        if not _has_fix_commit_reference(scout_input):
+            # The aggregator's dossier stopped embedding the underlying feed's
+            # reference list, so no CVE reaches the resolver with a fix commit and
+            # nothing can ever be tiered source-backport. Re-fetch the authoritative
+            # record and merge the missing fields. A failed or rate-limited enrichment
+            # is not fatal: the unenriched dossier record still gets written.
+            enrich = _try_nvd(cve_id, http=http, api_key=nvd_api_key)
+            if enrich.scout_input is not None and enrich.fetch is not None:
+                merged = _merge_nvd_enrichment(scout_input, enrich.scout_input, enrich.fetch)
+                if merged is not scout_input:
+                    scout_input = merged
+                    extra_raw = ("nvd-enrichment", enrich.fetch.raw_bytes)
         return _filter_and_write(
             cve_id=cve_id,
-            scout_input=dossier_attempt.scout_input,
+            scout_input=scout_input,
             fetch=dossier_attempt.fetch,
             raw_source="dossier",
             graph=graph,
             root=root,
+            extra_raw=extra_raw,
         )
 
     nvd_attempt = _try_nvd(cve_id, http=http, api_key=nvd_api_key)
@@ -110,6 +126,67 @@ class _Attempt:
     scout_input: dict[str, Any] | None = None
     fetch: FetchResult | None = None
     rate_limited_seconds: int | None = None
+
+
+_ENRICHABLE_FIELDS = ("references", "version_bounds", "cpe_matches", "pname_hints")
+
+
+def _has_fix_commit_reference(scout_input: dict[str, Any]) -> bool:
+    """True when the record already names an upstream commit to backport from.
+
+    Matches on URL shape rather than the feed's `kind` tag, for the same reason
+    the processor does: fresh CVEs routinely carry an untagged commit URL.
+    """
+    return any(
+        match_commit_url(r.get("url", "")) is not None
+        for r in (scout_input.get("references") or [])
+        if isinstance(r, dict)
+    )
+
+
+def _merge_nvd_enrichment(
+    dossier_input: dict[str, Any],
+    nvd_input: dict[str, Any],
+    fetch: FetchResult,
+) -> dict[str, Any]:
+    """Fill the dossier record's missing feed fields from the authoritative record.
+
+    The dossier's own values always win: this only appends references the dossier
+    did not carry and fills list fields it left empty. Identity, severity, summary
+    and the nixpkgs-mapping inputs the dossier did supply are untouched.
+    """
+    import hashlib
+
+    merged = dict(dossier_input)
+    fields: list[str] = []
+
+    seen = {r.get("url") for r in (merged.get("references") or []) if isinstance(r, dict)}
+    extra = [
+        r for r in (nvd_input.get("references") or [])
+        if isinstance(r, dict) and r.get("url") and r["url"] not in seen
+    ]
+    if extra:
+        merged["references"] = (merged.get("references") or []) + extra
+        fields.append("references")
+
+    for field in ("version_bounds", "cpe_matches", "pname_hints"):
+        if not merged.get(field) and nvd_input.get(field):
+            merged[field] = nvd_input[field]
+            fields.append(field)
+
+    if not fields:
+        return dossier_input
+
+    aggregator = dict(merged.get("aggregator") or {})
+    aggregator["enriched_from"] = {
+        "feed": "nvd",
+        "request_url": fetch.request_url,
+        "fetched_at": fetch.fetched_at,
+        "response_sha256": hashlib.sha256(fetch.raw_bytes).hexdigest(),
+        "fields_merged": fields,
+    }
+    merged["aggregator"] = aggregator
+    return merged
 
 
 def _try_dossier(cve_id: str, *, http: HttpFn | None) -> _Attempt:
@@ -186,6 +263,7 @@ def _filter_and_write(
     raw_source: str,
     graph: GraphLookup,
     root: Path,
+    extra_raw: tuple[str, bytes] | None = None,
 ) -> PollOutcome:
     decision = is_relevant_to_nixpkgs(scout_input, graph)
     if not decision.relevant:
@@ -204,6 +282,7 @@ def _filter_and_write(
         fetched_at=fetch.fetched_at,
         relevance=decision,
         root=root,
+        extra_raw=extra_raw,
     )
     return PollOutcome(
         cve_id=cve_id,

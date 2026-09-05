@@ -67,6 +67,7 @@ def write_inbox_entry(
     relevance: RelevanceDecision,
     root: Path,
     overwrite: bool = False,
+    extra_raw: tuple[str, bytes] | None = None,
 ) -> Path:
     if not _RAW_SOURCE_RE.match(raw_source):
         raise InboxRefused(
@@ -111,6 +112,22 @@ def write_inbox_entry(
     }
 
     _atomic_write_bytes(raw_path, raw_bytes)
+    if extra_raw is not None:
+        # A second fetch contributed fields to scout_input (see
+        # aggregator.enriched_from). Its bytes are stored beside the primary raw
+        # record so the merged scout-input stays reconstructible from artifacts,
+        # not from a hash alone.
+        extra_source, extra_bytes = extra_raw
+        if not _RAW_SOURCE_RE.match(extra_source):
+            raise InboxRefused(
+                f"extra_raw source must match {_RAW_SOURCE_RE.pattern!r}, got {extra_source!r}"
+            )
+        _atomic_write_bytes(entry_dir / f"raw-{extra_source}.json", extra_bytes)
+        fetch_meta["extra_raw"] = {
+            "raw_source": extra_source,
+            "raw_filename": f"raw-{extra_source}.json",
+            "raw_sha256": hashlib.sha256(extra_bytes).hexdigest(),
+        }
     _atomic_write_json(entry_dir / "scout-input.json", scout_input)
     _atomic_write_json(entry_dir / "fetch-meta.json", fetch_meta)
     _atomic_write_json(entry_dir / "relevance.json", asdict(relevance))

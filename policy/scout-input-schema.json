@@ -151,6 +151,25 @@
             }
           }
         },
+        "enriched_from": {
+          "description": "Recorded when the aggregator record carried no upstream-commit reference and Scout re-fetched the authoritative feed to fill references/version_bounds. The aggregator bytes remain the stored raw record; this block names the second fetch so the merge stays reconstructible.",
+          "type": "object",
+          "required": ["feed", "request_url", "fetched_at", "response_sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "feed": { "type": "string", "enum": ["nvd"] },
+            "request_url": { "type": "string", "format": "uri" },
+            "fetched_at": { "type": "string", "format": "date-time" },
+            "response_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "fields_merged": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["references", "version_bounds", "cpe_matches", "pname_hints"]
+              }
+            }
+          }
+        },
         "epss": {
           "description": "EPSS prioritization signal. NOT a policy input; queue ordering only.",
           "type": "object",

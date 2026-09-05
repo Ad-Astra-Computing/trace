@@ -71,7 +71,7 @@ _KERNEL_TREE_REPO_URL = {
 }
 
 
-def _match_commit_url(url: str) -> tuple[str, str] | None:
+def match_commit_url(url: str) -> tuple[str, str] | None:
     """Recognize an upstream-commit URL and return (repo_url, commit_sha).
     Order is host-by-host so a URL that matches one shape doesn't
     accidentally fall through to a looser one."""
@@ -196,10 +196,13 @@ def _extract_candidate_refs(
     fix_commits: list[dict[str, str]] = []
     first_commit_url: str | None = None
     for ref in references:
-        if ref.get("kind") != "upstream-commit":
-            continue
+        # `kind` comes from the feed's own tagging, which is frequently absent on
+        # freshly disclosed CVEs (NVD adds the Patch tag days later, and the
+        # aggregator does not tag at all). The URL shape is the stronger signal and
+        # is what actually has to parse, so accept any reference whose URL is a
+        # recognized commit URL and let _match_commit_url reject the rest.
         url = ref.get("url", "")
-        match = _match_commit_url(url)
+        match = match_commit_url(url)
         if match is None:
             continue
         repo_url, sha = match
