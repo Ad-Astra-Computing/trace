@@ -279,3 +279,44 @@ def test_run_applies_dependent_patches_cumulatively(
     assert rc == preflight.EXIT_OK
     payload = json.loads(capsys.readouterr().out)
     assert [r["applies"] for r in payload["patches"]] == [True, True]
+
+
+def test_already_applied_is_reported_as_already_fixed(tmp_path, capsys, monkeypatch):
+    """`patch` says "Reversed (or previously applied)" when the tree already has
+    the change. That is not a base mismatch: the pinned source is not vulnerable,
+    so the candidate should be retired rather than reharvested. OpenRGB
+    CVE-2026-59683 hit this, because the pinned git revision already carried the
+    fix and the containment gates only understand GitHub tags."""
+    from tools.trace_cli.preflight import classify_patch_output
+
+    out = (
+        "checking file ProfileManager.cpp\n"
+        "Reversed (or previously applied) patch detected!  Skipping patch.\n"
+        "3 out of 3 hunks ignored\n"
+    )
+    assert classify_patch_output(out) == "already-applied"
+
+
+def test_a_real_mismatch_is_not_reported_as_already_fixed():
+    from tools.trace_cli.preflight import classify_patch_output
+
+    out = (
+        "checking file qt/openrgb.service\n"
+        "Hunk #1 FAILED at 3.\n"
+        "1 out of 1 hunk FAILED -- saving rejects to file qt/openrgb.service.rej\n"
+    )
+    assert classify_patch_output(out) == "does-not-apply"
+
+
+def test_mixed_output_is_classified_as_mixed():
+    """OpenRGB's commit also touched a systemd unit that genuinely does not apply,
+    so one patch file produced both signals at once."""
+    from tools.trace_cli.preflight import classify_patch_output
+
+    out = (
+        "checking file qt/openrgb.service\n"
+        "Hunk #1 FAILED at 3.\n"
+        "checking file ProfileManager.cpp\n"
+        "Reversed (or previously applied) patch detected!  Skipping patch.\n"
+    )
+    assert classify_patch_output(out) == "mixed"

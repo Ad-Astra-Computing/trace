@@ -242,3 +242,31 @@ def test_unreadable_version_does_not_block(tmp_path):
     out = tmp_path / "bundle"
     _run(entry, out, read_pinned_file=lambda c, r, p: "{ }: { version = someExpr; }\n")
     assert (out / "package.nix").exists()
+
+
+def test_unusable_drv_paths_are_replaced_with_a_placeholder(tmp_path):
+    """A snapshot built without derivation paths records `attr:<name>`, which the
+    finding schema rejects. The value carries no information either way, so the
+    staged copy uses the placeholder shape the schema allows rather than failing
+    finalize much later."""
+    entry = _entry(tmp_path)
+    finding = json.loads((entry / "finding.json").read_text())
+    finding["affected"][0]["drv_path"] = "attr:wget"
+    (entry / "finding.json").write_text(json.dumps(finding))
+
+    out = tmp_path / "bundle"
+    _run(entry, out)
+    staged = json.loads((out / "finding.json").read_text())
+    assert staged["affected"][0]["drv_path"] == "/nix/store/" + "0" * 32 + "-wget.drv"
+
+
+def test_real_drv_paths_are_kept(tmp_path):
+    entry = _entry(tmp_path)
+    finding = json.loads((entry / "finding.json").read_text())
+    real = "/nix/store/" + "a" * 32 + "-wget-1.25.0.drv"
+    finding["affected"][0]["drv_path"] = real
+    (entry / "finding.json").write_text(json.dumps(finding))
+
+    out = tmp_path / "bundle"
+    _run(entry, out)
+    assert json.loads((out / "finding.json").read_text())["affected"][0]["drv_path"] == real

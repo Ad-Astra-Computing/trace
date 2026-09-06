@@ -225,6 +225,24 @@ def apply_patch(
     return True, out
 
 
+def classify_patch_output(output: str) -> str:
+    """Why a dry-run failed: "already-applied" or "does-not-apply".
+
+    `patch` reports "Reversed (or previously applied) patch detected" when the
+    tree already contains the change. That is a different disposition from a base
+    mismatch: the pinned source is not vulnerable, so the candidate is retired
+    rather than reharvested against another base.
+    """
+    text = output or ""
+    applied = "previously applied" in text
+    failed = "FAILED" in text
+    if applied and failed:
+        return "mixed"
+    if applied:
+        return "already-applied"
+    return "does-not-apply"
+
+
 def _escaping_symlinks(tree: Path) -> dict[str, str]:
     """Map ``symlink path -> readlink target`` for every symlink under ``tree``
     whose resolved destination lands outside ``tree``.
@@ -533,10 +551,24 @@ def _emit_result(fmt: str, **kwargs: Any) -> int:
                 for line in r["output"].splitlines():
                     print(f"      {line}", file=sys.stderr)
         if not all_ok:
-            print(
-                "  → at least one patch does not apply to the pinned source. "
-                "This is a base mismatch: retire/reharvest before spending on "
-                "the Patcher or dispatching cert.",
-                file=sys.stderr,
-            )
+            failed = [r for r in results if r["applies"] is False]
+            classes = {classify_patch_output(r.get("output", "")) for r in failed}
+            if failed and classes <= {"already-applied", "mixed"}:
+                extra = (
+                    " Some hunks also failed outright, so read the output before retiring."
+                    if "mixed" in classes else ""
+                )
+                print(
+                    "  -> the pinned source already contains this fix, so it is not "
+                    "vulnerable. Retire the candidate rather than reharvesting a base."
+                    + extra,
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "  -> at least one patch does not apply to the pinned source. "
+                    "This is a base mismatch: retire/reharvest before spending on "
+                    "the Patcher or dispatching cert.",
+                    file=sys.stderr,
+                )
     return EXIT_OK if all_ok else EXIT_APPLY_FAILED

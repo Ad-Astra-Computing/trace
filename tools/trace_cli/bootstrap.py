@@ -56,6 +56,8 @@ def package_nix_path_for_attr(attr_path: str) -> str | None:
     return f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix"
 
 
+_DRV_PATH_RE = re.compile(r"/nix/store/[a-z0-9]{32}-.+\.drv")
+
 _VERSION_RE = re.compile(r'^\s*version\s*=\s*"([^"]+)"\s*;', re.MULTILINE)
 
 
@@ -156,7 +158,12 @@ def bootstrap_candidate(
 
     finding_src = entry_dir / "finding.json"
     if finding_src.is_file():
-        (out_dir / "finding.json").write_text(finding_src.read_text())
+        finding = json.loads(finding_src.read_text())
+        for affected in finding.get("affected") or []:
+            if not _DRV_PATH_RE.fullmatch(str(affected.get("drv_path") or "")):
+                pname = affected.get("pname") or affected.get("attr_path", "pkg").split(".")[-1]
+                affected["drv_path"] = f"/nix/store/{'0' * 32}-{pname}.drv"
+        (out_dir / "finding.json").write_text(json.dumps(finding, indent=2) + "\n")
 
     staged_ref = dict(ref)
     staged_ref["tier_hint"] = "source-backport"
