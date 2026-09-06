@@ -42,16 +42,44 @@ def _seed(
     finding: dict[str, Any] | None = None,
     upstream_ref: dict[str, Any] | None = None,
     mapping_failure: dict[str, Any] | None = None,
+    impact: dict[str, Any] | None = None,
 ) -> Path:
     entry = tmp_path / cve_id
     entry.mkdir()
     if finding is not None:
         (entry / "finding.json").write_text(json.dumps(finding))
+    if impact is not None:
+        (entry / "impact.json").write_text(json.dumps(impact))
     if upstream_ref is not None:
         (entry / "upstream-ref.json").write_text(json.dumps(upstream_ref))
     if mapping_failure is not None:
         (entry / "mapping-failure.json").write_text(json.dumps(mapping_failure))
     return entry
+
+
+def _analyzed_impact(cve_id: str = "CVE-2099-0001") -> dict[str, Any]:
+    """An impact.json asserting the reverse-closure analysis actually ran.
+
+    Auto-merge eligibility requires this. Absence of the file, or of
+    analysis_status, means nobody asserted the analysis ran, and the routing
+    policy treats that as unanalyzed.
+    """
+    return {
+        "schema_version": "1.0.0",
+        "cve_id": cve_id,
+        "nixpkgs_rev": "0" * 40,
+        "blast_radius_threshold": 500,
+        "threshold_policy": "v0-default",
+        "affected_attr_paths": ["foo"],
+        "reverse_closure_count": 3,
+        "reverse_closure_bucket": "<50",
+        "reverse_closure_sample": ["bar"],
+        "critical_downstreams": [],
+        "exceeds_threshold": False,
+        "per_attr": [],
+        "replay_critical": True,
+        "analysis_status": "complete",
+    }
 
 
 def _eligible_upstream(
@@ -117,6 +145,7 @@ def test_auto_merge_eligible_when_eligible_and_high_confidence(tmp_path: Path, o
         tmp_path,
         finding=_finding(confidence="high"),
         upstream_ref=_eligible_upstream(verdict="eligible"),
+        impact=_analyzed_impact(),
     )
     decision = route_inbox_entry(entry)
     assert decision["state"] == "auto-merge-eligible"
@@ -408,7 +437,9 @@ def test_optional_prefetch_skip_does_not_block(tmp_path: Path, opa_available: bo
         "reason": "no-rust-vendoring-in-this-package",
         "required_for_patch": False,
     }]
-    entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream)
+    entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream,
+        impact=_analyzed_impact(),
+    )
     decision = route_inbox_entry(entry)
     assert decision["state"] == "auto-merge-eligible"
 
@@ -421,3 +452,18 @@ def test_missing_opa_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     entry = _seed(tmp_path, mapping_failure={"cve_id": "x", "reason": "y"})
     with pytest.raises(OpaUnavailable):
         route_inbox_entry(entry)
+
+
+def test_missing_impact_file_forces_review(tmp_path: Path, opa_available: bool) -> None:
+    """Every impact gate was guarded on input.impact existing, so an entry with no
+    impact.json reached auto-merge with no blast-radius analysis at all. Nothing
+    under agents/scout/ writes that file, so the live polling path always hit this."""
+    from agents.steward.agent import route_inbox_entry
+    entry = _seed(
+        tmp_path,
+        finding=_finding(confidence="high"),
+        upstream_ref=_eligible_upstream(verdict="eligible"),
+    )
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "human-review-required"
+    assert "impact-missing" in decision["reason_codes"]

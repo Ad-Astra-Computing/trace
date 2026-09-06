@@ -90,7 +90,6 @@ _all_reasons contains code if {
 state := "human-review-required" if {
 	input.upstream_ref
 	input.upstream_ref.eligibility.verdict == "eligible"
-	input.impact
 	not _impact_analysis_complete
 }
 
@@ -100,6 +99,12 @@ _all_reasons contains code if {
 	input.impact
 	not _impact_analysis_complete
 	code := sprintf("impact-unanalyzed:%s", [object.get(input.impact, "analysis_status", "absent")])
+}
+
+_all_reasons contains "impact-missing" if {
+	input.upstream_ref
+	input.upstream_ref.eligibility.verdict == "eligible"
+	not input.impact
 }
 
 # Fail closed on a MISSING analysis_status. `analysis_status != "complete"` is
@@ -216,7 +221,6 @@ _all_reasons contains "eligible-high-confidence" if {
 }
 
 _impact_unanalyzed if {
-	input.impact
 	not _impact_analysis_complete
 }
 
