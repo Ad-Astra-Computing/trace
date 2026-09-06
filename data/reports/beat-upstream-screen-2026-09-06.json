@@ -5,7 +5,7 @@
   "snapshot_records": 105122,
   "screened": 5039,
   "survivors_before_version_gate": 181,
-  "survivors_after_version_gate": 86,
+  "survivors_after_version_gate": 75,
   "version_gate": {
     "out_of_range": 95,
     "in_range": 56,
@@ -43,16 +43,16 @@
       9
     ],
     [
-      "openexr",
-      8
-    ],
-    [
       "haskellPackages",
       8
     ],
     [
       "weblate",
       8
+    ],
+    [
+      "openexr",
+      7
     ],
     [
       "libxml2",
@@ -67,23 +67,11 @@
       3
     ],
     [
-      "vikunja",
-      3
-    ],
-    [
       "ebpf-verifier",
       3
     ],
     [
-      "seaweedfs",
-      2
-    ],
-    [
       "ceph",
-      2
-    ],
-    [
-      "filebrowser",
       2
     ],
     [
@@ -93,7 +81,26 @@
     [
       "ntopng",
       2
+    ],
+    [
+      "chirp",
+      1
+    ],
+    [
+      "vllm",
+      1
+    ],
+    [
+      "wget",
+      1
     ]
   ],
-  "note": "Compare with beat-upstream-summary-2026-09-01.json: 0 survivors of 6297, which was feed data loss rather than absence of opportunity. The version gate landed after this run, so the 76 out-of-range rejects were computed by re-scoring the survivor list; a future run applies the gate inline. Survivors are candidates, not verified patches: each still has to pass Patcher, Reviewer, a discriminating reproducer and cert."
+  "note": "Compare with beat-upstream-summary-2026-09-01.json: 0 survivors of 6297, which was feed data loss rather than absence of opportunity. The version gate landed after this run, so the 76 out-of-range rejects were computed by re-scoring the survivor list; a future run applies the gate inline. Survivors are candidates, not verified patches: each still has to pass Patcher, Reviewer, a discriminating reproducer and cert.",
+  "precision_gates": {
+    "raw_survivors": 181,
+    "after_affected_range_gate": 105,
+    "after_inline_range_parsing": 86,
+    "after_packaged_release_self_containment": 75,
+    "note": "Three gates added after the run and applied by re-scoring; a future run applies them inline. Together they remove 106 of 181 raw survivors as false positives, each of which would otherwise have cost a bootstrap. The classes are: a pname collision whose versions do not overlap the affected range (haskellPackages.zephyr matching Zephyr RTOS); an affected range written inline in the version field as '< 2.0.5' rather than in lessThan (PrivateBin); and an advisory citing an older commit the packaged release already contains (filebrowser cites a 2020 commit while packaging 2.63.23)."
+  }
 }
