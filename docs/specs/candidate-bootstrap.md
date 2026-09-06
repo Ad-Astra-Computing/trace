@@ -69,6 +69,19 @@ It does not run the Patcher, fetch the pinned source, or run preflight. Those st
 separate so the no-spend gates keep being run on purpose rather than as a side
 effect. It does not invent severity, CVSS or blast-radius numbers.
 
+## Version drift
+
+Found while bootstrapping privatebin CVE-2026-55891: the screen reads its own
+nixpkgs snapshot, while the pinned revision is passed in separately. The screen
+had recorded 2.0.6 and the pinned revision carried 2.0.5, so the bundle would have
+been built against the wrong base. Preflight catches that eventually, but only
+after the source has been fetched and only if the patch happens not to apply.
+
+Bootstrap now compares the version the candidate names against the one the pinned
+package file declares and refuses when they differ, naming both. `--allow-version-drift`
+proceeds anyway. A package that computes its version rather than declaring a
+literal is not checked, since a check that cannot read the version must not refuse.
+
 ## Testing
 
 Unit tests cover each refusal, the by-name path derivation, the `--package-path`
