@@ -82,7 +82,9 @@ def test_is_prerelease():
 def test_repo_slug():
     assert _repo_slug("https://github.com/sipeed/picoclaw") == "sipeed/picoclaw"
     assert _repo_slug("https://github.com/proftpd/proftpd.git") == "proftpd/proftpd"
-    assert _repo_slug("https://gitlab.com/x/y") is None  # non-GitHub: gh ancestry unavailable
+    assert _repo_slug("https://gitlab.com/x/y") == "gitlab:x/y"
+    assert _repo_slug("https://gitlab.com/CalcProgrammer1/OpenRGB.git") == "gitlab:CalcProgrammer1/OpenRGB"
+    assert _repo_slug("https://git.kernel.org/pub/scm/linux.git") is None  # no ancestry API here
 
 
 def _ref(sha, repo="https://github.com/sipeed/picoclaw"):
@@ -150,9 +152,21 @@ def test_fixed_release_incomplete_on_api_failure():
     assert status == "incomplete"
 
 
-def test_fixed_release_incomplete_for_non_github_upstream():
-    status, _ = _fixed_release_status(
+def test_fixed_release_handles_a_gitlab_upstream():
+    """Both containment gates used to give up on any non-GitHub host, which is how
+    OpenRGB CVE-2026-59683 reached the shortlist with the fix already in its
+    pinned source."""
+    status, tag = _fixed_release_status(
         _ref("FIX", repo="https://gitlab.com/x/y"), "0.2.9", tag_cache={},
+        list_tags=lambda slug: ["v9.9.9"],
+        tag_contains=lambda slug, sha, t: True,
+    )
+    assert (status, tag) == ("reject", "v9.9.9")
+
+
+def test_fixed_release_incomplete_for_an_unsupported_host():
+    status, _ = _fixed_release_status(
+        _ref("FIX", repo="https://git.kernel.org/pub/scm/linux.git"), "0.2.9", tag_cache={},
         list_tags=lambda slug: ["v9.9.9"],
         tag_contains=lambda slug, sha, t: True,
     )
@@ -410,3 +424,17 @@ def test_packaged_release_without_the_fix_is_not_flagged():
         ref, "1.25.0", tag_cache={},
         list_tags=lambda slug: ["v1.25.0"],
         tag_contains=lambda slug, sha, t: False) is None
+
+
+def test_packaged_release_matches_a_tag_by_name_suffix():
+    """OpenRGB tags releases `release_candidate_1.0rc3.1`, which no version parser
+    reads, so matching on the parsed triple alone skipped every tag and the gate
+    saw nothing."""
+    from eval.beat_upstream_screen import _packaged_release_carries_fix
+    ref = {"upstream_fix_commits": [
+        {"repo_url": "https://gitlab.com/o/r", "commit_sha": "d" * 40}]}
+    tag = _packaged_release_carries_fix(
+        ref, "1.0rc3.1", tag_cache={},
+        list_tags=lambda slug: ["release_candidate_1.0rc3.1", "release_candidate_1.0rc3"],
+        tag_contains=lambda slug, sha, t: t == "release_candidate_1.0rc3.1")
+    assert tag == "release_candidate_1.0rc3.1"

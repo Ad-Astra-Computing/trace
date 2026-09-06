@@ -252,12 +252,46 @@ def _packaged_version_verdict(record: dict | None, pname: str, current_version: 
 
 
 def _repo_slug(repo_url: str) -> str | None:
-    """github.com/owner/repo URL -> 'owner/repo'; None for non-GitHub (can't gh-ancestry)."""
-    m = re.match(r"https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$", (repo_url or "").strip())
-    return m.group(1) if m else None
+    """Host-qualified repository slug, or None when the host is not supported.
+
+    GitHub returns a bare `owner/repo`, which is what the gh CLI takes. GitLab
+    returns `gitlab:owner/repo`; the tag and containment helpers dispatch on that
+    prefix. Adding GitLab matters because both containment gates silently gave up
+    on a non-GitHub upstream, which is how OpenRGB CVE-2026-59683 reached the
+    shortlist with the fix already in its pinned source.
+    """
+    url = (repo_url or "").strip()
+    m = re.match(r"https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    if m:
+        return m.group(1)
+    m = re.match(r"https?://gitlab\.com/(.+?)(?:\.git)?/?$", url)
+    if m and "/" in m.group(1):
+        return f"gitlab:{m.group(1)}"
+    return None
 
 
-def _gh_list_tags(slug: str) -> list[str] | None:
+def _gitlab_api(path: str) -> object | None:
+    """GET a gitlab.com API path, or None when it cannot be read."""
+    import urllib.parse
+    import urllib.request
+
+    url = f"https://gitlab.com/api/v4/{path}"
+    try:
+        with urllib.request.urlopen(url, timeout=60) as fh:
+            return json.load(fh)
+    except Exception:  # noqa: BLE001 - an unreachable API is data, not a crash
+        return None
+
+
+def _list_tags(slug: str) -> list[str] | None:
+    if slug.startswith("gitlab:"):
+        import urllib.parse
+
+        project = urllib.parse.quote(slug[len("gitlab:"):], safe="")
+        data = _gitlab_api(f"projects/{project}/repository/tags?per_page=100")
+        if not isinstance(data, list):
+            return None
+        return [t.get("name", "") for t in data if t.get("name")]
     try:
         r = subprocess.run(
             ["gh", "api", f"repos/{slug}/tags", "--paginate", "--jq", ".[].name"],
@@ -270,8 +304,19 @@ def _gh_list_tags(slug: str) -> list[str] | None:
     return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
 
 
-def _gh_tag_contains(slug: str, fix_sha: str, tag: str) -> bool | None:
-    """True if `tag` contains `fix_sha` (fix is an ancestor of tag), via compare fix...tag."""
+def _tag_contains(slug: str, fix_sha: str, tag: str) -> bool | None:
+    """True when `tag` contains `fix_sha`, i.e. the fix is an ancestor of the tag."""
+    if slug.startswith("gitlab:"):
+        import urllib.parse
+
+        project = urllib.parse.quote(slug[len("gitlab:"):], safe="")
+        refs = f"refs[]={urllib.parse.quote(fix_sha)}&refs[]={urllib.parse.quote(tag)}"
+        data = _gitlab_api(f"projects/{project}/repository/merge_base?{refs}")
+        if not isinstance(data, dict):
+            return None
+        base = data.get("id") or ""
+        # The merge base of an ancestor and its descendant is the ancestor itself.
+        return bool(base) and (base == fix_sha or fix_sha.startswith(base) or base.startswith(fix_sha))
     try:
         r = subprocess.run(
             ["gh", "api", f"repos/{slug}/compare/{fix_sha}...{tag}", "--jq", ".behind_by"],
@@ -289,8 +334,8 @@ def _gh_tag_contains(slug: str, fix_sha: str, tag: str) -> bool | None:
 
 
 def _packaged_release_carries_fix(ref: dict, current_version: str | None, *, tag_cache: dict,
-                                  list_tags=_gh_list_tags,
-                                  tag_contains=_gh_tag_contains) -> str | None:
+                                  list_tags=_list_tags,
+                                  tag_contains=_tag_contains) -> str | None:
     """The packaged version's own tag, when that tag already contains the fix.
 
     `_fixed_release_status` only looks at tags NEWER than the packaged version,
@@ -308,7 +353,10 @@ def _packaged_release_carries_fix(ref: dict, current_version: str | None, *, tag
     tags = tag_cache[slug] or []
     shas = [c.get("commit_sha", "") for c in commits if c.get("commit_sha")]
     for tag in tags:
-        if _parse_ver(tag) != pkg_ver:
+        # Match the packaged version either by parsed triple or by name suffix.
+        # OpenRGB tags its releases `release_candidate_1.0rc3.1`, which no version
+        # parser reads, and matching on the parsed form alone skipped every tag.
+        if _parse_ver(tag) != pkg_ver and not tag.endswith(str(current_version)):
             continue
         if any(tag_contains(slug, sha, tag) is True for sha in shas):
             return tag
@@ -316,7 +364,7 @@ def _packaged_release_carries_fix(ref: dict, current_version: str | None, *, tag
 
 
 def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: dict,
-                          list_tags=_gh_list_tags, tag_contains=_gh_tag_contains) -> tuple[str, str | None]:
+                          list_tags=_list_tags, tag_contains=_tag_contains) -> tuple[str, str | None]:
     """Classify whether an upstream release already carries the fix commit.
 
     Returns (status, tag):

@@ -176,30 +176,6 @@
   null
  ],
  [
-  "CVE-2026-18794",
-  "openrgb",
-  "1.0rc3.1",
-  "in-range",
-  "none",
-  null
- ],
- [
-  "CVE-2026-59682",
-  "openrgb",
-  "1.0rc3.1",
-  "in-range",
-  "none",
-  null
- ],
- [
-  "CVE-2026-59683",
-  "openrgb",
-  "1.0rc3.1",
-  "in-range",
-  "none",
-  null
- ],
- [
   "CVE-2026-73102",
   "rustdesk",
   "1.4.9",
