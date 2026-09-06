@@ -286,7 +286,8 @@ def test_fixed_release_is_a_tag_not_a_reject_by_default(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "_fix_shape_class", lambda commit: {"fix_shape_class": "canonical"})
 
     kw = dict(graph=None, inbox=tmp_path, nvd_api_key=None, check_nixpkgs=True,
-              fetch_commit=lambda slug, sha: {"files": [], "commit": {"message": "fix"}})
+              fetch_commit=lambda slug, sha: {"files": [], "commit": {"message": "fix"}},
+              fetch_cve_record=lambda cve_id: None)
 
     kept = m.screen_cve("CVE-2026-1", **kw)
     assert kept["reject"] is None
@@ -311,3 +312,62 @@ def test_fixed_release_checks_every_cherry_picked_sha():
         list_tags=lambda slug: ["v3.4.14"],
         tag_contains=lambda slug, sha, t: contains.get((sha, t), False))
     assert (status, tag) == ("reject", "v3.4.14")
+
+
+def test_packaged_version_verdict_catches_pname_collision():
+    """nixpkgs haskellPackages.zephyr 0.5.3 matched 42 Zephyr RTOS CVEs whose
+    affected range is 3.6.0 to 4.4.2. Name matching cannot see that; the range can."""
+    from eval.beat_upstream_screen import _packaged_version_verdict
+    rec = {"containers": {"cna": {"affected": [
+        {"product": "zephyr", "packageName": "zephyr",
+         "versions": [{"version": "3.6.0", "status": "affected", "lessThan": "4.4.2"}]}]}}}
+    assert _packaged_version_verdict(rec, "zephyr", "0.5.3") == "out-of-range"
+    assert _packaged_version_verdict(rec, "zephyr", "4.0.0") == "in-range"
+
+
+def test_packaged_version_verdict_is_unknown_when_undecidable():
+    """An unparseable version, a missing record, or no matching affected entry must
+    never reject on its own."""
+    from eval.beat_upstream_screen import _packaged_version_verdict
+    rec = {"containers": {"cna": {"affected": [
+        {"product": "chirp", "versions": [{"version": "1.0", "lessThan": "2.0"}]}]}}}
+    assert _packaged_version_verdict(rec, "chirp", "unstable-2026-05-18") == "unknown"
+    assert _packaged_version_verdict(None, "chirp", "1.5") == "unknown"
+    assert _packaged_version_verdict(rec, "other", "1.5") == "unknown"
+
+
+def test_packaged_version_verdict_honours_lower_bound():
+    from eval.beat_upstream_screen import _packaged_version_verdict
+    rec = {"containers": {"cna": {"affected": [
+        {"product": "p", "versions": [{"version": "2.0", "lessThanOrEqual": "2.9"}]}]}}}
+    assert _packaged_version_verdict(rec, "p", "1.9") == "out-of-range"
+    assert _packaged_version_verdict(rec, "p", "2.9") == "in-range"
+
+
+def test_out_of_range_packaged_version_rejects(tmp_path, monkeypatch):
+    """A collision reaching the nixpkgs checks would otherwise burn a bootstrap."""
+    import eval.beat_upstream_screen as m
+
+    entry = tmp_path / "CVE-2026-2"
+    entry.mkdir()
+    (entry / "resolver-input.json").write_text(json.dumps({
+        "attr_path": "haskellPackages.zephyr",
+        "current_version": "0.5.3",
+        "candidate_refs": [{
+            "tier_hint": "security-patch-release",
+            "upstream_fix_commits": [{"repo_url": "https://github.com/o/r",
+                                      "commit_sha": "a" * 40}]}]}))
+
+    monkeypatch.setattr(m, "poll_one", lambda cve_id, **kw: SimpleNamespace(action="written"))
+    monkeypatch.setattr(m, "process_entry",
+                        lambda p, **kw: SimpleNamespace(finding_status="finding",
+                                                        resolver_status="eligible"))
+    monkeypatch.setattr(m, "_fixed_release_status", lambda *a, **kw: ("clear", None))
+
+    record = {"containers": {"cna": {"affected": [
+        {"product": "zephyr", "versions": [{"version": "3.6.0", "lessThan": "4.4.2"}]}]}}}
+    out = m.screen_cve("CVE-2026-2", graph=None, inbox=tmp_path, nvd_api_key=None,
+                       check_nixpkgs=True, fetch_cve_record=lambda cve_id: record,
+                       fetch_commit=lambda slug, sha: None)
+    assert out["reject"] == "packaged-version-out-of-range"
+    assert out["survives"] is False

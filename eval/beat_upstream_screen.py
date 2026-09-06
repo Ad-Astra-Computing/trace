@@ -163,6 +163,84 @@ def _parse_ver(tag: str) -> tuple[int, ...] | None:
     return tuple(int(x) for x in m.group(1).split("."))
 
 
+_CVE_RECORD_URL = "https://cveawg.mitre.org/api/cve/{cve_id}"
+
+
+def _fetch_cve_record(cve_id: str) -> dict | None:
+    """The authoritative CVE record, or None when it cannot be fetched."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(_CVE_RECORD_URL.format(cve_id=cve_id), timeout=30) as fh:
+            return json.load(fh)
+    except Exception:  # noqa: BLE001 - an unreachable record is data, not a crash
+        return None
+
+
+def _cmp_ver(a: str, b: str) -> int | None:
+    """-1/0/1 comparing two dotted versions, None when either is unparseable."""
+    pa, pb = _parse_ver(a), _parse_ver(b)
+    if pa is None or pb is None:
+        return None
+    width = max(len(pa), len(pb))
+    pa = pa + (0,) * (width - len(pa))
+    pb = pb + (0,) * (width - len(pb))
+    return (pa > pb) - (pa < pb)
+
+
+def _packaged_version_verdict(record: dict | None, pname: str, current_version: str) -> str:
+    """Does the packaged version fall inside the CVE's affected range?
+
+    Returns 'in-range', 'out-of-range' or 'unknown'. This is the gate that catches
+    a pname collision: nixpkgs `haskellPackages.zephyr` 0.5.3 matched the Zephyr
+    RTOS CVEs, whose affected range is 3.6.0 to 4.4.2. Name matching cannot see
+    that; the version range can. Undecidable inputs (non-numeric versions, no
+    matching affected entry) stay 'unknown' and never reject on their own.
+    """
+    if not record or not pname or not current_version:
+        return "unknown"
+    cna = (record.get("containers") or {}).get("cna") or {}
+    decided = False
+    for aff in cna.get("affected") or []:
+        names = {str(aff.get(k) or "").lower() for k in ("product", "packageName")}
+        if pname.lower() not in names:
+            continue
+        for ver in aff.get("versions") or []:
+            if ver.get("status") not in (None, "affected"):
+                continue
+            introduced = str(ver.get("version") or "")
+            lt = ver.get("lessThan")
+            lte = ver.get("lessThanOrEqual")
+            lower_ok = True
+            if introduced and introduced not in ("0", "*", "unspecified"):
+                c = _cmp_ver(current_version, introduced)
+                if c is None:
+                    continue
+                lower_ok = c >= 0
+            if lt:
+                c = _cmp_ver(current_version, str(lt))
+                if c is None:
+                    continue
+                decided = True
+                if lower_ok and c < 0:
+                    return "in-range"
+            elif lte:
+                c = _cmp_ver(current_version, str(lte))
+                if c is None:
+                    continue
+                decided = True
+                if lower_ok and c <= 0:
+                    return "in-range"
+            elif introduced:
+                c = _cmp_ver(current_version, introduced)
+                if c is None:
+                    continue
+                decided = True
+                if c == 0:
+                    return "in-range"
+    return "out-of-range" if decided else "unknown"
+
+
 def _repo_slug(repo_url: str) -> str | None:
     """github.com/owner/repo URL -> 'owner/repo'; None for non-GitHub (can't gh-ancestry)."""
     m = re.match(r"https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$", (repo_url or "").strip())
@@ -371,7 +449,8 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
                nvd_api_key: str | None, check_nixpkgs: bool,
                tag_cache: dict | None = None,
                reject_when_fixed_release: bool = False,
-               fetch_commit=_gh_commit) -> dict:
+               fetch_commit=_gh_commit,
+               fetch_cve_record=_fetch_cve_record) -> dict:
     """Run one CVE through poll -> process -> classify. Returns a verdict dict."""
     v: dict = {"cve_id": cve_id, "survives": False, "reject": None}
     outcome = poll_one(cve_id, graph=graph, root=inbox, nvd_api_key=nvd_api_key)
@@ -424,6 +503,18 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
             v["fixed_prerelease_only"] = tag  # survives; nixpkgs won't bump to a pre-release
         elif status == "incomplete":
             v["tag_lag_check_incomplete"] = True  # surface, don't silently pass
+
+        # Packaged-version-in-range gate. Scout maps by pname, so an unrelated
+        # package sharing a name survives every other check: nixpkgs
+        # haskellPackages.zephyr 0.5.3 matched 42 Zephyr RTOS CVEs in the
+        # 2026-09-05 screen. Only a decisive out-of-range verdict rejects.
+        record = fetch_cve_record(cve_id)
+        pname = (attr or "").split(".")[-1]
+        v["packaged_version_verdict"] = _packaged_version_verdict(
+            record, pname, v.get("current_version") or "")
+        if v["packaged_version_verdict"] == "out-of-range":
+            v["reject"] = "packaged-version-out-of-range"
+            return v
 
         pr = _nixpkgs_pr_exists(cve_id)
         code = _nixpkgs_code_mentions(cve_id)
