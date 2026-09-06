@@ -1,0 +1,98 @@
+{
+  "scope": "beat-upstream 14-day screen, first run with the repaired feed path",
+  "run_date": "2026-09-06",
+  "window": "14-day NVD (lookback-hours 336)",
+  "snapshot_records": 105122,
+  "screened": 5039,
+  "survivors_before_version_gate": 181,
+  "survivors_after_version_gate": 105,
+  "version_gate": {
+    "out_of_range": 76,
+    "in_range": 39,
+    "unknown": 66
+  },
+  "reject_breakdown": {
+    "poll:skipped-irrelevant": 4032,
+    "no-fix-commit": 497,
+    "kernel-bump-shaped": 326,
+    "already-in-nixpkgs": 2,
+    "poll:fetch-failed": 1
+  },
+  "survivor_fix_availability": {
+    "none": 72,
+    "release": 109
+  },
+  "survivor_fix_commit_status": {
+    "verified": 168,
+    "unverified": 9,
+    "incomplete": 4
+  },
+  "survivor_fix_shape": {
+    "design-freedom": 146,
+    "canonical": 31,
+    "n/a": 4
+  },
+  "top_attrs_after_gate": [
+    [
+      "openexr",
+      15
+    ],
+    [
+      "yeswiki",
+      10
+    ],
+    [
+      "azure-sdk-for-cpp",
+      9
+    ],
+    [
+      "haskellPackages",
+      8
+    ],
+    [
+      "weblate",
+      8
+    ],
+    [
+      "libxml2",
+      7
+    ],
+    [
+      "vikunja",
+      5
+    ],
+    [
+      "seaweedfs",
+      4
+    ],
+    [
+      "openrgb",
+      3
+    ],
+    [
+      "netron",
+      3
+    ],
+    [
+      "ceph",
+      3
+    ],
+    [
+      "ebpf-verifier",
+      3
+    ],
+    [
+      "librenms",
+      2
+    ],
+    [
+      "filebrowser",
+      2
+    ],
+    [
+      "privatebin",
+      2
+    ]
+  ],
+  "note": "Compare with beat-upstream-summary-2026-09-01.json: 0 survivors of 6297, which was feed data loss rather than absence of opportunity. The version gate landed after this run, so the 76 out-of-range rejects were computed by re-scoring the survivor list; a future run applies the gate inline. Survivors are candidates, not verified patches: each still has to pass Patcher, Reviewer, a discriminating reproducer and cert."
+}
