@@ -91,15 +91,24 @@ state := "human-review-required" if {
 	input.upstream_ref
 	input.upstream_ref.eligibility.verdict == "eligible"
 	input.impact
-	input.impact.analysis_status != "complete"
+	not _impact_analysis_complete
 }
 
 _all_reasons contains code if {
 	input.upstream_ref
 	input.upstream_ref.eligibility.verdict == "eligible"
 	input.impact
-	input.impact.analysis_status != "complete"
-	code := sprintf("impact-unanalyzed:%s", [input.impact.analysis_status])
+	not _impact_analysis_complete
+	code := sprintf("impact-unanalyzed:%s", [object.get(input.impact, "analysis_status", "absent")])
+}
+
+# Fail closed on a MISSING analysis_status. `analysis_status != "complete"` is
+# undefined when the field is absent, so an impact.json that simply omits it used
+# to slip past this gate and stay auto-merge eligible. The field is optional in
+# impact-schema.json, so absence is reachable, and absence means nobody asserted
+# the reverse-closure analysis ran.
+_impact_analysis_complete if {
+	input.impact.analysis_status == "complete"
 }
 
 # ─── human-review-required: confidence below high blocks auto-merge ─────────
@@ -208,7 +217,7 @@ _all_reasons contains "eligible-high-confidence" if {
 
 _impact_unanalyzed if {
 	input.impact
-	input.impact.analysis_status != "complete"
+	not _impact_analysis_complete
 }
 
 _has_prefetch_hashes if {

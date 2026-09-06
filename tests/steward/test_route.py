@@ -273,6 +273,35 @@ def test_unanalyzed_impact_routes_to_human_review(tmp_path: Path, opa_available:
     assert "impact-unanalyzed:skipped-v0" in decision["reason_codes"]
 
 
+def test_impact_without_analysis_status_forces_review(tmp_path: Path, opa_available: bool) -> None:
+    """analysis_status is optional in impact-schema.json, so absence is reachable.
+    `analysis_status != "complete"` is UNDEFINED when the field is missing, which
+    used to let such an impact stay auto-merge eligible. Absence means nobody
+    asserted the analysis ran: fail closed."""
+    from agents.steward.agent import route_inbox_entry
+    entry = _seed(
+        tmp_path,
+        finding=_finding(),
+        upstream_ref=_eligible_upstream(verdict="eligible"),
+    )
+    (entry / "impact.json").write_text(json.dumps({
+        "schema_version": "1.0.0",
+        "cve_id": "CVE-2099-0001",
+        "nixpkgs_rev": "0" * 40,
+        "blast_radius_threshold": 500,
+        "threshold_policy": "v0-default",
+        "affected_attr_paths": ["foo"],
+        "reverse_closure_count": 42,
+        "reverse_closure_bucket": "<50",
+        "exceeds_threshold": False,
+        "per_attr": [],
+        "replay_critical": True,
+    }))
+    decision = route_inbox_entry(entry)
+    assert decision["state"] == "human-review-required"
+    assert "impact-unanalyzed:absent" in decision["reason_codes"]
+
+
 def test_complete_impact_does_not_force_review(tmp_path: Path, opa_available: bool) -> None:
     """Backwards-compat: impact.json with analysis_status='complete'
     behaves exactly like before (no impact.json)."""

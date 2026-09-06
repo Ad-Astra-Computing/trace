@@ -39,11 +39,19 @@ from agents.scout.scout import scan
 from agents.upstream_ref_resolver.resolver import resolve as resolve_upstream
 
 
+# Scheme is `https?` because advisories still cite plain-http GitHub URLs
+# (CVE-2026-63403 cites http://github.com/contribsys/faktory/commit/...). The
+# scheme is not trusted for anything: the sha and repo are what get used, and
+# the canonical https form is what we emit.
 _GITHUB_COMMIT_RE = re.compile(
-    r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/commit/(?P<sha>[0-9a-f]{7,40})/?$"
+    r"^https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/commit/(?P<sha>[0-9a-f]{7,40})/?$"
 )
 _GITLAB_COMMIT_RE = re.compile(
-    r"^https://gitlab\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/-/commit/(?P<sha>[0-9a-f]{7,40})/?$"
+    r"^https?://gitlab\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/-/commit/(?P<sha>[0-9a-f]{7,40})/?$"
+)
+# Codeberg (Forgejo) uses the Gitea commit shape. Forgejo's own CVEs cite it.
+_CODEBERG_COMMIT_RE = re.compile(
+    r"^https?://codeberg\.org/(?P<owner>[^/]+)/(?P<repo>[^/]+)/commit/(?P<sha>[0-9a-f]{7,40})/?$"
 )
 # git.kernel.org commit URL shapes. The Linux kernel CVE corpus
 # overwhelmingly publishes patches as kernel.org cgit links rather
@@ -81,6 +89,9 @@ def match_commit_url(url: str) -> tuple[str, str] | None:
     m = _GITLAB_COMMIT_RE.match(url)
     if m:
         return f"https://gitlab.com/{m.group('owner')}/{m.group('repo')}", m.group("sha")
+    m = _CODEBERG_COMMIT_RE.match(url)
+    if m:
+        return f"https://codeberg.org/{m.group('owner')}/{m.group('repo')}", m.group("sha")
     m = _KERNEL_TREE_C_RE.match(url)
     if m:
         return _KERNEL_TREE_REPO_URL[m.group("tree")], m.group("sha")

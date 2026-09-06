@@ -569,3 +569,54 @@ def test_short_commit_sha_is_skipped(tmp_path: Path) -> None:
     process_entry(entry, graph=graph)
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
     assert refs == []
+
+
+# ─── recall gaps found in the 2026-09-05 live screen ──────────────────────────
+#
+# Auditing the mapped CVEs of a 14-day screen surfaced fix-commit URLs the
+# matcher skipped: a plain-http github.com link and codeberg.org (Forgejo) links.
+# Each one silently costs a source-backport candidate.
+
+
+def test_plain_http_github_commit_url_recognised(tmp_path: Path) -> None:
+    """CVE-2026-63403 cites http://github.com/contribsys/faktory/commit/... .
+    The scheme is not trusted for anything; the canonical https repo_url is emitted."""
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[
+            {"url": "http://github.com/contribsys/faktory/commit/" + "c" * 40, "kind": "other"},
+        ],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    assert refs[0]["upstream_fix_commits"][0]["repo_url"] == "https://github.com/contribsys/faktory"
+
+
+def test_codeberg_commit_url_recognised(tmp_path: Path) -> None:
+    """Forgejo's own CVEs cite codeberg.org, which uses the Gitea commit shape."""
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[
+            {"url": "https://codeberg.org/forgejo/forgejo/commit/" + "b" * 40, "kind": "other"},
+        ],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    assert refs[0]["upstream_fix_commits"][0]["repo_url"] == "https://codeberg.org/forgejo/forgejo"
+
+
+def test_pull_request_url_is_not_treated_as_a_commit(tmp_path: Path) -> None:
+    """A PR is not a commit: it may carry many, and resolving it needs a network
+    call. Staying unmatched is correct, and beats fabricating a sha."""
+    entry = _seed_inbox(
+        tmp_path,
+        cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
+        references=[
+            {"url": "https://github.com/rustdesk/rustdesk/pull/15515", "kind": "other"},
+        ],
+    )
+    process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
+    refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
+    assert refs == []
