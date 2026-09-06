@@ -211,6 +211,16 @@ def _packaged_version_verdict(record: dict | None, pname: str, current_version: 
             introduced = str(ver.get("version") or "")
             lt = ver.get("lessThan")
             lte = ver.get("lessThanOrEqual")
+            # Records routinely put the whole range in the version field as
+            # "< 2.0.5" rather than filling lessThan. PrivateBin CVE-2026-55891
+            # does, and reading it as an introduced version made the gate blind.
+            m = re.match(r"^\s*(<=?)\s*(.+?)\s*$", introduced)
+            if m and not lt and not lte:
+                if m.group(1) == "<":
+                    lt = m.group(2)
+                else:
+                    lte = m.group(2)
+                introduced = ""
             lower_ok = True
             if introduced and introduced not in ("0", "*", "unspecified"):
                 c = _cmp_ver(current_version, introduced)
@@ -276,6 +286,33 @@ def _gh_tag_contains(slug: str, fix_sha: str, tag: str) -> bool | None:
         return int(r.stdout.strip()) == 0
     except ValueError:
         return None
+
+
+def _packaged_release_carries_fix(ref: dict, current_version: str | None, *, tag_cache: dict,
+                                  list_tags=_gh_list_tags,
+                                  tag_contains=_gh_tag_contains) -> str | None:
+    """The packaged version's own tag, when that tag already contains the fix.
+
+    `_fixed_release_status` only looks at tags NEWER than the packaged version,
+    which answers "is there a release to bump to" and not "is this tree already
+    fixed". PrivateBin CVE-2026-55891 slipped through on exactly that: the fix
+    shipped in 2.0.5, nixpkgs packages 2.0.6, and the CVE does not apply at all.
+    """
+    commits = ref.get("upstream_fix_commits") or []
+    slug = _repo_slug(commits[0].get("repo_url", "")) if commits else None
+    pkg_ver = _parse_ver(current_version or "")
+    if slug is None or pkg_ver is None:
+        return None
+    if slug not in tag_cache:
+        tag_cache[slug] = list_tags(slug)
+    tags = tag_cache[slug] or []
+    shas = [c.get("commit_sha", "") for c in commits if c.get("commit_sha")]
+    for tag in tags:
+        if _parse_ver(tag) != pkg_ver:
+            continue
+        if any(tag_contains(slug, sha, tag) is True for sha in shas):
+            return tag
+    return None
 
 
 def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: dict,
@@ -514,6 +551,13 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
             record, pname, v.get("current_version") or "")
         if v["packaged_version_verdict"] == "out-of-range":
             v["reject"] = "packaged-version-out-of-range"
+            return v
+
+        already = _packaged_release_carries_fix(
+            ref, v.get("current_version"), tag_cache=tag_cache if tag_cache is not None else {})
+        if already:
+            v["packaged_release_tag"] = already
+            v["reject"] = "packaged-version-already-fixed"
             return v
 
         pr = _nixpkgs_pr_exists(cve_id)

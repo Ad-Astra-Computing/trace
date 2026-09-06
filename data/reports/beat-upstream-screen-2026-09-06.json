@@ -5,11 +5,12 @@
   "snapshot_records": 105122,
   "screened": 5039,
   "survivors_before_version_gate": 181,
-  "survivors_after_version_gate": 105,
+  "survivors_after_version_gate": 86,
   "version_gate": {
-    "out_of_range": 76,
-    "in_range": 39,
-    "unknown": 66
+    "out_of_range": 95,
+    "in_range": 56,
+    "unknown": 30,
+    "note": "Two gate bugs were fixed after the run and the survivor list re-scored. Records often put the whole affected range in the version field as '< 2.0.5' rather than filling lessThan, which the parser read as an introduced version; and the tag-lag gate only inspected tags newer than the packaged version, so a tree already carrying the fix looked like an opportunity. PrivateBin CVE-2026-55891 reached the shortlist through both: nixpkgs packages 2.0.6 and the fix shipped in 2.0.5."
   },
   "reject_breakdown": {
     "poll:skipped-irrelevant": 4032,
@@ -34,16 +35,16 @@
   },
   "top_attrs_after_gate": [
     [
-      "openexr",
-      15
-    ],
-    [
       "yeswiki",
       10
     ],
     [
       "azure-sdk-for-cpp",
       9
+    ],
+    [
+      "openexr",
+      8
     ],
     [
       "haskellPackages",
@@ -58,14 +59,6 @@
       7
     ],
     [
-      "vikunja",
-      5
-    ],
-    [
-      "seaweedfs",
-      4
-    ],
-    [
       "openrgb",
       3
     ],
@@ -74,7 +67,7 @@
       3
     ],
     [
-      "ceph",
+      "vikunja",
       3
     ],
     [
@@ -82,7 +75,11 @@
       3
     ],
     [
-      "librenms",
+      "seaweedfs",
+      2
+    ],
+    [
+      "ceph",
       2
     ],
     [
@@ -90,7 +87,11 @@
       2
     ],
     [
-      "privatebin",
+      "bookstack",
+      2
+    ],
+    [
+      "ntopng",
       2
     ]
   ],

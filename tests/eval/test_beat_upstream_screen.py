@@ -371,3 +371,42 @@ def test_out_of_range_packaged_version_rejects(tmp_path, monkeypatch):
                        fetch_commit=lambda slug, sha: None)
     assert out["reject"] == "packaged-version-out-of-range"
     assert out["survives"] is False
+
+
+def test_inline_range_in_the_version_field_is_read():
+    """Records routinely put the whole range in the version field as "< 2.0.5"
+    rather than filling lessThan. Reading that as an introduced version made the
+    gate blind, and PrivateBin CVE-2026-55891 reached the shortlist because of it,
+    even though nixpkgs packages 2.0.6 and the fix shipped in 2.0.5."""
+    from eval.beat_upstream_screen import _packaged_version_verdict
+    rec = {"containers": {"cna": {"affected": [
+        {"product": "privatebin", "versions": [{"version": "< 2.0.5", "status": "affected"}]}]}}}
+    assert _packaged_version_verdict(rec, "privatebin", "2.0.6") == "out-of-range"
+    assert _packaged_version_verdict(rec, "privatebin", "2.0.4") == "in-range"
+    rec_lte = {"containers": {"cna": {"affected": [
+        {"product": "p", "versions": [{"version": "<= 3.1", "status": "affected"}]}]}}}
+    assert _packaged_version_verdict(rec_lte, "p", "3.1") == "in-range"
+    assert _packaged_version_verdict(rec_lte, "p", "3.2") == "out-of-range"
+
+
+def test_packaged_release_carrying_the_fix_is_detected():
+    """The tag-lag gate only inspects tags NEWER than the packaged version, which
+    answers "is there a release to bump to" and not "is this tree already fixed"."""
+    from eval.beat_upstream_screen import _packaged_release_carries_fix
+    ref = {"upstream_fix_commits": [
+        {"repo_url": "https://github.com/o/r", "commit_sha": "a" * 40}]}
+    tag = _packaged_release_carries_fix(
+        ref, "2.0.6", tag_cache={},
+        list_tags=lambda slug: ["2.0.7", "2.0.6", "2.0.5"],
+        tag_contains=lambda slug, sha, t: t == "2.0.6")
+    assert tag == "2.0.6"
+
+
+def test_packaged_release_without_the_fix_is_not_flagged():
+    from eval.beat_upstream_screen import _packaged_release_carries_fix
+    ref = {"upstream_fix_commits": [
+        {"repo_url": "https://github.com/o/r", "commit_sha": "a" * 40}]}
+    assert _packaged_release_carries_fix(
+        ref, "1.25.0", tag_cache={},
+        list_tags=lambda slug: ["v1.25.0"],
+        tag_contains=lambda slug, sha, t: False) is None

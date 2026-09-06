@@ -105,20 +105,6 @@
   "none"
  ],
  [
-  "CVE-2026-59184",
-  "openexr",
-  "3.4.13",
-  "unknown",
-  "none"
- ],
- [
-  "CVE-2026-59186",
-  "openexr",
-  "3.4.13",
-  "unknown",
-  "release"
- ],
- [
   "CVE-2026-59187",
   "openexr",
   "3.4.13",
@@ -126,32 +112,11 @@
   "release"
  ],
  [
-  "CVE-2026-59189",
-  "openexr",
-  "3.4.13",
-  "unknown",
-  "none"
- ],
- [
   "CVE-2026-59982",
   "openexr",
   "3.4.13",
   "unknown",
   "none"
- ],
- [
-  "CVE-2026-59983",
-  "openexr",
-  "3.4.13",
-  "unknown",
-  "release"
- ],
- [
-  "CVE-2026-61555",
-  "openexr",
-  "3.4.13",
-  "unknown",
-  "release"
  ],
  [
   "CVE-2026-62986",
@@ -175,13 +140,6 @@
   "release"
  ],
  [
-  "CVE-2026-59981",
-  "openexr",
-  "3.4.13",
-  "unknown",
-  "none"
- ],
- [
   "CVE-2026-68513",
   "openexr",
   "3.4.13",
@@ -196,24 +154,10 @@
   "release"
  ],
  [
-  "CVE-2026-68515",
-  "openexr",
-  "3.4.13",
-  "unknown",
-  "release"
- ],
- [
-  "CVE-2026-55588",
-  "oras",
-  "1.3.4",
-  "unknown",
-  "release"
- ],
- [
   "CVE-2026-63404",
   "haskellPackages.faktory",
   "1.1.3.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
@@ -248,83 +192,62 @@
   "CVE-2026-55227",
   "weblate",
   "2026.6.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-55228",
   "weblate",
   "2026.6.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-61790",
   "weblate",
   "2026.6.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-61792",
   "weblate",
   "2026.6.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-62249",
   "weblate",
   "2026.6.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-62326",
   "weblate",
   "2026.6.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-77507",
   "weblate",
   "2026.6.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-77573",
   "weblate",
   "2026.6.1",
-  "unknown",
-  "release"
- ],
- [
-  "CVE-2026-45694",
-  "librenms",
-  "26.8.1",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-55182",
   "librenms",
   "26.8.1",
-  "unknown",
-  "release"
- ],
- [
-  "CVE-2026-61617",
-  "wings",
-  "2.4.1",
-  "unknown",
-  "none"
- ],
- [
-  "CVE-2026-77298",
-  "seaweedfs",
-  "4.44",
   "unknown",
   "release"
  ],
@@ -337,13 +260,6 @@
  ],
  [
   "CVE-2026-77368",
-  "seaweedfs",
-  "4.44",
-  "unknown",
-  "release"
- ],
- [
-  "CVE-2026-77611",
   "seaweedfs",
   "4.44",
   "unknown",
@@ -383,13 +299,6 @@
   "0.14.2",
   "in-range",
   "release"
- ],
- [
-  "CVE-2025-30156",
-  "ceph",
-  "20.2.3",
-  "unknown",
-  "none"
  ],
  [
   "CVE-2026-50152",
@@ -439,41 +348,6 @@
   "2.5.0",
   "unknown",
   "release"
- ],
- [
-  "CVE-2026-55066",
-  "vikunja",
-  "2.5.0",
-  "unknown",
-  "release"
- ],
- [
-  "CVE-2026-55067",
-  "vikunja",
-  "2.5.0",
-  "unknown",
-  "release"
- ],
- [
-  "CVE-2026-55108",
-  "kubevela",
-  "1.11.0",
-  "unknown",
-  "none"
- ],
- [
-  "CVE-2026-55696",
-  "privatebin",
-  "2.0.6",
-  "unknown",
-  "none"
- ],
- [
-  "CVE-2026-55891",
-  "privatebin",
-  "2.0.6",
-  "unknown",
-  "none"
  ],
  [
   "CVE-2026-82450",
@@ -542,7 +416,7 @@
   "CVE-2026-84376",
   "haskellPackages.astro",
   "0.4.3.0",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
@@ -565,13 +439,6 @@
   "0.2.0",
   "unknown",
   "release"
- ],
- [
-  "CVE-2026-84377",
-  "litellm",
-  "1.98.0",
-  "unknown",
-  "none"
  ],
  [
   "CVE-2026-63376",
@@ -619,14 +486,14 @@
   "CVE-2026-52762",
   "yeswiki",
   "4.4.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-52766",
   "yeswiki",
   "4.4.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
@@ -640,7 +507,7 @@
   "CVE-2026-52770",
   "yeswiki",
   "4.4.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
@@ -654,7 +521,7 @@
   "CVE-2026-52772",
   "yeswiki",
   "4.4.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
@@ -668,21 +535,21 @@
   "CVE-2026-52774",
   "yeswiki",
   "4.4.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-52775",
   "yeswiki",
   "4.4.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
   "CVE-2026-52777",
   "yeswiki",
   "4.4.2",
-  "unknown",
+  "in-range",
   "release"
  ],
  [
