@@ -229,7 +229,10 @@ def test_a_failed_file_fetch_leaves_no_comparison_and_is_check_failed(tmp_path):
     assert comments == []
 
 
-def test_cve_in_tree_failure_is_check_failed_not_waiting(tmp_path):
+def test_cve_in_tree_failure_alone_does_not_fail_the_check(tmp_path):
+    """Superseded expectation: an earlier version treated a code-search failure as
+    check-failed. The default Actions token cannot run code search at all, so that
+    made every CVE check-failed in CI. A PR search that ran is the real answer."""
     _bundle(tmp_path)
 
     def boom(cve):
@@ -240,7 +243,7 @@ def test_cve_in_tree_failure_is_check_failed_not_waiting(tmp_path):
         find_merged_nixpkgs_pr=lambda cve: None, cve_in_tree=boom,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
-    assert states == {"CVE-2026-16599": "check-failed"}
+    assert states == {"CVE-2026-16599": "waiting"}
 
 
 def test_check_failed_reports_the_reason(tmp_path, capsys):
