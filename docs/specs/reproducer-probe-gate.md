@@ -1,6 +1,6 @@
 # Spec: a two-arm probe as a hard gate before cert
 
-- Status: Draft
+- Status: Implemented
 - Author: Ad Astra Computing Inc
 - Date: 7 September 2026
 - Related ADRs: none
