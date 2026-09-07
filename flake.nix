@@ -34,6 +34,10 @@
             #
             # rustc + cargo are kept out of the default shell to keep entry
             # fast. Use `nix develop .#graph` when working on the graph crate.
+            # archive formats the bundle tooling extracts: .tar.lz (wget), .zip
+            pkgs.lzip
+            pkgs.gnutar
+            pkgs.unzip
           ];
 
           shellHook = ''
