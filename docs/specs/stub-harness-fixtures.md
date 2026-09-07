@@ -104,7 +104,7 @@ bundle, so the guard sits ahead of all spend.
 
 ### The prompt
 
-`prompts/reproducer.v16.md` amends rule 3 and `prompts/reproducer.v17.md` clarifies its refusal clause (the sink receiving the unescaped payload is the effect for an injection class; a DOM stub is a few recording objects, not a DOM). Before refusing because the flaw
+`prompts/reproducer.v16.md` amends rule 3, `prompts/reproducer.v17.md` clarifies its refusal clause (the sink receiving the unescaped payload is the effect for an injection class; a DOM stub is a few recording objects, not a DOM) and `prompts/reproducer.v18.md` states that a stub answering a capability check per ability is host state rather than a diff match. Before refusing because the flaw
 needs a running service, session or display, the Reproducer asks whether the
 patched unit can be loaded headlessly with the ambient environment stubbed. If
 it can, it writes a stub-harness fixture under these rules:
