@@ -124,6 +124,23 @@ def _inputs_sha(bundle_dir: Path, step: str, model_id: str | None = None) -> str
     return h.hexdigest()
 
 
+def _has_content(path: Path) -> bool:
+    return path.is_dir() and any(path.iterdir())
+
+
+def _recorded_source_tree(recorded: dict[str, dict]) -> Path | None:
+    """The source tree a previous fetch_source left, if it is still there.
+
+    A fetchFromGitHub source is already a tree, so unpacking leaves out/src empty
+    and the tree is the store path itself. The record carries that path; when it
+    has gone, the fetch has to run again.
+    """
+    raw = (recorded.get("fetch_source") or {}).get("source_tree")
+    if raw and _has_content(Path(raw)):
+        return Path(raw)
+    return None
+
+
 def _rehydrate(ctx: dict[str, Any]) -> None:
     """Fill the ctx keys earlier steps would have set, from the out dir.
 
@@ -135,7 +152,7 @@ def _rehydrate(ctx: dict[str, Any]) -> None:
     ctx.setdefault("staged", out / "staged")
     ctx.setdefault("bundle_dir", out / "bundle")
     src = out / "src"
-    if "source_tree" not in ctx and src.is_dir():
+    if "source_tree" not in ctx and _has_content(src):
         children = [c for c in src.iterdir() if c.is_dir()]
         ctx["source_tree"] = children[0] if len(children) == 1 else src
     finding = ctx["bundle_dir"] / "finding.json"
@@ -178,6 +195,12 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
                 if recorded[name].get("inputs_sha256") != _inputs_sha(
                         bundle_dir, name, ctx.get("models", {}).get(name)):
                     continue
+            if name == "fetch_source":
+                tree = _recorded_source_tree(recorded)
+                if tree is None and not _has_content(out_dir / "src"):
+                    continue
+                if tree is not None:
+                    ctx["source_tree"] = tree
             skip.add(name)
         _rehydrate(ctx)
 
@@ -229,6 +252,9 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
             return stop(name, "fixture does not discriminate")
         ctx.setdefault("results", {})[name] = result
         entry = {"at": _now(), "step": name, "status": "ok"}
+        if name == "fetch_source" and result is not None:
+            ctx["source_tree"] = Path(result)
+            entry["source_tree"] = str(result)
         if name in PAID_STEPS:
             entry["inputs_sha256"] = _inputs_sha(
                 Path(ctx.get("bundle_dir") or out_dir / "bundle"), name, ctx.get("models", {}).get(name))

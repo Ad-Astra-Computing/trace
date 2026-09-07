@@ -38,6 +38,12 @@ class Trace:
                 raise StepStopped(name, f"{name} refused: simulated")
             if name == self.infra_at:
                 raise OSError(f"{name}: simulated infrastructure failure")
+            if name == "fetch_source" and result is None:
+                # A real fetch leaves a tree under out/src; resume looks for it.
+                tree = Path(ctx["out_dir"]) / "src" / "pkg-1.0"
+                tree.mkdir(parents=True, exist_ok=True)
+                (tree / "file").write_text("x\n")
+                return tree
             if name in self.OUTPUTS:
                 # A real model step leaves its output in the bundle; resume checks
                 # for it, so the fake has to leave one too.
@@ -52,7 +58,7 @@ class Trace:
             bootstrap=self.step("bootstrap"),
             assemble=self.step("assemble"),
             finalize=self.step("finalize"),
-            fetch_source=self.step("fetch_source", Path("/tmp/src")),
+            fetch_source=self.step("fetch_source"),
             preflight_upstream=self.step("preflight_upstream"),
             patcher=self.step("patcher"),
             preflight_payload=self.step("preflight_payload"),
@@ -207,7 +213,6 @@ def test_skipped_steps_leave_the_context_usable(tmp_path):
     steps = t.steps()
     steps.probe = t.step("probe", False)
     run_candidate(ctx, steps=steps)
-    (tmp_path / "out" / "src" / "pkg-1.0").mkdir(parents=True)
     seen = {}
 
     def probe(c):
@@ -377,3 +382,54 @@ def test_choose_applying_fix_returns_none_when_nothing_applies():
     from tools.trace_cli.candidate_run import _choose_applying_fix
     commits = [{"repo_url": "https://github.com/o/r", "commit_sha": "a" * 40}]
     assert _choose_applying_fix(commits, fetch_patch=lambda u: "x", applies=lambda t: False) is None
+
+
+def test_fetch_source_records_where_the_source_tree_is(tmp_path):
+    """A fetched source is often a store path rather than a directory under out/src
+    (a fetchFromGitHub source is already a tree), so the record has to carry the
+    location or a resume cannot find it."""
+    src = tmp_path / "store-source"
+    src.mkdir()
+    t = Trace()
+    steps = t.steps()
+    steps.fetch_source = t.step("fetch_source", src)
+    run_candidate(_ctx(tmp_path), steps=steps)
+    line = next(e for e in _record(tmp_path) if e["step"] == "fetch_source")
+    assert line["source_tree"] == str(src)
+
+
+def test_resume_hands_the_recorded_source_tree_to_the_free_gates(tmp_path):
+    """netron CVE-2026-79718: the survey run left an empty out/src because the
+    source was a store path; the resumed run preflighted an empty directory and
+    reported a base mismatch that did not exist."""
+    src = tmp_path / "store-source"
+    src.mkdir()
+    (src / "file").write_text("x\n")
+    t = Trace()
+    steps = t.steps()
+    steps.fetch_source = t.step("fetch_source", src)
+    run_candidate(_ctx(tmp_path), steps=steps, until="preflight_upstream")
+
+    seen = {}
+    t2 = Trace()
+    steps2 = t2.steps()
+    steps2.preflight_upstream = lambda c: seen.setdefault("source_tree", c.get("source_tree"))
+    run_candidate(_ctx(tmp_path), steps=steps2, resume=True)
+    assert "fetch_source" not in t2.calls
+    assert seen["source_tree"] == src
+
+
+def test_resume_refetches_when_the_recorded_source_tree_is_gone(tmp_path):
+    src = tmp_path / "store-source"
+    src.mkdir()
+    (src / "file").write_text("x\n")
+    t = Trace()
+    steps = t.steps()
+    steps.fetch_source = t.step("fetch_source", src)
+    run_candidate(_ctx(tmp_path), steps=steps, until="preflight_upstream")
+    (src / "file").unlink()
+    src.rmdir()
+
+    t2 = Trace()
+    run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
+    assert "fetch_source" in t2.calls
