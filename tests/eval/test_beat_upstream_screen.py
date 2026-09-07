@@ -438,3 +438,22 @@ def test_packaged_release_matches_a_tag_by_name_suffix():
         list_tags=lambda slug: ["release_candidate_1.0rc3.1", "release_candidate_1.0rc3"],
         tag_contains=lambda slug, sha, t: t == "release_candidate_1.0rc3.1")
     assert tag == "release_candidate_1.0rc3.1"
+
+
+def test_ecosystem_mismatch_rejects_a_package_set_attr_with_a_foreign_fix_repo():
+    """haskellPackages.redis is a Haskell client library; the CVE's fix repo is
+    redis/redis, written in C. Seven of the ten non-by-name survivors were this
+    shape and the version gate could not decide them."""
+    from eval.beat_upstream_screen import _ecosystem_mismatch
+    assert _ecosystem_mismatch("haskellPackages.redis", "C") == "haskellPackages expects Haskell, fix repo is C"
+    assert _ecosystem_mismatch("haskellPackages.cpython", "Python") is not None
+    assert _ecosystem_mismatch("perlPackages.NetCIDRLite", "Perl") is None
+    assert _ecosystem_mismatch("python3Packages.requests", "Python") is None
+    assert _ecosystem_mismatch("nodePackages.left-pad", "TypeScript") is None
+
+
+def test_ecosystem_mismatch_stays_silent_when_it_cannot_know():
+    from eval.beat_upstream_screen import _ecosystem_mismatch
+    assert _ecosystem_mismatch("wget", "C") is None            # not a package set
+    assert _ecosystem_mismatch("haskellPackages.redis", None) is None   # language unknown
+    assert _ecosystem_mismatch("weirdPackages.x", "C") is None  # package set not in the table

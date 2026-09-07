@@ -251,6 +251,50 @@ def _packaged_version_verdict(record: dict | None, pname: str, current_version: 
     return "out-of-range" if decided else "unknown"
 
 
+# Language package sets and the language their members are written in. A fix
+# repository in a different language is a different piece of software that
+# happens to share a name: haskellPackages.redis against redis/redis (C).
+_PACKAGE_SET_LANGUAGE = {
+    "haskellPackages": {"Haskell"},
+    "perlPackages": {"Perl"},
+    "pythonPackages": {"Python"}, "python3Packages": {"Python"}, "python312Packages": {"Python"},
+    "python313Packages": {"Python"}, "python311Packages": {"Python"},
+    "nodePackages": {"JavaScript", "TypeScript"},
+    "rubyPackages": {"Ruby"},
+    "luaPackages": {"Lua"},
+    "ocamlPackages": {"OCaml"},
+    "rPackages": {"R"},
+    "emacsPackages": {"Emacs Lisp"},
+}
+
+
+def _ecosystem_mismatch(attr_path: str, repo_language: str | None) -> str | None:
+    """A reason when a package-set attr points at a fix repo in another language, else None.
+
+    Silent whenever it cannot know: a bare attr, an unknown package set, or an
+    unknown repository language.
+    """
+    if "." not in (attr_path or "") or not repo_language:
+        return None
+    package_set = attr_path.split(".", 1)[0]
+    expected = _PACKAGE_SET_LANGUAGE.get(package_set)
+    if not expected or repo_language in expected:
+        return None
+    return f"{package_set} expects {'/'.join(sorted(expected))}, fix repo is {repo_language}"
+
+
+def _gh_repo_language(slug: str) -> str | None:
+    if not slug or slug.startswith("gitlab:"):
+        return None
+    try:
+        r = subprocess.run(["gh", "api", f"repos/{slug}", "--jq", ".language"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lang = (r.stdout or "").strip()
+    return lang if r.returncode == 0 and lang and lang != "null" else None
+
+
 def _repo_slug(repo_url: str) -> str | None:
     """Host-qualified repository slug, or None when the host is not supported.
 
@@ -535,7 +579,8 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
                tag_cache: dict | None = None,
                reject_when_fixed_release: bool = False,
                fetch_commit=_gh_commit,
-               fetch_cve_record=_fetch_cve_record) -> dict:
+               fetch_cve_record=_fetch_cve_record,
+               repo_language=_gh_repo_language) -> dict:
     """Run one CVE through poll -> process -> classify. Returns a verdict dict."""
     v: dict = {"cve_id": cve_id, "survives": False, "reject": None}
     outcome = poll_one(cve_id, graph=graph, root=inbox, nvd_api_key=nvd_api_key)
@@ -593,6 +638,16 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
         # package sharing a name survives every other check: nixpkgs
         # haskellPackages.zephyr 0.5.3 matched 42 Zephyr RTOS CVEs in the
         # 2026-09-05 screen. Only a decisive out-of-range verdict rejects.
+        # Package-set attrs collide by name with unrelated projects. The fix
+        # repository's language settles it when the version range cannot.
+        commits0 = ref.get("upstream_fix_commits") or []
+        slug0 = _repo_slug(commits0[0].get("repo_url", "")) if commits0 else None
+        mismatch = _ecosystem_mismatch(attr, repo_language(slug0) if slug0 else None)
+        if mismatch:
+            v["reject"] = "ecosystem-mismatch"
+            v["ecosystem_mismatch"] = mismatch
+            return v
+
         record = fetch_cve_record(cve_id)
         pname = (attr or "").split(".")[-1]
         v["packaged_version_verdict"] = _packaged_version_verdict(
