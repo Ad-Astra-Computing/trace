@@ -33,7 +33,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Mapping, Any, Callable, Protocol
 
 
 # Per `docs/BUILDER_V1.md` §3: stdout_stderr is truncated to the trailing
@@ -171,6 +171,62 @@ class FakeBuildRunner:
 # ─── Production runner (deferred on darwin without Linux infra) ──────────
 
 
+# The evaluator sees only what the toolchain needs. reproducer.nix is model
+# output, and a legacy nix-build evaluation can read the caller's environment
+# through builtins.getEnv, so an operator shell that has sourced .env would hand
+# its API keys to the fixture and from there to a build log that gets committed.
+_ENV_ALLOW_EXACT = frozenset({
+    "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "USER", "LOGNAME", "SHELL", "TERM",
+    "LANG", "LANGUAGE", "TZ", "SSL_CERT_FILE", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+    "XDG_RUNTIME_DIR", "TRACE_INSTRUMENTATION",
+})
+_ENV_ALLOW_PREFIXES = ("NIX_", "LC_")
+
+
+def build_environment(parent: "Mapping[str, str]", *, instrumentation: str | None = None) -> dict[str, str]:
+    """The environment `nix-build` runs under: an allow-list of the parent's, not a copy."""
+    env = {
+        k: v for k, v in parent.items()
+        if k in _ENV_ALLOW_EXACT or k.startswith(_ENV_ALLOW_PREFIXES)
+    }
+    if "NIX_CONFIG" in env:
+        # Keep experimental-features and substituters; drop private-cache tokens.
+        env["NIX_CONFIG"] = "\n".join(
+            line for line in env["NIX_CONFIG"].splitlines()
+            if not line.strip().lower().startswith("access-tokens")
+        )
+    if instrumentation:
+        env["TRACE_INSTRUMENTATION"] = instrumentation
+    return env
+
+
+def _with_stored_build_log(out_path: str, combined: str, *, env: dict[str, str], cwd: Path) -> str:
+    """Append the store's own build log for a path nix-build did not rebuild.
+
+    A derivation already present in the store prints only its path, so the
+    fixture's signal lines never stream to stdout. The stored log is the same
+    evidence: the derivation is addressed by its inputs, so the log is of this
+    exact build. Streamed output already containing the log is left alone.
+    """
+    nix_store = shutil.which("nix-store")
+    if nix_store is None:
+        return combined
+    try:
+        proc = subprocess.run(
+            [nix_store, "--read-log", out_path], cwd=str(cwd), check=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120, env=env,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return combined
+    if proc.returncode != 0 or not proc.stdout:
+        return combined
+    log = proc.stdout
+    if log.strip() and log.strip() in combined:
+        return combined
+    return combined.rstrip("\n") + "\n" + log
+
+
 class LocalNixBuildRunner:
     """Shells out to `nix-build` on `$PATH`.
 
@@ -214,14 +270,8 @@ class LocalNixBuildRunner:
             cmd += ["-E", nix_expression]
         else:
             cmd += ["-A", str(attr)]
-        # Surface the instrumentation mode to the subprocess so the
-        # reproducer.nix can branch on it. v0: TRACE_INSTRUMENTATION=asan
-        # when asan is active; unset otherwise. We pass the parent env
-        # through unchanged plus this one override.
         import os as _os
-        env = dict(_os.environ)
-        if instrumentation:
-            env["TRACE_INSTRUMENTATION"] = instrumentation
+        env = build_environment(_os.environ, instrumentation=instrumentation)
         started = time.monotonic()
         try:
             proc = subprocess.run(
@@ -265,6 +315,8 @@ class LocalNixBuildRunner:
                 if last.startswith("/nix/store/"):
                     out_path = last
         combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        if out_path is not None:
+            combined = _with_stored_build_log(out_path, combined, env=env, cwd=cwd)
         return BuildOutcome(
             exit_code=proc.returncode,
             drv_path=None,
