@@ -338,3 +338,20 @@ def test_an_unexpected_exception_in_a_step_still_leaves_a_result_line(tmp_path):
     rec = _record(tmp_path)
     assert rec[-1]["outcome"] == "step-error" and rec[-1]["step_failed"] == "preflight_upstream"
     assert "NameError" in rec[-2]["reason"]
+
+
+def test_until_stops_after_the_named_step_without_spending(tmp_path):
+    """A survey of which upstream patches apply must not proceed into the paid
+    steps. --until names the last step to run; the record says why it stopped."""
+    t = Trace()
+    code = run_candidate(_ctx(tmp_path), steps=t.steps(), until="preflight_upstream")
+    assert code == EXIT_READY
+    assert t.calls == ["bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream"]
+    rec = _record(tmp_path)
+    assert rec[-1]["outcome"] == "stopped-at-until" and rec[-1]["until"] == "preflight_upstream"
+
+
+def test_until_rejects_an_unknown_step(tmp_path):
+    t = Trace()
+    with pytest.raises(ValueError, match="unknown step"):
+        run_candidate(_ctx(tmp_path), steps=t.steps(), until="nope")

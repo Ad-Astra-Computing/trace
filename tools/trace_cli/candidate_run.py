@@ -149,9 +149,17 @@ def _rehydrate(ctx: dict[str, Any]) -> None:
             pass
 
 
-def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False) -> int:
-    """Run the steps in order. Returns EXIT_READY, EXIT_GATE_STOPPED, EXIT_INFRA or EXIT_STEP_ERROR."""
+def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
+                  until: str | None = None) -> int:
+    """Run the steps in order. Returns EXIT_READY, EXIT_GATE_STOPPED, EXIT_INFRA or EXIT_STEP_ERROR.
+
+    `until` names the last step to run, for surveying candidates through the free
+    gates without reaching a paid step.
+    """
     from tools.trace_cli.execute import ExecutionError
+
+    if until is not None and until not in ORDER:
+        raise ValueError(f"unknown step {until!r}; one of {ORDER}")
 
     out_dir = Path(ctx["out_dir"])
     record = out_dir / "run.jsonl"
@@ -225,6 +233,9 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False) ->
             entry["inputs_sha256"] = _inputs_sha(
                 Path(ctx.get("bundle_dir") or out_dir / "bundle"), name, ctx.get("models", {}).get(name))
         _append(record, entry)
+        if until == name:
+            _append(record, {"at": _now(), "step": "result", "outcome": "stopped-at-until", "until": name})
+            return EXIT_READY
 
     _append(record, {"at": _now(), "step": "result", "outcome": "ready-for-cert"})
     return EXIT_READY
@@ -403,6 +414,8 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
     p.add_argument("--patcher-model", default="claude-opus-4-7")
     p.add_argument("--reviewer-model", default="claude-sonnet-4-5-20250929")
     p.add_argument("--reproducer-model", default="claude-sonnet-4-5-20250929")
+    p.add_argument("--until", default=None, choices=ORDER,
+                   help="run through this step and stop; use it to survey the free gates without spend")
     p.add_argument("--resume", action="store_true",
                    help="skip steps the last run in --out completed; never repeats a model call")
 
@@ -416,7 +429,7 @@ def run(args: argparse.Namespace) -> int:
         "models": {"patcher": args.patcher_model, "reviewer": args.reviewer_model,
                    "reproducer": args.reproducer_model},
     }
-    code = run_candidate(ctx, steps=default_steps(), resume=args.resume)
+    code = run_candidate(ctx, steps=default_steps(), resume=args.resume, until=args.until)
     last = (Path(args.out) / "run.jsonl").read_text().splitlines()[-1]
     print(last)
     return code
