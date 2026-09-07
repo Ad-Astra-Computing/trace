@@ -86,6 +86,7 @@ class BundleSummary:
     # model_id}; missing entries mean the sidecar isn't on disk yet
     # (the role didn't run, or pre-instrumentation seed bundle).
     role_usage: dict[str, dict[str, Any]]
+    has_stub_harness: bool = False
 
 
 @dataclass
@@ -278,7 +279,27 @@ def _summarize_bundle(
         has_reproducer_refusal=(bundle_dir / "reproducer-refusal.json").is_file(),
         patcher_provenance=_patcher_provenance(replay),
         role_usage=role_usage,
+        has_stub_harness=_has_stub_harness(bundle_dir),
     )
+
+
+def _has_stub_harness(bundle_dir: Path) -> bool:
+    """Whether reproducer-log.txt carries a `=== harness ===` section.
+
+    Per docs/specs/stub-harness-fixtures.md. Reuses the parser's own
+    log-section split; a missing log or a parse failure is False, not an
+    error: the report is a roll-up of what's on disk, not a validator.
+    """
+    log_path = bundle_dir / "reproducer-log.txt"
+    if not log_path.is_file():
+        return False
+    from agents.reproducer.parser import ReproducerOutputMalformed, parse_log_sections
+
+    try:
+        _, _, _, harness = parse_log_sections(log_path.read_text())
+    except ReproducerOutputMalformed:
+        return False
+    return harness is not None
 
 
 def _read_role_invocation_sidecar(
@@ -394,12 +415,17 @@ def build_report(
             })
 
     kind_dist: dict[str, int] = {}
-    repro_status: dict[str, int] = {"reproducer_nix": 0, "refusal": 0, "absent": 0}
+    repro_status: dict[str, int] = {
+        "reproducer_nix": 0, "reproducer_nix_stub_harness": 0,
+        "refusal": 0, "absent": 0,
+    }
     patcher_family: dict[str, int] = {}
     for b in bundles:
         if b.kind:
             kind_dist[b.kind] = kind_dist.get(b.kind, 0) + 1
-        if b.has_reproducer_nix:
+        if b.has_reproducer_nix and b.has_stub_harness:
+            repro_status["reproducer_nix_stub_harness"] += 1
+        elif b.has_reproducer_nix:
             repro_status["reproducer_nix"] += 1
         elif b.has_reproducer_refusal:
             repro_status["refusal"] += 1
@@ -783,7 +809,7 @@ def _md_derived_section(derived: dict[str, Any]) -> str:
     lines.append("")
     lines.append("| status | count |")
     lines.append("|---|---|")
-    for k in ("reproducer_nix", "refusal", "absent"):
+    for k in ("reproducer_nix", "reproducer_nix_stub_harness", "refusal", "absent"):
         lines.append(f"| {k} | {repro.get(k, 0)} |")
     lines.append("")
     if derived["patcher_provenance_distribution"]:

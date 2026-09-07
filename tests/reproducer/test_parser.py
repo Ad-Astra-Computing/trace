@@ -829,6 +829,130 @@ def test_extra_section_after_proxy_rejected() -> None:
     assert res.kind == "reproducer"  # stray unknown text is in patched/proxy body, not a structural fail
 
 
+# ─── harness lane ───────────────────────────────────────────────────────────
+
+
+def _harness_log(
+    harness_class: str = "stub-ambient",
+    target_files: str = "scripts/lua/rest/v2/delete/endpoints.lua, scripts/lua/rest/v2/delete/recipients.lua",
+    stubbed: str = "ntop, rest_utils, endpoints, recipients, auth",
+    effect: str = "the handler calls endpoints.reset_configs for a user without the notifications capability",
+) -> str:
+    return (
+        "=== unpatched ===\n"
+        "The unstubbed capability check lets the handler proceed.\n"
+        "SIGNAL_UNPATCHED: not-granted-check-was-bypassed-for-notifications\n"
+        "EXIT: 0\n"
+        "\n"
+        "=== patched ===\n"
+        "The patched capability check refuses before the handler proceeds.\n"
+        "SIGNAL_PATCHED: not_granted-refused-before-endpoints-reset-configs\n"
+        "EXIT: 0\n"
+        "\n"
+        "=== harness ===\n"
+        f"harness_class: {harness_class}\n"
+        f"target_files: {target_files}\n"
+        f"stubbed: {stubbed}\n"
+        f"effect: {effect}\n"
+    )
+
+
+def test_well_formed_harness_parses() -> None:
+    raw = _wrap_three_files(log=_harness_log())
+    res = parse_reproducer_output(raw)
+    assert res.kind == "reproducer"
+    assert res.is_proxy is False
+    assert res.is_stub_harness is True
+    assert res.harness is not None
+    assert res.harness.harness_class == "stub-ambient"
+    assert res.harness.target_files == (
+        "scripts/lua/rest/v2/delete/endpoints.lua",
+        "scripts/lua/rest/v2/delete/recipients.lua",
+    )
+    assert res.harness.stubbed == (
+        "ntop", "rest_utils", "endpoints", "recipients", "auth",
+    )
+    assert "notifications capability" in res.harness.effect
+
+
+def test_harness_to_schema_dict_shape() -> None:
+    raw = _wrap_three_files(log=_harness_log())
+    res = parse_reproducer_output(raw)
+    d = res.to_schema_dict()
+    assert d["is_stub_harness"] is True
+    assert d["harness"]["harness_class"] == "stub-ambient"
+    assert d["harness"]["target_files"] == [
+        "scripts/lua/rest/v2/delete/endpoints.lua",
+        "scripts/lua/rest/v2/delete/recipients.lua",
+    ]
+    assert d["proxy"] is None
+
+
+def test_log_without_harness_section_parses_as_before() -> None:
+    raw = _wrap_three_files()
+    res = parse_reproducer_output(raw)
+    assert res.harness is None
+    assert res.is_stub_harness is False
+
+
+@pytest.mark.parametrize("missing_key", ["harness_class", "target_files", "stubbed", "effect"])
+def test_harness_section_missing_key_rejected(missing_key: str) -> None:
+    lines = {
+        "harness_class": "harness_class: stub-ambient",
+        "target_files": "target_files: scripts/lua/rest/v2/delete/endpoints.lua",
+        "stubbed": "stubbed: ntop, auth",
+        "effect": "effect: the handler proceeds without the capability check",
+    }
+    del lines[missing_key]
+    log = (
+        "=== unpatched ===\n"
+        "SIGNAL_UNPATCHED: not-granted-check-was-bypassed-for-notifications\n"
+        "EXIT: 0\n"
+        "\n"
+        "=== patched ===\n"
+        "SIGNAL_PATCHED: not_granted-refused-before-endpoints-reset-configs\n"
+        "EXIT: 0\n"
+        "\n"
+        "=== harness ===\n"
+        + "\n".join(lines.values()) + "\n"
+    )
+    raw = _wrap_three_files(log=log)
+    with pytest.raises(ReproducerOutputMalformed, match="missing required"):
+        parse_reproducer_output(raw)
+
+
+def test_harness_class_outside_enum_rejected() -> None:
+    raw = _wrap_three_files(log=_harness_log(harness_class="dom-shim"))
+    with pytest.raises(ReproducerOutputMalformed, match="enum"):
+        parse_reproducer_output(raw)
+
+
+def test_harness_and_proxy_both_present_rejected() -> None:
+    log = (
+        "=== unpatched ===\n"
+        "SIGNAL_UNPATCHED: not-granted-check-was-bypassed-for-notifications\n"
+        "EXIT: 0\n"
+        "\n"
+        "=== patched ===\n"
+        "SIGNAL_PATCHED: not_granted-refused-before-endpoints-reset-configs\n"
+        "EXIT: 0\n"
+        "\n"
+        "=== harness ===\n"
+        "harness_class: stub-ambient\n"
+        "target_files: scripts/lua/rest/v2/delete/endpoints.lua\n"
+        "stubbed: ntop, auth\n"
+        "effect: the handler proceeds without the capability check\n"
+        "\n"
+        "=== proxy ===\n"
+        "proxy_reason: sandbox-cannot-trigger\n"
+        "why_not_full_repro: reason text here that is long enough.\n"
+        "expected_limitations: limitation text here that is long enough.\n"
+    )
+    raw = _wrap_three_files(nix=_proxy_nix(), log=log)
+    with pytest.raises(ReproducerOutputMalformed, match="mutually exclusive"):
+        parse_reproducer_output(raw)
+
+
 # ─── empty / non-string input ─────────────────────────────────────────────
 
 

@@ -49,6 +49,7 @@ def _seed_bundle(
     invocations: list[dict[str, Any]] | None = None,
     reproducer_nix: bool = False,
     reproducer_refusal: bool = False,
+    reproducer_log_harness: bool = False,
     patcher_invocation: dict[str, Any] | None = None,
     bundle_id: str = "deadbeefcafef00d",
 ) -> Path:
@@ -91,6 +92,22 @@ def _seed_bundle(
     _write_json(bundle_dir / "replay.json", {"schema_version": "1.0.0", "roles": roles})
     if reproducer_nix:
         (bundle_dir / "reproducer.nix").write_text("# placeholder\n")
+    if reproducer_log_harness:
+        (bundle_dir / "reproducer-log.txt").write_text(
+            "=== unpatched ===\n"
+            "SIGNAL_UNPATCHED: not-granted-check-was-bypassed-for-notifications\n"
+            "EXIT: 0\n"
+            "\n"
+            "=== patched ===\n"
+            "SIGNAL_PATCHED: not_granted-refused-before-endpoints-reset-configs\n"
+            "EXIT: 0\n"
+            "\n"
+            "=== harness ===\n"
+            "harness_class: stub-ambient\n"
+            "target_files: scripts/lua/rest/v2/delete/endpoints.lua\n"
+            "stubbed: ntop, auth\n"
+            "effect: the handler proceeds without the capability check\n"
+        )
     if reproducer_refusal:
         _write_json(bundle_dir / "reproducer-refusal.json", {
             "schema_version": "1.0.0",
@@ -465,6 +482,34 @@ def test_build_report_separates_observed_from_unobserved(tmp_path: Path) -> None
     cpb = r.derived["cost_per_merge_ready_bundle"]
     assert cpb["data_points"] == 0
     assert cpb["rows"] == []
+
+
+def test_reproducer_status_distribution_counts_stub_harness_separately(
+    tmp_path: Path,
+) -> None:
+    """A bundle whose reproducer-log.txt carries a `=== harness ===` section
+    counts under reproducer_nix_stub_harness, not reproducer_nix, and the
+    keys still sum to the bundle count."""
+    traces = tmp_path / "traces"
+    _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge", reproducer_nix=True)
+    _seed_bundle(
+        traces, "CVE-2026-86090", kind="auto-merge",
+        reproducer_nix=True, reproducer_log_harness=True,
+    )
+    _seed_bundle(
+        traces, "CVE-2025-67899", kind="human-review-required",
+        reproducer_refusal=True,
+    )
+    scout = report.load_scout_runs(tmp_path / "data" / "scout-runs.jsonl")
+    bundles = report.scan_bundles(traces)
+    r = report.build_report(scout, bundles, provenance=_provenance(tmp_path))
+
+    repro = r.derived["reproducer_status_distribution"]
+    assert repro["reproducer_nix"] == 1
+    assert repro["reproducer_nix_stub_harness"] == 1
+    assert repro["refusal"] == 1
+    assert repro["absent"] == 0
+    assert sum(repro.values()) == len(bundles) == 3
 
 
 def test_build_report_observes_role_usage_when_present(tmp_path: Path) -> None:

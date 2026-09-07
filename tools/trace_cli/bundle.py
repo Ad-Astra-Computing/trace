@@ -41,6 +41,7 @@ What this command DOES NOT do (intentionally, per the user):
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -648,6 +649,87 @@ def _validate_bundle_docs(bundle_dir: Path) -> list[str]:
     return errors
 
 
+# Matches a unified-diff file-path header, both at the outer level
+# (`+++ b/<path>` / `--- a/<path>`) and one level nested inside an added
+# file's own content (`++++ b/<path>` / `+--- a/<path>`, i.e. an outer `+`
+# in front of the inner diff's own `+++`/`---` line). Per
+# docs/specs/stub-harness-fixtures.md, a source patch carried as an added
+# file inside patch.diff counts as touching the paths it names.
+_PATCH_PATH_HEADER_RE = re.compile(
+    r"^\+?(?:\+\+\+|---) [ab]/(?P<path>\S+)",
+    re.MULTILINE,
+)
+
+
+_HARNESS_HEADER_RE = re.compile(r"^===\s*harness\s*===\s*$", re.MULTILINE)
+
+
+def _patch_touched_paths(bundle_dir: Path) -> set[str]:
+    touched: set[str] = set()
+    for fname in ("patch.diff", "upstream-fix.patch"):
+        fp = bundle_dir / fname
+        if not fp.is_file():
+            continue
+        text = fp.read_text(errors="replace")
+        touched.update(m.group("path") for m in _PATCH_PATH_HEADER_RE.finditer(text))
+    return touched
+
+
+def _enforce_harness_tautology_guard(bundle_dir: Path) -> None:
+    """Refuse a stub-harness fixture whose declaration is a tautology.
+
+    Per docs/specs/stub-harness-fixtures.md: every `target_files` entry must
+    be a file `patch.diff` or `upstream-fix.patch` touches, and no `stubbed`
+    entry may match the basename (with or without extension) of a touched
+    file. Does nothing when `reproducer-log.txt` is absent or carries no
+    `=== harness ===` section. A log that has the header but fails to parse
+    is refused rather than skipped. Reuses the parser's own log-section
+    split rather than reimplementing it.
+    """
+    log_path = bundle_dir / "reproducer-log.txt"
+    if not log_path.is_file():
+        return
+    from agents.reproducer.parser import ReproducerOutputMalformed, parse_log_sections
+
+    log_text = log_path.read_text(errors="replace")
+    try:
+        _, _, _, harness = parse_log_sections(log_text)
+    except ReproducerOutputMalformed as exc:
+        if _HARNESS_HEADER_RE.search(log_text):
+            raise BundleSchemaError(
+                f"reproducer-log.txt carries a '=== harness ===' section that "
+                f"does not parse: {exc}"
+            ) from exc
+        return
+    if harness is None:
+        return
+
+    touched = _patch_touched_paths(bundle_dir)
+
+    for target in harness.target_files:
+        if target in touched:
+            continue
+        if any(t.endswith("/" + target) for t in touched):
+            continue
+        raise BundleSchemaError(
+            f"harness target_files entry {target!r} is not touched by "
+            "patch.diff or upstream-fix.patch; a stub-harness fixture must "
+            "load a file the patch actually changes, or it proves nothing"
+        )
+
+    for stub in harness.stubbed:
+        for t in touched:
+            base = t.rsplit("/", 1)[-1]
+            stem = base.rsplit(".", 1)[0] if "." in base else base
+            if stub == base or stub == stem:
+                raise BundleSchemaError(
+                    f"harness stubbed entry {stub!r} matches the basename of "
+                    f"touched file {t!r}; a stub may not replace anything "
+                    "the patch changed, or the fixture proves only that the "
+                    "stub agrees with itself"
+                )
+
+
 def finalize_bundle(
     *,
     bundle_dir: Path,
@@ -703,6 +785,8 @@ def finalize_bundle(
             "fields like nixpkgs_commit/note in prefetch_hashes[]):\n  "
             + "\n  ".join(doc_errors)
         )
+
+    _enforce_harness_tautology_guard(bundle_dir)
 
     upstream_ref_path = bundle_dir / "upstream-ref.json"
     if not upstream_ref_path.is_file():

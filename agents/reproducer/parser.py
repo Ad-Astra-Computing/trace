@@ -25,6 +25,11 @@ valid response shapes are:
       proxy_reason: <enum>
       why_not_full_repro: <paragraph>
       expected_limitations: <paragraph>]
+      [=== harness ===
+      harness_class: <enum>
+      target_files: <comma-separated repo-relative paths>
+      stubbed: <comma-separated module/global names>
+      effect: <one line>]
       === END reproducer-log.txt ===
       === BEGIN passthru-tests.json ===
       <JSON array>
@@ -36,6 +41,9 @@ valid response shapes are:
       rule: <1-N>
       reason: <one-line reason>
       === END refusal ===
+
+The `proxy` and `harness` sections are each optional and mutually
+exclusive: a log carries at most one of them, never both.
 
 The parser enforces output-shape ONLY. Execution-truth checks (does
 the test actually emit the named signal? does the unpatched build
@@ -104,6 +112,14 @@ PROXY_REASON_ENUM: frozenset[str] = frozenset({
 })
 
 
+# Per `docs/specs/stub-harness-fixtures.md`. One value for now; a stub
+# harness that stands in for the ambient environment a live service or GUI
+# would have supplied is the only class the contract allows.
+HARNESS_CLASS_ENUM: frozenset[str] = frozenset({
+    "stub-ambient",
+})
+
+
 # Per `docs/REPRODUCER_V1.md` §3.3.
 PASSTHRU_KIND_ENUM: frozenset[str] = frozenset({
     "passthru.tests",
@@ -165,6 +181,29 @@ class ProxyMetadata:
 
 
 @dataclass(frozen=True)
+class HarnessMetadata:
+    """Parsed harness-section content from reproducer-log.txt.
+
+    Per `docs/specs/stub-harness-fixtures.md`: a stub-harness fixture loads
+    the patched code unit under its own interpreter with the ambient
+    environment stubbed, when a live service or GUI is the only alternative.
+    """
+
+    harness_class: str  # one of HARNESS_CLASS_ENUM
+    target_files: tuple[str, ...]  # repo-relative paths loaded unaltered
+    stubbed: tuple[str, ...]  # module/global names the harness replaced
+    effect: str  # the one-line observable SIGNAL_UNPATCHED reports
+
+    def to_schema_dict(self) -> dict[str, Any]:
+        return {
+            "harness_class": self.harness_class,
+            "target_files": list(self.target_files),
+            "stubbed": list(self.stubbed),
+            "effect": self.effect[:2048],
+        }
+
+
+@dataclass(frozen=True)
 class PassthruEntry:
     """One entry in passthru-tests.json."""
 
@@ -192,6 +231,7 @@ class ReproducerParseResult:
     log_unpatched: LogSection | None = None
     log_patched: LogSection | None = None
     proxy: ProxyMetadata | None = None  # set iff this is a proxy reproducer
+    harness: HarnessMetadata | None = None  # set iff this is a stub-harness reproducer
     passthru_tests: list[PassthruEntry] = field(default_factory=list)
     raw_reproducer_nix: str | None = None  # for atomic-write to disk
     raw_reproducer_log_txt: str | None = None
@@ -205,15 +245,21 @@ class ReproducerParseResult:
     def is_proxy(self) -> bool:
         return self.kind == "reproducer" and self.proxy is not None
 
+    @property
+    def is_stub_harness(self) -> bool:
+        return self.kind == "reproducer" and self.harness is not None
+
     def to_schema_dict(self) -> dict[str, Any]:
         if self.kind != "reproducer":
             raise ValueError("to_schema_dict() only valid for kind=reproducer")
         return {
             "schema_version": SCHEMA_VERSION,
             "is_proxy": self.is_proxy,
+            "is_stub_harness": self.is_stub_harness,
             "log_unpatched": self.log_unpatched.to_schema_dict() if self.log_unpatched else None,
             "log_patched": self.log_patched.to_schema_dict() if self.log_patched else None,
             "proxy": self.proxy.to_schema_dict() if self.proxy else None,
+            "harness": self.harness.to_schema_dict() if self.harness else None,
             "passthru_tests": [e.to_schema_dict() for e in self.passthru_tests],
         }
 
@@ -368,7 +414,7 @@ def _parse_reproducer(text: str) -> ReproducerParseResult:
     _validate_reproducer_nix_shape(nix_body)
     nix_proxy_claim = _detect_meta_proxy_in_nix(nix_body)
 
-    log_unpatched, log_patched, log_proxy = _parse_log_sections(log_body)
+    log_unpatched, log_patched, log_proxy, harness = parse_log_sections(log_body)
     nix_proxy_meta = _extract_meta_proxy_fields_from_nix(nix_body) if nix_proxy_claim else None
 
     proxy: ProxyMetadata | None = None
@@ -408,6 +454,7 @@ def _parse_reproducer(text: str) -> ReproducerParseResult:
         log_unpatched=log_unpatched,
         log_patched=log_patched,
         proxy=proxy,
+        harness=harness,
         passthru_tests=passthru,
         raw_reproducer_nix=nix_body.rstrip() + "\n",
         raw_reproducer_log_txt=log_body.rstrip() + "\n",
@@ -744,7 +791,7 @@ def _extract_meta_proxy_fields_from_nix(nix_body: str) -> ProxyMetadata | None:
 
 
 _LOG_SECTION_HEADER_RE = re.compile(
-    r"^===\s*(?P<name>unpatched|patched|proxy)\s*===\s*$",
+    r"^===\s*(?P<name>unpatched|patched|proxy|harness)\s*===\s*$",
     re.MULTILINE,
 )
 _SIGNAL_UNPATCHED_LINE_RE = re.compile(
@@ -758,14 +805,20 @@ _SIGNAL_PATCHED_LINE_RE = re.compile(
 _EXIT_LINE_RE = re.compile(r"^EXIT:\s*(?P<value>-?\d+)\s*$", re.MULTILINE)
 
 
-def _parse_log_sections(
+def parse_log_sections(
     log_body: str,
-) -> tuple[LogSection, LogSection, ProxyMetadata | None]:
-    """Split the log body into unpatched / patched / optional proxy sections.
+) -> tuple[LogSection, LogSection, ProxyMetadata | None, HarnessMetadata | None]:
+    """Split the log body into unpatched / patched / optional proxy or
+    harness sections.
 
-    Returns a 3-tuple (unpatched, patched, proxy_or_None). Raises
-    ReproducerOutputMalformed if any required section is missing or
-    malformed.
+    Returns a 4-tuple (unpatched, patched, proxy_or_None,
+    harness_or_None). `proxy` and `harness` are mutually exclusive: a log
+    with both is rejected. Raises ReproducerOutputMalformed if any
+    required section is missing or malformed.
+
+    Public so callers outside the parser (finalize's tautology guard,
+    `trace report`) can read the harness declaration without
+    reimplementing the section split.
     """
     headers = list(_LOG_SECTION_HEADER_RE.finditer(log_body))
     if not headers:
@@ -791,18 +844,25 @@ def _parse_log_sections(
         raise ReproducerOutputMalformed(
             "reproducer-log.txt missing '=== patched ===' section"
         )
-    # Order: unpatched MUST come before patched; proxy MUST come after both.
+    # Order: unpatched MUST come before patched; proxy or harness MUST come
+    # after both, and never both at once.
     name_order = [h.group("name") for h in headers]
     expected_prefix = ["unpatched", "patched"]
     if name_order[:2] != expected_prefix:
         raise ReproducerOutputMalformed(
             "reproducer-log.txt section order must be unpatched, patched, "
-            f"[proxy]; got {name_order}"
+            f"[proxy|harness]; got {name_order}"
         )
-    if len(name_order) > 2 and name_order[2] != "proxy":
+    if len(name_order) > 2 and name_order[2] not in ("proxy", "harness"):
         raise ReproducerOutputMalformed(
             f"unexpected reproducer-log.txt section after patched: "
-            f"'{name_order[2]}' (only 'proxy' is permitted)"
+            f"'{name_order[2]}' (only 'proxy' or 'harness' is permitted)"
+        )
+    if "proxy" in by_name and "harness" in by_name:
+        raise ReproducerOutputMalformed(
+            "reproducer-log.txt carries both '=== harness ===' and "
+            "'=== proxy ===' sections; a stub-harness fixture proves both "
+            "arms and is not a proxy, so the two are mutually exclusive"
         )
     if len(name_order) > 3:
         raise ReproducerOutputMalformed(
@@ -831,7 +891,11 @@ def _parse_log_sections(
     if "proxy" in by_name:
         proxy = _parse_proxy_section(_section("proxy"))
 
-    return unpatched, patched, proxy
+    harness: HarnessMetadata | None = None
+    if "harness" in by_name:
+        harness = _parse_harness_section(_section("harness"))
+
+    return unpatched, patched, proxy, harness
 
 
 def _build_log_section(
@@ -951,6 +1015,61 @@ def _parse_proxy_section(body: str) -> ProxyMetadata:
     )
 
 
+_HARNESS_KEY_LINE_RE = re.compile(
+    r"^(?P<key>harness_class|target_files|stubbed|effect)\s*:\s*(?P<value>.+?)\s*$",
+    re.MULTILINE,
+)
+
+
+def _split_comma_list(value: str) -> tuple[str, ...]:
+    return tuple(p.strip() for p in value.split(",") if p.strip())
+
+
+def _parse_harness_section(body: str) -> HarnessMetadata:
+    """Parse the `=== harness ===` section into structured HarnessMetadata.
+
+    Per `docs/specs/stub-harness-fixtures.md`: all four keys are required,
+    `harness_class` must be in the locked enum, and `target_files` /
+    `stubbed` must each name at least one entry.
+    """
+    fields: dict[str, str] = {}
+    for m in _HARNESS_KEY_LINE_RE.finditer(body):
+        fields[m.group("key")] = m.group("value").strip()
+    missing = [
+        k for k in ("harness_class", "target_files", "stubbed", "effect")
+        if k not in fields or not fields[k]
+    ]
+    if missing:
+        raise ReproducerOutputMalformed(
+            f"reproducer-log.txt '=== harness ===' section missing required "
+            f"keys: {missing}"
+        )
+    harness_class = fields["harness_class"]
+    if harness_class not in HARNESS_CLASS_ENUM:
+        raise ReproducerOutputMalformed(
+            f"reproducer-log.txt harness_class={harness_class!r} is not in "
+            f"the locked enum {sorted(HARNESS_CLASS_ENUM)}"
+        )
+    target_files = _split_comma_list(fields["target_files"])
+    if not target_files:
+        raise ReproducerOutputMalformed(
+            "reproducer-log.txt '=== harness ===' target_files must name at "
+            "least one repository-relative file"
+        )
+    stubbed = _split_comma_list(fields["stubbed"])
+    if not stubbed:
+        raise ReproducerOutputMalformed(
+            "reproducer-log.txt '=== harness ===' stubbed must name at least "
+            "one module or global"
+        )
+    return HarnessMetadata(
+        harness_class=harness_class,
+        target_files=target_files,
+        stubbed=stubbed,
+        effect=fields["effect"],
+    )
+
+
 # ─── passthru-tests.json parsing ─────────────────────────────────────────
 
 
@@ -1051,6 +1170,8 @@ def _parse_refusal(text: str) -> ReproducerParseResult:
 
 
 __all__ = [
+    "HARNESS_CLASS_ENUM",
+    "HarnessMetadata",
     "LogSection",
     "PROXY_REASON_ENUM",
     "PASSTHRU_KIND_ENUM",
@@ -1062,5 +1183,6 @@ __all__ = [
     "SIGNAL_GENERIC_TOKEN_FORBIDDEN",
     "SIGNAL_LENGTH_MAX",
     "SIGNAL_LENGTH_MIN",
+    "parse_log_sections",
     "parse_reproducer_output",
 ]

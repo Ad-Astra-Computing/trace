@@ -1,4 +1,6 @@
 from agents.reproducer.parser import (
+    HARNESS_CLASS_ENUM,
+    HarnessMetadata,
     LogSection,
     PASSTHRU_KIND_ENUM,
     PROXY_REASON_ENUM,
@@ -10,6 +12,7 @@ from agents.reproducer.parser import (
     SIGNAL_GENERIC_TOKEN_FORBIDDEN,
     SIGNAL_LENGTH_MAX,
     SIGNAL_LENGTH_MIN,
+    parse_log_sections,
     parse_reproducer_output,
 )
 from agents.reproducer.runner import (
@@ -28,6 +31,8 @@ from agents.reproducer.sampling import (
 
 __all__ = [
     "DrawResult",
+    "HARNESS_CLASS_ENUM",
+    "HarnessMetadata",
     "LogSection",
     "PASSTHRU_KIND_ENUM",
     "PROXY_REASON_ENUM",
@@ -45,6 +50,7 @@ __all__ = [
     "assemble_user_content",
     "build_probe_fn",
     "default_temperature_schedule",
+    "parse_log_sections",
     "parse_reproducer_output",
     "run_reproducer",
     "sample_reproducer",
