@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from tools.trace_cli.compare_watch import (
+    change_touches_package,
     classify_change,
     compare_bundle,
     find_landed_in_tree,
@@ -520,3 +521,81 @@ def test_the_search_throttle_spaces_requests_out():
     cw._search_throttle(now=lambda: clock[0], pause=pause)
     assert slept and abs(slept[0] - (cw._SEARCH_INTERVAL - 0.2)) < 1e-9
     cw._last_search = 0.0
+
+
+def _wget_change(filename="pkgs/by-name/wg/wget/package.nix"):
+    return {"number": 4242, "merged_at": "2026-09-20T00:00:00Z",
+            "files": [{"filename": filename, "status": "modified",
+                       "patch": '-  version = "1.25.0";\n+  version = "1.26.0";\n'}]}
+
+
+def test_a_pr_that_touches_another_package_is_not_a_landing(tmp_path):
+    """The search matches the CVE id anywhere, a comment on an unrelated PR included."""
+    b = _bundle(tmp_path)
+    (b / "resolver-input.json").write_text(json.dumps({"attr_path": "wget"}))
+    states = watch(
+        fork_prs=[],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: 4242,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: _wget_change("pkgs/applications/misc/golden-cheetah-bin/default.nix"),
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert states == {BK: "waiting"}
+    assert not (b / "comparison.json").exists()
+
+
+def test_a_pr_that_touches_the_package_directory_lands(tmp_path):
+    b = _bundle(tmp_path)
+    (b / "resolver-input.json").write_text(json.dumps({"attr_path": "wget"}))
+    states = watch(
+        fork_prs=[],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: 4242,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: _wget_change("pkgs/by-name/wg/wget/CVE-2026-16599.patch"),
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert states == {BK: "landed"}
+    assert (b / "comparison.json").is_file()
+
+
+def test_relevance_is_unknown_when_the_bundle_names_no_package(tmp_path):
+    """Without a cert record or an attr there is nothing to match, so the
+    comparison runs as it did before rather than refusing on a guess."""
+    b = _bundle(tmp_path)
+    assert change_touches_package(_wget_change("pkgs/by-name/zz/zzz/package.nix"), b) is None
+    states = watch(
+        fork_prs=[],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: 4242,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: _wget_change("pkgs/by-name/zz/zzz/package.nix"),
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert states == {BK: "landed"}
+
+
+def test_a_registry_attr_matches_the_registry_file(tmp_path):
+    """perlPackages lives in one file; the attr's own name never appears in a path."""
+    b = _bundle(tmp_path)
+    (b / "resolver-input.json").write_text(json.dumps({"attr_path": "perlPackages.BytesRandomSecure"}))
+    assert change_touches_package(_wget_change("pkgs/top-level/perl-packages.nix"), b) is True
+
+
+def test_a_package_that_moved_directory_still_matches(tmp_path):
+    """A bundle records the paths of its own pinned revision; nixpkgs moves them."""
+    b = _bundle(tmp_path)
+    (b / "build.json").write_text(json.dumps(
+        {"patch_apply": {"files_changed": ["pkgs/by-name/gr/grub2/package.nix"]}}))
+    assert change_touches_package(_wget_change("pkgs/tools/misc/grub/default.nix"), b) is True
+
+
+def test_a_different_package_entirely_does_not_match(tmp_path):
+    b = _bundle(tmp_path)
+    (b / "resolver-input.json").write_text(json.dumps({"attr_path": "libwebp"}))
+    assert change_touches_package(
+        _wget_change("pkgs/applications/misc/golden-cheetah-bin/default.nix"), b) is False

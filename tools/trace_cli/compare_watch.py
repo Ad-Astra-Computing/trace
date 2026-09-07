@@ -77,6 +77,51 @@ def _score_both_ways(authored: str, upstream: str) -> dict:
     return s
 
 
+def _norm_name(s: str) -> str:
+    """A package name reduced to what survives nixpkgs's naming: no case, no
+    punctuation, no trailing version digits, so `grub2` meets `grub`."""
+    return re.sub(r"[^a-z0-9]", "", s.lower().removesuffix(".nix")).rstrip("0123456789")
+
+
+def package_name_tokens(bundle_dir: Path) -> set[str]:
+    """Normalised names for the bundle's package, from its nixpkgs paths and attr."""
+    raw = {Path(f).parent.name for f in package_files(bundle_dir)}
+    ri = bundle_dir / "resolver-input.json"
+    if ri.is_file():
+        try:
+            attr = json.loads(ri.read_text()).get("attr_path") or ""
+        except json.JSONDecodeError:
+            attr = ""
+        if attr:
+            raw.add(attr.replace(".", ""))
+    return {t for t in (_norm_name(r) for r in raw) if len(t) >= 3}
+
+
+def change_touches_package(change: dict, bundle_dir: Path) -> bool | None:
+    """Whether a merged nixpkgs change touches this bundle's package at all.
+
+    The PR search matches a CVE id anywhere in a pull request, a comment on an
+    unrelated change included, so a hit is not yet a landing. The test is on
+    names rather than on whole paths: a package moves between the by-name layout
+    and a category directory, and a bundle's recorded paths are those of its own
+    pinned revision, so path equality misses landings that are real. Returns
+    None when the bundle names no package and the question cannot be asked.
+    """
+    tokens = package_name_tokens(bundle_dir)
+    if not tokens:
+        return None
+    for f in change.get("files") or []:
+        for seg in (f.get("filename") or "").split("/"):
+            seg = _norm_name(seg)
+            if len(seg) < 3:
+                continue
+            for tok in tokens:
+                if seg == tok or (min(len(seg), len(tok)) >= 4
+                                  and (seg.startswith(tok) or tok.startswith(seg))):
+                    return True
+    return False
+
+
 def compare_bundle(bundle_dir: Path, change: dict, *, fetch_file: Callable[[int, str], str]) -> dict:
     """Score the bundle against one merged nixpkgs change and write comparison.json."""
     from eval.pr_accuracy import score
@@ -222,6 +267,12 @@ def watch(
         try:
             change = fetch_change(number)
             if change is None:
+                states[key] = "waiting"
+                continue
+            if change_touches_package(change, bundle_dir) is False:
+                # The search matched the CVE id in a pull request that changes
+                # some other package. That is not a landing.
+                print(f"{cve_id}: nixpkgs PR {number} touches no file of this package")
                 states[key] = "waiting"
                 continue
             result = compare_bundle(bundle_dir, change, fetch_file=fetch_file)
