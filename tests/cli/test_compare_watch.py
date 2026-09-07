@@ -121,6 +121,7 @@ def test_watch_compares_once_and_comments_once(tmp_path):
         fetch_change=lambda number: change,
         fetch_file=lambda pr, path: "",
         comment=lambda pr, body: comments.append((pr, body)),
+        post=True,  # the operator approved posting for this run
     )
     assert watch(**kw) == {"CVE-2026-16599": "landed"}
     assert len(comments) == 1 and comments[0][0] == 45
@@ -276,3 +277,25 @@ def test_code_search_failure_is_advisory_when_the_pr_search_worked(tmp_path, cap
     )
     assert states == {"CVE-2026-16599": "waiting"}
     assert "tree check skipped" in capsys.readouterr().out
+
+
+def test_a_landed_comparison_is_drafted_not_posted_without_approval(tmp_path):
+    """The standard forbids posting anywhere public without the operator's
+    explicit approval. The default writes the comment beside the bundle for
+    review; posting is a separate, deliberate step."""
+    b = _bundle(tmp_path)
+    posted = []
+    change = {"number": 4242, "merged_at": "2026-09-20T00:00:00Z",
+              "files": [{"filename": "pkgs/by-name/wg/wget/package.nix", "status": "modified",
+                         "patch": '-  version = "1.25.0";\n+  version = "1.26.0";\n'}]}
+    states = watch(
+        fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: 4242, cve_in_tree=lambda cve: True,
+        fetch_change=lambda n: change, fetch_file=lambda pr, p: "",
+        comment=lambda pr, body: posted.append((pr, body)), post=False,
+    )
+    assert states == {"CVE-2026-16599": "landed"}
+    assert posted == []
+    draft = (b / "comparison-comment.md").read_text()
+    assert "1.26.0" in draft and "#45" in draft

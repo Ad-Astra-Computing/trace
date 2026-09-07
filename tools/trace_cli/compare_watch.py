@@ -155,8 +155,15 @@ def watch(
     fetch_change: Callable[[int], dict | None],
     fetch_file: Callable[[int, str], str],
     comment: Callable[[int, str], None],
+    post: bool = False,
 ) -> dict[str, str]:
-    """One pass over the fork's live-lane PRs. Returns {cve_id: waiting|landed|no-bundle}."""
+    """One pass over the fork's live-lane PRs. Returns {cve_id: waiting|landed|no-bundle}.
+
+    A comparison is always recorded. The fork PR comment is public, and the
+    standard forbids public posting without the operator's explicit approval, so
+    the comment is written beside the bundle as a draft and posted only when the
+    operator passed `post=True` for this run.
+    """
     states: dict[str, str] = {}
     for pr in fork_prs:
         parsed = parse_fork_branch(pr.get("headRefName", ""))
@@ -199,7 +206,10 @@ def watch(
             print(f"{cve_id}: check-failed: fetch: {e}")
             states[cve_id] = "check-failed"
             continue
-        comment(pr["number"], _comment_text(result))
+        text = f"Draft comment for fork PR #{pr['number']}. Post only with the operator's explicit approval.\n\n" + _comment_text(result) + "\n"
+        (bundle_dir / "comparison-comment.md").write_text(text)
+        if post:
+            comment(pr["number"], _comment_text(result))
         states[cve_id] = "landed"
     return states
 
@@ -297,6 +307,9 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
     w.add_argument("--fork", default="Ad-Astra-Computing/nixpkgs")
     w.add_argument("--bundles-root", type=Path, default=Path("traces/example"))
     w.add_argument("--dry-run", action="store_true", help="compare and record, but post no comment")
+    w.add_argument("--post", action="store_true",
+                   help="post the drafted comment on the fork PR. Public posting needs the operator's "
+                        "explicit approval for this run; without --post the draft stays beside the bundle")
     r = subs.add_parser("report", help="waiting versus landed across live-lane bundles")
     r.add_argument("--bundles-root", type=Path, default=Path("traces/example"))
 
@@ -310,7 +323,8 @@ def run(args: argparse.Namespace) -> int:
     poster = (lambda n, b: print(f"[dry-run] would comment on #{n}: {b}")) if args.dry_run else gh_comment(args.fork)
     states = watch(fork_prs=prs or [], bundles_root=args.bundles_root,
                    find_merged_nixpkgs_pr=gh_find_merged_nixpkgs_pr, cve_in_tree=gh_cve_in_tree,
-                   fetch_change=gh_fetch_change, fetch_file=gh_fetch_file, comment=poster)
+                   fetch_change=gh_fetch_change, fetch_file=gh_fetch_file, comment=poster,
+                   post=bool(args.post and not args.dry_run))
     for cve, state in sorted(states.items()):
         print(f"{cve}: {state}")
     if any(v == "check-failed" for v in states.values()):

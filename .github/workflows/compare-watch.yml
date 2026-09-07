@@ -1,4 +1,4 @@
-# Daily: score live-lane fork PRs against what nixpkgs landed.
+# Daily: score live-lane fork PRs against what nixpkgs landed. Drafts only, never posts.
 # See docs/specs/upstream-comparison-watcher.md.
 name: compare-watch
 
@@ -23,18 +23,13 @@ jobs:
       - name: Compare
         env:
           GH_TOKEN: ${{ github.token }}
-          FORK_COMMENT_TOKEN: ${{ secrets.FORK_COMMENT_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -n "${FORK_COMMENT_TOKEN}" ]]; then
-            export GH_TOKEN="${FORK_COMMENT_TOKEN}"
-            nix develop --command python3 -m tools.trace_cli compare watch | tee compare.log
-          else
-            echo "::notice::FORK_COMMENT_TOKEN not set; recording comparisons without commenting"
-            nix develop --command python3 -m tools.trace_cli compare watch --dry-run | tee compare.log
-          fi
+          # Records comparisons and drafts comments. It never posts: public posting
+          # needs the operator's explicit approval, so drafts ride in the artifact.
+          nix develop --command python3 -m tools.trace_cli compare watch --dry-run | tee compare.log
           nix develop --command python3 -m tools.trace_cli compare report | tee report.json
-          git status --porcelain -- 'traces/example/*/comparison.json' > changed.txt || true
+          git status --porcelain -- 'traces/example/*/comparison.json' 'traces/example/*/comparison-comment.md' > changed.txt || true
 
       - name: Upload new comparisons
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -42,6 +37,7 @@ jobs:
           name: comparisons
           path: |
             traces/example/*/comparison.json
+            traces/example/*/comparison-comment.md
             compare.log
             report.json
             changed.txt
