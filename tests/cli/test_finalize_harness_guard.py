@@ -101,7 +101,10 @@ def test_target_not_touched_by_either_patch_refuses(tmp_path: Path) -> None:
     assert not (bd / "bundle.json").is_file()
 
 
-def test_stubbed_name_equal_to_patched_basename_refuses(tmp_path: Path) -> None:
+def test_stubbed_name_equal_to_target_basename_passes(tmp_path: Path) -> None:
+    """ntopng: the `endpoints` module the handler requires shares its name with
+    the handler file `delete/endpoints.lua` the harness loads unaltered. The
+    target is declared, so the same-named stub is the ambient module."""
     bd = _seed(tmp_path)
     (bd / "patch.diff").write_text(_NESTED_PATCH_DIFF)
     (bd / "reproducer-log.txt").write_text(
@@ -110,7 +113,29 @@ def test_stubbed_name_equal_to_patched_basename_refuses(tmp_path: Path) -> None:
             stubbed="ntop, endpoints, auth",
         )
     )
-    with pytest.raises(BundleSchemaError, match="endpoints"):
+    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
+                          created_at="2026-09-07T00:00:00Z")
+    assert res.bundle_id
+
+
+def test_stubbed_name_equal_to_untargeted_touched_basename_refuses(tmp_path: Path) -> None:
+    """A touched file the harness does not load may not be stubbed away."""
+    bd = _seed(tmp_path)
+    (bd / "patch.diff").write_text(_NESTED_PATCH_DIFF.replace(
+        "+-old\n",
+        "+-old\n"
+        "+--- a/scripts/lua/modules/pools/pools_rest_utils.lua\n"
+        "++++ b/scripts/lua/modules/pools/pools_rest_utils.lua\n"
+        "+@@ -1,1 +1,1 @@\n"
+        "+-old\n",
+    ))
+    (bd / "reproducer-log.txt").write_text(
+        _harness_log(
+            target_files="scripts/lua/rest/v2/delete/endpoints.lua",
+            stubbed="ntop, pools_rest_utils, auth",
+        )
+    )
+    with pytest.raises(BundleSchemaError, match="pools_rest_utils"):
         finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
                         created_at="2026-09-07T00:00:00Z")
     assert not (bd / "bundle.json").is_file()

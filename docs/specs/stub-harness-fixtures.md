@@ -90,7 +90,13 @@ section:
   counts, so the check reads both the outer `+++ b/` headers and the inner
   ones), and
 - no `stubbed` entry may match the basename, with or without extension, of a
-  file either patch touches.
+  file either patch touches, unless that file is itself a `target_files`
+  entry. A module that shares its name with the handler that requires it
+  (ntopng's `endpoints` module and its `delete/endpoints.lua` handler) is
+  the ambient environment, not the code under test, and the two-arm
+  discrimination proves the target file was loaded rather than shadowed:
+  a harness that replaced the target with a same-named stub would run the
+  same code in both arms and fail to discriminate.
 
 A violation refuses the finalize with the offending name in the message.
 Nothing downstream of finalize (probe, cert, sign) runs on an unfinalized
@@ -142,7 +148,8 @@ the patch, and why these fixtures are labelled apart in every report.
 - Parser: a well-formed harness section parses; a missing key, an unknown
   class and a log carrying both harness and proxy sections are rejected; a log
   without the section still parses as before.
-- Finalize: a stubbed name that is a patched file's basename refuses; a target
+- Finalize: a stubbed name that is a patched file's basename refuses, unless
+  that file is a declared target; a target
   that neither patch touches refuses; a nested source patch's files count as
   touched; a clean declaration passes; a log without the section is unaffected.
 - Prompt: the default path is v16.

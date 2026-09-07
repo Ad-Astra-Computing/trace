@@ -681,7 +681,10 @@ def _enforce_harness_tautology_guard(bundle_dir: Path) -> None:
     Per docs/specs/stub-harness-fixtures.md: every `target_files` entry must
     be a file `patch.diff` or `upstream-fix.patch` touches, and no `stubbed`
     entry may match the basename (with or without extension) of a touched
-    file. Does nothing when `reproducer-log.txt` is absent or carries no
+    file, unless that file is itself a declared target: a same-named stub
+    beside a target the harness loads unaltered is the ambient module the
+    target requires, and the two-arm discrimination downstream proves the
+    target was loaded rather than shadowed. Does nothing when `reproducer-log.txt` is absent or carries no
     `=== harness ===` section. A log that has the header but fails to parse
     is refused rather than skipped. Reuses the parser's own log-section
     split rather than reimplementing it.
@@ -717,14 +720,20 @@ def _enforce_harness_tautology_guard(bundle_dir: Path) -> None:
             "load a file the patch actually changes, or it proves nothing"
         )
 
+    def _is_target(t: str) -> bool:
+        return any(t == tf or t.endswith("/" + tf) for tf in harness.target_files)
+
     for stub in harness.stubbed:
         for t in touched:
+            if _is_target(t):
+                continue
             base = t.rsplit("/", 1)[-1]
             stem = base.rsplit(".", 1)[0] if "." in base else base
             if stub == base or stub == stem:
                 raise BundleSchemaError(
                     f"harness stubbed entry {stub!r} matches the basename of "
-                    f"touched file {t!r}; a stub may not replace anything "
+                    f"touched file {t!r}, which is not a declared target; a "
+                    "stub may not replace anything "
                     "the patch changed, or the fixture proves only that the "
                     "stub agrees with itself"
                 )
