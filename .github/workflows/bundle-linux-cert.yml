@@ -40,6 +40,11 @@ on:
         required: false
         default: "3600"
         type: string
+      require_probe:
+        description: "Refuse to cert a bundle without a green, current probe.json (set false only for a legacy re-cert)"
+        required: false
+        default: "true"
+        type: string
 
 permissions:
   contents: read
@@ -92,6 +97,17 @@ jobs:
         with:
           version: ${{ env.OPA_VERSION }}
           static: true
+
+      - name: Require a green, current local probe
+        if: ${{ inputs.require_probe != 'false' }}
+        env:
+          BUNDLE_PATH: ${{ steps.meta.outputs.bundle_path }}
+        run: |
+          set -euo pipefail
+          # The Reproducer's own log is a claim. probe.json is the record of the
+          # fixture having been built and run before this cert was dispatched,
+          # bound to the fixture bytes it judged. See docs/specs/reproducer-probe-gate.md.
+          python3 -m tools.trace_cli bundle probe "${BUNDLE_PATH}" --check
 
       - name: Clone pinned nixpkgs revision
         run: |

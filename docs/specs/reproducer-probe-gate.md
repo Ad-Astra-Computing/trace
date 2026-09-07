@@ -70,10 +70,18 @@ and keeps the probe workspace's `build.json` as `probe-build.json` so the arms'
 output is inspectable. Exit codes: 0 discriminates, 3 does not, 4 probe error
 (infrastructure), 2 refused precondition.
 
-`trace bundle probe --check <bundle>` is the gate form. It exits 0 only when
-`probe.json` exists, `discriminates` is true, and both recorded hashes match the
-current files. It runs no build. The orchestrator calls it before dispatching a
+`trace bundle probe --check <bundle>` is the gate form. It runs no build. It
+exits 0 only when `probe.json` and `probe-build.json` both exist, the build
+record matches the hash `probe.json` recorded for it, every bound file
+(`reproducer.nix`, `reproducer-log.txt`, `passthru-tests.json`, `patch.diff`,
+`package.nix`) still matches, and the verdict re-derived from the build record
+with the cert's own scorers shows both signals. Nothing in the check trusts a
+boolean stored in `probe.json`. The orchestrator calls it before dispatching a
 cert, and an operator can call it by hand.
+
+The probe evaluates model-authored Nix on the operator's host, so the Builder
+hands `nix-build` an allow-listed environment rather than the parent's, and the
+build record is written through a redaction pass for secret-shaped tokens.
 
 Alternative rejected: making `replay --execute --role reproducer` run the probe
 automatically. That couples model spend to a Linux build and would make the

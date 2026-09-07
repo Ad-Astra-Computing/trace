@@ -287,6 +287,9 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import bootstrap as _bootstrap_module
     _bootstrap_module.add_parser(b_subs)
 
+    from tools.trace_cli import probe as _probe_module
+    _probe_module.add_parser(b_subs)
+
     from tools.trace_cli import normalize_sourceroot as _normalize_module
     _normalize_module.add_parser(b_subs)
 
@@ -429,6 +432,9 @@ def main(argv: list[str]) -> int:
         if args.bundle_cmd == "pr-snippet":
             from tools.trace_cli import pr_snippet as _pr_snippet_module
             return _pr_snippet_module.run(args)
+        if args.bundle_cmd == "probe":
+            from tools.trace_cli import probe as _probe_module
+            return _probe_module.run(args)
         if args.bundle_cmd == "bootstrap":
             from tools.trace_cli import bootstrap as _bootstrap_module
             return _bootstrap_module.run(args)
