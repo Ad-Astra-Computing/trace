@@ -296,6 +296,16 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import normalize_context as _normalize_ctx_module
     _normalize_ctx_module.add_parser(b_subs)
 
+    cand = subs.add_parser("candidate", help="work one screened candidate end to end")
+    cand_subs = cand.add_subparsers(dest="candidate_cmd", required=True)
+    from tools.trace_cli import candidate_run as _candidate_run_module
+    _candidate_run_module.add_parser(cand_subs)
+
+    cmp = subs.add_parser("compare", help="compare live-lane bundles against what nixpkgs lands")
+    cmp_subs = cmp.add_subparsers(dest="compare_cmd", required=True)
+    from tools.trace_cli import compare_watch as _compare_watch_module
+    _compare_watch_module.add_parser(cmp_subs)
+
     rp = subs.add_parser("report", help="rollup reports over on-disk artifacts")
     rp_subs = rp.add_subparsers(dest="report_cmd", required=True)
     from tools.trace_cli import report as _report_module
@@ -451,6 +461,14 @@ def main(argv: list[str]) -> int:
             from pathlib import Path as _Path
             return _normalize_ctx_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
         return EXIT_USAGE
+    if args.cmd == "candidate":
+        if args.candidate_cmd == "run":
+            from tools.trace_cli import candidate_run as _candidate_run_module
+            return _candidate_run_module.run(args)
+        return EXIT_USAGE
+    if args.cmd == "compare":
+        from tools.trace_cli import compare_watch as _compare_watch_module
+        return _compare_watch_module.run(args)
     if args.cmd == "report":
         if args.report_cmd == "throughput":
             from tools.trace_cli import report as _report_module
