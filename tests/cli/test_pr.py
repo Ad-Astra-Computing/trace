@@ -274,7 +274,9 @@ def test_push_uses_ssh_url_from_policy(tmp_path: Path) -> None:
     pkg_dir.mkdir(parents=True)
     (pkg_dir / "package.nix").write_text('{ version = "4.7.0"; }')
 
-    with mock.patch("subprocess.run") as mock_run:
+    with mock.patch("tools.trace_cli.pr._commit_is_only_the_patch", return_value=(True, "mocked")), \
+         mock.patch("tools.trace_cli.pr._resolve_base", return_value="master"), \
+         mock.patch("subprocess.run") as mock_run:
         # git ops + gh return 0; gh pr create returns a PR url on stdout.
         def _fake(cmd, *a, **k):
             stdout = "https://github.com/Ad-Astra-Computing/nixpkgs/pull/1" if cmd[:2] == ["gh", "pr"] else ""
@@ -309,7 +311,9 @@ def test_push_url_flag_overrides_ssh_default(tmp_path: Path) -> None:
     nixpkgs_dir = _mk_nixpkgs(tmp_path)
     custom = "https://github.com/Ad-Astra-Computing/nixpkgs.git"
 
-    with mock.patch("subprocess.run") as mock_run:
+    with mock.patch("tools.trace_cli.pr._commit_is_only_the_patch", return_value=(True, "mocked")), \
+         mock.patch("tools.trace_cli.pr._resolve_base", return_value="master"), \
+         mock.patch("subprocess.run") as mock_run:
         def _fake(cmd, *a, **k):
             stdout = "https://github.com/x/y/pull/2" if cmd[:2] == ["gh", "pr"] else ""
             return mock.MagicMock(returncode=0, stdout=stdout, stderr="")
@@ -806,3 +810,134 @@ def test_derive_plan_canonical_source_backport_remap_requires_single_dir(tmp_pat
     patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None and "one pkgs/ dir" in err
+
+
+# ─── the PR carries exactly the patch, against the bundle's pinned revision ───
+#
+# PR #47 on the fork showed 7975 files and 100 commits: the branch was cut from
+# the bundle's pinned nixpkgs_rev but opened against the fork's master, which sat
+# at an older revision, so every upstream commit in between rode along.
+
+
+def test_resolve_base_keeps_master_when_it_contains_the_rev():
+    from tools.trace_cli.pr import _resolve_base
+    pushed = []
+    base = _resolve_base(
+        "Ad-Astra-Computing", "nixpkgs", "master", "c" * 40, Path("/x"), "git@github.com:o/r.git",
+        compare=lambda owner, repo, base, rev: "behind",
+        push=lambda nixpkgs, url, refspec: pushed.append(refspec) or 0,
+    )
+    assert base == "master"
+    assert pushed == []
+
+
+def test_resolve_base_pushes_the_pinned_rev_when_master_does_not_contain_it():
+    from tools.trace_cli.pr import _resolve_base
+    pushed = []
+    rev = "17de0b976395537756f30a3e78f2f06e5cec89ed"
+    base = _resolve_base(
+        "Ad-Astra-Computing", "nixpkgs", "master", rev, Path("/x"), "git@github.com:o/r.git",
+        compare=lambda owner, repo, base, rev: "diverged",
+        push=lambda nixpkgs, url, refspec: pushed.append(refspec) or 0,
+    )
+    assert base == f"trace/base/{rev}"
+    assert pushed == [f"{rev}:refs/heads/trace/base/{rev}"]
+
+
+def test_resolve_base_refuses_when_the_comparison_cannot_run():
+    from tools.trace_cli.pr import _resolve_base
+    with pytest.raises(RuntimeError, match="cannot decide the PR base"):
+        _resolve_base("o", "r", "master", "c" * 40, Path("/x"), "u",
+                      compare=lambda *a: None, push=lambda *a: 0)
+
+
+def _git_repo_with_base(tmp_path: Path) -> tuple[Path, str]:
+    import subprocess
+    repo = tmp_path / "nixpkgs"
+    (repo / "pkgs/by-name/ma/mailpit").mkdir(parents=True)
+    (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ }\n")
+    (repo / "pkgs/other.nix").write_text("x\n")
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q"); g("add", "."); g("commit", "-qm", "base")
+    return repo, g("rev-parse", "HEAD")
+
+
+def test_commit_guard_accepts_one_commit_inside_the_package_dir(tmp_path: Path):
+    import subprocess
+    from tools.trace_cli.pr import _commit_is_only_the_patch
+    repo, rev = _git_repo_with_base(tmp_path)
+    (repo / "pkgs/by-name/ma/mailpit/CVE-1.patch").write_text("p\n")
+    (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ patches = [ ./CVE-1.patch ]; }\n")
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "fix"], check=True)
+    ok, why = _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")
+    assert ok, why
+
+
+def test_commit_guard_refuses_files_outside_the_package_dir(tmp_path: Path):
+    import subprocess
+    from tools.trace_cli.pr import _commit_is_only_the_patch
+    repo, rev = _git_repo_with_base(tmp_path)
+    (repo / "pkgs/other.nix").write_text("changed\n")
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "oops"], check=True)
+    ok, why = _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")
+    assert not ok and "pkgs/other.nix" in why
+
+
+def test_commit_guard_refuses_a_branch_not_cut_from_the_pinned_rev(tmp_path: Path):
+    import subprocess
+    from tools.trace_cli.pr import _commit_is_only_the_patch
+    repo, rev = _git_repo_with_base(tmp_path)
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+    (repo / "pkgs/by-name/ma/mailpit/a").write_text("a\n"); g("add", "."); g("commit", "-qm", "one")
+    (repo / "pkgs/by-name/ma/mailpit/b").write_text("b\n"); g("add", "."); g("commit", "-qm", "two")
+    ok, why = _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")
+    assert not ok and "pinned" in why
+
+
+def test_shallow_clone_adds_no_anchor_commit():
+    """Every fork PR used to show two commits: an empty anchor the clone step
+    added, then the patch. The guard requires the patch's parent to be the
+    pinned revision, so the clone must leave HEAD exactly there."""
+    from tools.trace_cli.pr import _shallow_clone
+    seen = []
+    with mock.patch("subprocess.run", side_effect=lambda cmd, **kw: (seen.append(cmd), mock.Mock(returncode=0, stdout="", stderr=""))[1]):
+        assert _shallow_clone("https://x/y.git", "c" * 40, Path("/tmp/dest")) == 0
+    assert not any("commit" in cmd for cmd in seen)
+    assert any("FETCH_HEAD" in cmd for cmd in seen)
+
+
+def test_commit_guard_uses_the_plan_files_in_repo_root_mode(tmp_path: Path):
+    """A remap plan applies at the repository root with an empty package dir. The
+    guard then compares against the plan's own file list instead of a prefix."""
+    import subprocess
+    from tools.trace_cli.pr import _commit_is_only_the_patch
+    repo, rev = _git_repo_with_base(tmp_path)
+    (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ changed = true; }\n")
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "fix"], check=True)
+    ok, why = _commit_is_only_the_patch(repo, rev, "", allowed_files=["pkgs/by-name/ma/mailpit/package.nix"])
+    assert ok, why
+    ok, why = _commit_is_only_the_patch(repo, rev, "", allowed_files=["pkgs/by-name/ma/mailpit/other.nix"])
+    assert not ok
+
+
+def test_commit_guard_requires_exact_revision_equality(tmp_path: Path):
+    """A prefix match let an empty or truncated nixpkgs_rev pass; the pin is a
+    full 40-character revision or the guard refuses."""
+    import subprocess
+    from tools.trace_cli.pr import _commit_is_only_the_patch
+    repo, rev = _git_repo_with_base(tmp_path)
+    (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ changed = true; }\n")
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "fix"], check=True)
+    assert _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")[0]
+    assert not _commit_is_only_the_patch(repo, rev[:12], "pkgs/by-name/ma/mailpit")[0]
+    assert not _commit_is_only_the_patch(repo, "", "pkgs/by-name/ma/mailpit")[0]
+
+
+def test_run_rejects_a_malformed_nixpkgs_rev(tmp_path: Path, capsys) -> None:
+    from tools.trace_cli.pr import _validate_nixpkgs_rev
+    assert _validate_nixpkgs_rev("c" * 40) is None
+    assert "40" in _validate_nixpkgs_rev("c" * 12)
+    assert "40" in _validate_nixpkgs_rev("")
+    assert "40" in _validate_nixpkgs_rev("Z" * 40)

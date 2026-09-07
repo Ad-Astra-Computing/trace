@@ -169,6 +169,10 @@ def run(args: argparse.Namespace) -> int:
     cve_id = bundle["cve_id"]
     bundle_id = bundle["bundle_id"]
     nixpkgs_rev = bundle["nixpkgs_rev"]
+    rev_problem = _validate_nixpkgs_rev(nixpkgs_rev)
+    if rev_problem:
+        print(f"error: {rev_problem}", file=sys.stderr)
+        return EXIT_INVALID
     kind = bundle["kind"]
     kind_reason = bundle.get("kind_reason")
     sm = bundle.get("signed_manifest", {})
@@ -458,14 +462,32 @@ def run(args: argparse.Namespace) -> int:
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
+    # The PR must be exactly this commit on the pinned revision. Anything else is
+    # refused before it leaves the machine.
+    ok, why = _commit_is_only_the_patch(nixpkgs_dir, nixpkgs_rev, package_dir_rel,
+                                        allowed_files=plan.get("files_changed"))
+    if not ok:
+        print(f"error: refusing to push: {why}", file=sys.stderr)
+        _cleanup(owned_tmp)
+        return EXIT_GIT_FAIL
+    print(f"  commit check: {why}")
+
     rc = _git_push(nixpkgs_dir, push_url, branch)
     if rc != 0:
         print(f"error: git push to {push_url} failed", file=sys.stderr)
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
 
-    # ── 10. create PR ──────────────────────────────────────────────────────
+    # ── 10. create PR against a base that contains the pinned revision ─────
+    try:
+        base_branch = _resolve_base(fork_owner, fork_repo, base_branch, nixpkgs_rev, nixpkgs_dir, push_url)
+    except RuntimeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        _cleanup(owned_tmp)
+        return EXIT_GIT_FAIL
+    print(f"  PR base: {base_branch}")
     pr_body = _build_pr_body(bundle, bundle_dir, args.cert_run_url, review=review_mode)
+    pr_body += f"\n\nBase: `{base_branch}`, which contains the bundle's pinned nixpkgs revision `{nixpkgs_rev[:12]}`, so the diff is this change alone.\n"
     pr_url, rc = _gh_pr_create(
         nixpkgs_dir=nixpkgs_dir,
         fork_owner=fork_owner,
@@ -819,18 +841,18 @@ def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
 
 
 def _shallow_clone(fork_url: str, rev: str, dest: Path) -> int:
-    """Shallow-clone the fork at the exact nixpkgs_rev into dest."""
+    """Shallow-clone the fork at the exact nixpkgs_rev into dest.
+
+    HEAD is left detached at the pinned revision. An earlier version added an
+    empty "trace-pr anchor" commit here, which made every PR two commits and
+    meant the patch commit's parent was never the pin; the guard in run() now
+    requires that parent to be the pin, so the anchor is gone.
+    """
     cmds = [
         ["git", "init", "-q", str(dest)],
         ["git", "-C", str(dest), "remote", "add", "origin", fork_url],
         ["git", "-C", str(dest), "fetch", "--depth=1", "origin", rev],
         ["git", "-C", str(dest), "checkout", "-q", "FETCH_HEAD"],
-        [
-            "git", "-C", str(dest),
-            "-c", "user.email=trace@adastracomputing.com",
-            "-c", "user.name=trace",
-            "commit", "--allow-empty", "-q", "-m", "trace-pr anchor",
-        ],
     ]
     for cmd in cmds:
         r = subprocess.run(cmd, check=False, capture_output=True, text=True)
@@ -1004,6 +1026,92 @@ def _git_push(nixpkgs: Path, fork_url: str, branch: str) -> int:
     if r.returncode != 0:
         print(f"  git push stderr:\n  {r.stderr[:800]}", file=sys.stderr)
     return r.returncode
+
+
+def _gh_compare_status(owner: str, repo: str, base: str, rev: str) -> str | None:
+    """GitHub's view of base...rev: identical, behind, ahead or diverged. None on failure."""
+    r = subprocess.run(
+        ["gh", "api", f"repos/{owner}/{repo}/compare/{base}...{rev}", "--jq", ".status"],
+        check=False, capture_output=True, text=True,
+    )
+    return (r.stdout or "").strip() or None if r.returncode == 0 else None
+
+
+def _git_push_refspec(nixpkgs: Path, fork_url: str, refspec: str) -> int:
+    r = subprocess.run(["git", "push", fork_url, refspec], cwd=str(nixpkgs), check=False,
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  git push stderr:\n  {r.stderr[:800]}", file=sys.stderr)
+    return r.returncode
+
+
+def _resolve_base(owner: str, repo: str, base_branch: str, nixpkgs_rev: str, nixpkgs_dir: Path,
+                  push_url: str, *, compare=_gh_compare_status, push=_git_push_refspec) -> str:
+    """The branch the PR must target so its diff is exactly our commit.
+
+    The patch branch is cut from the bundle's pinned nixpkgs_rev. When the fork's
+    default branch does not contain that revision, a PR against it drags every
+    upstream commit in between into the diff (PR #47: 7975 files, 100 commits). In
+    that case the pinned revision itself is pushed as `trace/base/<rev>` and
+    becomes the base. A comparison that cannot run is a refusal, not a guess.
+    """
+    status = compare(owner, repo, base_branch, nixpkgs_rev)
+    if status is None:
+        raise RuntimeError(
+            f"cannot decide the PR base: comparing {base_branch} with {nixpkgs_rev[:12]} failed"
+        )
+    if status in ("identical", "behind"):
+        return base_branch
+    base = f"trace/base/{nixpkgs_rev}"
+    rc = push(nixpkgs_dir, push_url, f"{nixpkgs_rev}:refs/heads/{base}")
+    if rc != 0:
+        raise RuntimeError(f"pushing the base branch {base} failed")
+    return base
+
+
+_REV_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _validate_nixpkgs_rev(rev: str) -> str | None:
+    """None when rev is a full 40-character revision, else the reason it is not."""
+    if isinstance(rev, str) and _REV_RE.match(rev):
+        return None
+    return f"bundle nixpkgs_rev must be a full 40-character revision, got {rev!r}"
+
+
+def _commit_is_only_the_patch(nixpkgs: Path, nixpkgs_rev: str, package_dir_rel: str,
+                              allowed_files: list[str] | None = None) -> tuple[bool, str]:
+    """Exactly one commit on top of the pinned revision, touching only the patch's files.
+
+    With a package directory, every changed file must live under it. In repo-root
+    apply mode the directory is empty and the plan's own file list is the bound.
+    The parent must equal the pin outright: a prefix match let an empty or
+    truncated revision through.
+    """
+    def git(*a: str) -> str:
+        r = subprocess.run(["git", "-C", str(nixpkgs), *a], check=False, capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    if _validate_nixpkgs_rev(nixpkgs_rev):
+        return False, _validate_nixpkgs_rev(nixpkgs_rev)
+    parent = git("rev-parse", "HEAD~1")
+    if parent != nixpkgs_rev:
+        return False, (f"HEAD~1 is {parent[:12] or '?'}, not the pinned nixpkgs_rev {nixpkgs_rev[:12]}; "
+                       "the PR would carry more than one commit")
+    files = [f for f in git("diff", "--name-only", "HEAD~1..HEAD").splitlines() if f]
+    if not files:
+        return False, "the commit changes no files"
+    if package_dir_rel:
+        prefix = package_dir_rel.rstrip("/") + "/"
+        stray = [f for f in files if not f.startswith(prefix)]
+        scope = f"under {package_dir_rel}"
+    else:
+        allowed = set(allowed_files or [])
+        stray = [f for f in files if f not in allowed]
+        scope = "in the apply plan"
+    if stray:
+        return False, f"the commit touches files outside the patch's scope ({scope}): {stray[:5]}"
+    return True, f"{len(files)} file(s) {scope}"
 
 
 def _gh_pr_create(
