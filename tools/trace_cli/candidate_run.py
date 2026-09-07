@@ -191,6 +191,13 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False) ->
             result = step(ctx)
         except StepStopped as gate:
             return stop(name, gate.reason)
+        except SystemExit as exit_:
+            # A wrapped command that exits the process is treated as its refusal.
+            # Exit 0 would mean success and is not a stop.
+            if exit_.code in (0, None):
+                result = None
+            else:
+                return stop(name, f"{name} exited with status {exit_.code}")
         except ExecutionError as contract:
             _append(record, {"at": _now(), "step": name, "status": "error", "reason": str(contract)})
             _append(record, {"at": _now(), "step": "result", "outcome": "step-error",
@@ -201,6 +208,12 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False) ->
             _append(record, {"at": _now(), "step": "result", "outcome": "infrastructure-error",
                              "reason": str(infra)})
             return EXIT_INFRA
+        except Exception as bug:  # noqa: BLE001 - a bug in a step is recorded, then surfaced
+            reason = f"{type(bug).__name__}: {bug}"
+            _append(record, {"at": _now(), "step": name, "status": "error", "reason": reason})
+            _append(record, {"at": _now(), "step": "result", "outcome": "step-error",
+                             "step_failed": name, "reason": reason})
+            return EXIT_STEP_ERROR
         # Two steps carry their verdict in the return value rather than raising.
         if name == "reviewer" and result not in (None, "accept"):
             return stop(name, f"reviewer verdict {result}")

@@ -551,7 +551,7 @@ def _emit_result(fmt: str, **kwargs: Any) -> int:
                 for line in r["output"].splitlines():
                     print(f"      {line}", file=sys.stderr)
         if not all_ok:
-            failed = [r for r in results if r["applies"] is False]
+            failed = [r for r in payload["patches"] if r["applies"] is False]
             classes = {classify_patch_output(r.get("output", "")) for r in failed}
             if failed and classes <= {"already-applied", "mixed"}:
                 extra = (

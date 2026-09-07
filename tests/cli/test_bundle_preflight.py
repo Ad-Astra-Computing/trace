@@ -320,3 +320,22 @@ def test_mixed_output_is_classified_as_mixed():
         "Reversed (or previously applied) patch detected!  Skipping patch.\n"
     )
     assert classify_patch_output(out) == "mixed"
+
+
+def test_failure_report_names_the_retire_case(capsys):
+    """The failure branch referenced a name that did not exist, so a failing
+    preflight crashed instead of reporting; the orchestrator's first prevail run
+    ended on it. Exercise the branch for both classifications."""
+    from tools.trace_cli.preflight import _emit_result
+    already = [{"patch": "upstream-fix.patch", "applies": False,
+                "output": "Reversed (or previously applied) patch detected!  Skipping patch.\n"}]
+    _emit_result("human", all_ok=False, results=already, bundle_dir="b", source_tree="s",
+                 source_origin="supplied", patch_flags=["-p1"])
+    out = capsys.readouterr()
+    assert "already contains this fix" in out.err
+
+    mismatch = [{"patch": "upstream-fix.patch", "applies": False, "output": "Hunk #1 FAILED at 3.\n"}]
+    _emit_result("human", all_ok=False, results=mismatch, bundle_dir="b", source_tree="s",
+                 source_origin="supplied", patch_flags=["-p1"])
+    out = capsys.readouterr()
+    assert "base mismatch" in out.err

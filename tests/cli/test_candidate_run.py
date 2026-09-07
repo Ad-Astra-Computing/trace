@@ -303,3 +303,38 @@ def test_a_second_resume_still_reuses_the_model_outputs(tmp_path):
     t3 = Trace()
     run_candidate(_ctx(tmp_path), steps=t3.steps(), resume=True)
     assert not (PAID & set(t3.calls))
+
+
+def test_a_step_that_exits_the_process_is_recorded_as_a_stop(tmp_path):
+    """The first live run on prevail ended with no result line: the wrapped
+    preflight called sys.exit rather than returning. A SystemExit from a step is
+    a refusal to record, not a way to leave run.jsonl unfinished."""
+    t = Trace()
+    steps = t.steps()
+
+    def exiting(ctx):
+        raise SystemExit(4)
+    steps.preflight_upstream = exiting
+    code = run_candidate(_ctx(tmp_path), steps=steps)
+    assert code == EXIT_GATE_STOPPED
+    rec = _record(tmp_path)
+    assert rec[-1]["outcome"] == "stopped" and rec[-1]["gate"] == "preflight_upstream"
+    assert "reproducer" not in t.calls and "patcher" not in t.calls
+
+
+def test_an_unexpected_exception_in_a_step_still_leaves_a_result_line(tmp_path):
+    """A bug inside a step must not leave run.jsonl without a result. The prevail
+    run hit a NameError in the preflight's failure branch and the record simply
+    ended."""
+    t = Trace()
+    steps = t.steps()
+
+    def buggy(ctx):
+        raise NameError("name 'results' is not defined")
+    steps.preflight_upstream = buggy
+    from tools.trace_cli.candidate_run import EXIT_STEP_ERROR
+    code = run_candidate(_ctx(tmp_path), steps=steps)
+    assert code == EXIT_STEP_ERROR
+    rec = _record(tmp_path)
+    assert rec[-1]["outcome"] == "step-error" and rec[-1]["step_failed"] == "preflight_upstream"
+    assert "NameError" in rec[-2]["reason"]
