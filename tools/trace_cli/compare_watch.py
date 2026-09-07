@@ -172,11 +172,19 @@ def watch(
             continue
         try:
             number = find_merged_nixpkgs_pr(cve_id)
-            in_tree = number is None and cve_in_tree(cve_id)
-        except RuntimeError:
+        except RuntimeError as e:
             # A lookup that could not run says nothing; do not record it as waiting.
+            print(f"{cve_id}: check-failed: PR search: {e}")
             states[cve_id] = "check-failed"
             continue
+        in_tree = False
+        if number is None:
+            try:
+                in_tree = cve_in_tree(cve_id)
+            except RuntimeError as e:
+                # Code search is not available to the default Actions token. The PR
+                # search ran and found nothing, which is a real answer on its own.
+                print(f"{cve_id}: tree check skipped: {e}")
         if number is None and not in_tree:
             states[cve_id] = "waiting"
             continue
@@ -186,8 +194,9 @@ def watch(
                 states[cve_id] = "waiting"
                 continue
             result = compare_bundle(bundle_dir, change, fetch_file=fetch_file)
-        except RuntimeError:
+        except RuntimeError as e:
             # Nothing is written on a failed fetch, so the next pass retries.
+            print(f"{cve_id}: check-failed: fetch: {e}")
             states[cve_id] = "check-failed"
             continue
         comment(pr["number"], _comment_text(result))
@@ -304,4 +313,6 @@ def run(args: argparse.Namespace) -> int:
                    fetch_change=gh_fetch_change, fetch_file=gh_fetch_file, comment=poster)
     for cve, state in sorted(states.items()):
         print(f"{cve}: {state}")
+    if any(v == "check-failed" for v in states.values()):
+        return 3
     return 0

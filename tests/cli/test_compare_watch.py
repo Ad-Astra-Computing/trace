@@ -241,3 +241,35 @@ def test_cve_in_tree_failure_is_check_failed_not_waiting(tmp_path):
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
     assert states == {"CVE-2026-16599": "check-failed"}
+
+
+def test_check_failed_reports_the_reason(tmp_path, capsys):
+    _bundle(tmp_path)
+
+    def boom(cve):
+        raise RuntimeError("gh: HTTP 403 resource not accessible by integration")
+    watch(
+        fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=boom, cve_in_tree=lambda cve: False,
+        fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
+    )
+    assert "resource not accessible" in capsys.readouterr().out
+
+
+def test_code_search_failure_is_advisory_when_the_pr_search_worked(tmp_path, capsys):
+    """GitHub's code search is not available to the default Actions token. A PR
+    search that ran and found nothing is still a real answer, so the CVE stays
+    waiting and the tree check is reported as skipped rather than failing it."""
+    _bundle(tmp_path)
+
+    def no_code_search(cve):
+        raise RuntimeError("code search requires a user token")
+    states = watch(
+        fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: None, cve_in_tree=no_code_search,
+        fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
+    )
+    assert states == {"CVE-2026-16599": "waiting"}
+    assert "tree check skipped" in capsys.readouterr().out
