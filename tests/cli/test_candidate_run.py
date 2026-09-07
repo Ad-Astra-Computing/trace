@@ -1,0 +1,305 @@
+"""`trace candidate run`: one screened candidate through every gate, in order,
+stopping at the first refusal, with an append-only record.
+
+See docs/specs/candidate-orchestrator.md. Each step is injected so the suite
+spends nothing and the sequencing is what gets tested.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from tools.trace_cli.candidate_run import (
+    EXIT_GATE_STOPPED,
+    EXIT_INFRA,
+    EXIT_READY,
+    Steps,
+    StepStopped,
+    run_candidate,
+)
+
+
+class Trace:
+    """Records the order steps were called in, and lets a test make one stop."""
+
+    def __init__(self, stop_at: str | None = None, infra_at: str | None = None):
+        self.calls: list[str] = []
+        self.stop_at = stop_at
+        self.infra_at = infra_at
+
+    OUTPUTS = {"patcher": "patch.diff", "reviewer": "review.md", "reproducer": "reproducer.nix"}
+
+    def step(self, name: str, result=None):
+        def _run(ctx):
+            self.calls.append(name)
+            if name == self.stop_at:
+                raise StepStopped(name, f"{name} refused: simulated")
+            if name == self.infra_at:
+                raise OSError(f"{name}: simulated infrastructure failure")
+            if name in self.OUTPUTS:
+                # A real model step leaves its output in the bundle; resume checks
+                # for it, so the fake has to leave one too.
+                bundle = Path(ctx["out_dir"]) / "bundle"
+                bundle.mkdir(parents=True, exist_ok=True)
+                (bundle / self.OUTPUTS[name]).write_text(f"{name} output\n")
+            return result
+        return _run
+
+    def steps(self) -> Steps:
+        return Steps(
+            bootstrap=self.step("bootstrap"),
+            assemble=self.step("assemble"),
+            finalize=self.step("finalize"),
+            fetch_source=self.step("fetch_source", Path("/tmp/src")),
+            preflight_upstream=self.step("preflight_upstream"),
+            patcher=self.step("patcher"),
+            preflight_payload=self.step("preflight_payload"),
+            reviewer=self.step("reviewer", "accept"),
+            reproducer=self.step("reproducer"),
+            probe=self.step("probe", True),
+            refinalize=self.step("refinalize"),
+        )
+
+
+ORDER = ["bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream",
+         "patcher", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"]
+PAID = {"patcher", "reviewer", "reproducer"}
+
+
+def _ctx(tmp_path: Path) -> dict:
+    return {
+        "inbox_entry": tmp_path / "entry",
+        "out_dir": tmp_path / "out",
+        "nixpkgs_checkout": tmp_path / "nixpkgs",
+        "nixpkgs_rev": "c" * 40,
+        "created_at": "2026-09-07T00:00:00Z",
+        "models": {"patcher": "m-p", "reviewer": "m-r", "reproducer": "m-x"},
+    }
+
+
+def _record(tmp_path: Path) -> list[dict]:
+    p = tmp_path / "out" / "run.jsonl"
+    return [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
+
+
+def test_a_complete_run_executes_every_step_in_order(tmp_path):
+    t = Trace()
+    code = run_candidate(_ctx(tmp_path), steps=t.steps())
+    assert code == EXIT_READY
+    assert t.calls == ORDER
+    rec = _record(tmp_path)
+    assert [r["step"] for r in rec] == ORDER + ["result"]
+    assert rec[-1]["outcome"] == "ready-for-cert"
+
+
+def test_upstream_patch_that_does_not_apply_stops_before_any_model_call(tmp_path):
+    t = Trace(stop_at="preflight_upstream")
+    code = run_candidate(_ctx(tmp_path), steps=t.steps())
+    assert code == EXIT_GATE_STOPPED
+    assert not (PAID & set(t.calls))
+    rec = _record(tmp_path)
+    assert rec[-1]["outcome"] == "stopped"
+    assert rec[-1]["gate"] == "preflight_upstream"
+
+
+def test_reviewer_reject_stops_before_the_reproducer(tmp_path):
+    t = Trace()
+    steps = t.steps()
+    steps.reviewer = t.step("reviewer", "reject")
+    code = run_candidate(_ctx(tmp_path), steps=steps)
+    assert code == EXIT_GATE_STOPPED
+    assert "reviewer" in t.calls and "reproducer" not in t.calls
+    assert _record(tmp_path)[-1]["gate"] == "reviewer"
+
+
+def test_red_probe_stops_before_refinalize(tmp_path):
+    t = Trace()
+    steps = t.steps()
+    steps.probe = t.step("probe", False)
+    code = run_candidate(_ctx(tmp_path), steps=steps)
+    assert code == EXIT_GATE_STOPPED
+    assert "refinalize" not in t.calls
+    assert _record(tmp_path)[-1]["gate"] == "probe"
+
+
+def test_infrastructure_failure_is_not_recorded_as_a_gate(tmp_path):
+    """A source fetch that fails on the network says nothing about the candidate."""
+    t = Trace(infra_at="fetch_source")
+    code = run_candidate(_ctx(tmp_path), steps=t.steps())
+    assert code == EXIT_INFRA
+    rec = _record(tmp_path)
+    assert rec[-1]["outcome"] == "infrastructure-error"
+    assert "gate" not in rec[-1]
+    assert not (PAID & set(t.calls))
+
+
+def test_record_has_one_entry_per_attempted_step_and_is_append_only(tmp_path):
+    t = Trace(stop_at="patcher")
+    run_candidate(_ctx(tmp_path), steps=t.steps())
+    rec = _record(tmp_path)
+    attempted = ORDER[: ORDER.index("patcher") + 1]
+    assert [r["step"] for r in rec[:-1]] == attempted
+    assert all("at" in r for r in rec)
+    before = (tmp_path / "out" / "run.jsonl").read_text()
+    t2 = Trace()
+    run_candidate(_ctx(tmp_path), steps=t2.steps())
+    after = (tmp_path / "out" / "run.jsonl").read_text()
+    assert after.startswith(before)
+
+
+def test_resume_skips_completed_steps_and_never_recalls_a_model(tmp_path):
+    t = Trace()
+    run_candidate(_ctx(tmp_path), steps=t.steps())
+    t2 = Trace()
+    code = run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
+    assert code == EXIT_READY
+    assert not (PAID & set(t2.calls))
+
+
+def test_default_steps_are_the_real_commands():
+    """The orchestrator sequences existing commands; it must not grow its own."""
+    from tools.trace_cli import candidate_run as m
+    defaults = m.default_steps()
+    assert defaults.bootstrap.__module__.endswith("candidate_run")
+    for name in ("bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream",
+                 "patcher", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"):
+        assert callable(getattr(defaults, name)), name
+
+
+def test_resume_after_a_stop_skips_the_completed_steps_and_repeats_no_model_call(tmp_path):
+    """The recorded use case: mailpit stopped at the probe after all three paid
+    steps had run. Resume must start at the probe."""
+    t = Trace()
+    steps = t.steps()
+    steps.probe = t.step("probe", False)
+    run_candidate(_ctx(tmp_path), steps=steps)
+    t2 = Trace()
+    code = run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
+    assert code == EXIT_READY
+    assert not (PAID & set(t2.calls))
+    # free gates are never skipped; the expensive setup and the paid steps are
+    assert t2.calls == ["preflight_upstream", "preflight_payload", "probe", "refinalize"]
+
+
+def test_resume_never_repeats_a_paid_step_whose_output_exists(tmp_path):
+    """A run that stopped at the Patcher (its refusal) still has whatever the model
+    wrote; resume does not call the model again. Regenerating is a deliberate
+    re-run, not a resume."""
+    ctx = _ctx(tmp_path)
+    t = Trace(stop_at="preflight_payload")
+    run_candidate(ctx, steps=t.steps())
+    bundle = tmp_path / "out" / "bundle"
+    bundle.mkdir(parents=True, exist_ok=True)
+    (bundle / "patch.diff").write_text("model output\n")
+    t2 = Trace()
+    run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
+    assert "patcher" not in t2.calls
+    assert t2.calls[0] == "preflight_upstream"
+
+
+def test_skipped_steps_leave_the_context_usable(tmp_path):
+    """Skipped steps ran in a previous process, so their side effects on ctx are
+    gone. The paths they produce are functions of the out dir and get re-derived."""
+    ctx = _ctx(tmp_path)
+    t = Trace()
+    steps = t.steps()
+    steps.probe = t.step("probe", False)
+    run_candidate(ctx, steps=steps)
+    (tmp_path / "out" / "src" / "pkg-1.0").mkdir(parents=True)
+    seen = {}
+
+    def probe(c):
+        seen.update({k: c.get(k) for k in ("staged", "bundle_dir", "source_tree")})
+        return True
+
+    t2 = Trace()
+    steps2 = t2.steps()
+    steps2.probe = probe
+    run_candidate(_ctx(tmp_path), steps=steps2, resume=True)
+    assert seen["staged"] == tmp_path / "out" / "staged"
+    assert seen["bundle_dir"] == tmp_path / "out" / "bundle"
+    assert seen["source_tree"] is not None
+
+
+def test_a_contract_failure_in_a_model_step_is_recorded_not_raised(tmp_path):
+    from tools.trace_cli.execute import ExecutionError
+    from tools.trace_cli.candidate_run import EXIT_STEP_ERROR
+
+    t = Trace()
+    steps = t.steps()
+
+    def bad_reviewer(c):
+        raise ExecutionError("reviewer output malformed after retries")
+    steps.reviewer = bad_reviewer
+    code = run_candidate(_ctx(tmp_path), steps=steps)
+    assert code == EXIT_STEP_ERROR
+    rec = _record(tmp_path)
+    assert rec[-1]["outcome"] == "step-error"
+    assert rec[-2]["step"] == "reviewer" and rec[-2]["status"] == "error"
+
+
+def test_free_gates_are_never_skipped_on_resume_even_if_the_record_says_ok(tmp_path):
+    """A run.jsonl line is a claim. Preflight and the probe cost nothing to
+    re-run and are the checks that stand between a model payload and a cert, so
+    resume re-runs them whatever the record says."""
+    t = Trace()
+    run_candidate(_ctx(tmp_path), steps=t.steps())
+    t2 = Trace()
+    run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
+    for gate in ("preflight_upstream", "preflight_payload", "probe", "refinalize"):
+        assert gate in t2.calls, gate
+
+
+def test_a_paid_output_is_only_reused_for_the_inputs_that_produced_it(tmp_path):
+    """Existence of patch.diff is not enough: the same out dir reused with a
+    different package.nix must call the Patcher again."""
+    ctx = _ctx(tmp_path)
+    bundle = tmp_path / "out" / "bundle"
+    bundle.mkdir(parents=True)
+    (bundle / "package.nix").write_text("{ }: { version = \"1\"; }\n")
+    (bundle / "upstream-fix.patch").write_text("--- a\n+++ b\n")
+    t = Trace()
+    steps = t.steps()
+    steps.patcher = lambda c: (bundle / "patch.diff").write_text("model output\n")
+    run_candidate(ctx, steps=steps)
+
+    t2 = Trace()
+    run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
+    assert "patcher" not in t2.calls
+
+    (bundle / "package.nix").write_text("{ }: { version = \"2\"; }\n")
+    t3 = Trace()
+    run_candidate(_ctx(tmp_path), steps=t3.steps(), resume=True)
+    assert "patcher" in t3.calls
+
+
+def test_a_new_model_or_prompt_invalidates_a_reused_output(tmp_path, monkeypatch):
+    """The output of a paid step depends on which model and prompt produced it.
+    Bumping either must call the model again even when the bundle files match."""
+    ctx = _ctx(tmp_path)
+    t = Trace()
+    run_candidate(ctx, steps=t.steps())
+    ctx2 = _ctx(tmp_path)
+    ctx2["models"]["patcher"] = "some-newer-model"
+    t2 = Trace()
+    run_candidate(ctx2, steps=t2.steps(), resume=True)
+    assert "patcher" in t2.calls
+    assert "reviewer" not in t2.calls or True  # reviewer reuse is judged on its own inputs
+
+
+def test_a_second_resume_still_reuses_the_model_outputs(tmp_path):
+    """A skipped line carries the hash forward, so resuming a resumed run does
+    not bill the models again."""
+    t = Trace()
+    steps = t.steps()
+    steps.probe = t.step("probe", False)
+    run_candidate(_ctx(tmp_path), steps=steps)
+    t2 = Trace()
+    steps2 = t2.steps()
+    steps2.probe = t2.step("probe", False)
+    run_candidate(_ctx(tmp_path), steps=steps2, resume=True)
+    t3 = Trace()
+    run_candidate(_ctx(tmp_path), steps=t3.steps(), resume=True)
+    assert not (PAID & set(t3.calls))

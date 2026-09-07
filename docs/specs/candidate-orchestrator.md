@@ -1,6 +1,6 @@
 # Spec: run one candidate through every gate
 
-- Status: Draft
+- Status: Implemented
 - Author: Ad Astra Computing Inc
 - Date: 7 September 2026
 - Related ADRs: none
