@@ -14,6 +14,7 @@ import argparse
 import json
 import re
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -157,7 +158,15 @@ def watch(
     comment: Callable[[int, str], None],
     post: bool = False,
 ) -> dict[str, str]:
-    """One pass over the fork's live-lane PRs. Returns {cve_id: waiting|landed|no-bundle}.
+    """One pass over every live-lane bundle. Returns {bundle dir: waiting|landed|check-failed}.
+
+    A fork PR branch whose bundle is missing is the one entry keyed by CVE id,
+    under `no-bundle`; it has no directory to name.
+
+    A bundle earns its comparison by existing, not by having a fork PR. Most
+    live-lane bundles have no PR: opening one is public and needs the operator's
+    approval, while the grading this function does is local and needs none. A
+    fork PR, when there is one, only decides where a comment could go.
 
     A comparison is always recorded. The fork PR comment is public, and the
     standard forbids public posting without the operator's explicit approval, so
@@ -165,6 +174,7 @@ def watch(
     operator passed `post=True` for this run.
     """
     states: dict[str, str] = {}
+    pr_for_bundle: dict[Path, dict] = {}
     for pr in fork_prs:
         parsed = parse_fork_branch(pr.get("headRefName", ""))
         if not parsed:
@@ -174,15 +184,30 @@ def watch(
         if bundle_dir is None:
             states[cve_id] = "no-bundle"
             continue
+        pr_for_bundle.setdefault(bundle_dir, pr)
+
+    # Keyed by directory rather than CVE id: several CVEs have two bundles, and a
+    # sibling's verdict must not overwrite the one before it or the exit code lies.
+    landed_pr: dict[str, int | None] = {}
+    for bundle_dir in dict.fromkeys([*pr_for_bundle, *live_lane_bundles(bundles_root)]):
+        pr = pr_for_bundle.get(bundle_dir)
+        cve_id = bundle_dir.name.split("--")[0]
+        key = bundle_dir.name
         if (bundle_dir / "comparison.json").is_file():
-            states[cve_id] = "landed"
+            states[key] = "landed"
             continue
         try:
-            number = find_merged_nixpkgs_pr(cve_id)
+            # One search per CVE, not per bundle: the search API's budget is small
+            # and two bundles for one CVE ask the same question.
+            if cve_id in landed_pr:
+                number = landed_pr[cve_id]
+            else:
+                number = find_merged_nixpkgs_pr(cve_id)
+                landed_pr[cve_id] = number
         except RuntimeError as e:
             # A lookup that could not run says nothing; do not record it as waiting.
             print(f"{cve_id}: check-failed: PR search: {e}")
-            states[cve_id] = "check-failed"
+            states[key] = "check-failed"
             continue
         if number is None:
             try:
@@ -192,24 +217,25 @@ def watch(
                 # which is a real answer on its own.
                 print(f"{cve_id}: tree check skipped: {e}")
         if number is None:
-            states[cve_id] = "waiting"
+            states[key] = "waiting"
             continue
         try:
             change = fetch_change(number)
             if change is None:
-                states[cve_id] = "waiting"
+                states[key] = "waiting"
                 continue
             result = compare_bundle(bundle_dir, change, fetch_file=fetch_file)
         except RuntimeError as e:
             # Nothing is written on a failed fetch, so the next pass retries.
             print(f"{cve_id}: check-failed: fetch: {e}")
-            states[cve_id] = "check-failed"
+            states[key] = "check-failed"
             continue
-        text = f"Draft comment for fork PR #{pr['number']}. Post only with the operator's explicit approval.\n\n" + _comment_text(result) + "\n"
-        (bundle_dir / "comparison-comment.md").write_text(text)
-        if post:
-            comment(pr["number"], _comment_text(result))
-        states[cve_id] = "landed"
+        if pr is not None:
+            text = f"Draft comment for fork PR #{pr['number']}. Post only with the operator's explicit approval.\n\n" + _comment_text(result) + "\n"
+            (bundle_dir / "comparison-comment.md").write_text(text)
+            if post:
+                comment(pr["number"], _comment_text(result))
+        states[key] = "landed"
     return states
 
 
@@ -225,11 +251,9 @@ def _find_bundle(root: Path, cve_id: str, bundle_id: str) -> Path | None:
     return None
 
 
-def report(bundles_root: Path) -> dict:
-    """Waiting versus landed across every bundle that has a live-lane shape."""
-    waiting = 0
-    landed: dict[str, int] = {}
-    exact = 0
+def live_lane_bundles(bundles_root: Path) -> list[Path]:
+    """Every bundle whose payload is a source backport, in CVE order."""
+    out: list[Path] = []
     for d in sorted(bundles_root.glob("CVE-*")):
         if d.name.startswith("CVE-0000-") or not (d / "patch.diff").is_file():
             continue
@@ -238,8 +262,17 @@ def report(bundles_root: Path) -> dict:
             strategy = json.loads(ref.read_text()).get("eligibility", {}).get("patch_strategy") if ref.is_file() else None
         except json.JSONDecodeError:
             strategy = None
-        if strategy != "source-backport":
-            continue
+        if strategy == "source-backport":
+            out.append(d)
+    return out
+
+
+def report(bundles_root: Path) -> dict:
+    """Waiting versus landed across every bundle that has a live-lane shape."""
+    waiting = 0
+    landed: dict[str, int] = {}
+    exact = 0
+    for d in live_lane_bundles(bundles_root):
         c = d / "comparison.json"
         if not c.is_file():
             waiting += 1
@@ -261,7 +294,22 @@ def _gh_json(args: list[str]):
     return json.loads(proc.stdout or "null")
 
 
+_SEARCH_INTERVAL = 2.2  # seconds; GitHub's search API allows 30 authenticated requests a minute
+_last_search = 0.0
+
+
+def _search_throttle(now: Callable[[], float] = time.monotonic, pause: Callable[[float], None] = time.sleep) -> None:
+    """Space out search requests. A corpus pass asks once per CVE, which is more
+    than the search API's per-minute budget if the requests go out back to back."""
+    global _last_search
+    wait = _SEARCH_INTERVAL - (now() - _last_search)
+    if wait > 0:
+        pause(wait)
+    _last_search = now()
+
+
 def gh_find_merged_nixpkgs_pr(cve_id: str) -> int | None:
+    _search_throttle()
     data = _gh_json(["search", "prs", "--repo", "NixOS/nixpkgs", cve_id, "--merged",
                      "--json", "number,closedAt", "--limit", "5"])
     if not data:
@@ -382,7 +430,7 @@ def gh_comment(fork_repo: str) -> Callable[[int, str], None]:
 
 
 def add_parser(subs: argparse._SubParsersAction) -> None:
-    w = subs.add_parser("watch", help="compare live-lane fork PRs against what nixpkgs landed")
+    w = subs.add_parser("watch", help="compare live-lane bundles against what nixpkgs landed")
     w.add_argument("--fork", default="Ad-Astra-Computing/nixpkgs")
     w.add_argument("--bundles-root", type=Path, default=Path("traces/example"))
     w.add_argument("--dry-run", action="store_true", help="compare and record, but post no comment")

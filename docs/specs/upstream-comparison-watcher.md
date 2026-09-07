@@ -40,8 +40,17 @@ has no source for the cases that matter most.
 `trace compare watch --fork Ad-Astra-Computing/nixpkgs [--since DATE]` and a
 scheduled workflow that runs it.
 
-For each open fork PR on a `trace/<CVE>--<attr>--<bundle_id>` branch, the watcher
-reads the bundle's `finding.json` and `upstream-ref.json`, then asks nixpkgs two
+The unit of work is the bundle, not the fork PR (amended 7 September 2026). A
+live-lane bundle is any bundle under the root whose `upstream-ref.json` declares
+`patch_strategy: source-backport`, whether or not a PR exists for it. Most do not
+have one: opening a PR on the public fork needs the operator's approval for that
+post, while the grading here is local and needs none, so nine of the bundles the
+lane has produced would never have been graded under the earlier PR-driven walk.
+A fork PR, where there is one, decides only where a draft comment goes; a PR
+branch whose bundle is missing still reports `no-bundle`.
+
+For each such bundle, the watcher
+reads its `finding.json` and `upstream-ref.json`, then asks nixpkgs two
 questions: is there a merged PR mentioning the CVE id, and does the CVE id now
 appear in the package's own files on `master`. Either answer, when it becomes
 true, marks the bundle `landed`.
@@ -85,6 +94,8 @@ the model judge disagreeing with it in ways that need a human anyway).
 
 - [ ] A fork PR whose CVE has no merged nixpkgs PR and no tree mention stays
       `waiting` and gets no comment.
+- [ ] A bundle with no fork PR is compared and recorded all the same, and no
+      comment is drafted for it.
 - [ ] A CVE that lands under a PR title without the CVE id is found through the
       package directory and the landing commit's pull request.
 - [ ] A merged nixpkgs PR adding a patch file yields `comparison.json` with recall

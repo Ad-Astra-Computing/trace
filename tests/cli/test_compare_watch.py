@@ -21,6 +21,7 @@ from tools.trace_cli.compare_watch import (
 )
 
 SHA = "e9697d98e7249b0f68a6be040a4f3dcc5bc101fa"
+BK = "CVE-2026-16599--wget-ftp-opie-backport"
 
 
 def _bundle(tmp_path: Path, name: str = "CVE-2026-16599--wget-ftp-opie-backport") -> Path:
@@ -104,7 +105,7 @@ def test_watch_leaves_an_unlanded_bundle_waiting_and_silent(tmp_path):
         fetch_file=lambda pr, path: "",
         comment=lambda pr, body: comments.append((pr, body)),
     )
-    assert states == {"CVE-2026-16599": "waiting"}
+    assert states == {BK: "waiting"}
     assert comments == []
     assert not (b / "comparison.json").exists()
 
@@ -125,10 +126,10 @@ def test_watch_compares_once_and_comments_once(tmp_path):
         comment=lambda pr, body: comments.append((pr, body)),
         post=True,  # the operator approved posting for this run
     )
-    assert watch(**kw) == {"CVE-2026-16599": "landed"}
+    assert watch(**kw) == {BK: "landed"}
     assert len(comments) == 1 and comments[0][0] == 45
     assert "upstream-bumped" in comments[0][1] or "1.26.0" in comments[0][1]
-    assert watch(**kw) == {"CVE-2026-16599": "landed"}
+    assert watch(**kw) == {BK: "landed"}
     assert len(comments) == 1
 
 
@@ -192,7 +193,7 @@ def test_a_failed_nixpkgs_lookup_is_check_failed_not_waiting(tmp_path):
         find_merged_nixpkgs_pr=boom, find_landed_in_tree=lambda cve, b: None,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
-    assert states == {"CVE-2026-16599": "check-failed"}
+    assert states == {BK: "check-failed"}
 
 
 def test_report_counts_only_source_backport_bundles(tmp_path):
@@ -227,7 +228,7 @@ def test_a_failed_file_fetch_leaves_no_comparison_and_is_check_failed(tmp_path):
         fetch_change=lambda n: change, fetch_file=failing_fetch,
         comment=lambda pr, body: comments.append(body),
     )
-    assert states == {"CVE-2026-16599": "check-failed"}
+    assert states == {BK: "check-failed"}
     assert not (b / "comparison.json").exists()
     assert comments == []
 
@@ -246,7 +247,7 @@ def test_tree_check_failure_alone_does_not_fail_the_check(tmp_path):
         find_merged_nixpkgs_pr=lambda cve: None, find_landed_in_tree=boom,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
-    assert states == {"CVE-2026-16599": "waiting"}
+    assert states == {BK: "waiting"}
 
 
 def test_check_failed_reports_the_reason(tmp_path, capsys):
@@ -277,7 +278,7 @@ def test_code_search_failure_is_advisory_when_the_pr_search_worked(tmp_path, cap
         find_merged_nixpkgs_pr=lambda cve: None, find_landed_in_tree=no_code_search,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
-    assert states == {"CVE-2026-16599": "waiting"}
+    assert states == {BK: "waiting"}
     assert "tree check skipped" in capsys.readouterr().out
 
 
@@ -297,7 +298,7 @@ def test_a_landed_comparison_is_drafted_not_posted_without_approval(tmp_path):
         fetch_change=lambda n: change, fetch_file=lambda pr, p: "",
         comment=lambda pr, body: posted.append((pr, body)), post=False,
     )
-    assert states == {"CVE-2026-16599": "landed"}
+    assert states == {BK: "landed"}
     assert posted == []
     draft = (b / "comparison-comment.md").read_text()
     assert "1.26.0" in draft and "#45" in draft
@@ -319,7 +320,7 @@ def test_tree_check_lands_a_cve_the_pr_search_missed(tmp_path):
         find_merged_nixpkgs_pr=lambda cve: None, find_landed_in_tree=lambda cve, bd: 4343,
         fetch_change=fetch_change, fetch_file=lambda pr, p: "", comment=lambda pr, body: None,
     )
-    assert states == {"CVE-2026-16599": "landed"}
+    assert states == {BK: "landed"}
     assert fetched == [4343]
     assert json.loads((b / "comparison.json").read_text())["nixpkgs_pr"] == 4343
 
@@ -396,3 +397,126 @@ def test_find_landed_in_tree_treats_a_moved_package_directory_as_absent(tmp_path
     def gh(path):
         raise RuntimeError("gh: Not Found (HTTP 404)")
     assert find_landed_in_tree("CVE-2026-48850", b, gh_json=gh, gh_raw=lambda p: "") is None
+
+
+def test_a_bundle_without_a_fork_pr_is_still_compared(tmp_path):
+    """Most live-lane bundles have no PR. Grading them locally needs no approval."""
+    b = _bundle(tmp_path)
+    comments = []
+    change = {"number": 4242, "merged_at": "2026-09-20T00:00:00Z",
+              "files": [{"filename": "pkgs/by-name/wg/wget/package.nix", "status": "modified",
+                         "patch": '-  version = "1.25.0";\n+  version = "1.26.0";\n'}]}
+    states = watch(
+        fork_prs=[],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: 4242,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: change,
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: comments.append((pr, body)),
+        post=True,
+    )
+    assert states == {BK: "landed"}
+    assert json.loads((b / "comparison.json").read_text())["shape"] == "upstream-bumped"
+    assert comments == []
+    assert not (b / "comparison-comment.md").exists()
+
+
+def test_a_bundle_without_a_fork_pr_can_be_waiting(tmp_path):
+    b = _bundle(tmp_path)
+    states = watch(
+        fork_prs=[],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: None,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: None,
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert states == {BK: "waiting"}
+    assert not (b / "comparison.json").exists()
+
+
+def test_a_fork_pr_without_its_bundle_is_still_no_bundle(tmp_path):
+    root = tmp_path / "traces" / "example"
+    root.mkdir(parents=True)
+    states = watch(
+        fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
+        bundles_root=root,
+        find_merged_nixpkgs_pr=lambda cve: None,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: None,
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert states == {"CVE-2026-16599": "no-bundle"}
+
+
+def test_a_bundle_is_compared_once_even_with_a_pr_pointing_at_it(tmp_path):
+    """The PR-derived target and the bundle walk name the same directory."""
+    b = _bundle(tmp_path)
+    seen = []
+    watch(
+        fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: seen.append(cve) or None,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: None,
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert seen == ["CVE-2026-16599"]
+
+
+def test_two_bundles_for_one_cve_keep_their_own_verdicts(tmp_path):
+    """A sibling's verdict must not overwrite the one before it, or the exit code lies."""
+    a = _bundle(tmp_path)
+    b = _bundle(tmp_path, "CVE-2026-16599--wget-ftp-opie-second")
+    (a / "comparison.json").write_text(json.dumps({"shape": "upstream-bumped"}))
+    states = watch(
+        fork_prs=[],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: (_ for _ in ()).throw(RuntimeError("rate limited")),
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: None,
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert states == {a.name: "landed", b.name: "check-failed"}
+
+
+def test_one_search_serves_every_bundle_for_a_cve(tmp_path):
+    """The search API's budget is small; two bundles ask nixpkgs the same question."""
+    _bundle(tmp_path)
+    _bundle(tmp_path, "CVE-2026-16599--wget-ftp-opie-second")
+    asked = []
+    states = watch(
+        fork_prs=[],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: asked.append(cve) or None,
+        find_landed_in_tree=lambda cve, d: None,
+        fetch_change=lambda number: None,
+        fetch_file=lambda pr, path: "",
+        comment=lambda pr, body: None,
+    )
+    assert asked == ["CVE-2026-16599"]
+    assert set(states.values()) == {"waiting"}
+
+
+def test_the_search_throttle_spaces_requests_out():
+    from tools.trace_cli import compare_watch as cw
+
+    clock = [100.0]
+    slept = []
+
+    def pause(seconds):
+        slept.append(seconds)
+        clock[0] += seconds
+
+    cw._last_search = 0.0
+    cw._search_throttle(now=lambda: clock[0], pause=pause)
+    assert slept == []  # the first request in a long while waits for nothing
+    clock[0] += 0.2
+    cw._search_throttle(now=lambda: clock[0], pause=pause)
+    assert slept and abs(slept[0] - (cw._SEARCH_INTERVAL - 0.2)) < 1e-9
+    cw._last_search = 0.0
