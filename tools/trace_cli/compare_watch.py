@@ -330,7 +330,13 @@ def find_landed_in_tree(
         if d and d not in dirs:
             dirs.append(d)
     for d in dirs:
-        listing = gh_json(f"repos/NixOS/nixpkgs/contents/{d}?ref=master") or []
+        try:
+            listing = gh_json(f"repos/NixOS/nixpkgs/contents/{d}?ref=master") or []
+        except RuntimeError as e:
+            if "404" in str(e) or "Not Found" in str(e):
+                # The package moved or was renamed since the cert; nothing to read here.
+                continue
+            raise
         names = [e.get("name", "") for e in listing if isinstance(e, dict)]
         hit = any(cve_id in n for n in names)
         if not hit:

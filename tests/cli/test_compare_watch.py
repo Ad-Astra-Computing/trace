@@ -385,3 +385,14 @@ def test_package_files_drop_paths_that_could_rewrite_the_api_url(tmp_path):
     (b / "build.json").write_text(json.dumps({"patch_apply": {"files_changed": [
         "pkgs/by-name/wg/wget/package.nix", "pkgs/../../repos/evil?ref=x", "pkgs/by-name/wg/wget/a b.nix"]}}))
     assert package_files(b) == ["pkgs/by-name/wg/wget/package.nix"]
+
+
+def test_find_landed_in_tree_treats_a_moved_package_directory_as_absent(tmp_path):
+    """putty's cert recorded pkgs/applications/networking/remote/putty; master no
+    longer has that directory. A 404 on the listing is an answer, not a failure."""
+    b = _bundle(tmp_path)
+    (b / "build.json").write_text(json.dumps({"patch_apply": {"files_changed": ["pkgs/applications/networking/remote/putty/default.nix"]}}))
+
+    def gh(path):
+        raise RuntimeError("gh: Not Found (HTTP 404)")
+    assert find_landed_in_tree("CVE-2026-48850", b, gh_json=gh, gh_raw=lambda p: "") is None
