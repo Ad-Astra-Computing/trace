@@ -1,6 +1,6 @@
 # Spec: watch for the nixpkgs fix and score ours against it
 
-- Status: Draft
+- Status: Implemented
 - Author: Ad Astra Computing Inc
 - Date: 7 September 2026
 - Related ADRs: none
