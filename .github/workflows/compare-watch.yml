@@ -1,0 +1,48 @@
+# Daily: score live-lane fork PRs against what nixpkgs landed.
+# See docs/specs/upstream-comparison-watcher.md.
+name: compare-watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    name: compare live-lane bundles against nixpkgs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORK_COMMENT_TOKEN: ${{ secrets.FORK_COMMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${FORK_COMMENT_TOKEN}" ]]; then
+            export GH_TOKEN="${FORK_COMMENT_TOKEN}"
+            nix develop --command python3 -m tools.trace_cli compare watch | tee compare.log
+          else
+            echo "::notice::FORK_COMMENT_TOKEN not set; recording comparisons without commenting"
+            nix develop --command python3 -m tools.trace_cli compare watch --dry-run | tee compare.log
+          fi
+          nix develop --command python3 -m tools.trace_cli compare report | tee report.json
+          git status --porcelain -- 'traces/example/*/comparison.json' > changed.txt || true
+
+      - name: Upload new comparisons
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: comparisons
+          path: |
+            traces/example/*/comparison.json
+            compare.log
+            report.json
+            changed.txt
+          if-no-files-found: ignore

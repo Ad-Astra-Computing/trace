@@ -74,7 +74,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
@@ -95,7 +95,7 @@ jobs:
         # tag string when sigstore publishes a new major release. A
         # Dependabot config update in this repo can pin to a full SHA
         # like the DeterminateSystems actions do.
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
         with:
           cosign-release: 'v2.4.1'
 

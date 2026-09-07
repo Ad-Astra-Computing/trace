@@ -46,7 +46,7 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # DeterminateSystems actions pinned by full commit SHA (gold standard
       # for security/evidence projects). The `# v22` / `# v13` comments
@@ -89,7 +89,7 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # setup-opa is the official open-policy-agent install action.
       # Pinned by full commit SHA (gold standard for security/evidence
@@ -141,10 +141,10 @@ jobs:
       # must actually run in CI, not silently skip.
       TRACE_REQUIRE_NIX: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install Rust toolchain (pinned)
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: ""
@@ -159,7 +159,7 @@ jobs:
           rustc --version | grep -F "${RUST_TOOLCHAIN}"
 
       - name: Cache cargo build
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry

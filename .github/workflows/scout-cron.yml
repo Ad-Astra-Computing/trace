@@ -69,7 +69,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22 (pinned 2026-05-23)
@@ -100,7 +100,7 @@ jobs:
 
       - name: Restore scout state (cursor + retry queue)
         id: state-restore
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           # state/ holds three files written by this workflow:
           #   scout-cursor.json    discovery watermark (last_run_utc)
@@ -477,7 +477,7 @@ jobs:
         # (retry queue may have changed). The cache key is per-run so
         # this never overwrites; restore picks the freshest by prefix.
         if: steps.snapshot.outputs.ready == 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: state
           key: scout-state-v1-${{ github.run_id }}
