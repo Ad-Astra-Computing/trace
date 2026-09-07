@@ -24,7 +24,7 @@ from agents.reproducer.sampling import (
     sample_reproducer,
 )
 
-REPRO_PROMPT = Path("prompts/reproducer.v16.md")
+REPRO_PROMPT = Path("prompts/reproducer.v17.md")
 
 
 # ─── fixtures: adapter + reproducer output shapes ─────────────────────────
