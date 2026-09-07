@@ -42,9 +42,21 @@ scheduled workflow that runs it.
 
 For each open fork PR on a `trace/<CVE>--<attr>--<bundle_id>` branch, the watcher
 reads the bundle's `finding.json` and `upstream-ref.json`, then asks nixpkgs two
-questions the screen already knows how to ask: is there a merged PR mentioning
-the CVE id, and does the CVE id now appear in the tree. Either answer, when it
-becomes true, marks the bundle `landed`.
+questions: is there a merged PR mentioning the CVE id, and does the CVE id now
+appear in the package's own files on `master`. Either answer, when it becomes
+true, marks the bundle `landed`.
+
+The tree question is asked through the contents API, not code search. Code
+search is closed to the default Actions token (every scheduled run answered
+HTTP 429 before the first result), and a hit alone gave no PR to compare
+against. The watcher instead lists the package directory the bundle's cert
+recorded in `build.json` (`patch_apply.files_changed`; a by-name attr from
+`resolver-input.json` is the fallback) and looks for the CVE id in the file
+names and in the `.nix` files the bundle itself touched. On a hit it walks the
+directory's recent commits on `master` for one whose message names the CVE and
+takes that commit's merged pull request as the landing PR. A hit with no such
+commit stays `waiting` with a note; the next pass retries. A failure in this
+check is advisory when the PR search ran.
 
 For a landed bundle it fetches the nixpkgs change. Three shapes are recognised:
 
@@ -73,6 +85,8 @@ the model judge disagreeing with it in ways that need a human anyway).
 
 - [ ] A fork PR whose CVE has no merged nixpkgs PR and no tree mention stays
       `waiting` and gets no comment.
+- [ ] A CVE that lands under a PR title without the CVE id is found through the
+      package directory and the landing commit's pull request.
 - [ ] A merged nixpkgs PR adding a patch file yields `comparison.json` with recall
       scores from the existing grader and one PR comment.
 - [ ] A nixpkgs bump yields `upstream-bumped` with the fixed version and a

@@ -13,6 +13,8 @@ import pytest
 from tools.trace_cli.compare_watch import (
     classify_change,
     compare_bundle,
+    find_landed_in_tree,
+    package_files,
     parse_fork_branch,
     report,
     watch,
@@ -97,7 +99,7 @@ def test_watch_leaves_an_unlanded_bundle_waiting_and_silent(tmp_path):
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
         find_merged_nixpkgs_pr=lambda cve: None,
-        cve_in_tree=lambda cve: False,
+        find_landed_in_tree=lambda cve, b: None,
         fetch_change=lambda number: None,
         fetch_file=lambda pr, path: "",
         comment=lambda pr, body: comments.append((pr, body)),
@@ -117,7 +119,7 @@ def test_watch_compares_once_and_comments_once(tmp_path):
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
         find_merged_nixpkgs_pr=lambda cve: 4242,
-        cve_in_tree=lambda cve: True,
+        find_landed_in_tree=lambda cve, b: None,
         fetch_change=lambda number: change,
         fetch_file=lambda pr, path: "",
         comment=lambda pr, body: comments.append((pr, body)),
@@ -187,7 +189,7 @@ def test_a_failed_nixpkgs_lookup_is_check_failed_not_waiting(tmp_path):
     states = watch(
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
-        find_merged_nixpkgs_pr=boom, cve_in_tree=lambda cve: False,
+        find_merged_nixpkgs_pr=boom, find_landed_in_tree=lambda cve, b: None,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
     assert states == {"CVE-2026-16599": "check-failed"}
@@ -221,7 +223,7 @@ def test_a_failed_file_fetch_leaves_no_comparison_and_is_check_failed(tmp_path):
     states = watch(
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
-        find_merged_nixpkgs_pr=lambda cve: 4242, cve_in_tree=lambda cve: True,
+        find_merged_nixpkgs_pr=lambda cve: 4242, find_landed_in_tree=lambda cve, b: None,
         fetch_change=lambda n: change, fetch_file=failing_fetch,
         comment=lambda pr, body: comments.append(body),
     )
@@ -230,18 +232,18 @@ def test_a_failed_file_fetch_leaves_no_comparison_and_is_check_failed(tmp_path):
     assert comments == []
 
 
-def test_cve_in_tree_failure_alone_does_not_fail_the_check(tmp_path):
+def test_tree_check_failure_alone_does_not_fail_the_check(tmp_path):
     """Superseded expectation: an earlier version treated a code-search failure as
     check-failed. The default Actions token cannot run code search at all, so that
     made every CVE check-failed in CI. A PR search that ran is the real answer."""
     _bundle(tmp_path)
 
-    def boom(cve):
+    def boom(cve, bundle_dir):
         raise RuntimeError("code search unavailable")
     states = watch(
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
-        find_merged_nixpkgs_pr=lambda cve: None, cve_in_tree=boom,
+        find_merged_nixpkgs_pr=lambda cve: None, find_landed_in_tree=boom,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
     assert states == {"CVE-2026-16599": "waiting"}
@@ -255,7 +257,7 @@ def test_check_failed_reports_the_reason(tmp_path, capsys):
     watch(
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
-        find_merged_nixpkgs_pr=boom, cve_in_tree=lambda cve: False,
+        find_merged_nixpkgs_pr=boom, find_landed_in_tree=lambda cve, b: None,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
     assert "resource not accessible" in capsys.readouterr().out
@@ -267,12 +269,12 @@ def test_code_search_failure_is_advisory_when_the_pr_search_worked(tmp_path, cap
     waiting and the tree check is reported as skipped rather than failing it."""
     _bundle(tmp_path)
 
-    def no_code_search(cve):
+    def no_code_search(cve, bundle_dir):
         raise RuntimeError("code search requires a user token")
     states = watch(
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
-        find_merged_nixpkgs_pr=lambda cve: None, cve_in_tree=no_code_search,
+        find_merged_nixpkgs_pr=lambda cve: None, find_landed_in_tree=no_code_search,
         fetch_change=lambda n: None, fetch_file=lambda pr, p: "", comment=lambda pr, b: None,
     )
     assert states == {"CVE-2026-16599": "waiting"}
@@ -291,7 +293,7 @@ def test_a_landed_comparison_is_drafted_not_posted_without_approval(tmp_path):
     states = watch(
         fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
         bundles_root=tmp_path / "traces" / "example",
-        find_merged_nixpkgs_pr=lambda cve: 4242, cve_in_tree=lambda cve: True,
+        find_merged_nixpkgs_pr=lambda cve: 4242, find_landed_in_tree=lambda cve, b: None,
         fetch_change=lambda n: change, fetch_file=lambda pr, p: "",
         comment=lambda pr, body: posted.append((pr, body)), post=False,
     )
@@ -299,3 +301,87 @@ def test_a_landed_comparison_is_drafted_not_posted_without_approval(tmp_path):
     assert posted == []
     draft = (b / "comparison-comment.md").read_text()
     assert "1.26.0" in draft and "#45" in draft
+
+
+def test_tree_check_lands_a_cve_the_pr_search_missed(tmp_path):
+    """A nixpkgs PR titled without the CVE id is invisible to the PR search. The
+    tree check finds the CVE in the package directory and names the landing PR."""
+    b = _bundle(tmp_path)
+    fetched = []
+
+    def fetch_change(number):
+        fetched.append(number)
+        return {"number": number, "merged_at": "2026-09-08T00:00:00Z",
+                "files": [{"filename": "pkgs/by-name/wg/wget/CVE-2026-16599.patch", "status": "added", "patch": ""}]}
+    states = watch(
+        fork_prs=[{"number": 45, "headRefName": "trace/CVE-2026-16599--wget--0599d03cf7b75fd2"}],
+        bundles_root=tmp_path / "traces" / "example",
+        find_merged_nixpkgs_pr=lambda cve: None, find_landed_in_tree=lambda cve, bd: 4343,
+        fetch_change=fetch_change, fetch_file=lambda pr, p: "", comment=lambda pr, body: None,
+    )
+    assert states == {"CVE-2026-16599": "landed"}
+    assert fetched == [4343]
+    assert json.loads((b / "comparison.json").read_text())["nixpkgs_pr"] == 4343
+
+
+def test_package_files_come_from_the_cert_record_then_the_by_name_attr(tmp_path):
+    b = _bundle(tmp_path)
+    (b / "resolver-input.json").write_text(json.dumps({"attr_path": "wget"}))
+    assert package_files(b) == ["pkgs/by-name/wg/wget/package.nix"]
+    (b / "build.json").write_text(json.dumps({"patch_apply": {"files_changed": [
+        "pkgs/tools/networking/wget/CVE-2026-16599.patch", "pkgs/tools/networking/wget/default.nix"]}}))
+    assert package_files(b) == ["pkgs/tools/networking/wget/CVE-2026-16599.patch",
+                                "pkgs/tools/networking/wget/default.nix"]
+
+
+def test_find_landed_in_tree_walks_listing_file_and_commit_to_a_pr(tmp_path):
+    """Contents API only: list the package directory, read the .nix file the bundle
+    touched, find the commit naming the CVE, take its merged pull request."""
+    b = _bundle(tmp_path)
+    (b / "build.json").write_text(json.dumps({"patch_apply": {"files_changed": [
+        "pkgs/by-name/wg/wget/CVE-2026-16599.patch", "pkgs/by-name/wg/wget/package.nix"]}}))
+    calls = []
+
+    def gh(path):
+        calls.append(path)
+        if path == "repos/NixOS/nixpkgs/contents/pkgs/by-name/wg/wget?ref=master":
+            return [{"name": "package.nix"}, {"name": "fix-ftp-opie.patch"}]
+        if path.startswith("repos/NixOS/nixpkgs/commits?path=pkgs/by-name/wg/wget"):
+            return [{"sha": "a" * 40, "commit": {"message": "wget: 1.25.0 -> 1.25.1"}},
+                    {"sha": "b" * 40, "commit": {"message": "wget: patch CVE-2026-16599\n\nbackport"}}]
+        if path == f"repos/NixOS/nixpkgs/commits/{'b' * 40}/pulls":
+            return [{"number": 4343, "merged_at": "2026-09-08T00:00:00Z"}]
+        raise AssertionError(path)
+
+    def raw(path):
+        assert path == "repos/NixOS/nixpkgs/contents/pkgs/by-name/wg/wget/package.nix?ref=master"
+        return "  patches = [ ./fix-ftp-opie.patch ]; # CVE-2026-16599\n"
+    assert find_landed_in_tree("CVE-2026-16599", b, gh_json=gh, gh_raw=raw) == 4343
+    assert not any("search/code" in c for c in calls)
+
+
+def test_find_landed_in_tree_is_none_when_the_package_does_not_mention_the_cve(tmp_path):
+    b = _bundle(tmp_path)
+    (b / "build.json").write_text(json.dumps({"patch_apply": {"files_changed": ["pkgs/by-name/wg/wget/package.nix"]}}))
+    gh = lambda path: [{"name": "package.nix"}]
+    raw = lambda path: "  version = \"1.25.0\";\n"
+    assert find_landed_in_tree("CVE-2026-16599", b, gh_json=gh, gh_raw=raw) is None
+
+
+def test_find_landed_in_tree_hit_without_a_naming_commit_stays_none(tmp_path, capsys):
+    b = _bundle(tmp_path)
+    (b / "build.json").write_text(json.dumps({"patch_apply": {"files_changed": ["pkgs/by-name/wg/wget/package.nix"]}}))
+
+    def gh(path):
+        if "contents" in path:
+            return [{"name": "package.nix"}, {"name": "CVE-2026-16599.patch"}]
+        return [{"sha": "a" * 40, "commit": {"message": "wget: add patch"}}]
+    assert find_landed_in_tree("CVE-2026-16599", b, gh_json=gh, gh_raw=lambda p: "") is None
+    assert "no commit names it" in capsys.readouterr().out
+
+
+def test_package_files_drop_paths_that_could_rewrite_the_api_url(tmp_path):
+    b = _bundle(tmp_path)
+    (b / "build.json").write_text(json.dumps({"patch_apply": {"files_changed": [
+        "pkgs/by-name/wg/wget/package.nix", "pkgs/../../repos/evil?ref=x", "pkgs/by-name/wg/wget/a b.nix"]}}))
+    assert package_files(b) == ["pkgs/by-name/wg/wget/package.nix"]

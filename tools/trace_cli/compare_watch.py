@@ -151,7 +151,7 @@ def watch(
     fork_prs: list[dict],
     bundles_root: Path,
     find_merged_nixpkgs_pr: Callable[[str], int | None],
-    cve_in_tree: Callable[[str], bool],
+    find_landed_in_tree: Callable[[str, Path], int | None],
     fetch_change: Callable[[int], dict | None],
     fetch_file: Callable[[int, str], str],
     comment: Callable[[int, str], None],
@@ -184,19 +184,18 @@ def watch(
             print(f"{cve_id}: check-failed: PR search: {e}")
             states[cve_id] = "check-failed"
             continue
-        in_tree = False
         if number is None:
             try:
-                in_tree = cve_in_tree(cve_id)
+                number = find_landed_in_tree(cve_id, bundle_dir)
             except RuntimeError as e:
-                # Code search is not available to the default Actions token. The PR
-                # search ran and found nothing, which is a real answer on its own.
+                # The tree check is advisory: the PR search ran and found nothing,
+                # which is a real answer on its own.
                 print(f"{cve_id}: tree check skipped: {e}")
-        if number is None and not in_tree:
+        if number is None:
             states[cve_id] = "waiting"
             continue
         try:
-            change = fetch_change(number) if number is not None else None
+            change = fetch_change(number)
             if change is None:
                 states[cve_id] = "waiting"
                 continue
@@ -271,10 +270,90 @@ def gh_find_merged_nixpkgs_pr(cve_id: str) -> int | None:
     return int(data[0]["number"])
 
 
-def gh_cve_in_tree(cve_id: str) -> bool:
-    count = _gh_json(["api", "-X", "GET", "search/code", "-f", f"q={cve_id} repo:NixOS/nixpkgs",
-                      "--jq", ".total_count"])
-    return bool(count)
+def _gh_api_json(path: str):
+    return _gh_json(["api", path])
+
+
+def _gh_raw(path: str) -> str:
+    """Raw file contents at a contents-API path; empty when absent."""
+    proc = subprocess.run(["gh", "api", path, "-H", "Accept: application/vnd.github.raw"],
+                          capture_output=True, text=True, timeout=120)
+    if proc.returncode == 0:
+        return proc.stdout
+    if "404" in proc.stderr or "Not Found" in proc.stderr:
+        return ""
+    raise RuntimeError(f"fetching {path}: {proc.stderr.strip()[:200]}")
+
+
+_TREE_PATH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*(/[A-Za-z0-9][A-Za-z0-9._+-]*)*$")
+
+
+def _tree_path_ok(path: str) -> bool:
+    """A repository-relative path safe to splice into a contents-API URL: plain
+    segments, no `..`, no query or fragment characters."""
+    return bool(_TREE_PATH_RE.match(path)) and ".." not in path.split("/")
+
+
+def package_files(bundle_dir: Path) -> list[str]:
+    """nixpkgs paths the bundle's patch touches: the cert's record first, then the
+    by-name layout of the resolver's attr when no cert has run."""
+    build = bundle_dir / "build.json"
+    if build.is_file():
+        files = ((json.loads(build.read_text()).get("patch_apply") or {}).get("files_changed")) or []
+        if files:
+            return [str(f) for f in files if _tree_path_ok(str(f))]
+    ri = bundle_dir / "resolver-input.json"
+    attr = (json.loads(ri.read_text()).get("attr_path") or "") if ri.is_file() else ""
+    if attr and "." not in attr and _tree_path_ok(attr):
+        return [f"pkgs/by-name/{attr[:2]}/{attr}/package.nix"]
+    return []
+
+
+def find_landed_in_tree(
+    cve_id: str,
+    bundle_dir: Path,
+    *,
+    gh_json: Callable[[str], object] = _gh_api_json,
+    gh_raw: Callable[[str], str] = _gh_raw,
+) -> int | None:
+    """Has the CVE reached the package's own files on master, and under which PR?
+
+    Contents API only, so it runs under the default Actions token. It lists the
+    package directory for a file named after the CVE, reads the `.nix` files the
+    bundle touched for the id, and on a hit walks the directory's recent commits
+    for one whose message names the CVE, returning that commit's merged PR.
+    """
+    files = package_files(bundle_dir)
+    dirs: list[str] = []
+    for f in files:
+        d = f.rsplit("/", 1)[0] if "/" in f else ""
+        if d and d not in dirs:
+            dirs.append(d)
+    for d in dirs:
+        listing = gh_json(f"repos/NixOS/nixpkgs/contents/{d}?ref=master") or []
+        names = [e.get("name", "") for e in listing if isinstance(e, dict)]
+        hit = any(cve_id in n for n in names)
+        if not hit:
+            for f in files:
+                if f.startswith(d + "/") and f.endswith(".nix") and f.rsplit("/", 1)[1] in names:
+                    if cve_id in gh_raw(f"repos/NixOS/nixpkgs/contents/{f}?ref=master"):
+                        hit = True
+                        break
+        if not hit:
+            continue
+        commits = gh_json(f"repos/NixOS/nixpkgs/commits?path={d}&sha=master&per_page=30") or []
+        for c in commits:
+            if not isinstance(c, dict) or cve_id not in ((c.get("commit") or {}).get("message") or ""):
+                continue
+            sha = str(c.get("sha") or "")
+            if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                continue
+            pulls = gh_json(f"repos/NixOS/nixpkgs/commits/{sha}/pulls") or []
+            merged = [p for p in pulls if isinstance(p, dict) and p.get("merged_at")]
+            if merged:
+                return int(merged[0]["number"])
+        print(f"{cve_id}: in tree under {d} but no commit names it; waiting for the next pass")
+    return None
 
 
 def gh_fetch_change(number: int) -> dict | None:
@@ -286,13 +365,7 @@ def gh_fetch_change(number: int) -> dict | None:
 def gh_fetch_file(number: int, path: str) -> str:
     pr = _gh_json(["api", f"repos/NixOS/nixpkgs/pulls/{number}"])
     sha = (pr.get("merge_commit_sha") or pr.get("head", {}).get("sha") or "")
-    proc = subprocess.run(["gh", "api", f"repos/NixOS/nixpkgs/contents/{path}?ref={sha}",
-                           "-H", "Accept: application/vnd.github.raw"], capture_output=True, text=True, timeout=120)
-    if proc.returncode == 0:
-        return proc.stdout
-    if "404" in proc.stderr or "Not Found" in proc.stderr:
-        return ""  # genuinely absent at that commit; nothing to score
-    raise RuntimeError(f"fetching {path}: {proc.stderr.strip()[:200]}")
+    return _gh_raw(f"repos/NixOS/nixpkgs/contents/{path}?ref={sha}")  # empty when absent at that commit
 
 
 def gh_comment(fork_repo: str) -> Callable[[int, str], None]:
@@ -322,7 +395,7 @@ def run(args: argparse.Namespace) -> int:
                     "--json", "number,headRefName"])
     poster = (lambda n, b: print(f"[dry-run] would comment on #{n}: {b}")) if args.dry_run else gh_comment(args.fork)
     states = watch(fork_prs=prs or [], bundles_root=args.bundles_root,
-                   find_merged_nixpkgs_pr=gh_find_merged_nixpkgs_pr, cve_in_tree=gh_cve_in_tree,
+                   find_merged_nixpkgs_pr=gh_find_merged_nixpkgs_pr, find_landed_in_tree=find_landed_in_tree,
                    fetch_change=gh_fetch_change, fetch_file=gh_fetch_file, comment=poster,
                    post=bool(args.post and not args.dry_run))
     for cve, state in sorted(states.items()):
