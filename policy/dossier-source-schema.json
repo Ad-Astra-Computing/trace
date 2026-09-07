@@ -81,6 +81,28 @@
         "safeForAutomation": { "type": "boolean" }
       }
     },
+    "references": {
+      "description": "Typed reference URLs, served from 7 September 2026 in place of the embedded sources block. items[].type is the aggregator's classification (patch, advisory, other); patches[] repeats the patch URLs.",
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "truncated": { "type": "integer" },
+        "patches": { "type": "array", "items": { "type": "string" } },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": { "type": "string" },
+              "type": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "sources": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
     "links": {
       "type": "object",
       "properties": {

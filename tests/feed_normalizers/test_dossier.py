@@ -584,3 +584,65 @@ def test_no_cve_id_rejected() -> None:
             fetched_at="2026-04-29T01:39:42Z",
             raw_response_bytes=b"{}",
         )
+
+
+def _data_with_reference_items() -> dict[str, Any]:
+    """The dossier shape served from 7 September 2026: no `sources` block, and a
+    top-level `references.items[]` carrying typed URLs. Before this, the
+    normalizer only read `sources.nvd.nvdReferences`, so every record lost its fix
+    commit and Scout had to re-fetch NVD for each CVE."""
+    data = copy.deepcopy(_data())
+    data.pop("sources", None)
+    data["references"] = {
+        "total": 3,
+        "truncated": 0,
+        "patches": ["https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40],
+        "items": [
+            {"url": "https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40,
+             "type": "patch", "tags": ["patch"], "sources": ["primary"]},
+            {"url": "https://cert.pl/en/posts/2026/08/CVE-2026-16599",
+             "type": "advisory", "tags": ["third-party-advisory"], "sources": ["primary"]},
+            {"url": "https://gitlab.com/gnuwget/wget", "type": "other",
+             "tags": ["product"], "sources": ["primary"]},
+        ],
+    }
+    return data
+
+
+def test_reference_items_are_normalized_by_type() -> None:
+    out = normalize_dossier(
+        _data_with_reference_items(),
+        request_url="https://api.vulnpatch.dev/api/v1/cve/CVE-2024-13978/dossier",
+        fetched_at="2026-09-07T00:00:00Z",
+        raw_response_bytes=b"{}",
+    )
+    by_url = {r["url"]: r["kind"] for r in out["references"]}
+    assert by_url["https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40] == "upstream-commit"
+    assert by_url["https://cert.pl/en/posts/2026/08/CVE-2026-16599"] == "advisory"
+    assert by_url["https://gitlab.com/gnuwget/wget"] == "other"
+
+
+def test_reference_items_output_validates(scout_input_validator: Draft202012Validator) -> None:
+    out = normalize_dossier(
+        _data_with_reference_items(),
+        request_url="https://api.vulnpatch.dev/api/v1/cve/CVE-2024-13978/dossier",
+        fetched_at="2026-09-07T00:00:00Z",
+        raw_response_bytes=b"{}",
+    )
+    errors = sorted(scout_input_validator.iter_errors(out), key=lambda e: e.path)
+    assert not errors, [str(e) for e in errors[:3]]
+
+
+def test_non_string_reference_urls_are_skipped_not_raised() -> None:
+    """Feed data is hostile until validated. A url that is a bool or an int used
+    to reach the host heuristic's `in` check and raise TypeError, which the
+    poller does not catch."""
+    data = _data_with_reference_items()
+    data["references"]["items"] += [{"url": True}, {"url": 42}, {"url": None}, {"url": ""}]
+    out = normalize_dossier(
+        data,
+        request_url="https://api.vulnpatch.dev/api/v1/cve/CVE-2024-13978/dossier",
+        fetched_at="2026-09-07T00:00:00Z",
+        raw_response_bytes=b"{}",
+    )
+    assert all(isinstance(r["url"], str) and r["url"] for r in out["references"])

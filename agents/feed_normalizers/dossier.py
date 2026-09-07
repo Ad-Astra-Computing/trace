@@ -187,6 +187,19 @@ def _extract_references(response: dict[str, Any]) -> list[dict[str, str]]:
         if url and url not in seen:
             seen.add(url)
             refs.append({"url": url, "kind": _classify_url(url)})
+    # Served since 7 September 2026: a top-level references.items[] with a type
+    # per URL. The type is the aggregator's own classification and beats the
+    # host heuristic; anything it calls "other" still gets the host check, since
+    # an untyped commit URL is exactly the case that cost the live lane its
+    # fix commits.
+    references = response.get("references")
+    items = references.get("items") if isinstance(references, dict) else None
+    for entry in items or []:
+        url = entry.get("url") if isinstance(entry, dict) else None
+        if not isinstance(url, str) or not url or url in seen:
+            continue
+        seen.add(url)
+        refs.append({"url": url, "kind": _classify_reference_item(url, entry)})
     sources = response.get("sources") or {}
     nvd = sources.get("nvd") if isinstance(sources, dict) else None
     if isinstance(nvd, dict):
@@ -197,6 +210,29 @@ def _extract_references(response: dict[str, Any]) -> list[dict[str, str]]:
             seen.add(url)
             refs.append({"url": url, "kind": _classify_nvd_ref(url, entry.get("tags") or [])})
     return refs
+
+
+_ITEM_TYPE_TO_KIND: dict[str, str] = {
+    "patch": "upstream-commit",
+    "advisory": "advisory",
+    "release-notes": "release-notes",
+    "bug-tracker": "bug-tracker",
+    "blog": "blog",
+}
+
+
+def _classify_reference_item(url: str, entry: dict[str, Any]) -> str:
+    """The aggregator's explicit type wins outright. The host heuristic tags any
+    github.com or gitlab.com URL as a commit, which is too loose once a real type
+    is available: a bare repository URL typed "other" must stay "other"."""
+    item_type = str(entry.get("type") or "").lower()
+    if item_type:
+        return _ITEM_TYPE_TO_KIND.get(item_type, "other")
+    for tag in entry.get("tags") or []:
+        kind = _ITEM_TYPE_TO_KIND.get(str(tag).lower())
+        if kind:
+            return kind
+    return _classify_url(url)
 
 
 def _extract_cpe_matches(sources: dict[str, Any]) -> list[dict[str, str]]:
