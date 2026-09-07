@@ -61,10 +61,17 @@ _DRV_PATH_RE = re.compile(r"/nix/store/[a-z0-9]{32}-.+\.drv")
 _VERSION_RE = re.compile(r'^\s*version\s*=\s*"([^"]+)"\s*;', re.MULTILINE)
 
 
+def _declared_versions(package_nix: str) -> list[str]:
+    """Every literal version a package file declares. A multivariant file such as
+    libxml2's declares one per variant (2.13.9 for libxml2_13, 2.15.3 for libxml2),
+    so the check asks whether the candidate's version is among them."""
+    return _VERSION_RE.findall(package_nix)
+
+
 def _declared_version(package_nix: str) -> str | None:
-    """The literal version a package file declares, or None when it computes one."""
-    m = _VERSION_RE.search(package_nix)
-    return m.group(1) if m else None
+    """The first literal version a package file declares, or None when it computes one."""
+    found = _declared_versions(package_nix)
+    return found[0] if found else None
 
 def commit_patch_url(repo_url: str, commit_sha: str) -> str:
     repo = repo_url.rstrip("/")
@@ -141,12 +148,12 @@ def bootstrap_candidate(
     # The screen reads its own snapshot of nixpkgs; the pinned revision comes from
     # the operator. When they disagree the bundle is built against the wrong base,
     # which preflight only catches later, after the source has been fetched.
-    pinned = _declared_version(package_nix)
+    pinned = _declared_versions(package_nix)
     candidate_version = resolver_input.get("current_version") or ""
-    if pinned and candidate_version and pinned != candidate_version and not allow_version_drift:
+    if pinned and candidate_version and candidate_version not in pinned and not allow_version_drift:
         raise BootstrapError(
             f"{cve_id}: the candidate names version {candidate_version} but {rel_path} at "
-            f"{nixpkgs_rev[:12]} declares {pinned}. Pin the revision the screen ran against, "
+            f"{nixpkgs_rev[:12]} declares {', '.join(pinned)}. Pin the revision the screen ran against, "
             f"or pass --allow-version-drift if the difference is understood."
         )
 

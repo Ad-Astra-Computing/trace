@@ -228,6 +228,24 @@ def test_version_drift_can_be_overridden(tmp_path):
     assert (out / "package.nix").exists()
 
 
+def test_a_multivariant_file_passes_when_any_variant_matches(tmp_path):
+    """libxml2's default.nix declares 2.13.9 for libxml2_13 before 2.15.3 for
+    libxml2. Reading only the first literal refused CVE-2026-86144 at a revision
+    whose libxml2 attr was exactly the screened version."""
+    entry = _entry(tmp_path)
+    out = tmp_path / "bundle"
+    _run(entry, out, read_pinned_file=lambda c, r, p: (
+        '{ }: {\n  libxml2_13 = { version = "1.24.5"; };\n  libxml2 = { version = "1.25.0"; };\n}\n'))
+    assert (out / "package.nix").exists()
+
+
+def test_a_multivariant_file_names_every_version_when_none_matches(tmp_path):
+    entry = _entry(tmp_path)
+    with pytest.raises(BootstrapError, match="1.24.5, 1.24.6"):
+        _run(entry, tmp_path / "bundle",
+             read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.24.5";\n  version = "1.24.6";\n}\n')
+
+
 def test_matching_version_passes(tmp_path):
     entry = _entry(tmp_path)
     out = tmp_path / "bundle"
