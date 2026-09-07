@@ -315,6 +315,27 @@ def _fetch_source(ctx: dict[str, Any]) -> Path:
     return tree
 
 
+def _choose_applying_fix(commits: list[dict], *, fetch_patch, applies) -> tuple[dict, str] | None:
+    """The first cited fix commit whose patch applies to the pinned source.
+
+    A CVE record often cites one fix commit per maintained branch. Bootstrap takes
+    the first, which may be the backport to an older line; svgo CVE-2026-84370
+    cited the v2, v3 and v4 fixes and nixpkgs packages 4.0.1. Each candidate is
+    fetched and tried in the order cited.
+    """
+    from tools.trace_cli.bootstrap import commit_patch_url
+
+    for commit in commits:
+        url = commit_patch_url(commit.get("repo_url", ""), commit.get("commit_sha", ""))
+        try:
+            text = fetch_patch(url)
+        except Exception:  # noqa: BLE001 - an unfetchable candidate is skipped, not fatal
+            continue
+        if text and applies(text):
+            return commit, text
+    return None
+
+
 def _preflight(ctx: dict[str, Any], *, patch_diff: bool) -> None:
     from tools.trace_cli import preflight
 
@@ -324,10 +345,47 @@ def _preflight(ctx: dict[str, Any], *, patch_diff: bool) -> None:
     )
     repo_root = Path(__file__).resolve().parents[2]
     code = preflight.run(args, repo_root=repo_root)
+    if code != 0 and not patch_diff:
+        code = _retry_with_other_cited_commits(ctx, args, repo_root)
     if code != 0:
         which = "the model payload" if patch_diff else "upstream-fix.patch"
         raise StepStopped("preflight_payload" if patch_diff else "preflight_upstream",
                           f"{which} does not apply to the pinned source (preflight exit {code})")
+
+
+def _retry_with_other_cited_commits(ctx: dict[str, Any], args: argparse.Namespace, repo_root: Path) -> int:
+    """When the first cited fix does not apply, try the others the CVE names."""
+    import shutil as _shutil
+
+    from tools.trace_cli import preflight
+    from tools.trace_cli.bootstrap import fetch_patch
+
+    bundle_dir: Path = ctx["bundle_dir"]
+    ref_path = bundle_dir / "upstream-ref.json"
+    if not ref_path.is_file():
+        return 1
+    ref = json.loads(ref_path.read_text())
+    commits = ref.get("upstream_fix_commits") or []
+    if len(commits) < 2:
+        return 1
+    original = (bundle_dir / "upstream-fix.patch").read_text()
+
+    def applies(text: str) -> bool:
+        (bundle_dir / "upstream-fix.patch").write_text(text)
+        return preflight.run(args, repo_root=repo_root) == 0
+
+    chosen = _choose_applying_fix(commits[1:], fetch_patch=fetch_patch, applies=applies)
+    if chosen is None:
+        (bundle_dir / "upstream-fix.patch").write_text(original)
+        return 1
+    commit, _text = chosen
+    # Put the commit that applies first so the Patcher and the record agree on the fix.
+    ref["upstream_fix_commits"] = [commit] + [c for c in commits if c is not commit]
+    ref_path.write_text(json.dumps(ref, indent=2) + "\n")
+    ctx.setdefault("notes", []).append(
+        f"upstream fix: cited commit {commits[0].get('commit_sha', '')[:12]} did not apply; "
+        f"using {commit.get('commit_sha', '')[:12]}, which does")
+    return 0
 
 
 def _role(ctx: dict[str, Any], role: str) -> dict[str, Any]:

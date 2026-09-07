@@ -355,3 +355,25 @@ def test_until_rejects_an_unknown_step(tmp_path):
     t = Trace()
     with pytest.raises(ValueError, match="unknown step"):
         run_candidate(_ctx(tmp_path), steps=t.steps(), until="nope")
+
+
+def test_choose_applying_fix_tries_each_cited_commit_in_order():
+    """svgo CVE-2026-84370 cites three fix commits, one per maintained branch; the
+    first is the v2 backport and does not apply to the packaged 4.0.1."""
+    from tools.trace_cli.candidate_run import _choose_applying_fix
+    commits = [{"repo_url": "https://github.com/svg/svgo", "commit_sha": "a" * 40},
+               {"repo_url": "https://github.com/svg/svgo", "commit_sha": "b" * 40},
+               {"repo_url": "https://github.com/svg/svgo", "commit_sha": "c" * 40}]
+    fetched = []
+    texts = {"a" * 40: "v2 patch", "b" * 40: "v3 patch", "c" * 40: "v4 patch"}
+    def fetch(url):
+        sha = url.rsplit("/", 1)[-1].removesuffix(".patch"); fetched.append(sha); return texts[sha]
+    chosen = _choose_applying_fix(commits, fetch_patch=fetch, applies=lambda text: text == "v4 patch")
+    assert chosen == (commits[2], "v4 patch")
+    assert fetched == ["a" * 40, "b" * 40, "c" * 40]
+
+
+def test_choose_applying_fix_returns_none_when_nothing_applies():
+    from tools.trace_cli.candidate_run import _choose_applying_fix
+    commits = [{"repo_url": "https://github.com/o/r", "commit_sha": "a" * 40}]
+    assert _choose_applying_fix(commits, fetch_patch=lambda u: "x", applies=lambda t: False) is None
