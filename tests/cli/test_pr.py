@@ -519,7 +519,10 @@ def _assert_reads_as_prose(body: str) -> None:
         assert "- [ ]" not in line, f"checkbox: {line!r}"
     assert not any(ord(c) > 0x2100 for c in body), "emoji"
     paragraphs = [p for p in body.split("\n\n") if p.strip()]
-    assert len(paragraphs) <= 3, f"{len(paragraphs)} paragraphs"
+    # The generator's signature is the last paragraph and is not body copy, so
+    # the prose budget is counted over what precedes it.
+    assert paragraphs[-1] == pr_mod._FOOTER, f"footer missing: {paragraphs[-1]!r}"
+    assert len(paragraphs[:-1]) <= 3, f"{len(paragraphs) - 1} paragraphs"
     assert "Evidence for" not in body, "provenance is not a verification narrative"
 
 
