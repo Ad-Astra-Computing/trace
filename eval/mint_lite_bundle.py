@@ -46,8 +46,9 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from eval.cve_package_check import check_cve_names_package  # noqa: E402
 
 
 def _base64_sha256_to_hex(sri: str) -> str:
@@ -427,7 +428,16 @@ def main() -> int:
     ap.add_argument("--nixpkgs-package-nix", default="", help="Content of pre-fix package.nix (optional)")
     ap.add_argument("--nixpkgs-package-nix-path", default="", help="Path of package.nix in nixpkgs")
     ap.add_argument("--out", required=True, type=Path, help="Output bundle directory")
+    ap.add_argument("--skip-cve-package-check", action="store_true",
+                    help="Mint even when the advisory does not name the package")
     args = ap.parse_args()
+
+    mismatch = check_cve_names_package(args.cve, args.package)
+    if mismatch:
+        if not args.skip_cve_package_check:
+            print(f"  refusing to mint: {mismatch}", file=sys.stderr)
+            return 1
+        print(f"  WARNING: {mismatch}", file=sys.stderr)
 
     ok = mint_bundle(
         cve=args.cve,
