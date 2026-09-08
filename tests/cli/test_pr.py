@@ -405,9 +405,8 @@ def test_build_pr_body_includes_cve_and_rekor(tmp_path: Path) -> None:
     bd.mkdir()
     body = pr_mod._build_pr_body(bundle, bd, cert_run_url=None)
     assert "CVE-2025-8176" in body
-    assert "auto-merge" in body
     assert "abcd1234ef567890" in body
-    assert "rekor.sigstore.dev" in body
+    _assert_reads_as_prose(body)
 
 
 def test_build_pr_body_includes_cert_run_url(tmp_path: Path) -> None:
@@ -427,6 +426,7 @@ def test_build_pr_body_includes_cert_run_url(tmp_path: Path) -> None:
     url = "https://github.com/Ad-Astra-Computing/trace/actions/runs/26647927663"
     body = pr_mod._build_pr_body(bundle, bd, cert_run_url=url)
     assert url in body
+    _assert_reads_as_prose(body)
 
 
 def test_load_attr_returns_attr_path(tmp_path: Path) -> None:
@@ -494,17 +494,200 @@ def test_auto_merge_mode_still_refuses_human_review(tmp_path, capsys):
     assert "auto-merge" in capsys.readouterr().err
 
 
-def test_review_body_has_blocking_sufficiency_checklist(tmp_path):
+def test_review_body_states_the_sufficiency_gap_in_prose(tmp_path):
+    """The body must still tell a maintainer the fix may be incomplete, and
+    still link the upstream commit it transcribes, without the headings,
+    checkboxes and emoji that turn a change description into a status report."""
     bd = _backport_bundle(tmp_path)
     bundle = json.loads((bd / "bundle.json").read_text())
     body = pr_mod._build_pr_body(bundle, bd, None, review=True)
-    assert "EXPERIMENTAL source-backport" in body
-    assert "COMPLETE" in body                       # necessary-but-not-sufficient warning
-    assert "- [ ]" in body                          # blocking checklist
-    assert "github.com/x/y/commit/deadbeef" in body  # upstream fix commit linked
+    assert "may carry only" in body
+    assert "github.com/x/y/commit/deadbeef" in body
     assert "draft" in body.lower()
-    # the auto-merge body has none of this
-    assert "EXPERIMENTAL source-backport" not in pr_mod._build_pr_body(bundle, bd, None, review=False)
+    _assert_reads_as_prose(body)
+    # the auto-merge body carries no sufficiency caveat
+    assert "draft" not in pr_mod._build_pr_body(bundle, bd, None, review=False).lower()
+
+
+def _assert_reads_as_prose(body: str) -> None:
+    """A public artifact is two or three plain paragraphs, not a work log."""
+    for line in body.splitlines():
+        assert not line.startswith("#"), f"heading: {line!r}"
+        assert not line.lstrip().startswith(("- ", "* ", "+ ")), f"bullet: {line!r}"
+        assert "**" not in line, f"bold: {line!r}"
+        assert "<details" not in line and "```" not in line, f"block: {line!r}"
+        assert "- [ ]" not in line, f"checkbox: {line!r}"
+    assert not any(ord(c) > 0x2100 for c in body), "emoji"
+    paragraphs = [p for p in body.split("\n\n") if p.strip()]
+    assert len(paragraphs) <= 3, f"{len(paragraphs)} paragraphs"
+    assert "Evidence for" not in body, "provenance is not a verification narrative"
+
+
+def test_auto_merge_body_names_a_version_bump_as_a_bump(tmp_path):
+    """A bump body must not claim an in-tree backport. The old wording said
+    every auto-merge PR carried a patch, which is false for the bump lane."""
+    bd = tmp_path / "b"
+    bd.mkdir()
+    bundle = {"cve_id": "CVE-2025-1", "bundle_id": "ab", "nixpkgs_rev": "d" * 40,
+              "signed_manifest": {}}
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"current_version": "1.4.7", "target_version": "1.4.8"}))
+    body = pr_mod._build_pr_body(bundle, bd, None)
+    assert "1.4.8" in body
+    assert "backport" not in body
+    _assert_reads_as_prose(body)
+
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"current_version": "1.4.7", "target_version": "1.4.7",
+         "eligibility": {"patch_strategy": "source-backport"}}))
+    backport = pr_mod._build_pr_body(bundle, bd, None)
+    assert "backports the fix as an in-tree patch" in backport
+    _assert_reads_as_prose(backport)
+
+
+def test_same_version_bundle_without_a_strategy_reads_as_a_backport(tmp_path):
+    """Bundles older than eligibility.patch_strategy (micropython, libtiff,
+    mruby, proxychains-ng) record target == current. That is a backport, and
+    calling it a bump would claim the PR moves a package to its own version."""
+    bd = tmp_path / "b"
+    bd.mkdir()
+    bundle = {"cve_id": "CVE-2026-1998", "kind": "auto-merge", "bundle_id": "ab",
+              "nixpkgs_rev": "d" * 40, "signed_manifest": {}}
+    (bd / "upstream-ref.json").write_text(json.dumps(
+        {"current_version": "1.27.0", "target_version": "1.27.0"}))
+    body = pr_mod._build_pr_body(bundle, bd, None)
+    assert "backports the fix as an in-tree patch" in body
+    assert "moves the package to" not in body
+    _assert_reads_as_prose(body)
+
+
+def test_auto_merge_body_survives_a_missing_upstream_ref(tmp_path):
+    bd = tmp_path / "b"
+    bd.mkdir()
+    bundle = {"cve_id": "CVE-2025-1", "bundle_id": "ab", "nixpkgs_rev": "d" * 40,
+              "signed_manifest": {}}
+    body = pr_mod._build_pr_body(bundle, bd, None)
+    assert "carries the fix" in body
+    _assert_reads_as_prose(body)
+
+
+def test_pr_body_satisfies_the_fork_policy(tmp_path):
+    """policy/nixpkgs-fork.json declares what a PR body must carry. Nothing
+    used to operate that list, so a rewrite could drop an item and stay green.
+    This drives the generator once per declared item, and fails on an item it
+    does not know how to check rather than passing it silently."""
+    policy = json.loads(Path("policy/nixpkgs-fork.json").read_text())
+    required = policy["pr_convention"]["body_includes"]
+
+    bundle = {
+        "cve_id": "CVE-2025-8176",
+        "kind": "human-review-required",
+        "bundle_id": "abcd1234ef567890",
+        "nixpkgs_rev": "d" * 40,
+        "signed_manifest": {
+            "rekor_log_index": 9999999,
+            "identity_subject": "https://github.com/Ad-Astra-Computing/trace/"
+                                ".github/workflows/steward.yml@refs/heads/main",
+            "identity_issuer": "https://token.actions.githubusercontent.com",
+        },
+    }
+    bd = tmp_path / "b"
+    bd.mkdir()
+    body = pr_mod._build_pr_body(bundle, bd, cert_run_url=None)
+
+    checks = {
+        # two halves: the bundle id AND the pinned commit, in full. An
+        # abbreviated rev does not identify a commit unambiguously.
+        "link to the trace bundle ID + commit": ("abcd1234ef567890", "d" * 40),
+        "Steward verdict (auto-merge / human-review-required / advisory-only)":
+            "human-review-required",
+        "the bundle's signed_manifest.identity_subject for verifiability":
+            bundle["signed_manifest"]["identity_subject"],
+        "the Rekor log entry link": "rekor.sigstore.dev",
+    }
+    for item in required:
+        assert item in checks, (
+            f"policy requires {item!r} in the PR body and this test does not "
+            "know how to check it; add a check rather than widening the list"
+        )
+        expected = checks[item]
+        for fragment in (expected if isinstance(expected, tuple) else (expected,)):
+            assert fragment in body, f"body omits {fragment!r}, required by {item!r}"
+    _assert_reads_as_prose(body)
+
+
+def test_the_posted_body_is_the_built_body(tmp_path):
+    """The base-branch note used to be appended by the caller, so the body that
+    reached GitHub had a paragraph no test had seen. Composition happens in one
+    place; this operates that path and guards the append from coming back."""
+    import inspect
+
+    bd = _backport_bundle(tmp_path)
+    bundle = json.loads((bd / "bundle.json").read_text())
+    body = pr_mod._build_pr_body(bundle, bd, None, review=True,
+                                 base_branch="trace/base/abc123")
+    assert "trace/base/abc123" in body
+    assert "the diff is this change alone" in body
+    _assert_reads_as_prose(body)
+
+    # The dry-run preview is the approval surface for a public post, so it
+    # must compose the body the same way the posting path does.
+    import ast
+    import textwrap
+
+    src = inspect.getsource(pr_mod.run)
+    calls = [
+        node for node in ast.walk(ast.parse(textwrap.dedent(src)))
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "_build_pr_body"
+    ]
+    assert calls, "run() no longer builds a PR body"
+    for call in calls:
+        assert any(kw.arg == "base_branch" for kw in call.keywords), (
+            "every _build_pr_body call in run() passes base_branch, or the "
+            "body shown for approval is not the body that goes out"
+        )
+    assert "pr_body +=" not in src, (
+        "the PR body is composed in _build_pr_body alone; an append here ships "
+        "prose the body tests never see"
+    )
+
+
+def test_preview_resolves_the_base_without_pushing_it(tmp_path):
+    """The preview must name the base the run would really target. Where the
+    fork's default branch predates the pin the run cuts trace/base/<rev>, and a
+    preview that still said master would promise a diff it cannot deliver
+    (PR #47). Naming that branch is a read; creating it is a write to a public
+    fork, so the preview must not push."""
+    pushed: list[tuple] = []
+
+    def never(*a, **kw):
+        pushed.append(a)
+        return 0
+
+    rev = "a" * 40
+    base = pr_mod._resolve_base(
+        "o", "r", "master", rev, tmp_path, "url",
+        compare=lambda *a: "ahead", push=never, push_missing_base=False,
+    )
+    assert base == f"trace/base/{rev}"
+    assert not pushed, "a preview must not create a branch on the fork"
+
+    # the executing path still creates it
+    base = pr_mod._resolve_base(
+        "o", "r", "master", rev, tmp_path, "url",
+        compare=lambda *a: "ahead", push=never,
+    )
+    assert base == f"trace/base/{rev}"
+    assert pushed, "the executing path pushes the base it targets"
+
+
+def test_preview_omits_the_base_sentence_when_it_cannot_be_resolved(tmp_path):
+    bd = _backport_bundle(tmp_path)
+    bundle = json.loads((bd / "bundle.json").read_text())
+    body = pr_mod._build_pr_body(bundle, bd, None, review=True, base_branch=None)
+    assert "Based on" not in body
+    _assert_reads_as_prose(body)
 
 
 def test_git_add_includes_new_files_then_commit(tmp_path):

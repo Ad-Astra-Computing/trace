@@ -417,9 +417,27 @@ def run(args: argparse.Namespace) -> int:
         print(f"[dry-run] package_dir:   {package_dir_rel}")
         print(f"[dry-run] patch check:   ok (git apply --check passed)")
         if review_mode:
+            # Show the base this run would target, resolved read-only, so the
+            # previewed body is the body that would be posted. An unresolvable
+            # base leaves the sentence out rather than asserting a wrong one.
+            try:
+                preview_base = _resolve_base(
+                    fork_owner, fork_repo, base_branch, nixpkgs_rev,
+                    nixpkgs_dir, push_url, push_missing_base=False,
+                )
+            except RuntimeError as e:
+                preview_base = None
+                print(f"[dry-run] base:          undetermined ({e})")
+            else:
+                print(f"[dry-run] base resolved: {preview_base}")
             print(f"[dry-run] draft:         yes (maintainer reviews + merges)")
             print(f"[dry-run] --- PR body ---")
-            print(_build_pr_body(bundle, bundle_dir, args.cert_run_url, review=True))
+            # The preview is the approval surface: it has to be the body that
+            # would be posted, base sentence included.
+            print(_build_pr_body(
+                bundle, bundle_dir, args.cert_run_url,
+                review=True, base_branch=preview_base,
+            ))
         print(f"[dry-run] stopping here ({why})")
         _cleanup(owned_tmp)
         return EXIT_OK
@@ -486,8 +504,10 @@ def run(args: argparse.Namespace) -> int:
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
     print(f"  PR base: {base_branch}")
-    pr_body = _build_pr_body(bundle, bundle_dir, args.cert_run_url, review=review_mode)
-    pr_body += f"\n\nBase: `{base_branch}`, which contains the bundle's pinned nixpkgs revision `{nixpkgs_rev[:12]}`, so the diff is this change alone.\n"
+    pr_body = _build_pr_body(
+        bundle, bundle_dir, args.cert_run_url,
+        review=review_mode, base_branch=base_branch,
+    )
     pr_url, rc = _gh_pr_create(
         nixpkgs_dir=nixpkgs_dir,
         fork_owner=fork_owner,
@@ -1046,7 +1066,8 @@ def _git_push_refspec(nixpkgs: Path, fork_url: str, refspec: str) -> int:
 
 
 def _resolve_base(owner: str, repo: str, base_branch: str, nixpkgs_rev: str, nixpkgs_dir: Path,
-                  push_url: str, *, compare=_gh_compare_status, push=_git_push_refspec) -> str:
+                  push_url: str, *, compare=_gh_compare_status, push=_git_push_refspec,
+                  push_missing_base: bool = True) -> str:
     """The branch the PR must target so its diff is exactly our commit.
 
     The patch branch is cut from the bundle's pinned nixpkgs_rev. When the fork's
@@ -1063,6 +1084,10 @@ def _resolve_base(owner: str, repo: str, base_branch: str, nixpkgs_rev: str, nix
     if status in ("identical", "behind"):
         return base_branch
     base = f"trace/base/{nixpkgs_rev}"
+    if not push_missing_base:
+        # Naming the base a run would use is a read; creating it is a write to
+        # a public fork. A preview does the first only.
+        return base
     rc = push(nixpkgs_dir, push_url, f"{nixpkgs_rev}:refs/heads/{base}")
     if rc != 0:
         raise RuntimeError(f"pushing the base branch {base} failed")
@@ -1147,15 +1172,39 @@ def _gh_pr_create(
     return (r.stdout or "").strip(), 0
 
 
+def _describe_the_change(bundle_dir: Path) -> str:
+    """Say what the patch does in the package: backport a fix in tree, or move
+    the package to a fixed version. Falls back to wording that covers both when
+    the bundle does not record a strategy."""
+    try:
+        ur = json.loads((bundle_dir / "upstream-ref.json").read_text())
+    except Exception:
+        return "This carries the fix into nixpkgs."
+    strategy = (ur.get("eligibility") or {}).get("patch_strategy")
+    current = ur.get("current_version")
+    target = ur.get("target_version")
+    # Bundles predating the strategy field record the backport as a target
+    # equal to the current version. Reading that as a bump would describe the
+    # change as moving the package to the version it is already on.
+    if strategy == "source-backport" or (target and target == current):
+        return "This backports the fix as an in-tree patch, without bumping the package."
+    if target:
+        return f"This moves the package to {target}, which carries the fix."
+    return "This carries the fix into nixpkgs."
+
+
 def _build_pr_body(
     bundle: dict[str, Any],
     bundle_dir: Path,
     cert_run_url: str | None,
     review: bool = False,
+    base_branch: str | None = None,
 ) -> str:
-    """Build the PR body from pr-snippet evidence block + cert summary. In
-    review mode, prepend a BLOCKING necessary-but-not-sufficient checklist the
-    maintainer must tick before marking the draft Ready-for-review."""
+    """Build the PR body: two or three plain paragraphs saying what changed,
+    where the evidence is, and (in review mode) what the evidence does not
+    establish. No headings, bullets or emphasis; a public artifact is read by
+    people who were not in the work, and structure turns a change description
+    into a status report."""
     from tools.trace_cli import pr_snippet as _pr_snippet
 
     sm = bundle.get("signed_manifest", {})
@@ -1168,76 +1217,70 @@ def _build_pr_body(
     cve_id = bundle.get("cve_id", "?")
     kind = bundle.get("kind", "?")
     bundle_id = bundle.get("bundle_id", "?")
-    nixpkgs_rev = bundle.get("nixpkgs_rev", "?")
     identity_subject = sm.get("identity_subject", "")
-    identity_issuer = sm.get("identity_issuer", "")
-    verify_cmd = f"trace bundle verify ./artifact  # bundle_id={bundle_id}"
+    nixpkgs_rev = str(bundle.get("nixpkgs_rev", "?"))
 
-    lines: list[str] = []
+    # Provenance, not a verification narrative: the bundle id and the
+    # transparency-log entry are what the artifact IS, and without them a
+    # reader cannot trace the change back to the record it rests on. Stated as
+    # metadata rather than as an account of what testing was performed.
+    coordinates = []
+    if cert_run_url:
+        coordinates.append(f"cert run {cert_run_url}")
+    if rekor_url:
+        coordinates.append(f"Rekor entry {rekor_url}")
+    # policy/nixpkgs-fork.json pr_convention.body_includes fixes what this
+    # sentence must carry: the bundle id, the Steward verdict, the signing
+    # identity and the Rekor entry. test_pr_body_satisfies_the_fork_policy
+    # drives that list, so dropping one of them fails rather than shipping.
+    where = (
+        f"Provenance: trace bundle {bundle_id} against nixpkgs {nixpkgs_rev}, "
+        f"steward verdict {kind}"
+    )
+    if identity_subject:
+        where += f", signed by {identity_subject}"
+    if coordinates:
+        where += " (" + ", ".join(coordinates) + ")"
+    where += "."
+    if base_branch:
+        where += (
+            f" Based on {base_branch}, which contains that revision, so the "
+            "diff is this change alone."
+        )
+
+    paragraphs: list[str] = []
+
     if review:
-        # The one failure mode the apply-gate can't catch by construction: a
-        # clean-applying backport that is NECESSARY BUT NOT SUFFICIENT (one of
-        # several required commits). The maintainer must confirm sufficiency.
         fix_commits = []
         try:
             ur = json.loads((bundle_dir / "upstream-ref.json").read_text())
             fix_commits = ur.get("upstream_fix_commits") or []
         except Exception:
             pass
-        fix_links = "\n".join(
-            f"  - {c.get('repo_url','')}/commit/{c.get('commit_sha','')}"
+        links = ", ".join(
+            f"{c.get('repo_url', '')}/commit/{c.get('commit_sha', '')}"
             for c in fix_commits
-        ) or "  - (see upstream-ref.json)"
-        lines += [
-            "## ⚠️ EXPERIMENTAL source-backport — NOT a version bump",
-            "",
-            "This PR **authors the upstream fix as an in-tree patch** against the "
-            "current nixpkgs version (no version bump). An agent generated it; a "
-            "cross-family reviewer verified it transcribes the upstream commit, and "
-            "a cert proved the bundled reproducer goes red→green. **A human "
-            "maintainer must still confirm sufficiency before merging:**",
-            "",
-            "- [ ] This applies the **COMPLETE** upstream fix, not one of several "
-            "required commits.",
-            "- [ ] The backported hunk matches the upstream fix commit(s):",
-            fix_links,
-            f"- [ ] Reviewed the cert evidence (reproducer red→green) for {cve_id}.",
-            "",
-            "_Opened as a **draft** deliberately — mark Ready-for-review only after "
-            "the boxes above are checked._",
-            "",
-            "---",
-            "",
-        ]
+        ) or "the commits recorded in the bundle's upstream-ref.json"
+        paragraphs.append(
+            f"{cve_id} is fixed upstream in {links}, and nixpkgs at "
+            f"{nixpkgs_rev[:12]} still carries the vulnerable version. This "
+            "backports that fix as an in-tree patch rather than bumping the "
+            "package."
+        )
+        paragraphs.append(
+            "Where the upstream fix spans several commits this may carry only "
+            "one of them, so it stays a draft until a maintainer confirms it "
+            "is the whole fix."
+        )
+    else:
+        paragraphs.append(
+            f"{cve_id} is unfixed in nixpkgs at {nixpkgs_rev[:12]}. "
+            + _describe_the_change(bundle_dir)
+        )
 
-    lines += [
-        f"**Evidence:** {cve_id} ({kind}) trace bundle `{bundle_id}`",
-        "",
-    ]
 
-    if rekor_url:
-        lines += [
-            f"* **Rekor entry:** {rekor_url}",
-            f"* **Workflow identity:** `{identity_subject}`",
-            f"* **OIDC issuer:** `{identity_issuer}`",
-        ]
-    if cert_run_url:
-        lines.append(f"* **Cert run:** {cert_run_url}")
-    lines += [
-        f"* **nixpkgs rev:** `{nixpkgs_rev}`",
-        "",
-        "<details><summary>Verify locally</summary>",
-        "",
-        "```sh",
-        f"gh run download <run-id> --name steward-smoke-<bundle> --dir ./artifact",
-        verify_cmd,
-        "```",
-        "",
-        "</details>",
-        "",
-        "_Generated by [trace](https://github.com/Ad-Astra-Computing/trace)._",
-    ]
-    return "\n".join(lines)
+    paragraphs.append(where)
+    return "\n\n".join(paragraphs)
 
 
 def _cleanup(tmp_dir: str | None) -> None:
