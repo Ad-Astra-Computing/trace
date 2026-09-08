@@ -570,8 +570,8 @@ def test_reproducer_in_model_backed_roles_set():
     assert "reproducer" in MODEL_BACKED_ROLES
 
 
-def test_reproducer_prompt_path_default_is_v20():
-    """Locked: the runner loads `prompts/reproducer.v20.md` by default.
+def test_reproducer_prompt_path_default_is_v21():
+    """Locked: the runner loads `prompts/reproducer.v21.md` by default.
 
     Reproducer prompt versioning is a contract change, not a doc-only edit. v12
     bans fallback-fires-signal predicates (a reproducer must not emit SIGNAL on
@@ -581,7 +581,7 @@ def test_reproducer_prompt_path_default_is_v20():
     """
     from tools.trace_cli.execute import REPRODUCER_PROMPT_PATH_DEFAULT
 
-    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v20.md", (
+    assert REPRODUCER_PROMPT_PATH_DEFAULT.name == "reproducer.v21.md", (
         f"runner default reproducer prompt should be v20 (got {REPRODUCER_PROMPT_PATH_DEFAULT.name}). "
         "If you are bumping the prompt, update this test in the same commit."
     )
