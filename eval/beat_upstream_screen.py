@@ -104,6 +104,42 @@ def _source_backport_ref(resolver_input: dict) -> dict | None:
     return None
 
 
+def corpus_fix_commits(root: Path) -> dict[tuple[str, str], str]:
+    """Map every (repo_url, commit_sha) the corpus already backports to its bundle.
+
+    A bundle's `resolver-input.json` names the commit its payload transcribes, so
+    the corpus itself is the record of which upstream fixes are already covered.
+    """
+    out: dict[tuple[str, str], str] = {}
+    for ri in sorted(root.glob("*/resolver-input.json")):
+        try:
+            d = json.loads(ri.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        for ref in d.get("candidate_refs") or []:
+            for c in ref.get("upstream_fix_commits") or []:
+                repo, sha = c.get("repo_url"), c.get("commit_sha")
+                if repo and sha:
+                    out.setdefault((repo, sha), ri.parent.name)
+    return out
+
+
+def _duplicate_of(ref: dict, corpus: dict[tuple[str, str], str], *, cve_id: str) -> str | None:
+    """The bundle already carrying this fix commit under a DIFFERENT CVE id.
+
+    One upstream commit often closes several advisories: HiddenLayer filed both
+    CVE-2026-79718 and CVE-2026-79720 against netron's cd14bad8, and a second
+    bundle would be a byte-identical payload double-counted in every accuracy
+    figure. Two bundles for the SAME id are the deliberate bump-versus-backport
+    tier pair (libxmp, proxychains-ng) and are not duplicates.
+    """
+    for c in ref.get("upstream_fix_commits") or []:
+        bundle = corpus.get((c.get("repo_url"), c.get("commit_sha")))
+        if bundle and not bundle.startswith(cve_id + "-"):
+            return bundle
+    return None
+
+
 def _nixpkgs_pr_exists(cve_id: str) -> bool | None:
     """True/False if a NixOS/nixpkgs PR references the CVE id; None if the check failed.
 
@@ -578,6 +614,7 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
                nvd_api_key: str | None, check_nixpkgs: bool,
                tag_cache: dict | None = None,
                reject_when_fixed_release: bool = False,
+               corpus: dict[tuple[str, str], str] | None = None,
                fetch_commit=_gh_commit,
                fetch_cve_record=_fetch_cve_record,
                repo_language=_gh_repo_language) -> dict:
@@ -607,6 +644,14 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
         return v
     v["fix_commits"] = ref.get("upstream_fix_commits", [])
     v["tier_hint"] = ref.get("tier_hint")
+
+    dup = _duplicate_of(ref, corpus or {}, cve_id=cve_id)
+    if dup is not None:
+        # Free gate, so it runs before any network check: one upstream commit
+        # often closes several advisories, and the corpus already has this one.
+        v["reject"] = "duplicate-fix-commit"
+        v["duplicate_of"] = dup
+        return v
 
     if _is_kernel(attr):
         v["reject"] = "kernel-bump-shaped"
@@ -733,6 +778,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: snapshot not found: {args.snapshot}", file=sys.stderr)
         return 64
     graph = CannedGraphLookup(snapshot_from_json(args.snapshot.read_text()))
+    corpus = corpus_fix_commits(ROOT / "traces" / "example")
     nvd_api_key = os.environ.get("NVD_API_KEY") or None
 
     if args.cve:
@@ -760,6 +806,7 @@ def main(argv: list[str] | None = None) -> int:
                 nvd_api_key=nvd_api_key, check_nixpkgs=args.check_nixpkgs,
                 reject_when_fixed_release=args.reject_when_fixed_release,
                 tag_cache=tag_cache,
+                corpus=corpus,
             ))
     finally:
         if tmp is not None:

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from eval.beat_upstream_screen import (
     _advisory_symbols,
+    _duplicate_of,
     _fix_shape_class,
     _fixed_release_status,
     _is_kernel,
@@ -14,6 +15,7 @@ from eval.beat_upstream_screen import (
     _repo_slug,
     _source_backport_ref,
     _verify_fix_commit,
+    corpus_fix_commits,
 )
 
 
@@ -457,3 +459,50 @@ def test_ecosystem_mismatch_stays_silent_when_it_cannot_know():
     assert _ecosystem_mismatch("wget", "C") is None            # not a package set
     assert _ecosystem_mismatch("haskellPackages.redis", None) is None   # language unknown
     assert _ecosystem_mismatch("weirdPackages.x", "C") is None  # package set not in the table
+
+
+def test_corpus_fix_commits_reads_every_bundle(tmp_path):
+    """A bundle's resolver-input names the commit its payload backports."""
+    for name, sha in (("CVE-1-a", "a" * 40), ("CVE-2-b", "b" * 40)):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "resolver-input.json").write_text(json.dumps({
+            "attr_path": "netron",
+            "candidate_refs": [{"upstream_fix_commits": [
+                {"repo_url": "https://github.com/o/r", "commit_sha": sha}]}],
+        }))
+    assert corpus_fix_commits(tmp_path) == {
+        ("https://github.com/o/r", "a" * 40): "CVE-1-a",
+        ("https://github.com/o/r", "b" * 40): "CVE-2-b",
+    }
+
+
+def test_corpus_fix_commits_tolerates_a_bundle_without_resolver_input(tmp_path):
+    (tmp_path / "fixture-dir").mkdir()
+    assert corpus_fix_commits(tmp_path) == {}
+
+
+def test_duplicate_fix_commit_is_found_by_a_different_cve_id():
+    """HiddenLayer filed CVE-2026-79718 and CVE-2026-79720 against one netron
+    commit. The second is a byte-identical payload, so it is not a candidate."""
+    ref = {"upstream_fix_commits": [
+        {"repo_url": "https://github.com/lutzroeder/netron", "commit_sha": "cd14bad8"}]}
+    corpus = {("https://github.com/lutzroeder/netron", "cd14bad8"):
+              "CVE-2026-79718--netron-sidebar-xss-backport"}
+    assert _duplicate_of(ref, corpus, cve_id="CVE-2026-79720") == \
+        "CVE-2026-79718--netron-sidebar-xss-backport"
+
+
+def test_a_bundle_for_the_same_cve_id_is_not_a_duplicate():
+    """Same-CVE bump/backport tier pairs are deliberate; only a different id
+    carrying an already-covered fix is a duplicate."""
+    ref = {"upstream_fix_commits": [
+        {"repo_url": "https://github.com/o/r", "commit_sha": "c" * 40}]}
+    corpus = {("https://github.com/o/r", "c" * 40): "CVE-2025-47256--libxmp-backport"}
+    assert _duplicate_of(ref, corpus, cve_id="CVE-2025-47256") is None
+
+
+def test_an_unseen_fix_commit_is_not_a_duplicate():
+    ref = {"upstream_fix_commits": [
+        {"repo_url": "https://github.com/o/r", "commit_sha": "d" * 40}]}
+    assert _duplicate_of(ref, {}, cve_id="CVE-2026-1") is None
