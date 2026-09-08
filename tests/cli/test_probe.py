@@ -282,3 +282,171 @@ def test_redaction_covers_nix_access_tokens_lines():
     out = redact_secrets(text)
     assert "abcdefghijklmnop" not in out
     assert "SIGNAL_PATCHED: ok" in out
+
+
+# --- signal hygiene: an arm that emitted its signal without having run ---
+# svgo CVE-2026-73650; see agents/reproducer/signal_hygiene.py for the shape.
+
+_VACUOUS_PATCHED = (
+    "error: unknown option '--enable=removeScripts'\n"
+    "grep: namespaced-out.svg: No such file or directory\n"
+    f"{SIG_P}\n"
+)
+
+
+def _vacuous_patched_runner() -> FakeBuildRunner:
+    return FakeBuildRunner(responses=[
+        _out(f"+ unpatched\n{SIG_U}\n", 1),
+        _out("+ patched-build OK\n", 0),
+        _out(_VACUOUS_PATCHED, 0),
+    ])
+
+
+def test_probe_records_hygiene_on_an_honest_fixture(tmp_path):
+    b = _bundle(tmp_path)
+    probe_bundle(b, build_runner=_discriminating_runner(), nixpkgs_checkout=None)
+    saved = json.loads((b / "probe.json").read_text())
+    assert saved["signal_hygiene_ok"] is True
+
+
+def test_probe_flags_a_signal_emitted_over_a_run_that_never_happened(tmp_path):
+    b = _bundle(tmp_path)
+    probe_bundle(b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None)
+    saved = json.loads((b / "probe.json").read_text())
+    assert saved["signal_patched_present"] is True, "the signal really is in the log"
+    assert saved["signal_hygiene_ok"] is False
+    assert "namespaced-out.svg" in saved["signal_hygiene_notes"]
+
+
+def test_probe_command_itself_fails_on_a_vacuous_signal(tmp_path):
+    """The probe command is the gate an operator actually runs; it must not print
+    "discriminates" and exit 0 for a fixture whose patched arm never ran."""
+    b = _bundle(tmp_path)
+    code, verdict = probe_bundle(b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None)
+    assert code == EXIT_NO_DISCRIMINATION
+    assert verdict["signal_hygiene_ok"] is False
+
+
+def test_a_usage_line_alone_does_not_refuse(tmp_path):
+    """A tool may print help while still doing its work, and an option rejection
+    may be the behaviour under test. One mark alone is recorded and shown to the
+    operator; only the pair, a refused invocation AND a predicate that then read
+    the output it never wrote, gates."""
+    b = _bundle(tmp_path)
+    runner = FakeBuildRunner(responses=[
+        _out(f"+ unpatched\n{SIG_U}\n", 1),
+        _out("+ patched-build OK\n", 0),
+        _out(f"usage: demo [options]\nprocessed 2 files\n{SIG_P}\n", 0),
+    ])
+    code, verdict = probe_bundle(b, build_runner=runner, nixpkgs_checkout=None)
+    assert code == 0
+    assert verdict["signal_hygiene_ok"] is True
+    assert "advisory" in verdict["signal_hygiene_notes"]
+    ok, _ = check_probe(b)
+    assert ok is True
+
+
+def test_check_refuses_a_vacuous_patched_signal(tmp_path):
+    """Both signals present is not enough: the gate must refuse a fixture whose
+    patched arm never ran. This is the cert gate, so it is the one that counts."""
+    b = _bundle(tmp_path)
+    probe_bundle(b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None)
+    ok, why = check_probe(b)
+    assert ok is False
+    assert "never happened" in why
+    assert "patched" in why
+
+
+def test_check_refuses_even_when_probe_json_claims_hygiene(tmp_path):
+    """The verdict is re-derived from the build record, so editing probe.json
+    does not buy a pass."""
+    b = _bundle(tmp_path)
+    probe_bundle(b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None)
+    p = b / "probe.json"
+    record = json.loads(p.read_text())
+    record["signal_hygiene_ok"] = True
+    record["signal_hygiene_notes"] = "looks fine to me"
+    p.write_text(json.dumps(record, indent=2) + "\n")
+    ok, why = check_probe(b)
+    assert ok is False
+    assert "never happened" in why
+
+
+def test_a_failing_arm_is_not_scanned(tmp_path):
+    """An arm that emitted no signal is claiming nothing, and its diagnostics are
+    usually the honest reason it failed. Only a signal-emitting arm is suspect."""
+    from agents.reproducer.signal_hygiene import scan_build
+
+    build = {
+        "unpatched": {"stdout_stderr": "foo: unrecognized option '--nope'\n"},
+        "patched": {"stdout_stderr": "parsed 2 files\nSIGNAL_PATCHED: clean\n"},
+    }
+    assert scan_build(build, signals={"unpatched": False, "patched": True}) == {}
+    assert "unpatched" in scan_build(build, signals={"unpatched": True, "patched": True})
+
+
+def test_an_incidental_missing_file_alone_does_not_refuse(tmp_path):
+    """A healthy fixture that cats an optional file must still pass. A false
+    positive here blocks honest work; a false negative costs only what we had
+    before the check existed."""
+    b = _bundle(tmp_path)
+    runner = FakeBuildRunner(responses=[
+        _out(f"+ unpatched\n{SIG_U}\n", 1),
+        _out("+ patched-build OK\n", 0),
+        _out(f"cat: optional.txt: No such file or directory\ndemo wrote result\n{SIG_P}\n", 0),
+    ])
+    code, verdict = probe_bundle(b, build_runner=runner, nixpkgs_checkout=None)
+    assert code == 0
+    assert verdict["signal_hygiene_ok"] is True
+    ok, _ = check_probe(b)
+    assert ok is True
+
+
+def test_a_recorded_override_lets_a_flagged_fixture_through(tmp_path):
+    """The gate is fail-closed, but an operator who has read the log and judged
+    the marks a false positive says so, and the reason travels with the bundle."""
+    b = _bundle(tmp_path)
+    code, verdict = probe_bundle(
+        b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None,
+        allow_signal_marks="the missing file is an optional cache probe, not the predicate's input",
+    )
+    assert code == 0
+    assert verdict["signal_hygiene_ok"] is False, "the marks are still recorded honestly"
+    assert "optional cache probe" in verdict["signal_hygiene_override"]
+    ok, why = check_probe(b)
+    assert ok is True, why
+
+
+def test_an_empty_override_does_not_count(tmp_path):
+    b = _bundle(tmp_path)
+    probe_bundle(b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None,
+                 allow_signal_marks="   ")
+    ok, why = check_probe(b)
+    assert ok is False
+    assert "never happened" in why
+
+
+def test_a_non_string_override_is_refused_not_a_crash(tmp_path):
+    """check_probe is the gate; malformed artifact data is a refusal, never an
+    exception."""
+    b = _bundle(tmp_path)
+    probe_bundle(b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None)
+    p = b / "probe.json"
+    record = json.loads(p.read_text())
+    record["signal_hygiene_override"] = True
+    p.write_text(json.dumps(record, indent=2) + "\n")
+    ok, why = check_probe(b)
+    assert ok is False
+    assert "never happened" in why
+
+
+def test_a_whitespace_override_fails_the_probe_command_too(tmp_path):
+    """The probe command and --check must agree on what counts as a reason, or
+    automation reads a green probe that the gate will later reject."""
+    b = _bundle(tmp_path)
+    code, verdict = probe_bundle(
+        b, build_runner=_vacuous_patched_runner(), nixpkgs_checkout=None,
+        allow_signal_marks="   ",
+    )
+    assert code == EXIT_NO_DISCRIMINATION
+    assert verdict["signal_hygiene_override"] is None

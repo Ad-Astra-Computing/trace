@@ -24,6 +24,12 @@ EXIT_REFUSED = 2
 EXIT_NO_DISCRIMINATION = 3
 EXIT_PROBE_ERROR = 4
 
+from agents.reproducer.signal_hygiene import (
+    describe as describe_hygiene,
+    refuses as hygiene_refuses,
+    scan_build,
+)
+
 PROBE_SCHEMA_VERSION = "1.0.0"
 _REQUIRED = ("reproducer.nix", "reproducer-log.txt", "passthru-tests.json")
 # Everything the arms are built from. A probe describes exactly these bytes.
@@ -104,12 +110,20 @@ def _refuse_unless_probeable(bundle_dir: Path, nixpkgs_checkout: Path | None) ->
             raise ProbeRefused(problem)
 
 
+def _honest(verdict, hygiene: dict, override_reason: str) -> bool:
+    """Both signals fired, and either no arm shows it never ran or an operator has
+    recorded why those marks are a false positive here."""
+    signals = verdict.signal_unpatched_present and verdict.signal_patched_present
+    return bool(signals and (not hygiene_refuses(hygiene) or override_reason))
+
+
 def probe_bundle(
     bundle_dir: Path,
     *,
     build_runner,
     nixpkgs_checkout: Path | None,
     timeout_seconds_per_build: int = 1800,
+    allow_signal_marks: str | None = None,
 ) -> tuple[int, dict]:
     """Run both arms once over the bundle's own fixture. Returns (exit code, verdict).
 
@@ -144,20 +158,45 @@ def probe_bundle(
             (bundle_dir / "probe-build.json").write_text(redacted)
             build_sha = _sha256(bundle_dir / "probe-build.json")
 
+    # One normalisation, used by both the exit code and the record, so the probe
+    # command and the later --check cannot disagree about what counts as a reason.
+    override_reason = (allow_signal_marks or "").strip()
+    hygiene: dict = {}
+    probe_build_path = bundle_dir / "probe-build.json"
+    if probe_build_path.is_file():
+        try:
+            hygiene = scan_build(
+                json.loads(probe_build_path.read_text()),
+                signals={
+                    "unpatched": verdict.signal_unpatched_present,
+                    "patched": verdict.signal_patched_present,
+                },
+            )
+        except json.JSONDecodeError:
+            hygiene = {}
+
     record = {
         "schema_version": PROBE_SCHEMA_VERSION,
         "probed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         **{key: _sha256(bundle_dir / name) for key, name in _BOUND.items() if (bundle_dir / name).is_file()},
         "nixpkgs_rev": _pinned_rev(bundle_dir),
-        "discriminates": verdict.discriminates,
+        "discriminates": _honest(verdict, hygiene, override_reason),
         "signal_unpatched_present": verdict.signal_unpatched_present,
         "signal_patched_present": verdict.signal_patched_present,
         "signal_specificity_ok": verdict.signal_specificity_ok,
+        "signal_hygiene_ok": not hygiene_refuses(hygiene),
+        "signal_hygiene_notes": describe_hygiene(hygiene),
+        "signal_hygiene_override": override_reason or None,
         "detail": verdict.detail,
         "build_json_sha256": build_sha,
     }
     (bundle_dir / "probe.json").write_text(json.dumps(record, indent=2) + "\n")
-    return (EXIT_OK if verdict.discriminates else EXIT_NO_DISCRIMINATION), record
+    # A signal emitted over an arm that never ran is not discrimination, whatever
+    # the scorers found in the log, so it must fail the probe command itself and
+    # not merely the later --check.
+    return (
+        EXIT_OK if _honest(verdict, hygiene, override_reason) else EXIT_NO_DISCRIMINATION
+    ), record
 
 
 def check_probe(bundle_dir: Path) -> tuple[bool, str]:
@@ -208,6 +247,23 @@ def check_probe(bundle_dir: Path) -> tuple[bool, str]:
         return False, f"the recorded build does not show the unpatched signal: {unpatched.notes}"
     if not (patched.applies and patched.score == 1.0):
         return False, f"the recorded build does not show the patched signal: {patched.notes}"
+
+    # Both signals are present. That is not yet proof both arms ran: an absence
+    # predicate fires over an output file the tool never wrote. Re-derive the
+    # hygiene marks from the build record rather than trusting probe.json.
+    hygiene = scan_build(
+        json.loads(build_record.read_text()),
+        signals={"unpatched": True, "patched": True},
+    )
+    if hygiene_refuses(hygiene):
+        # The gate is fail-closed by design: a false positive here is loud and
+        # names the two log lines it saw, while a false negative ships a fixture
+        # that never ran into a signed bundle. An operator who has read the log
+        # and disagrees records why, and the exception travels with the bundle.
+        raw_override = record.get("signal_hygiene_override")
+        override = raw_override.strip() if isinstance(raw_override, str) else ""
+        if not override:
+            return False, describe_hygiene(hygiene)
     return True, "probe is green and current"
 
 
@@ -225,6 +281,9 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
     p.add_argument("--nixpkgs-checkout", type=Path, default=None,
                    help="clean git checkout at the bundle's pinned nixpkgs_rev")
     p.add_argument("--timeout-seconds-per-build", type=int, default=1800)
+    p.add_argument("--allow-signal-marks", default=None, metavar="REASON",
+                   help="record why an arm's hygiene marks are a false positive here, "
+                        "and let the probe pass despite them")
     p.add_argument("--check", action="store_true",
                    help="gate form: exit 0 only if probe.json is green and matches the current fixture")
 
@@ -246,6 +305,7 @@ def run(args: argparse.Namespace) -> int:
             build_runner=LocalNixBuildRunner(),
             nixpkgs_checkout=args.nixpkgs_checkout,
             timeout_seconds_per_build=args.timeout_seconds_per_build,
+            allow_signal_marks=args.allow_signal_marks,
         )
     except ProbeRefused as e:
         print(f"refused: {e}")
@@ -253,10 +313,19 @@ def run(args: argparse.Namespace) -> int:
     if code == EXIT_PROBE_ERROR:
         print(f"probe error: {verdict.get('error')}")
         return code
-    state = "discriminates" if verdict["discriminates"] else "does NOT discriminate"
+    if not verdict["discriminates"]:
+        state = "does NOT discriminate"
+    elif not verdict["signal_hygiene_ok"]:
+        state = "signals both fired, but one arm never ran"
+    else:
+        state = "discriminates"
     print(f"probe: fixture {state}")
     print(f"  unpatched signal: {verdict['signal_unpatched_present']}")
     print(f"  patched signal:   {verdict['signal_patched_present']}")
     print(f"  detail:           {verdict['detail']}")
+    if verdict.get("signal_hygiene_notes") and (
+        not verdict["signal_hygiene_ok"] or "advisory" in verdict["signal_hygiene_notes"]
+    ):
+        print(f"  hygiene:          {verdict['signal_hygiene_notes']}")
     print(f"  wrote:            {args.bundle_dir / 'probe.json'} and probe-build.json")
     return code

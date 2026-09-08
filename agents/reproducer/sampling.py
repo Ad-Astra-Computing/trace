@@ -148,6 +148,13 @@ def default_temperature_schedule(k: int) -> list[float]:
     return [round(_FLOOR_TEMPERATURE + span * i / (k - 1), 4) for i in range(k)]
 
 
+from agents.reproducer.signal_hygiene import (
+    describe as describe_hygiene,
+    refuses as hygiene_refuses,
+    scan_build,
+)
+
+
 @dataclass(frozen=True)
 class ProbeVerdict:
     """The two-arm verifier's judgment on one candidate reproducer."""
@@ -156,10 +163,19 @@ class ProbeVerdict:
     signal_patched_present: bool
     signal_specificity_ok: bool  # advisory: named signal is CVE-specific
     detail: str
+    # False when an arm carried its SIGNAL over a run its own log shows never
+    # happened (signal_hygiene). Defaults True so a canned verdict in a test that
+    # predates the check keeps its meaning.
+    signal_hygiene_ok: bool = True
 
     @property
     def discriminates(self) -> bool:
-        return self.signal_unpatched_present and self.signal_patched_present
+        """Both signals present, and neither emitted over a run that never ran."""
+        return (
+            self.signal_unpatched_present
+            and self.signal_patched_present
+            and self.signal_hygiene_ok
+        )
 
 
 # A probe takes the isolated workspace and the candidate's three output blobs
@@ -383,11 +399,20 @@ def build_probe_fn(
         unpatched = ReproUnpatchedFailsScorer().score(bundle_dir=probe_dir, invocation=invocation)
         patched = ReproPatchedPassesScorer().score(bundle_dir=probe_dir, invocation=invocation)
         specificity = ReproSignalSpecificityScorer().score(bundle_dir=probe_dir, invocation=invocation)
+        u_present = bool(unpatched.applies and unpatched.score == 1.0)
+        p_present = bool(patched.applies and patched.score == 1.0)
+        marks = scan_build(
+            result.build_json, signals={"unpatched": u_present, "patched": p_present}
+        )
+        detail = f"unpatched={unpatched.notes}; patched={patched.notes}"
+        if marks:
+            detail += f"; {describe_hygiene(marks)}"
         return ProbeVerdict(
-            signal_unpatched_present=bool(unpatched.applies and unpatched.score == 1.0),
-            signal_patched_present=bool(patched.applies and patched.score == 1.0),
+            signal_unpatched_present=u_present,
+            signal_patched_present=p_present,
             signal_specificity_ok=bool(specificity.applies and specificity.score == 1.0),
-            detail=f"unpatched={unpatched.notes}; patched={patched.notes}",
+            detail=detail,
+            signal_hygiene_ok=not hygiene_refuses(marks),
         )
 
     return _probe

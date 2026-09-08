@@ -450,7 +450,7 @@ def _reproducer(ctx: dict[str, Any]) -> None:
 
 def _probe(ctx: dict[str, Any]) -> bool:
     from agents.builder import LocalNixBuildRunner
-    from tools.trace_cli.probe import EXIT_PROBE_ERROR, ProbeRefused, probe_bundle
+    from tools.trace_cli.probe import EXIT_OK, EXIT_PROBE_ERROR, ProbeRefused, probe_bundle
 
     try:
         code, verdict = probe_bundle(
@@ -461,7 +461,9 @@ def _probe(ctx: dict[str, Any]) -> bool:
         raise StepStopped("probe", str(e)) from e
     if code == EXIT_PROBE_ERROR:
         raise RuntimeError(f"probe could not run: {verdict.get('error')}")
-    return bool(verdict.get("discriminates"))
+    # The exit code, not `discriminates` alone: an arm can carry its SIGNAL over a
+    # run that never happened, and the probe folds that into its status.
+    return code == EXIT_OK
 
 
 def _refinalize(ctx: dict[str, Any]) -> None:
