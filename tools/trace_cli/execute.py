@@ -1938,7 +1938,7 @@ def _append_reviewer_replay_entry(
 
 
 REPRODUCER_PROMPT_PATH_DEFAULT = (
-    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v19.md"
+    Path(__file__).resolve().parents[2] / "prompts" / "reproducer.v20.md"
 )
 
 # Bundle-local PoC artifact surfacing (DECISIONS 2026-05-19 (Reproducer v5)):
