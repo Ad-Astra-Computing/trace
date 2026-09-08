@@ -151,10 +151,18 @@ def assemble_bundle(
     if verdict.startswith("eligible"):
         package_source = package_nix_path.read_text()
         attr = attr_path or input_doc.get("attr_path") or input_doc.get("attr")
+        # The ground-truth patch decides whether a pinned source-backport
+        # still needs its vendor hashes: one that edits a lockfile does.
+        backport_patch_text = (
+            upstream_fix_patch_path.read_text(errors="replace")
+            if upstream_fix_patch_path is not None and upstream_fix_patch_path.is_file()
+            else None
+        )
         derivation = derive_prefetch_targets(
             upstream_ref=upstream_ref,
             package_source=package_source,
             attr_path=attr,
+            backport_patch_text=backport_patch_text,
         )
         # High-confidence URL prefetch.
         high_targets = [t for t in derivation.targets if t.confidence == "high"]

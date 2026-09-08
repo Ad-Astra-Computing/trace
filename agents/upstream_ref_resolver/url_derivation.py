@@ -30,7 +30,7 @@ a separate step done by `prefetch_targets()`.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterable
 from urllib.parse import urlparse
 
@@ -228,6 +228,7 @@ def derive_prefetch_targets(
     upstream_ref: dict,
     package_source: str,
     attr_path: str | None = None,
+    backport_patch_text: str | None = None,
 ) -> DerivationOutcome:
     """Derive prefetch targets without touching the network.
 
@@ -240,6 +241,10 @@ def derive_prefetch_targets(
         attr_path: optional. The Nix attr the patch is for. Some rules
             use the attr path as a `pname` fallback when package.nix
             does not declare `pname` literally.
+        backport_patch_text: optional. On a source-backport, the ground-truth
+            patch the bundle will carry. It decides whether the vendor-hash
+            slots are still required: see `_is_pinned_source_backport`.
+            Absent, the vendor slots fail closed.
 
     Returns:
         DerivationOutcome(targets=[...], skipped=[...]).
@@ -390,7 +395,89 @@ def derive_prefetch_targets(
             ),
         ))
 
+    if _is_pinned_source_backport(upstream_ref):
+        touches_deps = _touches_a_dependency_manifest(backport_patch_text)
+        skipped = [
+            s if (touches_deps and s.name != "src.hash")
+            else _not_required_for_a_source_backport(s)
+            for s in skipped
+        ]
+
     return DerivationOutcome(targets=targets, skipped=skipped)
+
+
+def _is_pinned_source_backport(upstream_ref: dict) -> bool:
+    """True when the patch keeps the package on its pinned version.
+
+    A source-backport adds `patches = [ ... ]` and changes nothing else,
+    so `src` is fetched from the same URL as before and every vendor hash
+    covers the same dependency set. Both conditions are checked: a
+    source-backport row whose target_version has drifted off the pinned
+    version is not the shape this reasons about.
+    """
+    eligibility = upstream_ref.get("eligibility")
+    if not isinstance(eligibility, dict):
+        return False
+    if eligibility.get("patch_strategy") != "source-backport":
+        return False
+    current = upstream_ref.get("current_version")
+    return bool(current) and upstream_ref.get("target_version") == current
+
+
+# Dependency manifests whose contents a vendor hash covers. A backport that
+# edits one of these moves the hash even though the version stays pinned.
+_DEPENDENCY_MANIFESTS = frozenset({
+    "go.mod", "go.sum",
+    "Cargo.toml", "Cargo.lock",
+    "package.json", "package-lock.json", "npm-shrinkwrap.json",
+    "yarn.lock", "pnpm-lock.yaml",
+    "composer.json", "composer.lock",
+    "Gemfile", "Gemfile.lock",
+    "poetry.lock", "pyproject.toml", "requirements.txt",
+    "mix.lock", "gradle.lockfile",
+})
+
+_PATCH_TARGET_RE = re.compile(r"(?m)^\+\+\+ (?:b/)?(\S+)")
+
+
+def _touches_a_dependency_manifest(patch_text: str | None) -> bool:
+    """True unless the patch demonstrably edits no dependency manifest.
+
+    Fails closed: an absent patch reads as "might touch one", because the
+    resolver would otherwise clear a vendor-hash requirement it has no
+    evidence about.
+    """
+    if patch_text is None:
+        return True
+    for path in _PATCH_TARGET_RE.findall(patch_text):
+        if path == "/dev/null":
+            continue
+        if path.rsplit("/", 1)[-1] in _DEPENDENCY_MANIFESTS:
+            return True
+    return False
+
+
+def _not_required_for_a_source_backport(s: SkippedTarget) -> SkippedTarget:
+    """Clear `required_for_patch` and say why in the same breath.
+
+    The flag is an attestation that the patch cannot be authored without
+    a grounded value for the slot. Leaving it set on a pinned backport
+    asserts something false, and the Patcher believes it: npm-check-updates
+    CVE-2026-73035 drew a rule-8 refusal citing npmDepsHash, a hash its
+    patch would never have touched.
+    """
+    if not s.required_for_patch:
+        return s
+    note = (
+        "Not required here: this is a source-backport against the pinned "
+        "version, and the patch edits no dependency manifest, so it "
+        "rewrites neither src nor any vendor hash."
+    )
+    return replace(
+        s,
+        required_for_patch=False,
+        detail=f"{s.detail} {note}" if s.detail else note,
+    )
 
 
 # ─── per-rule helpers ─────────────────────────────────────────────────────

@@ -610,3 +610,82 @@ def test_finalize_explicit_kind_reason_still_wins(tmp_path: Path) -> None:
     )
     bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
     assert bundle_json["kind_reason"] == "reviewer-verdict-escalate"
+
+
+# ─── source-backport vendor-hash semantics ────────────────────────────────
+
+
+def _backport_resolver_input(tmp_path: Path) -> Path:
+    """A pinned source-backport row: the target version is the current one."""
+    return _resolver_input(
+        tmp_path,
+        current_version="3.6.7",
+        candidate_refs=[
+            {
+                "version": "3.6.7",
+                "tag": "v3.6.7",
+                "release_url": "https://github.com/traefik/traefik/releases/tag/v3.6.7",
+                "changelog_url": "https://github.com/traefik/traefik/blob/v3.6.7/CHANGELOG.md",
+                "advisory_urls": [
+                    "https://github.com/traefik/traefik/security/advisories/GHSA-89p3-4642-cr2w"
+                ],
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://github.com/traefik/traefik",
+                        "commit_sha": "2f215ab9a1068248669dacf77ec6901f21051c75",
+                        "message": "Fix the thing",
+                    },
+                ],
+                "delta": {
+                    "transitive_package_changes": 0,
+                    "new_direct_deps": [],
+                    "removed_direct_deps": [],
+                    "crosses_large_delta_threshold": False,
+                    "threshold_policy": "v0-default",
+                },
+                "tier_hint": "source-backport",
+            },
+        ],
+    )
+
+
+def _assemble_backport(tmp_path: Path, patch_body: str) -> dict:
+    patch = tmp_path / "upstream-fix.patch"
+    patch.write_text(patch_body)
+    out = tmp_path / "bundle"
+    assemble_bundle(
+        resolver_input_path=_backport_resolver_input(tmp_path),
+        package_nix_path=_package_nix(tmp_path),
+        out_dir=out,
+        attr_path="traefik",
+        upstream_fix_patch_path=patch,
+        prefetch_url_fn=lambda *a, **k: ("error", None, "offline"),
+    )
+    return json.loads((out / "upstream-ref.json").read_text())
+
+
+_SOURCE_ONLY_PATCH = (
+    "diff --git a/pkg/server/x.go b/pkg/server/x.go\n"
+    "--- a/pkg/server/x.go\n+++ b/pkg/server/x.go\n"
+)
+_LOCKFILE_PATCH = _SOURCE_ONLY_PATCH + (
+    "diff --git a/go.sum b/go.sum\n--- a/go.sum\n+++ b/go.sum\n"
+)
+
+
+def test_assemble_clears_vendor_hash_for_a_source_only_backport(tmp_path):
+    """The assembler must hand the ground-truth patch to the derivation.
+
+    Without it every pinned backport of a vendored package draws a rule-8
+    refusal citing a hash the patch never touches.
+    """
+    ref = _assemble_backport(tmp_path, _SOURCE_ONLY_PATCH)
+    skips = {s["name"]: s for s in ref.get("prefetch_skips", [])}
+    assert "vendorHash" in skips, skips
+    assert skips["vendorHash"]["required_for_patch"] is False
+
+
+def test_assemble_keeps_vendor_hash_for_a_lockfile_touching_backport(tmp_path):
+    ref = _assemble_backport(tmp_path, _LOCKFILE_PATCH)
+    skips = {s["name"]: s for s in ref.get("prefetch_skips", [])}
+    assert skips["vendorHash"]["required_for_patch"] is True

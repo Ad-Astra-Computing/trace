@@ -606,3 +606,120 @@ def test_outcome_feeds_directly_into_prefetch_targets() -> None:
     assert len(pts) == 1
     assert pts[0].name == "src.hash"
     assert pts[0].algorithm == "sha256"
+
+
+# ─── source-backport hash-slot semantics ──────────────────────────────────
+
+
+_NCU_PACKAGE_NIX = '''
+buildNpmPackage rec {
+  pname = "npm-check-updates";
+  version = "23.0.2";
+  src = fetchFromGitHub {
+    owner = "raineorshine";
+    repo = "npm-check-updates";
+    tag = "v${version}";
+    hash = "sha256-XCUtMEYEkBvn5Y32uLrbvCdpSTXOEdq2Pf9tPo6JWLI=";
+  };
+  npmDepsHash = "sha256-dsgvdgJzpxKhMjfIVO7Tnu4xxvTJYyk8Wjth7++ZHdo=";
+}
+'''
+
+
+def _source_backport_ref(**over: object) -> dict:
+    ref = {
+        "current_version": "23.0.2",
+        "target_version": "23.0.2",
+        "eligibility": {"patch_strategy": "source-backport"},
+    }
+    ref.update(over)
+    return ref
+
+
+def test_source_backport_does_not_require_hash_slots() -> None:
+    """A source-backport leaves `src` and every vendor hash untouched.
+
+    The patch adds `patches = [ ... ]` and nothing else, so claiming the
+    slots are required to author it is false, and the Patcher rule-8
+    refuses on that false claim (npm-check-updates CVE-2026-73035).
+    """
+    out = derive_prefetch_targets(
+        upstream_ref=_source_backport_ref(),
+        package_source=_NCU_PACKAGE_NIX,
+        attr_path="npm-check-updates",
+        backport_patch_text=(
+            "diff --git a/src/lib/logging.ts b/src/lib/logging.ts\n"
+            "--- a/src/lib/logging.ts\n+++ b/src/lib/logging.ts\n"
+        ),
+    )
+    assert {s.name for s in out.skipped} >= {"npmDepsHash"}
+    for s in out.skipped:
+        assert s.required_for_patch is False, s
+        assert "source-backport" in (s.detail or ""), s
+
+
+def test_source_backport_touching_a_lockfile_still_requires_vendor_hashes() -> None:
+    """A backport that edits a dependency manifest DOES move the vendor hash.
+
+    `src` stays pinned either way, but npmDepsHash / vendorHash / cargoHash
+    cover the resolved dependency set, so a patch that rewrites the lockfile
+    leaves the recorded value stale and the build fails late.
+    """
+    out = derive_prefetch_targets(
+        upstream_ref=_source_backport_ref(),
+        package_source=_NCU_PACKAGE_NIX,
+        attr_path="npm-check-updates",
+        backport_patch_text=(
+            "diff --git a/package-lock.json b/package-lock.json\n"
+            "--- a/package-lock.json\n+++ b/package-lock.json\n"
+        ),
+    )
+    src = next(s for s in out.skipped if s.name == "src.hash")
+    assert src.required_for_patch is False
+    vendor = next(s for s in out.skipped if s.name == "npmDepsHash")
+    assert vendor.required_for_patch is True
+
+
+def test_vendor_hashes_stay_required_when_the_backport_is_unknown() -> None:
+    """Without the patch text the resolver cannot rule a lockfile edit out.
+
+    src.hash is exempt regardless (a backport never re-fetches src), but the
+    vendor slots fail closed.
+    """
+    out = derive_prefetch_targets(
+        upstream_ref=_source_backport_ref(),
+        package_source=_NCU_PACKAGE_NIX,
+        attr_path="npm-check-updates",
+    )
+    assert next(s for s in out.skipped if s.name == "src.hash").required_for_patch is False
+    assert next(s for s in out.skipped if s.name == "npmDepsHash").required_for_patch is True
+
+
+def test_version_bump_still_requires_hash_slots() -> None:
+    """The carve-out is strategy-scoped: a bump does re-derive the hashes."""
+    out = derive_prefetch_targets(
+        upstream_ref=_source_backport_ref(
+            target_version="23.1.0",
+            eligibility={"patch_strategy": "version-bump"},
+        ),
+        package_source=_NCU_PACKAGE_NIX,
+        attr_path="npm-check-updates",
+    )
+    vendor = next(s for s in out.skipped if s.name == "npmDepsHash")
+    assert vendor.required_for_patch is True
+
+
+def test_source_backport_that_moves_the_version_still_requires_them() -> None:
+    """Belt and braces: the carve-out needs target == current as well.
+
+    A source-backport row whose target_version has drifted off the pinned
+    version is not the shape the carve-out reasons about, so it keeps the
+    conservative flag.
+    """
+    out = derive_prefetch_targets(
+        upstream_ref=_source_backport_ref(target_version="23.1.0"),
+        package_source=_NCU_PACKAGE_NIX,
+        attr_path="npm-check-updates",
+    )
+    vendor = next(s for s in out.skipped if s.name == "npmDepsHash")
+    assert vendor.required_for_patch is True
