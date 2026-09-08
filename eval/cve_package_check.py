@@ -31,7 +31,7 @@ def package_tokens(package: str) -> set[str]:
     for p in parts:
         bare = re.sub(r"[^a-z0-9]", "", (p or "").lower())
         out |= {bare, _norm(p)}
-    return {t for t in out if len(t) >= 3}
+    return {t for t in out if len(t) >= 2}
 
 
 def nvd_advisory_text(cve: str) -> str:
@@ -69,6 +69,9 @@ def check_cve_names_package(
     seen = {_norm(w) for w in words} | set(words)
     for n in (2, 3, 4):
         seen |= {"".join(words[i:i + n]) for i in range(len(words) - n + 1)}
+    # nixpkgs drops the `lib` an upstream project keeps: the attr is `expat`,
+    # the advisory says `libexpat`.
+    seen |= {w[3:] for w in list(seen) if w.startswith("lib") and len(w) > 5}
     for tok in tokens:
         for word in seen:
             if word == tok:

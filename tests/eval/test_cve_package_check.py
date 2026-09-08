@@ -53,9 +53,9 @@ def test_a_failed_lookup_is_reported_rather_than_swallowed():
     assert reason and "503" in reason
 
 
-def test_a_name_too_short_to_check_is_reported_rather_than_passed():
+def test_a_short_name_does_not_match_a_longer_word_that_starts_with_it():
     reason = check_cve_names_package("CVE-2020-0001", "jq", fetch=_fetch("a jquery flaw"))
-    assert reason and "jq" in reason
+    assert reason and "does not name jq" in reason
 
 
 def test_package_tokens_drop_the_version_suffix():
@@ -99,3 +99,20 @@ def test_a_withdrawn_candidate_is_called_out_as_withdrawn():
             "Reason: This candidate was withdrawn by its CNA.")
     reason = check_cve_names_package("CVE-2022-47016", "tmux", fetch=_fetch(text))
     assert reason and "withdrawn" in reason
+
+
+def test_lib_prefixed_upstream_name_matches_bare_nixpkgs_attr():
+    """nixpkgs calls it `expat`; the advisory calls it `libexpat`."""
+    advisory = "In libexpat before 2.8.1, attribute name collision checks allow a denial of service."
+    assert check_cve_names_package("CVE-2026-45186", "expat", fetch=lambda c: advisory) is None
+
+
+def test_two_letter_package_matches_the_cpe_product():
+    advisory = "A flaw in the JSON processor. cpe:2.3:a:jqlang:jq:*:*:*:*:*:*:*:*"
+    assert check_cve_names_package("CVE-2026-33948", "jq", fetch=lambda c: advisory) is None
+
+
+def test_two_letter_package_still_rejects_an_unrelated_advisory():
+    advisory = "In libexpat before 2.8.1, a denial of service. cpe:2.3:a:libexpat_project:libexpat:*"
+    reason = check_cve_names_package("CVE-2026-45186", "jq", fetch=lambda c: advisory)
+    assert reason and "does not name jq" in reason
