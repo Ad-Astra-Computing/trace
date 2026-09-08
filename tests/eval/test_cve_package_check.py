@@ -72,3 +72,23 @@ def test_a_multi_word_module_name_matches():
     assert check_cve_names_package(
         "CVE-2021-28918", "perlPackages.NetCIDRLite", fetch=_fetch(text)
     ) is None
+
+
+def test_the_corpus_walk_reports_the_bundles_that_disagree(tmp_path):
+    from eval.cve_package_check import audit_corpus
+
+    good = tmp_path / "CVE-2025-30472--corosync-orf-token-backport"
+    bad = tmp_path / "CVE-2025-46836--corosync-orf-token-backport"
+    for d in (good, bad):
+        d.mkdir()
+        (d / "resolver-input.json").write_text('{"attr_path": "corosync"}')
+    text = {"CVE-2025-30472": COROSYNC, "CVE-2025-46836": NETTOOLS}
+    bad_rows = audit_corpus(tmp_path, fetch=lambda c: text[c], pause=lambda _: None)
+    assert [r[0] for r in bad_rows] == [bad.name]
+
+
+def test_a_bundle_naming_no_package_is_skipped(tmp_path):
+    from eval.cve_package_check import audit_corpus
+
+    (tmp_path / "CVE-2025-30472--nothing").mkdir()
+    assert audit_corpus(tmp_path, fetch=_fetch(COROSYNC), pause=lambda _: None) == []

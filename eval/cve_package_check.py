@@ -74,3 +74,52 @@ def check_cve_names_package(
             if len(word) >= 4 and len(tok) >= 4 and (word.startswith(tok) or tok.startswith(word)):
                 return None
     return f"{cve} does not name {package}: the advisory is about something else"
+
+
+def _attr_of(bundle_dir) -> str:
+    for name in ("resolver-input.json", "authoring-example.json"):
+        p = bundle_dir / name
+        if p.is_file():
+            try:
+                attr = json.loads(p.read_text()).get("attr_path")
+            except json.JSONDecodeError:
+                continue
+            if attr:
+                return attr
+    return ""
+
+
+def audit_corpus(root, *, fetch=nvd_advisory_text, pause=None) -> list[tuple[str, str]]:
+    """Every bundle whose advisory does not name the package it patches. NVD's
+    anonymous rate limit is five requests per thirty seconds, hence the pause."""
+    import time
+
+    pause = pause if pause is not None else (lambda s: time.sleep(s))
+    bad = []
+    for d in sorted(root.glob("CVE-*")):
+        attr = _attr_of(d)
+        if not attr:
+            continue
+        reason = check_cve_names_package(d.name.split("--")[0], attr, fetch=fetch)
+        if reason:
+            bad.append((d.name, reason))
+        pause(6.5)
+    return bad
+
+
+def main(argv=None) -> int:
+    import argparse
+    from pathlib import Path
+
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--corpus", type=Path, default=Path("traces/example"))
+    args = ap.parse_args(argv)
+    bad = audit_corpus(args.corpus)
+    for name, reason in bad:
+        print(f"{name}: {reason}")
+    print(f"{len(bad)} mislabelled")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
