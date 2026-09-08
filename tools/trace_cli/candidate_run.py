@@ -100,6 +100,11 @@ _PAID_INPUTS = {
     "reviewer": ("patch.diff", "patch-rationale.md", "package.nix", "upstream-fix.patch"),
     "reproducer": ("patch.diff", "package.nix", "finding.json", "upstream-ref.json"),
 }
+# On the adaptation lane the Patcher runs patcher.v4 and the Reviewer reads the
+# same pinned source it adapted against, so both roles' outputs depend on
+# preflight.json and every source-context/ file. Absent here, a resume would
+# reuse a patch.diff authored against source that has since changed.
+_ADAPTATION_INPUTS = frozenset({"patcher", "reviewer"})
 # Free gates are re-run on every resume. A run.jsonl line is a claim, and these
 # are the checks that stand between a model payload and a cert.
 _ALWAYS_RUN = frozenset({"preflight_upstream", "preflight_payload", "probe", "refinalize"})
@@ -116,6 +121,17 @@ def _inputs_sha(bundle_dir: Path, step: str, model_id: str | None = None) -> str
         f = bundle_dir / name
         h.update(name.encode())
         h.update(f.read_bytes() if f.is_file() else b"<absent>")
+    pf = bundle_dir / "preflight.json"
+    if step in _ADAPTATION_INPUTS and pf.is_file():
+        # Mixed in only for a bundle that actually carries them. A verbatim
+        # bundle keeps the hash it was recorded with, or every in-flight resume
+        # would re-bill a model call it already paid for.
+        h.update(b"preflight.json")
+        h.update(pf.read_bytes())
+        sc = bundle_dir / "source-context"
+        for f in sorted(q for q in sc.rglob("*") if q.is_file()) if sc.is_dir() else ():
+            h.update(f.relative_to(bundle_dir).as_posix().encode())
+            h.update(f.read_bytes())
     h.update(b"model:" + (model_id or "").encode())
     prompts = Path(__file__).resolve().parents[2] / "prompts"
     for prompt in sorted(prompts.glob(f"{step}.*.md")):
@@ -131,7 +147,7 @@ def _has_content(path: Path) -> bool:
 def _recorded_source_tree(recorded: dict[str, dict]) -> Path | None:
     """The source tree a previous fetch_source left, if it is still there.
 
-    A fetchFromGitHub source is already a tree, so unpacking leaves out/src empty
+    A fetchFromGitHub source is already a tree, so extraction leaves out/src empty
     and the tree is the store path itself. The record carries that path; when it
     has gone, the fetch has to run again.
     """
@@ -252,6 +268,8 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
             return stop(name, "fixture does not discriminate")
         ctx.setdefault("results", {})[name] = result
         entry = {"at": _now(), "step": name, "status": "ok"}
+        if name == "preflight_upstream" and ctx.get("entered_adaptation_lane"):
+            entry["adaptation_lane"] = ctx["entered_adaptation_lane"]
         if name == "fetch_source" and result is not None:
             ctx["source_tree"] = Path(result)
             entry["source_tree"] = str(result)
@@ -372,11 +390,186 @@ def _preflight(ctx: dict[str, Any], *, patch_diff: bool) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     code = preflight.run(args, repo_root=repo_root)
     if code != 0 and not patch_diff:
-        code = _retry_with_other_cited_commits(ctx, args, repo_root)
-    if code != 0:
-        which = "the model payload" if patch_diff else "upstream-fix.patch"
-        raise StepStopped("preflight_payload" if patch_diff else "preflight_upstream",
-                          f"{which} does not apply to the pinned source (preflight exit {code})")
+        # The retry reports a bare 1 when it has nothing to try, which would erase
+        # the dry-run classification the adaptation lane keys on. Only a success
+        # replaces the original verdict.
+        retried = _retry_with_other_cited_commits(ctx, args, repo_root)
+        if retried == 0:
+            code = 0
+    if code == 0:
+        return
+    if not patch_diff and _adaptation_reason(ctx) and code == preflight.EXIT_APPLY_FAILED:
+        # Only a failed dry-run can be an adaptation. A missing input, a source
+        # tree that would not extract or a usage error is infrastructure, and
+        # overriding those buys a Patcher call on a base nobody has read.
+        _enter_adaptation_lane(ctx)
+        return
+    which = "the model payload" if patch_diff else "upstream-fix.patch"
+    raise StepStopped("preflight_payload" if patch_diff else "preflight_upstream",
+                      f"{which} does not apply to the pinned source (preflight exit {code})")
+
+
+def _adaptation_reason(ctx: dict[str, Any]) -> str:
+    """The operator's stated reason for continuing past a base mismatch.
+
+    Empty unless `--adaptation-lane` was passed with non-whitespace text.
+    """
+    raw = ctx.get("adaptation_lane")
+    return raw.strip() if isinstance(raw, str) else ""
+
+
+def _enter_adaptation_lane(ctx: dict[str, Any]) -> None:
+    """Restage the bundle against the fetched pinned source, then refinalize.
+
+    A failing upstream preflight is the adaptation lane's normal state: the fix is
+    expressible on the pinned base but not verbatim. Continuing is only meaningful
+    if the Patcher is actually routed to patcher.v4, and that routing is driven by
+    `source-context/` plus `preflight.json.applies_verbatim`, which only the
+    source-backport staging writes. Restaging with the tree fetched two steps
+    earlier produces both, and finalize then hashes them into the signed manifest
+    as replay-critical inputs, so the mismatch cannot be edited away afterwards.
+    Assembling without a tree, as the first pass did, leaves neither, and the run
+    would reach the Patcher on the verbatim v3 prompt with nothing recording that
+    the base had diverged.
+    """
+    from tools.trace_cli.bundle import assemble_bundle
+    from tools.trace_cli.source_context import SourceContextError
+
+    if _already_staged_for_adaptation(ctx["bundle_dir"]):
+        # preflight_upstream re-runs on every resume, and assemble rewrites
+        # replay.json as a resolver-only seed. Restaging a bundle that is already
+        # on the adaptation lane would therefore drop the Patcher, Reviewer and
+        # Reproducer invocations while their outputs stayed on disk, leaving
+        # artifacts no replay record accounts for. The staging still gets checked:
+        # skipping the restage is not the same as trusting what is on disk.
+        _assert_adaptation_staging(ctx)
+        ctx["entered_adaptation_lane"] = _adaptation_reason(ctx)
+        return
+
+    present = sorted(name for name, out in _PAID_OUTPUTS.items()
+                     if (Path(ctx["bundle_dir"]) / out).is_file())
+    if present:
+        # Restaging rewrites replay.json as a resolver-only seed. A resume decides
+        # what to skip from hashes taken before that, so these outputs would stay
+        # on disk with no invocation recording what produced them. Reached when a
+        # bundle already carrying model outputs is switched onto the lane; the
+        # honest repair is a clean run, not a silently unverifiable bundle.
+        raise StepStopped(
+            "preflight_upstream",
+            "cannot switch to the adaptation lane on a bundle that already carries "
+            f"model output ({', '.join(_PAID_OUTPUTS[n] for n in present)}): restaging "
+            "would reset replay.json and orphan them. Start a fresh --out.",
+        )
+
+    staged: Path = ctx["staged"]
+    try:
+        assemble_bundle(
+            resolver_input_path=staged / "resolver-input.json",
+            package_nix_path=staged / "package.nix",
+            finding_path=staged / "finding.json",
+            impact_path=staged / "impact.json",
+            maintainers_path=staged / "maintainers.json",
+            upstream_fix_patch_path=staged / "upstream-fix.patch",
+            attr_path=ctx["attr_path"], nixpkgs_rev=ctx["nixpkgs_rev"],
+            out_dir=ctx["bundle_dir"], source_tree=Path(ctx["source_tree"]),
+        )
+    except SourceContextError as e:
+        # A file the fix touches is missing from the pinned source. That is the
+        # libarchive shape, where no faithful backport exists, and no operator
+        # reason makes it adaptable.
+        raise StepStopped("preflight_upstream",
+                          f"the fix touches source absent from the pinned base: {e}") from e
+    except (ValueError, KeyError) as e:
+        raise StepStopped("preflight_upstream", f"adaptation restage refused: {e}") from e
+
+    _finalize(ctx)
+
+    _assert_adaptation_staging(ctx)
+    ctx["entered_adaptation_lane"] = _adaptation_reason(ctx)
+
+
+def _assert_adaptation_staging(ctx: dict[str, Any]) -> None:
+    """Refuse to reach the Patcher unless the staged lane is honest.
+
+    Three things have to hold, and a bundle on disk is a claim about none of
+    them: the verdict says the fix does not apply verbatim, the reason is a real
+    dry-run failure rather than a base that already carries the fix, and the
+    source the Patcher will adapt against is the whole affected file set, byte
+    for byte, from the source that was actually fetched.
+    """
+    from tools.trace_cli import preflight as preflight_mod
+    from tools.trace_cli import source_context
+
+    bundle_dir = Path(ctx["bundle_dir"])
+    pf = bundle_dir / "preflight.json"
+    try:
+        doc = json.loads(pf.read_text()) if pf.is_file() else {}
+    except json.JSONDecodeError:
+        doc = {}
+    if doc.get("applies_verbatim") is not False:
+        raise StepStopped(
+            "preflight_upstream",
+            "staged for the adaptation lane but preflight.json does not record "
+            "applies_verbatim false; refusing to reach the Patcher on an unrecorded base",
+        )
+    disposition = preflight_mod.classify_patch_output(doc.get("diagnostics") or "")
+    if disposition != "does-not-apply":
+        # The pinned source already carries the change, so there is nothing to
+        # adapt and nothing to fix. The jsonxs shape: retire, do not re-pin.
+        raise StepStopped(
+            "preflight_upstream",
+            f"the upstream fix reads as {disposition} against the pinned source, "
+            "so the pinned base is not vulnerable; this is a retirement, not an adaptation",
+        )
+
+    fix = bundle_dir / "upstream-fix.patch"
+    if not fix.is_file():
+        raise StepStopped("preflight_upstream",
+                          "no upstream-fix.patch to adapt from; refusing the lane")
+    touched = source_context.parse_touched_paths(fix.read_text())
+    if not touched:
+        raise StepStopped(
+            "preflight_upstream",
+            "the upstream fix touches no pre-patch file, so there is nothing to "
+            "adapt against; this is the verbatim lane",
+        )
+    tree = Path(ctx["source_tree"])
+    sc = bundle_dir / "source-context"
+    for rel in touched:
+        staged_file = sc / rel
+        pinned = tree / rel
+        if not staged_file.is_file():
+            raise StepStopped(
+                "preflight_upstream",
+                f"source-context/{rel} is missing, so the Patcher would adapt "
+                "against an incomplete view of the affected source",
+            )
+        if not pinned.is_file() or staged_file.read_bytes() != pinned.read_bytes():
+            raise StepStopped(
+                "preflight_upstream",
+                f"source-context/{rel} does not match the fetched pinned source; "
+                "the staged lane is stale or edited",
+            )
+
+
+def _already_staged_for_adaptation(bundle_dir: Path) -> bool:
+    """True when this bundle already carries the adaptation lane's staged inputs.
+
+    Both halves must be there: the signed `applies_verbatim: false` verdict and at
+    least one `source-context/` file for the Patcher to adapt against. A bundle
+    with one and not the other is not on the lane and gets restaged.
+    """
+    pf = bundle_dir / "preflight.json"
+    if not pf.is_file():
+        return False
+    try:
+        verdict = json.loads(pf.read_text()).get("applies_verbatim")
+    except json.JSONDecodeError:
+        return False
+    if verdict is not False:
+        return False
+    sc = bundle_dir / "source-context"
+    return sc.is_dir() and any(f.is_file() for f in sc.rglob("*"))
 
 
 def _retry_with_other_cited_commits(ctx: dict[str, Any], args: argparse.Namespace, repo_root: Path) -> int:
@@ -504,6 +697,13 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
                    help="run through this step and stop; use it to survey the free gates without spend")
     p.add_argument("--resume", action="store_true",
                    help="skip steps the last run in --out completed; never repeats a model call")
+    p.add_argument("--adaptation-lane", default=None, metavar="REASON",
+                   help="continue past a failing upstream-patch preflight by restaging the "
+                        "bundle against the fetched pinned source, which routes the Patcher to "
+                        "patcher.v4 and signs the applies_verbatim verdict. For the "
+                        "semantic-adaptation lane, where the fix is expressible on the pinned "
+                        "base but does not apply verbatim. REASON is recorded in run.jsonl. The "
+                        "payload preflight still gates.")
 
 
 def run(args: argparse.Namespace) -> int:
@@ -514,6 +714,7 @@ def run(args: argparse.Namespace) -> int:
         "created_at": args.created_at or _now(),
         "models": {"patcher": args.patcher_model, "reviewer": args.reviewer_model,
                    "reproducer": args.reproducer_model},
+        "adaptation_lane": args.adaptation_lane,
     }
     code = run_candidate(ctx, steps=default_steps(), resume=args.resume, until=args.until)
     last = (Path(args.out) / "run.jsonl").read_text().splitlines()[-1]
