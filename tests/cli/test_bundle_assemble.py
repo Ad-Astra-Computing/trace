@@ -689,3 +689,117 @@ def test_assemble_keeps_vendor_hash_for_a_lockfile_touching_backport(tmp_path):
     ref = _assemble_backport(tmp_path, _LOCKFILE_PATCH)
     skips = {s["name"]: s for s in ref.get("prefetch_skips", [])}
     assert skips["vendorHash"]["required_for_patch"] is True
+
+
+# ─── reviewer-attested is for a refusal, not for a refuted fixture ─────────
+
+
+_PROBE_BOUND = {
+    "reproducer_sha256": "reproducer.nix",
+    "reproducer_log_sha256": "reproducer-log.txt",
+    "passthru_tests_sha256": "passthru-tests.json",
+    "patch_diff_sha256": "patch.diff",
+    "package_nix_sha256": "package.nix",
+}
+
+
+def _probe(bundle_dir: Path, *, discriminates: bool, bind: bool = True) -> None:
+    """Write a fixture and a probe record over it.
+
+    With `bind`, the record is internally consistent: the bound hashes and the
+    build-record hash all match the bytes on disk, so the guard has to reach
+    the build record itself to reject it. That is the shape a tampered probe
+    would take, and the shape a genuine refutation takes.
+    """
+    import hashlib
+
+    (bundle_dir / "reproducer.nix").write_text("{ }: { }\n")
+    (bundle_dir / "reproducer-log.txt").write_text("=== unpatched ===\n")
+    (bundle_dir / "passthru-tests.json").write_text("[]\n")
+    (bundle_dir / "patch.diff").write_text("diff --git a/x b/x\n")
+    build = {
+        "unpatched": {"exit_code": 1, "stdout_stderr": "PREDICATE FAILED\n"},
+        "patched": {"exit_code": 1, "stdout_stderr": "PREDICATE FAILED\n"},
+    }
+    build_path = bundle_dir / "probe-build.json"
+    build_path.write_text(json.dumps(build))
+
+    def _sha(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    record: dict = {
+        "schema_version": "1.0.0",
+        "discriminates": discriminates,
+        "detail": "" if discriminates else "neither signal present",
+    }
+    if bind:
+        record["build_json_sha256"] = _sha(build_path)
+        for key, name in _PROBE_BOUND.items():
+            if (bundle_dir / name).is_file():
+                record[key] = _sha(bundle_dir / name)
+    (bundle_dir / "probe.json").write_text(json.dumps(record))
+
+
+def test_finalize_refuses_reviewer_attested_over_a_refuted_fixture(tmp_path: Path) -> None:
+    """A refuted fixture is not a refusal, and must not be relabelled as one.
+
+    `reviewer-attested` drops reproducer.nix and reproducer-log.txt from the
+    manifest, so applying it to a fixture the probe refuted would erase the
+    evidence that a fixture was attempted and did not work, leaving a bundle
+    that reads as though none was ever written.
+    """
+    bundle_dir, _ri = _assembled_bundle(tmp_path)
+    _probe(bundle_dir, discriminates=False)
+
+    with pytest.raises(ValueError, match="does not show the unpatched signal"):
+        finalize_bundle(
+            bundle_dir=bundle_dir,
+            auto_merge_evidence_path="reviewer-attested",
+        )
+
+
+def test_finalize_allows_reviewer_attested_with_no_fixture(tmp_path: Path) -> None:
+    """The documented case: the Reproducer refused, so there is no fixture."""
+    bundle_dir, _ri = _assembled_bundle(tmp_path)
+    result = finalize_bundle(
+        bundle_dir=bundle_dir,
+        auto_merge_evidence_path="reviewer-attested",
+    )
+    assert len(result.bundle_id) == 16
+
+
+def test_finalize_refuses_a_hand_written_green_probe(tmp_path: Path) -> None:
+    """The stored `discriminates` boolean is not evidence of anything.
+
+    Flipping a red record to true would otherwise walk straight past the
+    guard, so the verdict is re-derived from the bound build record.
+    """
+    bundle_dir, _ri = _assembled_bundle(tmp_path)
+    _probe(bundle_dir, discriminates=True)
+
+    with pytest.raises(ValueError, match="not green"):
+        finalize_bundle(
+            bundle_dir=bundle_dir,
+            auto_merge_evidence_path="reviewer-attested",
+        )
+
+
+def test_finalize_allows_reviewer_attested_when_the_probe_is_green(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A genuinely green probe is not what the guard is aimed at.
+
+    Building both arms for real belongs to the probe's own tests; what matters
+    here is that a green verdict lets finalize through.
+    """
+    bundle_dir, _ri = _assembled_bundle(tmp_path)
+    _probe(bundle_dir, discriminates=True)
+    monkeypatch.setattr(
+        "tools.trace_cli.probe.check_probe",
+        lambda d: (True, "probe is green and current"),
+    )
+    result = finalize_bundle(
+        bundle_dir=bundle_dir,
+        auto_merge_evidence_path="reviewer-attested",
+    )
+    assert len(result.bundle_id) == 16

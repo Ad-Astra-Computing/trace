@@ -747,6 +747,44 @@ def _enforce_harness_tautology_guard(bundle_dir: Path) -> None:
                 )
 
 
+def _refuse_reviewer_attested_over_a_refuted_fixture(bundle_dir: Path) -> None:
+    """Guard the difference between a refusal and a refutation.
+
+    `reviewer-attested` means the Reproducer declined to author a fixture, so
+    the cert speaks only to the patch applying and the package building. It
+    drops reproducer.nix and reproducer-log.txt from the manifest, which is
+    right when there is nothing to drop and a laundering of evidence when
+    there is: a fixture the two-arm probe refuted would vanish, and the bundle
+    would read as though none had ever been attempted.
+
+    A refuted fixture is the more interesting record of the two. It is the gap
+    between what the Reproducer reported and what the build did, and it belongs
+    in the corpus under its own account rather than folded into a label that
+    asserts non-action.
+
+    The verdict comes from `check_probe`, which re-derives it from the bound
+    build record with the cert's own scorers. Nothing here reads the
+    `discriminates` boolean, which a hand-edited probe.json could set to
+    anything.
+    """
+    if not (bundle_dir / "probe.json").is_file():
+        return
+
+    from tools.trace_cli.probe import check_probe
+
+    green, why = check_probe(bundle_dir)
+    if green:
+        return
+    raise ValueError(
+        "refusing --evidence-path reviewer-attested: this bundle carries a "
+        f"probe that is not green ({why}). reviewer-attested is for a "
+        "Reproducer that refused, and applying it here would drop "
+        "reproducer.nix and reproducer-log.txt from the manifest, erasing the "
+        "evidence that a fixture was attempted. Repair the fixture and probe "
+        "again, or record the refutation on its own terms."
+    )
+
+
 def finalize_bundle(
     *,
     bundle_dir: Path,
@@ -916,6 +954,9 @@ def finalize_bundle(
     _reviewer_attested_excluded = frozenset({
         "reproducer.nix", "reproducer-log.txt", "review-refusal.json",
     })
+
+    if auto_merge_evidence_path == "reviewer-attested":
+        _refuse_reviewer_attested_over_a_refuted_fixture(bundle_dir)
 
     files_block: dict[str, dict] = {}
     real_hash_names: list[str] = []
