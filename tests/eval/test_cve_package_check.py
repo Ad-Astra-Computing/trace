@@ -92,3 +92,10 @@ def test_a_bundle_naming_no_package_is_skipped(tmp_path):
 
     (tmp_path / "CVE-2025-30472--nothing").mkdir()
     assert audit_corpus(tmp_path, fetch=_fetch(COROSYNC), pause=lambda _: None) == []
+
+
+def test_a_withdrawn_candidate_is_called_out_as_withdrawn():
+    text = ("Rejected reason: DO NOT USE THIS CANDIDATE NUMBER. ConsultIDs: none. "
+            "Reason: This candidate was withdrawn by its CNA.")
+    reason = check_cve_names_package("CVE-2022-47016", "tmux", fetch=_fetch(text))
+    assert reason and "withdrawn" in reason

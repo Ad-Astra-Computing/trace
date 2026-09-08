@@ -64,6 +64,8 @@ def check_cve_names_package(
     words = [w.lower() for w in re.split(r"[^A-Za-z0-9]+", text) if w]
     # Runs of adjacent words joined as well, since an advisory writes `net-tools`
     # or `Net::CIDR::Lite` where the attr is one word.
+    if "do not use this candidate number" in text.lower():
+        return f"{cve} was withdrawn by its CNA and is not a vulnerability"
     seen = {_norm(w) for w in words} | set(words)
     for n in (2, 3, 4):
         seen |= {"".join(words[i:i + n]) for i in range(len(words) - n + 1)}
