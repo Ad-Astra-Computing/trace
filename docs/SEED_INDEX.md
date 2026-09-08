@@ -432,7 +432,7 @@ The bundles below are authoring-corpus-only: they contain `authoring-example.jso
 - `CVE-2025-31344--giflib-colorcount-bounds-backport` — giflib `gif2rgb.c` ColorCount palette bounds check
 - `CVE-2025-40909--perl-dirp-dup-fdopendir-backport` — perl `sv.c` `DirP` dup `fdopendir` fix
 - `CVE-2025-4382--grub2-rescue-cli-auth-bypass-backport` — grub2 `grub-core/kern/rescue_reader.c` `grub_is_cli_need_auth` auth bypass guard
-- `CVE-2025-46836--corosync-orf-token-overflow-backport` — corosync `exec/totemsrp.c` `orf_token` integer overflow
+- `CVE-2025-30472--corosync-orf-token-overflow-backport` (relabelled from CVE-2025-46836, a net-tools flaw, on 8 September 2026), corosync `exec/totemsrp.c` `orf_token` integer overflow
 - `CVE-2025-49466--aerc-attachment-path-traversal-backport` — aerc `commands/msgview/open.go` attachment path traversal
 - `CVE-2025-55763--civetweb-buffer-overflow-backport` — civetweb `src/civetweb.c` buffer overflow
 - `CVE-2025-57812--libcupsfilters-tiff-planar-backport` — libcupsfilters `cupsfilters/image-tiff.c` planar TIFF config guard
