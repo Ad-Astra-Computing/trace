@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-09-09",
+  "source_screen": "data/reports/beat-upstream-survivors-2026-09-06.json",
+  "source_survivor_count": 64,
+  "method": "read-only verification via gh api commit history plus upstream advisory and release-note search; nothing bootstrapped, no live model spend",
+  "bar": "source-backport-viable: compiled-language library, in-range packaged version, minimal commit-shaped memory-safety or bounds fix; web apps and authorization-check fixes excluded as design-freedom; chirp CVE-2026-78136 excluded (known dead-end)",
+  "recommendation": {
+    "bootstrap_first": "CVE-2026-16599",
+    "reason": "fix is still unreleased upstream (fix_availability none), so trace patches ahead of both nixpkgs and wget itself, the clearest beat-upstream story in the batch; single-file +11/-4 integer-bound clamp in a well-understood C tool; verdict in-range unambiguous",
+    "safe_pair_after": "CVE-2026-86139"
+  },
+  "shortlist": [
+    {"rank": 1, "cve": "CVE-2026-16599", "attr": "wget", "version": "1.25.0", "repo": "mirror/wget", "language": "C", "fix_commit": "e9697d98e72", "file": "src/ftp-basic.c", "fix_size": "1 file, +11/-4", "fix_availability": "none", "note": "unreleased upstream; integer-bound clamp on FTP OPIE sequence number; textbook minimal backport"},
+    {"rank": 2, "cve": "CVE-2026-86139", "attr": "libxml2", "version": "2.15.3", "repo": "GNOME/libxml2", "language": "C", "fix_commit": "8edbbdb0", "file": "uri.c", "fix_size": "1 file, +4", "fix_availability": "release", "note": "length check before buffer write in xmlURIEscapeStr; fixed in 2.15.4"},
+    {"rank": 3, "cve": "CVE-2026-63076", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "49de27169f", "file": "crypto/cmp/cmp_protect.c", "fix_size": "1 file, +1/-1", "fix_availability": "release", "note": "NULL-deref guard on protectionAlg type check; attr is pkgs.openssl inherited, not vendored; fixed 3.6.4"},
+    {"rank": 4, "cve": "CVE-2026-63073", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "6a0acc072b", "file": "crypto/cmp/cmp_vfy.c", "fix_size": "1 file, +1/-1", "fix_availability": "release", "note": "format-string fix, peer DN passed to ERR_raise_data; fixed 3.6.4"},
+    {"rank": 5, "cve": "CVE-2026-86141", "attr": "libxml2", "version": "2.15.3", "repo": "GNOME/libxml2", "language": "C", "fix_commit": "e89a8aae", "file": "xmlregexp.c", "fix_size": "1 file, +6", "fix_availability": "release", "note": "NULL-check-then-strlen ordering after strdup failure"},
+    {"rank": 6, "cve": "CVE-2026-86140", "attr": "libxml2", "version": "2.15.3", "repo": "GNOME/libxml2", "language": "C", "fix_commit": "d1686f91", "file": "valid.c", "fix_size": "1 file, +18", "fix_availability": "release", "note": "strcat stack overflow in xmlSnprintfElements, bounds check added"},
+    {"rank": 7, "cve": "CVE-2026-86138", "attr": "libxml2", "version": "2.15.3", "repo": "GNOME/libxml2", "language": "C", "fix_commit": "a4cba4b5", "file": "dict.c", "fix_size": "1 file, +21", "fix_availability": "release", "note": "integer-overflow-then-heap-overflow guard in xmlDictAddQString"},
+    {"rank": 8, "cve": "CVE-2026-86142", "attr": "libxml2", "version": "2.15.3", "repo": "GNOME/libxml2", "language": "C", "fix_commit": "6b3a736c", "file": "xpointer.c", "fix_size": "1 file, +9", "fix_availability": "release", "note": "length-saturation overflow check in xmlXPtrEvalXPtrPart"},
+    {"rank": 9, "cve": "CVE-2026-63072", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "2a3dac874c", "file": "crypto/cms/cms_kari.c, cms_kemri.c", "fix_size": "2 files, +16/-2", "fix_availability": "release", "note": "AES-WRAP-PAD unwrap output-buffer sizing; fixed 3.6.4"},
+    {"rank": 10, "cve": "CVE-2026-63074", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "01e567978a", "file": "crypto/cmp/cmp_vfy.c", "fix_size": "1 file, +7/-2", "fix_availability": "release", "note": "unbounded extraCerts cache growth in CMP; fixed 3.6.4"},
+    {"rank": 11, "cve": "CVE-2026-18798", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "70cebd74d3", "file": "ssl/quic/quic_port.c, quic_record_rx.c, header", "fix_size": "3 files, +65/-18", "fix_availability": "release", "note": "QUIC QRX double-free; moderate multi-file but tightly scoped; fixed 3.6.4"},
+    {"rank": 12, "cve": "CVE-2026-54874", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "f52ffc11b9", "file": "ssl/record/methods/dtls_meth.c", "fix_size": "1 file, +13/-16", "fix_availability": "release", "note": "DTLS next-epoch memory amplification; fixed 3.6.4"},
+    {"rank": 13, "cve": "CVE-2026-75803", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "3621257986,a94aa9a2c7", "file": "3 AEAD cipher files plus CCM", "fix_size": "4 files, ~+44/-11", "fix_availability": "release", "note": "empty-ciphertext AEAD tag-check bypass; two related commits; fixed 3.6.4"},
+    {"rank": 14, "cve": "CVE-2026-14457", "attr": "azure-sdk-for-cpp.openssl", "version": "3.6.3", "repo": "openssl/openssl", "language": "C", "fix_commit": "581aaa0f0a", "file": "ssl/t1_lib.c", "fix_size": "source +14 (test file not needed)", "fix_availability": "release", "note": "RPK NULL-deref guard; fixed 3.6.4"},
+    {"rank": 15, "cve": "CVE-2026-86144", "attr": "libxml2", "version": "2.15.3", "repo": "GNOME/libxml2", "language": "C", "fix_commit": "b63cd517", "file": "xinclude.c", "fix_size": "1 file, +~90/-32", "fix_availability": "release", "note": "parseFlags propagation through multiple call sites; larger but single-file and mechanical"},
+    {"rank": 16, "cve": "CVE-2026-86098", "attr": "ndpi", "version": "5.0", "repo": "ntop/nDPI", "language": "C", "fix_commit": "94e82c1de1", "file": "src/lib/ndpi_serializer.c", "fix_size": "1 file, +116/-56", "fix_availability": "release", "note": "heap overflow in ndpi_json_string_escape; moderate size but self-contained"},
+    {"rank": 17, "cve": "CVE-2026-86143", "attr": "libxml2", "version": "2.15.3", "repo": "GNOME/libxml2", "language": "C", "fix_commit": "76fe08d9", "file": "xmlregexp.c", "fix_size": "1 file, +8", "fix_availability": "release", "note": "UNCONFIRMED CVE-to-commit mapping; only unmatched xmlregexp fix in the 2.15.3->2.15.4 range fitting CWE-192; verify before spend"}
+  ],
+  "rejected_compiled": [
+    {"cve": "CVE-2026-73102", "attr": "rustdesk", "reason": "641-line 7-file cross-platform clipboard refactor plus test scaffolding; sprawling redesign, not minimal"},
+    {"cve": "CVE-2026-82474", "attr": "sudo", "reason": "192-line 2-file feature addition (proc-based fd-to-path resolution); not a bounds/null fix"},
+    {"cve": "CVE-2026-86090,CVE-2026-86091", "attr": "ntopng", "reason": "missing-authorization-check in REST handler; design-freedom shape despite compiled C++"},
+    {"cve": "CVE-2026-78684", "attr": "vllm", "reason": "Python-level backend-classification/pixel-limit policy inside a large inference server"},
+    {"cve": "CVE-2026-82728", "attr": "mint", "reason": "name collision; CVE targets Elixir mint HTTP client on hex.pm, not the nixpkgs mint attr"},
+    {"cves": "ceph, ebpf-verifier, openexr (11 rows)", "reason": "verdict unknown, not deep-verified per effort budget; revisit only if the in-range pool runs dry"}
+  ],
+  "excluded_web_or_design_freedom": ["weblate", "netron", "bookstack", "siyuan", "snipe-it", "yeswiki", "mailpit", "svgo", "chirp (CVE-2026-78136, explicit dead-end)"]
+}
