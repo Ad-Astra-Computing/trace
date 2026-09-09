@@ -37,6 +37,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agents.reviewer import ReviewerOutputMalformed, parse_reviewer_output
+from agents.cost import rollup_usage
 
 
 def _git_head_sha() -> str:
@@ -176,6 +177,7 @@ def run_baseline(
 
     results = []
     total_usage: dict = {"input_tokens": 0, "output_tokens": 0}
+    usage_records: list = []
 
     for i, rec in enumerate(test_records, 1):
         prov = rec.get("provenance", {})
@@ -212,6 +214,7 @@ def run_baseline(
             response_text, usage = _call_api(model_id, system_text, user_text)
             for k, v in usage.items():
                 total_usage[k] = total_usage.get(k, 0) + v
+            usage_records.append({"model": model_id, **usage})
 
         scored = score_example(rec, response_text, dry_run=dry_run)
         scored["usage"] = usage
@@ -265,6 +268,7 @@ def run_baseline(
         "dry_run": dry_run,
         "aggregate": agg,
         "total_usage": total_usage,
+        "cost": rollup_usage(usage_records),
         "examples": results,
     }
 

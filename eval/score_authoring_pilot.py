@@ -57,6 +57,7 @@ from tools.trace_cli.export import (
     _patch_grounded,
 )
 from eval.backport_validation import _VERSION_BUMP_RE, validate_backport
+from agents.cost import rollup_usage
 
 # `_VERSION_BUMP_RE` catches nix-style `version =`/`rev =`/`sha256 =`; add the
 # Python `__version__ = "x"` / `VERSION = "x"` shape (the pyjwt release-bump tell).
@@ -492,8 +493,15 @@ def _make_build_fn(nixpkgs: Path, timeout: int):
     return build_fn
 
 
-def _generate(records: list[dict], model_id: str) -> dict[str, str]:
-    """Live base-model generation for each canary. Costs API spend."""
+def _generate(
+    records: list[dict], model_id: str, *, usage_sink: list | None = None
+) -> dict[str, str]:
+    """Live base-model generation for each canary. Costs API spend.
+
+    When ``usage_sink`` is given, each call's adapter usage block is
+    appended so the driver can roll up spend; a call whose token counts
+    are absent is later counted unobserved, never zero (agents.cost).
+    """
     from agents.patcher.adapter import AnthropicAdapter
 
     adapter = AnthropicAdapter(model_id)
@@ -507,6 +515,16 @@ def _generate(records: list[dict], model_id: str) -> dict[str, str]:
             user_content=user,
             sampling={"temperature": 0.0, "max_tokens": 4096},
         )
+        if usage_sink is not None:
+            usage_sink.append(
+                {
+                    "model": model_id,
+                    "input_tokens": resp.input_tokens,
+                    "output_tokens": resp.output_tokens,
+                    "cache_creation_input_tokens": resp.cache_creation_input_tokens,
+                    "cache_read_input_tokens": resp.cache_read_input_tokens,
+                }
+            )
         out[rec["provenance"]["cve_id"]] = _clean_generated(resp.text)
     return out
 
@@ -629,11 +647,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    usage_sink: list = []
     if args.generate:
         if not args.model:
             print("error: --generate requires --model", file=sys.stderr)
             return 2
-        gen = _generate(records, args.model)
+        gen = _generate(records, args.model, usage_sink=usage_sink)
         model_id = args.model
         if args.save_responses:
             args.save_responses.write_text(
@@ -688,6 +707,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     report = _aggregate(scored, model_id)
+    report["cost"] = rollup_usage(usage_sink)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
     msg = (
