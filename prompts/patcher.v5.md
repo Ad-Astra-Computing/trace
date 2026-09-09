@@ -261,8 +261,8 @@ Markdown with EXACTLY these five level-2 sections, in this order:
 - **Why this version** — for source-backport, state that the fix is
   backported in place with no version bump, and why.
 - **Why minimal** — a numbered claim list, and nothing else. One
-  `- [CLAIM-N]` bullet per behavioral change the patch makes, numbered
-  from 1 with no gaps, each followed by one or more indented
+  `- [CLAIM-N]` bullet per behavioral change the patch makes to the
+  source, numbered from 1 with no gaps, each followed by one or more indented
   `- Diff Line: \`+<line>\`` citations quoting an added line of the
   patch verbatim, backtick-quoted. On the adaptation path, say in the
   claim text which pinned-source construct that change grounds against.
@@ -278,9 +278,14 @@ Markdown with EXACTLY these five level-2 sections, in this order:
   ```
 
   A citation must match a line the patch ADDS to the source. A context
-  line, a removed line and the `package.nix` wiring are all not changes
-  and do not satisfy a claim. If a change is worth describing, cite it;
-  if you cannot cite it, you did not make it, so do not claim it.
+  line and a removed line are not changes and do not satisfy a claim.
+  If a change is worth describing, cite it; if you cannot cite it, you
+  did not make it, so do not claim it.
+
+  Wiring the patch file into `package.nix` `patches = [ ]` is not a
+  behavioral change and gets no claim of its own. Do not write a claim
+  for it, and do not cite a line from the `package.nix` hunk in any
+  claim. The claim list covers the source payload only.
 - **Alternatives rejected** — at least two, with a short reason each
   (e.g. verbatim transcription — rejected because it does not apply;
   version bump — rejected per resolver authorization).
