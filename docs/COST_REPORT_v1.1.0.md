@@ -5,8 +5,8 @@
 
 **Scope**: every live Anthropic API invocation recorded in a
 `{patcher,reviewer,reproducer}-invocation.json` sidecar under `traces/`. Deterministic roles
-(upstream-ref-resolver, Builder, Steward) make no model call and cost nothing. Section 5 lists
-the spend that exists but is not instrumented, which is the part of this report to read first if
+(upstream-ref-resolver, Builder, Steward) make no model call and cost nothing. Section 6 lists
+the spend that exists but is still not instrumented, which is the part of this report to read first if
 you are deciding whether to trust the totals.
 
 **Canonical data layer**:
@@ -29,6 +29,10 @@ adaptation eval lane, which is where the difference between $40.45 and $73.39 co
 | Auto-merge bundles with cost data | 22 ($8.20 total) |
 | **Cost per merge-ready bundle (mean, N=22)** | **$0.3726** |
 | Human-review-required bundles with cost data | 73 ($32.26 total, mean $0.4419) |
+
+Model spend is not the largest line. Section 5 reconstructs GitHub Actions compute at an estimated
+$168.61 gross, which puts total instrumented project cost near $242 gross, or roughly $133 to $154
+once the monthly Actions allowance is applied.
 
 Three invocations carry no cost field. They are recorded as calls and excluded from every dollar
 figure rather than counted as zero, per the honest-or-null rule the retry accounting adopted on
@@ -107,7 +111,78 @@ Recent deltas, measured against the report dates:
 
 ---
 
-## 5. What this report does not count
+## 5. Continuous integration
+
+GitHub Actions minutes are the project's second cost line, and until now they were listed as
+uncounted. This section closes that gap. The repository is private, so every minute is billed
+against the account allowance at the standard Linux rate of $0.008 per minute. All twenty
+`runs-on` declarations across the seventeen workflows name `ubuntu-latest`, so one rate applies
+throughout and no macOS or Windows multiplier enters.
+
+| Metric | Value |
+|---|---|
+| Workflow runs, 28 April to 9 September 2026 | 2,985 |
+| Wall-clock time | 265 hours |
+| **Estimated billable minutes** | **21,076 (351 hours)** |
+| **Estimated gross compute cost** | **$168.61** |
+| Estimated overage after a 2,000 min/mo allowance | $80.76 |
+| Estimated overage after a 3,000 min/mo allowance | $59.77 |
+| Actions artifact storage | 0.41 GB total, 0.12 GB unexpired |
+
+Billable minutes exceed wall clock because billing rounds each job up to the whole minute and
+sums parallel jobs, which across the measured runs works out to 1.29 billable minutes per
+wall-clock minute.
+
+Gross cost is what the minutes are worth. What actually reaches an invoice is the overage above
+the monthly allowance, and the allowance depends on the account plan. Both readings are given
+because the plan is not recoverable from the API surface available here: the billing endpoints
+need a token scope this checkout does not carry. The invoice figure lies between $60 and $81.
+
+Where the minutes went:
+
+| Workflow | Est. minutes | Est. gross |
+|---|--:|--:|
+| bundle-linux-cert | 8,128 | $65.02 |
+| ci | 7,566 | $60.53 |
+| scout-cron | 3,805 | $30.44 |
+| scout-snapshot | 487 | $3.89 |
+| scout-cpe-dictionary | 362 | $2.90 |
+| steward | 341 | $2.73 |
+| all others | 387 | $3.10 |
+
+Per calendar month:
+
+| Month | Est. minutes | Est. gross |
+|---|--:|--:|
+| 2026-04 | 1,020 | $8.16 |
+| 2026-05 | 4,539 | $36.31 |
+| 2026-06 | 8,932 | $71.46 |
+| 2026-07 | 2,531 | $20.25 |
+| 2026-08 | 1,962 | $15.69 |
+| 2026-09 (partial) | 2,092 | $16.74 |
+
+June is the whole story. It alone accounts for 42% of the minutes and, under either allowance,
+most of the invoice. It is also the month the corpus grew to its current size, so the spike is
+cert dispatch rather than waste.
+
+Two structural readings follow. The first is that `ci` costs nearly as much as `bundle-linux-cert`
+while proving far less: 1,098 runs of the test suite against 241 certs. The suite runs on every
+push, and pushes are frequent because the project commits in small slices. The second is that
+`scout-cron` costs $30 to harvest candidates, which is comparable to the model spend it exists to
+target, and it runs on a schedule whether or not anyone is reading its output.
+
+**Why these are estimates.** Per-job durations were read for 1,816 of the 2,985 runs before the
+GitHub API rate limit cut the walk short. The remaining 1,169 runs are extrapolated from the
+measured billable-to-wall-clock ratio of their own workflow, which is the right denominator
+because the ratio is driven by job count and job count is a property of the workflow. Measured
+runs contribute 16,048 billable minutes of the 21,076 total, so 76% of the figure is read rather
+than inferred. The GitHub timing endpoint reports a `billable.total_ms` of zero for every run in
+this repository while reporting a non-zero `run_duration_ms`, so it could not be used and this
+reconstruction from job timestamps replaced it.
+
+---
+
+## 6. What this report does not count
 
 The totals above are complete for what the pipeline instruments, and the pipeline does not
 instrument everything. In rough order of size:
@@ -119,8 +194,8 @@ instrument everything. In rough order of size:
    is not recoverable from the repository.
 2. **HF Jobs GPU time** for LoRA training, billed by the hour rather than by the token and never
    written to any artifact here.
-3. **CI compute.** Every cert run, probe and `nix build` is GitHub Actions minutes on a private
-   repository.
+3. **Determinate Systems cache and network egress**, which the Nix builds in every cert lean on
+   and which bills outside GitHub entirely.
 4. **Work in scratch directories.** The assimp CVE-2026-82591 adaptation canary billed roughly
    $0.85 on 8 September, and its bundle lives outside the repository, so it appears in no total
    above.
@@ -130,7 +205,7 @@ adapter responses carrying usage, and they discard it.
 
 ---
 
-## 6. Reproducing these numbers
+## 7. Reproducing these numbers
 
 ```
 trace report throughput
@@ -140,3 +215,15 @@ writes a timestamped JSON and Markdown pair to `data/reports/`. It reads the sid
 live scout telemetry from the `scout-telemetry` branch, so it is deterministic given a checkout.
 The all-lanes tables in sections 2 and 3 come from the same sidecars, globbed across
 `traces/*/*/` rather than `traces/example/`.
+
+The continuous-integration figures in section 5 come from a separate walk of the GitHub Actions
+API, regenerated with
+
+```
+scripts/ci_minutes.py --out data/reports/ci-minutes-<date>.json
+```
+
+whose committed output is
+[`data/reports/ci-minutes-20260909.json`](../data/reports/ci-minutes-20260909.json). That walk
+needs network access and a GitHub token, so unlike `trace report throughput` it is not
+deterministic given a checkout alone.

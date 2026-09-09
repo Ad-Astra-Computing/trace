@@ -1,0 +1,47 @@
+{
+  "artifact_storage_bytes": {
+    "total": 409848634,
+    "unexpired": 120244519
+  },
+  "billable_to_wallclock_ratio": 1.291,
+  "by_month_minutes": {
+    "2026-04": 1020,
+    "2026-05": 4539,
+    "2026-06": 8932,
+    "2026-07": 2531,
+    "2026-08": 1962,
+    "2026-09": 2092
+  },
+  "by_workflow_minutes": {
+    "(unnamed)": 0,
+    ".github/workflows/scout-cron.yml": 0,
+    "authoring-behavioral-cert": 76,
+    "authoring-behavioral-pregenerated": 16,
+    "builder-fork": 52,
+    "bundle-linux-cert": 8128,
+    "ci": 7566,
+    "ci-alert": 70,
+    "compare-watch": 9,
+    "libtiff-linux-cert": 97,
+    "live-anthropic-smoke": 3,
+    "mruby-asan-cert": 20,
+    "reproducer-passk": 45,
+    "scout-cpe-dictionary": 362,
+    "scout-cron": 3805,
+    "scout-snapshot": 487,
+    "steward": 341
+  },
+  "estimated_billable_minutes": 21076,
+  "estimated_gross_usd": 168.61,
+  "estimated_overage_usd": {
+    "2000-min plan": 80.76,
+    "3000-min plan": 59.77
+  },
+  "generated_at": "2026-09-09T04:00:00+00:00",
+  "measured_billable_minutes": 16048,
+  "notes": "Rebuilt from per-job timestamps; the timing endpoint reports billable.total_ms as zero for every run in this repository.",
+  "rate_per_minute_usd": 0.008,
+  "runs_extrapolated": 1169,
+  "runs_measured": 1816,
+  "runs_total": 2985
+}
