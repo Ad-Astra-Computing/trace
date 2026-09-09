@@ -28,6 +28,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+from agents.cost import rollup_usage
+
 MODEL = os.environ.get("TRACE_AUTHOR_MODEL", "claude-opus-4-7")
 _API = "https://api.anthropic.com/v1/messages"
 
@@ -66,7 +68,7 @@ def _changed_lines(diff: str) -> tuple[set[str], set[str]]:
     return minus, plus
 
 
-def _api(prompt: str) -> str:
+def _api(prompt: str, *, usage_sink: list | None = None) -> str:
     body = json.dumps(
         {
             "model": MODEL,
@@ -84,6 +86,20 @@ def _api(prompt: str) -> str:
         },
     )
     r = json.load(urllib.request.urlopen(req, timeout=180))
+    if usage_sink is not None:
+        # Record the response usage block so a driver can roll up spend.
+        # Token counts absent -> the rollup counts the call as unobserved,
+        # never as zero (agents.cost.rollup_usage, honest-or-null rule).
+        u = r.get("usage") or {}
+        usage_sink.append(
+            {
+                "model": MODEL,
+                "input_tokens": u.get("input_tokens"),
+                "output_tokens": u.get("output_tokens"),
+                "cache_creation_input_tokens": u.get("cache_creation_input_tokens"),
+                "cache_read_input_tokens": u.get("cache_read_input_tokens"),
+            }
+        )
     return "".join(b.get("text", "") for b in r["content"])
 
 
@@ -160,7 +176,7 @@ def _upstream_changed(
     return minus, plus, fpath, (min(starts), max(starts))
 
 
-def eval_bundle(bundle_dir: Path) -> dict:
+def eval_bundle(bundle_dir: Path, *, usage_sink: list | None = None) -> dict:
     finding = json.loads((bundle_dir / "finding.json").read_text())
     cve = finding["cve_id"]
 
@@ -205,7 +221,7 @@ def eval_bundle(bundle_dir: Path) -> dict:
         "do not rewrite. Reply with ONLY a unified diff.\n\n"
         f"# CVE\n{cve}: {summary}\n\n# Vulnerable code ({fpath})\n```c\n{src}\n```\n"
     )
-    authored = _api(prompt)
+    authored = _api(prompt, usage_sink=usage_sink)
     au_minus, au_plus = _changed_lines(authored)
 
     # diff-vs-upstream: did the authored fix make upstream's key change? Compare
@@ -242,11 +258,12 @@ def main(argv: list[str]) -> int:
         Path("traces/example").glob("*-backport")
     )
     results = []
+    usage_sink: list = []
     for bd in bundles:
         if not (bd / "upstream-fix.patch").is_file():
             continue
         try:
-            r = eval_bundle(bd)
+            r = eval_bundle(bd, usage_sink=usage_sink)
         except Exception as exc:  # noqa: BLE001 — eval harness, report don't crash
             r = {"cve": bd.name, "status": "error", "reason": str(exc)[:160]}
         results.append(r)
@@ -260,6 +277,7 @@ def main(argv: list[str]) -> int:
         "model": MODEL,
         "n": len(results),
         "counts": counts,
+        "cost": rollup_usage(usage_sink),
         "results": results,
         "note": "diff-vs-upstream only; reproducer red→green is the mandatory gate (see bundle cert)",
     }

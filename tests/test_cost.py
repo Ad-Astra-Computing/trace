@@ -142,3 +142,72 @@ def test_actual_cost_usd_none_cache_fields_default_to_zero() -> None:
     assert cost is not None
     # Same as the no-cache path: 100×15/M + 1000×75/M = $0.0765.
     assert cost == pytest.approx(0.0765, rel=1e-9)
+
+
+# ── rollup_usage: per-call usage records -> a report cost block ─────────────
+
+from agents.cost import rollup_usage
+
+
+def test_rollup_usage_sums_observed_calls_and_cost() -> None:
+    block = rollup_usage(
+        [
+            {"model": "claude-opus-4-7", "input_tokens": 1000, "output_tokens": 500},
+            {"model": "claude-opus-4-7", "input_tokens": 2000, "output_tokens": 100},
+        ]
+    )
+    assert block["calls"] == 2
+    assert block["observed_calls"] == 2
+    assert block["unobserved_calls"] == 0
+    assert block["input_tokens"] == 3000
+    assert block["output_tokens"] == 600
+    # (1000+2000)*15 + (500+100)*75 per Mtok
+    assert block["total_usd"] == round((3000 * 15 + 600 * 75) / 1_000_000, 6)
+    assert block["by_model"]["claude-opus-4-7"]["observed_calls"] == 2
+
+
+def test_rollup_usage_missing_tokens_count_unobserved_not_zero() -> None:
+    """A call with no token counts must not dilute the total to a false $0;
+    it is counted but its dollars stay out of the sum (honest-or-null)."""
+    block = rollup_usage(
+        [
+            {"model": "claude-opus-4-7", "input_tokens": 1000, "output_tokens": 500},
+            {"model": "claude-opus-4-7", "input_tokens": None, "output_tokens": None},
+        ]
+    )
+    assert block["calls"] == 2
+    assert block["observed_calls"] == 1
+    assert block["unobserved_calls"] == 1
+    assert block["total_usd"] == round((1000 * 15 + 500 * 75) / 1_000_000, 6)
+    m = block["by_model"]["claude-opus-4-7"]
+    assert m["calls"] == 2 and m["observed_calls"] == 1
+
+
+def test_rollup_usage_splits_by_model() -> None:
+    block = rollup_usage(
+        [
+            {"model": "claude-opus-4-7", "input_tokens": 100, "output_tokens": 10},
+            {
+                "model": "claude-sonnet-4-5-20250929",
+                "input_tokens": 100,
+                "output_tokens": 10,
+            },
+        ]
+    )
+    assert set(block["by_model"]) == {"claude-opus-4-7", "claude-sonnet-4-5-20250929"}
+    opus = block["by_model"]["claude-opus-4-7"]["total_usd"]
+    sonnet = block["by_model"]["claude-sonnet-4-5-20250929"]["total_usd"]
+    assert opus > sonnet  # opus prices dominate for identical tokens
+
+
+def test_rollup_usage_empty_is_all_zero() -> None:
+    block = rollup_usage([])
+    assert block == {
+        "calls": 0,
+        "observed_calls": 0,
+        "unobserved_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_usd": 0.0,
+        "by_model": {},
+    }

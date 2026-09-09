@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agents.cost import rollup_usage
 from eval.author_blind_eval import eval_bundle, _api
 from eval.score_authoring_pilot import (
     score_behavioral,
@@ -110,8 +111,20 @@ def screen_bundle(
     build_fn=None,
     judge_api=_api,
     author_fn=eval_bundle,
+    usage_sink: list | None = None,
 ) -> dict:
-    blind = author_fn(bundle_dir)
+    # A usage_sink records live-call spend for the report. Only the default
+    # real callables know how to feed it; injected test seams keep their
+    # single-argument convention untouched.
+    if usage_sink is not None and author_fn is eval_bundle:
+        _author = lambda d: eval_bundle(d, usage_sink=usage_sink)  # noqa: E731
+    else:
+        _author = author_fn
+    if usage_sink is not None and judge_api is _api:
+        _judge = lambda pr: _api(pr, usage_sink=usage_sink)  # noqa: E731
+    else:
+        _judge = judge_api
+    blind = _author(bundle_dir)
     cve = blind.get("cve")
     if blind.get("status") == "skip":
         return {
@@ -156,7 +169,7 @@ def screen_bundle(
         behavioral.get("status") == "ran" and behavioral.get("pass") is False
     ):
         upstream = (bundle_dir / "upstream-fix.patch").read_text()
-        judge = judge_differs(cve, authored, upstream, api_fn=judge_api)
+        judge = judge_differs(cve, authored, upstream, api_fn=_judge)
 
     return {
         "cve": cve,
@@ -198,11 +211,17 @@ def main(argv: list[str] | None = None) -> int:
         build_fn = _make_build_fn(args.nixpkgs, args.build_timeout)
 
     results = []
+    usage_sink: list = []
     for bd in bundles:
         if not (bd / "upstream-fix.patch").is_file():
             continue
         try:
-            r = screen_bundle(bd, traces_root=args.traces_root, build_fn=build_fn)
+            r = screen_bundle(
+                bd,
+                traces_root=args.traces_root,
+                build_fn=build_fn,
+                usage_sink=usage_sink,
+            )
         except Exception as exc:  # noqa: BLE001 — screening harness, report don't crash
             r = {"cve": bd.name, "disposition": "error", "reason": str(exc)[:160]}
         results.append(r)
@@ -219,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         "scope": "authoring-expansion-screen",
         "n": len(results),
         "dispositions": counts,
+        "cost": rollup_usage(usage_sink),
         "results": results,
         "guardrail": "screening only; training label stays the curated upstream-fix.patch",
     }

@@ -21,6 +21,8 @@ constants and helpers.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+
 
 # Per-million-token prices in USD. Errs on the high side to avoid
 # silently undercounting. The cached_input field is informational for
@@ -94,3 +96,64 @@ def actual_cost_usd(
         + output_tokens * prices["output"] / 1_000_000.0
     )
     return round(cost, 6)
+
+
+def rollup_usage(records: Iterable[Mapping[str, object]]) -> dict:
+    """Aggregate per-call usage records into a cost block for an eval report.
+
+    Each record is a mapping with a ``model`` id and the token counts from
+    an adapter usage block: ``input_tokens``, ``output_tokens`` and the
+    optional ``cache_creation_input_tokens`` / ``cache_read_input_tokens``.
+    A record whose cost cannot be computed (missing token counts) is counted
+    as an unobserved call, never as a zero-dollar one, matching the
+    honest-or-null rule the throughput report already applies to sidecars.
+
+    Returns a block shaped for direct inclusion in an eval report's ``cost``
+    field: total and per-model call counts, token sums and realized USD.
+    """
+    calls = observed = 0
+    total_in = total_out = 0
+    total_usd = 0.0
+    by_model: dict[str, dict] = {}
+    for rec in records:
+        calls += 1
+        model = str(rec.get("model") or "unknown")
+        in_tok = rec.get("input_tokens")
+        out_tok = rec.get("output_tokens")
+        cost = actual_cost_usd(
+            model_id=model,
+            input_tokens=in_tok if isinstance(in_tok, int) else None,
+            output_tokens=out_tok if isinstance(out_tok, int) else None,
+            cache_creation_input_tokens=rec.get("cache_creation_input_tokens"),  # type: ignore[arg-type]
+            cache_read_input_tokens=rec.get("cache_read_input_tokens"),  # type: ignore[arg-type]
+        )
+        m = by_model.setdefault(
+            model,
+            {
+                "calls": 0,
+                "observed_calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_usd": 0.0,
+            },
+        )
+        m["calls"] += 1
+        if cost is None:
+            continue
+        observed += 1
+        total_in += in_tok  # type: ignore[operator]
+        total_out += out_tok  # type: ignore[operator]
+        total_usd += cost
+        m["observed_calls"] += 1
+        m["input_tokens"] += in_tok  # type: ignore[operator]
+        m["output_tokens"] += out_tok  # type: ignore[operator]
+        m["total_usd"] = round(m["total_usd"] + cost, 6)
+    return {
+        "calls": calls,
+        "observed_calls": observed,
+        "unobserved_calls": calls - observed,
+        "input_tokens": total_in,
+        "output_tokens": total_out,
+        "total_usd": round(total_usd, 6),
+        "by_model": by_model,
+    }

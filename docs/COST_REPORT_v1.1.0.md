@@ -269,8 +269,11 @@ instrument everything. In rough order of size:
    $0.85 on 8 September, and its bundle lives outside the repository, so it appears in no total
    above.
 
-Closing the first gap is the obvious next instrumentation slice: the eval drivers already receive
-adapter responses carrying usage, and they discard it.
+Closing the first gap is under way. The two authoring-accuracy drivers, `eval/author_blind_eval.py`
+and `eval/expand_screen.py`, now thread a usage sink through their Anthropic calls and roll it up
+into a `cost` block on the report they write (`agents.cost.rollup_usage`, capture-only: no live run
+has populated it yet). The Reviewer-LoRA gate pilots, the frontier baselines and the compound
+probes still discard their usage and remain uninstrumented.
 
 ---
 
