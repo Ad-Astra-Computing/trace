@@ -5,7 +5,7 @@
 
 **Scope**: every live Anthropic API invocation recorded in a
 `{patcher,reviewer,reproducer}-invocation.json` sidecar under `traces/`. Deterministic roles
-(upstream-ref-resolver, Builder, Steward) make no model call and cost nothing. Section 6 lists
+(upstream-ref-resolver, Builder, Steward) make no model call and cost nothing. Section 7 lists
 the spend that exists but is still not instrumented, which is the part of this report to read first if
 you are deciding whether to trust the totals.
 
@@ -30,9 +30,11 @@ adaptation eval lane, which is where the difference between $40.45 and $73.39 co
 | **Cost per merge-ready bundle (mean, N=22)** | **$0.3726** |
 | Human-review-required bundles with cost data | 73 ($32.26 total, mean $0.4419) |
 
-Model spend is not the largest line. Section 5 reconstructs GitHub Actions compute at an estimated
-$168.61 gross, which puts total instrumented project cost near $242 gross, or roughly $133 to $154
-once the monthly Actions allowance is applied.
+Model spend is not the largest line, and it is not the second largest either. Section 5
+reconstructs GitHub Actions compute at an estimated $168.61 gross and section 6 puts GPU training
+on Hugging Face at $173.78. Together with model spend that is about $416 gross, or roughly $307 to
+$328 once the monthly Actions allowance is applied. Calling the model bill the cost of this
+project understates it more than fivefold.
 
 Three invocations carry no cost field. They are recorded as calls and excluded from every dollar
 figure rather than counted as zero, per the honest-or-null rule the retry accounting adopted on
@@ -207,7 +209,51 @@ reconstruction from job timestamps replaced it.
 
 ---
 
-## 6. What this report does not count
+## 6. GPU training on Hugging Face Jobs
+
+Every LoRA adapter this project trained, and every canary or gate-pilot inference run against one,
+ran as a Hugging Face Job under the `odoom` namespace. The Jobs API records the flavor and the
+wall-clock duration of each, and the flavor has a published hourly rate, so this spend is
+measurable in a way the model-eval spend in section 7 is not.
+
+| Metric | Value |
+|---|---|
+| GPU hours | **72.74** |
+| Estimated gross | **$173.78** |
+| Jobs costed | 105 of 138 |
+| Completed / errored / canceled | 91 / 13 / 1 |
+
+Almost all of it is one flavor. `a100-large` at $2.50 an hour carries 86 runs and 61.22 hours, or
+$153.04, against 19 runs and 11.52 hours of `l40sx1` at $1.80. That split is the training-versus-
+inference split: the 80GB A100 was a requirement rather than a preference, because the L40S ran out
+of memory on long source diffs at a 16K sequence length, and the cheaper flavor was reserved for
+control-arm inference where it fit.
+
+| Month | runs | hours | gross |
+|---|---|---|---|
+| 2026-06 | 28 | 28.32 | $66.38 |
+| 2026-07 | 71 | 36.00 | $89.45 |
+| 2026-08 | 4 | 7.38 | $15.35 |
+| 2026-09 | 2 | 1.04 | $2.61 |
+
+July is the busiest month by run count and June by hours per run, which is the shape of an arc that
+started with long training runs and moved to short scored inference passes over the adapters those
+runs produced. The collapse after July is the authoring-LoRA arc closing.
+
+Thirteen jobs errored. They are counted at full price because a job that fails after it has been
+scheduled has already held the GPU, and the pre-paid credit does not come back.
+
+**Why this is an estimate.** Thirty-three jobs report no `finishedAt` and therefore no duration.
+Twenty-six of those never left the queue and cost nothing. The other seven were canceled after
+starting, so they held a GPU for a stretch the API does not record, and their time is missing from
+the 72.74 hours. The rates are the published Spaces hardware prices read on 9 September 2026. A
+job on a flavor absent from that table has an unknown cost rather than a zero one, so it is left
+out of every dollar figure and the report is marked incomplete; none were, and this one is
+marked complete.
+
+---
+
+## 7. What this report does not count
 
 The totals above are complete for what the pipeline instruments, and the pipeline does not
 instrument everything. In rough order of size:
@@ -217,11 +263,9 @@ instrument everything. In rough order of size:
    those artifacts carry a usage or cost field. `authoring-accuracy-vs-human-2026-09-04.json`
    records dispositions and results with no token counts at all. This spend is real and its size
    is not recoverable from the repository.
-2. **HF Jobs GPU time** for LoRA training, billed by the hour rather than by the token and never
-   written to any artifact here.
-3. **Determinate Systems cache and network egress**, which the Nix builds in every cert lean on
+2. **Determinate Systems cache and network egress**, which the Nix builds in every cert lean on
    and which bills outside GitHub entirely.
-4. **Work in scratch directories.** The assimp CVE-2026-82591 adaptation canary billed roughly
+3. **Work in scratch directories.** The assimp CVE-2026-82591 adaptation canary billed roughly
    $0.85 on 8 September, and its bundle lives outside the repository, so it appears in no total
    above.
 
@@ -230,7 +274,7 @@ adapter responses carrying usage, and they discard it.
 
 ---
 
-## 7. Reproducing these numbers
+## 8. Reproducing these numbers
 
 ```
 trace report throughput
@@ -252,3 +296,14 @@ whose committed output is
 [`data/reports/ci-minutes-20260909.json`](../data/reports/ci-minutes-20260909.json). That walk
 needs network access and a GitHub token, so unlike `trace report throughput` it is not
 deterministic given a checkout alone.
+
+The GPU figures in section 6 come from the Hugging Face Jobs API, regenerated with
+
+```
+set -a; source .env; set +a
+scripts/hf_job_hours.py --namespace odoom --out data/reports/hf-jobs-<date>.json
+```
+
+whose committed output is
+[`data/reports/hf-jobs-20260909.json`](../data/reports/hf-jobs-20260909.json). It needs `HF_TOKEN`
+and the network for the same reason.
