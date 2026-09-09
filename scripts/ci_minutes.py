@@ -116,6 +116,8 @@ def build(runs: list[dict]) -> dict:
 
     by_workflow: collections.Counter = collections.Counter()
     by_month: collections.Counter = collections.Counter()
+    by_cell: collections.Counter = collections.Counter()
+    runs_by_cell: collections.Counter = collections.Counter()
     total = 0.0
     for run in runs:
         if run["id"] in measured:
@@ -129,6 +131,8 @@ def build(runs: list[dict]) -> dict:
             seconds = run["wall_seconds"] * ratio
         by_workflow[run["workflow"]] += seconds
         by_month[run["month"]] += seconds
+        by_cell[(run["month"], run["workflow"])] += seconds
+        runs_by_cell[(run["month"], run["workflow"])] += 1
         total += seconds
 
     minutes = total / 60
@@ -152,6 +156,13 @@ def build(runs: list[dict]) -> dict:
             k: round(v / 60) for k, v in by_workflow.most_common()
         },
         "by_month_minutes": {k: round(by_month[k] / 60) for k in sorted(by_month)},
+        "by_month_workflow_minutes": {
+            f"{month}/{workflow}": {
+                "runs": runs_by_cell[(month, workflow)],
+                "minutes": round(by_cell[(month, workflow)] / 60),
+            }
+            for month, workflow in sorted(by_cell)
+        },
     }
 
 

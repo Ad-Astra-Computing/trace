@@ -162,8 +162,33 @@ Per calendar month:
 | 2026-09 (partial) | 2,092 | $16.74 |
 
 June is the whole story. It alone accounts for 42% of the minutes and, under either allowance,
-most of the invoice. It is also the month the corpus grew to its current size, so the spike is
-cert dispatch rather than waste.
+most of the invoice. The spike is a cert campaign. Of the 241 `bundle-linux-cert` runs in the
+project's life, 155 fall in June, and they carry 5,266 of June's 8,932 minutes. The test suite
+adds another 2,580 over 373 runs in the same month, because each cert-driven commit is also a
+push. Those two workflows are 88% of June.
+
+Per-month cert dispatch, which is the shape behind the spike:
+
+| Month | Cert runs | Est. cert minutes |
+|---|--:|--:|
+| 2026-05 | 34 | 2,001 |
+| 2026-06 | 155 | 5,266 |
+| 2026-07 | 7 | 19 |
+| 2026-08 | 10 | 241 |
+| 2026-09 (partial) | 35 | 601 |
+
+The useful unit that falls out of this is the price of a cert. A `bundle-linux-cert` run averages
+34 billable minutes, or $0.27, and 140 of the corpus's 199 bundles carry a `build.json`, so the
+corpus has cost about 1.7 cert runs per certified bundle. That ratio is the retry rate made
+visible: a bundle that certifies first try costs $0.27 of compute, and the ones that took three
+or four attempts are what pull the mean up. Against a mean model spend near $0.22 per
+merge-ready bundle, cert compute and model spend are the same order of magnitude, which was not
+knowable before this section.
+
+Bundle count is not the driver, which is worth stating because it is the intuitive guess and it
+is wrong. July added 74 bundles to June's 69 for 2,531 minutes against June's 8,932. Bundles
+land in the repository in batches after the compute that certified them, so commit dates track
+corpus growth and say nothing about when the minutes were spent.
 
 Two structural readings follow. The first is that `ci` costs nearly as much as `bundle-linux-cert`
 while proving far less: 1,098 runs of the test suite against 241 certs. The suite runs on every

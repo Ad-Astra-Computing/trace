@@ -12,6 +12,192 @@
     "2026-08": 1962,
     "2026-09": 2092
   },
+  "by_month_workflow_minutes": {
+    "2026-04/.github/workflows/scout-cron.yml": {
+      "minutes": 0,
+      "runs": 2
+    },
+    "2026-04/builder-fork": {
+      "minutes": 52,
+      "runs": 5
+    },
+    "2026-04/ci": {
+      "minutes": 630,
+      "runs": 81
+    },
+    "2026-04/live-anthropic-smoke": {
+      "minutes": 3,
+      "runs": 2
+    },
+    "2026-04/scout-cpe-dictionary": {
+      "minutes": 75,
+      "runs": 2
+    },
+    "2026-04/scout-cron": {
+      "minutes": 68,
+      "runs": 26
+    },
+    "2026-04/scout-snapshot": {
+      "minutes": 130,
+      "runs": 5
+    },
+    "2026-04/steward": {
+      "minutes": 62,
+      "runs": 9
+    },
+    "2026-05/bundle-linux-cert": {
+      "minutes": 2001,
+      "runs": 34
+    },
+    "2026-05/ci": {
+      "minutes": 1088,
+      "runs": 160
+    },
+    "2026-05/libtiff-linux-cert": {
+      "minutes": 97,
+      "runs": 3
+    },
+    "2026-05/mruby-asan-cert": {
+      "minutes": 20,
+      "runs": 7
+    },
+    "2026-05/scout-cpe-dictionary": {
+      "minutes": 93,
+      "runs": 5
+    },
+    "2026-05/scout-cron": {
+      "minutes": 1128,
+      "runs": 345
+    },
+    "2026-05/scout-snapshot": {
+      "minutes": 112,
+      "runs": 34
+    },
+    "2026-06/": {
+      "minutes": 0,
+      "runs": 52
+    },
+    "2026-06/authoring-behavioral-cert": {
+      "minutes": 76,
+      "runs": 3
+    },
+    "2026-06/bundle-linux-cert": {
+      "minutes": 5266,
+      "runs": 155
+    },
+    "2026-06/ci": {
+      "minutes": 2580,
+      "runs": 373
+    },
+    "2026-06/scout-cpe-dictionary": {
+      "minutes": 40,
+      "runs": 3
+    },
+    "2026-06/scout-cron": {
+      "minutes": 741,
+      "runs": 197
+    },
+    "2026-06/scout-snapshot": {
+      "minutes": 78,
+      "runs": 27
+    },
+    "2026-06/steward": {
+      "minutes": 151,
+      "runs": 43
+    },
+    "2026-07/": {
+      "minutes": 0,
+      "runs": 70
+    },
+    "2026-07/authoring-behavioral-pregenerated": {
+      "minutes": 16,
+      "runs": 3
+    },
+    "2026-07/bundle-linux-cert": {
+      "minutes": 19,
+      "runs": 7
+    },
+    "2026-07/ci": {
+      "minutes": 1713,
+      "runs": 259
+    },
+    "2026-07/ci-alert": {
+      "minutes": 18,
+      "runs": 90
+    },
+    "2026-07/scout-cpe-dictionary": {
+      "minutes": 29,
+      "runs": 3
+    },
+    "2026-07/scout-cron": {
+      "minutes": 671,
+      "runs": 207
+    },
+    "2026-07/scout-snapshot": {
+      "minutes": 65,
+      "runs": 25
+    },
+    "2026-08/bundle-linux-cert": {
+      "minutes": 241,
+      "runs": 10
+    },
+    "2026-08/ci": {
+      "minutes": 553,
+      "runs": 77
+    },
+    "2026-08/ci-alert": {
+      "minutes": 16,
+      "runs": 77
+    },
+    "2026-08/reproducer-passk": {
+      "minutes": 45,
+      "runs": 6
+    },
+    "2026-08/scout-cpe-dictionary": {
+      "minutes": 101,
+      "runs": 5
+    },
+    "2026-08/scout-cron": {
+      "minutes": 925,
+      "runs": 118
+    },
+    "2026-08/scout-snapshot": {
+      "minutes": 82,
+      "runs": 31
+    },
+    "2026-09/bundle-linux-cert": {
+      "minutes": 601,
+      "runs": 35
+    },
+    "2026-09/ci": {
+      "minutes": 1002,
+      "runs": 148
+    },
+    "2026-09/ci-alert": {
+      "minutes": 36,
+      "runs": 148
+    },
+    "2026-09/compare-watch": {
+      "minutes": 9,
+      "runs": 5
+    },
+    "2026-09/scout-cpe-dictionary": {
+      "minutes": 24,
+      "runs": 1
+    },
+    "2026-09/scout-cron": {
+      "minutes": 272,
+      "runs": 31
+    },
+    "2026-09/scout-snapshot": {
+      "minutes": 20,
+      "runs": 8
+    },
+    "2026-09/steward": {
+      "minutes": 128,
+      "runs": 48
+    }
+  },
   "by_workflow_minutes": {
     "(unnamed)": 0,
     ".github/workflows/scout-cron.yml": 0,
