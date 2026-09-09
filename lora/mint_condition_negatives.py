@@ -44,6 +44,7 @@ def _rel(p: Path) -> str:
     except ValueError:
         return str(p)
 
+
 # Boundary flips that turn a correct guard into an off-by-one. Each maps a relational
 # operator to the "looser/tighter by one" variant a real defect would introduce.
 _FLIPS = {">": ">=", "<": "<=", ">=": ">", "<=": "<"}
@@ -123,8 +124,13 @@ def _base_attr(bundle_dir: Path) -> str:
 
 # Files a bundle must carry to be minted into a Reviewer negative that the frontier
 # Reviewer can replay AND the reviewer exporter can turn into a training row.
-_REVIEWER_READY = ("patch.diff", "upstream-fix.patch", "upstream-ref.json",
-                   "patch-rationale.md", "review.md")
+_REVIEWER_READY = (
+    "patch.diff",
+    "upstream-fix.patch",
+    "upstream-ref.json",
+    "patch-rationale.md",
+    "review.md",
+)
 
 
 def _is_reviewer_ready(bundle_dir: Path) -> bool:
@@ -133,13 +139,21 @@ def _is_reviewer_ready(bundle_dir: Path) -> bool:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out-root", type=Path, default=ROOT / "traces" / "negatives-minted")
-    ap.add_argument("--split-manifest", type=Path,
-                    default=ROOT / "data" / "splits" / "reviewer-v2-bigfold.json")
+    ap.add_argument(
+        "--out-root", type=Path, default=ROOT / "traces" / "negatives-minted"
+    )
+    ap.add_argument(
+        "--split-manifest",
+        type=Path,
+        default=ROOT / "data" / "splits" / "reviewer-v2-bigfold.json",
+    )
     ap.add_argument("--source-root", type=Path, default=ROOT / "traces" / "example")
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--dry-run", action="store_true",
-                    help="report eligible candidates without invoking mutate")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report eligible candidates without invoking mutate",
+    )
     args = ap.parse_args()
 
     held = _held_out_families(args.split_manifest)
@@ -160,31 +174,54 @@ def main() -> None:
     if args.limit:
         candidates = candidates[: args.limit]
 
-    print(f"eligible train-family condition-negative candidates: {len(candidates)}",
-          file=sys.stderr)
+    print(
+        f"eligible train-family condition-negative candidates: {len(candidates)}",
+        file=sys.stderr,
+    )
     manifest = []
     for d, attr, (guard, op_from, op_to) in candidates:
         cve = d.name.split("--")[0]
         out_dir = args.out_root / f"{cve}--{attr}--condition-operator-mint"
         entry = {
             "base_dir": _rel(d),
-            "attr": attr, "cve": cve,
-            "guard": guard, "op_from": op_from.strip(), "op_to": op_to.strip(),
+            "attr": attr,
+            "cve": cve,
+            "guard": guard,
+            "op_from": op_from.strip(),
+            "op_to": op_to.strip(),
             "out_dir": _rel(out_dir),
         }
         if args.dry_run:
-            print(f"  [dry] {cve:18} {attr:16} {op_from.strip()}->{op_to.strip()} | {guard.strip()[:70]}")
+            print(
+                f"  [dry] {cve:18} {attr:16} {op_from.strip()}->{op_to.strip()} | {guard.strip()[:70]}"
+            )
             manifest.append(entry)
             continue
         cmd = [
-            sys.executable, "-m", "tools.trace_cli", "mutate", "reviewer-negative",
-            "--base-dir", str(d), "--mutation", "condition-operator-mutation",
-            "--guard", guard, "--op-from", op_from, "--op-to", op_to,
-            "--out-dir", str(out_dir),
+            sys.executable,
+            "-m",
+            "tools.trace_cli",
+            "mutate",
+            "reviewer-negative",
+            "--base-dir",
+            str(d),
+            "--mutation",
+            "condition-operator-mutation",
+            "--guard",
+            guard,
+            "--op-from",
+            op_from,
+            "--op-to",
+            op_to,
+            "--out-dir",
+            str(out_dir),
         ]
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         if r.returncode != 0:
-            print(f"  SKIP {cve}/{attr}: {r.stderr.strip().splitlines()[-1:]}", file=sys.stderr)
+            print(
+                f"  SKIP {cve}/{attr}: {r.stderr.strip().splitlines()[-1:]}",
+                file=sys.stderr,
+            )
             entry["error"] = r.stderr.strip().splitlines()[-1:] or ["unknown"]
         else:
             print(f"  MINT {cve:18} {attr:16} {op_from.strip()}->{op_to.strip()}")
@@ -194,9 +231,15 @@ def main() -> None:
     args.out_root.mkdir(parents=True, exist_ok=True)
     (args.out_root / "mint-manifest.json").write_text(json.dumps(manifest, indent=2))
     minted = sum(1 for e in manifest if e.get("minted"))
-    print(f"\nminted {minted}/{len(candidates)} candidates -> {args.out_root}", file=sys.stderr)
-    print("next: `trace replay --execute --role reviewer` each to confirm reject "
-          "(only confirmed rejects become training negatives)", file=sys.stderr)
+    print(
+        f"\nminted {minted}/{len(candidates)} candidates -> {args.out_root}",
+        file=sys.stderr,
+    )
+    print(
+        "next: `trace replay --execute --role reviewer` each to confirm reject "
+        "(only confirmed rejects become training negatives)",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

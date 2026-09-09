@@ -7,7 +7,9 @@ Canaries come from the adastracomputing/authoring-lora-data-v6 dataset repo;
 responses come from the adapter model repo (canary-responses.jsonl). The
 optional third argument prints a prior adapter's patch-lines for comparison.
 """
+
 import json, re, sys
+
 
 def extract_diff(text):
     """Pull the first fenced diff/patch block, else the whole text."""
@@ -15,6 +17,7 @@ def extract_diff(text):
     if m:
         return m.group(1)
     return text
+
 
 def patch_lines(diff_text):
     """Extract functional +/- lines, stripping trailing whitespace.
@@ -28,6 +31,7 @@ def patch_lines(diff_text):
             out.append(s)
     return out
 
+
 def load_refs(canary_path):
     refs = {}
     with open(canary_path) as f:
@@ -40,6 +44,7 @@ def load_refs(canary_path):
             refs[cve] = {"attr": attr, "asst": asst, "user": user}
     return refs
 
+
 def load_responses(path):
     """Return dict cve_id -> generated text. Handles a few schemas."""
     out = {}
@@ -51,13 +56,19 @@ def load_responses(path):
             r = json.loads(line)
             # find cve id
             cve = r.get("cve_id") or r.get("provenance", {}).get("cve_id")
-            gen = (r.get("response") or r.get("generated") or r.get("output")
-                   or r.get("completion") or r.get("assistant"))
+            gen = (
+                r.get("response")
+                or r.get("generated")
+                or r.get("output")
+                or r.get("completion")
+                or r.get("assistant")
+            )
             if gen is None and "messages" in r:
                 asst = [m["content"] for m in r["messages"] if m["role"] == "assistant"]
                 gen = asst[-1] if asst else None
             out[cve] = {"gen": gen, "raw": r}
     return out
+
 
 def main():
     if len(sys.argv) < 3:
@@ -81,10 +92,15 @@ def main():
             print("   ", repr(l))
         gen = v12.get(cve, {}).get("gen")
         if gen is None:
-            print(">>> NO v1.2 RESPONSE for", cve, " raw keys:", list(v12.get(cve, {}).get("raw", {}).keys()))
+            print(
+                ">>> NO v1.2 RESPONSE for",
+                cve,
+                " raw keys:",
+                list(v12.get(cve, {}).get("raw", {}).keys()),
+            )
             continue
         gen_pl = patch_lines(extract_diff(gen))
-        match = (gen_pl == ref_pl)
+        match = gen_pl == ref_pl
         print(f"\nv1.2 RESULT: {'PASS' if match else 'FAIL'}")
         print("v1.2 patch-lines:")
         for l in gen_pl:
@@ -99,6 +115,7 @@ def main():
         print("\n----- FULL v1.2 GENERATED (verbatim) -----")
         print(gen)
         print("----- END -----")
+
 
 if __name__ == "__main__":
     main()

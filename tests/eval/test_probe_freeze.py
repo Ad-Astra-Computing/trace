@@ -73,8 +73,12 @@ def test_every_family_has_exactly_one_paired_clean_positive():
                 "(awkward + plain, per the 2026-08-03 pre-measurement top-up)"
             )
         else:
-            assert meta["positives"] == 1, f"{fam} has {meta['positives']} positives, need exactly 1"
-        assert meta["negatives"] >= 2, f"{fam} has too few negatives: {meta['negatives']}"
+            assert meta["positives"] == 1, (
+                f"{fam} has {meta['positives']} positives, need exactly 1"
+            )
+        assert meta["negatives"] >= 2, (
+            f"{fam} has too few negatives: {meta['negatives']}"
+        )
 
 
 def test_recorded_gaps_are_declared_not_hidden():

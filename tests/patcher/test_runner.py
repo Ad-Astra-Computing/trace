@@ -42,8 +42,8 @@ def _fake_patch_response() -> str:
         "--- a/pkgs/by-name/li/libexample/package.nix\n"
         "+++ b/pkgs/by-name/li/libexample/package.nix\n"
         "@@ -1 +1 @@\n"
-        "-version = \"1.4.7\";\n"
-        "+version = \"1.4.8\";\n"
+        '-version = "1.4.7";\n'
+        '+version = "1.4.8";\n'
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + RATIONALE
@@ -62,7 +62,10 @@ def _fake_refusal_response() -> str:
 
 def _minimal_inputs() -> dict:
     return {
-        "finding": {"cve_id": "CVE-0000-0001", "affected": [{"attr_path": "libexample", "version": "1.4.7"}]},
+        "finding": {
+            "cve_id": "CVE-0000-0001",
+            "affected": [{"attr_path": "libexample", "version": "1.4.7"}],
+        },
         "upstream_ref": {
             "cve_id": "CVE-0000-0001",
             "current_version": "1.4.7",
@@ -70,8 +73,15 @@ def _minimal_inputs() -> dict:
             "fix_tier": "security-patch-release",
             "eligibility": {"verdict": "eligible"},
         },
-        "impact": {"cve_id": "CVE-0000-0001", "reverse_closure_count": 42, "exceeds_threshold": False},
-        "maintainers": {"cve_id": "CVE-0000-0001", "attr_paths": {"libexample": {"maintainers": [{"github": "alice"}]}}},
+        "impact": {
+            "cve_id": "CVE-0000-0001",
+            "reverse_closure_count": 42,
+            "exceeds_threshold": False,
+        },
+        "maintainers": {
+            "cve_id": "CVE-0000-0001",
+            "attr_paths": {"libexample": {"maintainers": [{"github": "alice"}]}},
+        },
         "package_source": 'version = "1.4.7";\n',
         "package_source_path": "pkgs/by-name/li/libexample/package.nix",
     }
@@ -79,7 +89,9 @@ def _minimal_inputs() -> dict:
 
 def test_runner_happy_path_produces_patch():
     adapter = FakeAdapter("fake-opus-4-7", _fake_patch_response())
-    result = run_patcher(inputs=_minimal_inputs(), adapter=adapter, prompt_path=PROMPT_PATH)
+    result = run_patcher(
+        inputs=_minimal_inputs(), adapter=adapter, prompt_path=PROMPT_PATH
+    )
     assert result.kind == "patch"
     assert result.parsed.patch_diff.startswith("--- a/pkgs/by-name/li/libexample")
     assert result.parsed.patch_rationale_md.startswith("## Upstream reference")
@@ -97,7 +109,9 @@ def test_runner_happy_path_produces_patch():
 
 def test_runner_happy_path_produces_refusal():
     adapter = FakeAdapter("fake-opus-4-7", _fake_refusal_response())
-    result = run_patcher(inputs=_minimal_inputs(), adapter=adapter, prompt_path=PROMPT_PATH)
+    result = run_patcher(
+        inputs=_minimal_inputs(), adapter=adapter, prompt_path=PROMPT_PATH
+    )
     assert result.kind == "refusal"
     assert result.parsed.refusal_rule == 3
     assert "ineligible-cherry-pick-required" in result.parsed.refusal_reason
@@ -123,7 +137,9 @@ def test_runner_requires_prompt_file(tmp_path):
     adapter = FakeAdapter("fake-opus-4-7", _fake_patch_response())
     missing_prompt = tmp_path / "nope.md"
     with pytest.raises(FileNotFoundError):
-        run_patcher(inputs=_minimal_inputs(), adapter=adapter, prompt_path=missing_prompt)
+        run_patcher(
+            inputs=_minimal_inputs(), adapter=adapter, prompt_path=missing_prompt
+        )
 
 
 def test_runner_sampling_override_applies():

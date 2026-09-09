@@ -102,7 +102,9 @@ _SPECIFICITY_LENGTH_FLOOR = 32
 def _outputs_kind(invocation: dict[str, Any]) -> str:
     """Detect whether the reproducer invocation produced a reproducer or a refusal."""
     out_paths = {o["path"] for o in invocation.get("outputs") or []}
-    if {"reproducer.nix", "reproducer-log.txt", "passthru-tests.json"}.issubset(out_paths):
+    if {"reproducer.nix", "reproducer-log.txt", "passthru-tests.json"}.issubset(
+        out_paths
+    ):
         return "reproducer"
     if "reproducer-refusal.json" in out_paths:
         return "refusal"
@@ -304,23 +306,31 @@ class ReproUnpatchedFailsScorer:
 
     def score(self, *, bundle_dir: Path, invocation: dict[str, Any]) -> ScorerResult:
         if _outputs_kind(invocation) != "reproducer":
-            return _na(self.name, self.advisory,
-                       "no reproducer outputs (refusal or unknown)")
+            return _na(
+                self.name, self.advisory, "no reproducer outputs (refusal or unknown)"
+            )
         parsed = _load_reproducer_output(bundle_dir)
         if parsed is None:
-            return _na(self.name, self.advisory,
-                       "reproducer outputs missing or malformed")
+            return _na(
+                self.name, self.advisory, "reproducer outputs missing or malformed"
+            )
         build = _load_build_json(bundle_dir)
         if build is None:
-            return _na(self.name, self.advisory,
-                       "build.json not present; Builder has not run yet — "
-                       "this scorer cannot apply pre-Builder")
+            return _na(
+                self.name,
+                self.advisory,
+                "build.json not present; Builder has not run yet — "
+                "this scorer cannot apply pre-Builder",
+            )
         if parsed.is_proxy:
             assert parsed.proxy is not None
-            return _na(self.name, self.advisory,
-                       f"proxy reproducer (proxy_reason="
-                       f"{parsed.proxy.proxy_reason!r}); unpatched-path "
-                       "evidence is by design out of scope")
+            return _na(
+                self.name,
+                self.advisory,
+                f"proxy reproducer (proxy_reason="
+                f"{parsed.proxy.proxy_reason!r}); unpatched-path "
+                "evidence is by design out of scope",
+            )
 
         unpatched_run = _build_run(build, "unpatched")
         if unpatched_run is None:
@@ -371,17 +381,22 @@ class ReproPatchedPassesScorer:
 
     def score(self, *, bundle_dir: Path, invocation: dict[str, Any]) -> ScorerResult:
         if _outputs_kind(invocation) != "reproducer":
-            return _na(self.name, self.advisory,
-                       "no reproducer outputs (refusal or unknown)")
+            return _na(
+                self.name, self.advisory, "no reproducer outputs (refusal or unknown)"
+            )
         parsed = _load_reproducer_output(bundle_dir)
         if parsed is None:
-            return _na(self.name, self.advisory,
-                       "reproducer outputs missing or malformed")
+            return _na(
+                self.name, self.advisory, "reproducer outputs missing or malformed"
+            )
         build = _load_build_json(bundle_dir)
         if build is None:
-            return _na(self.name, self.advisory,
-                       "build.json not present; Builder has not run yet — "
-                       "this scorer cannot apply pre-Builder")
+            return _na(
+                self.name,
+                self.advisory,
+                "build.json not present; Builder has not run yet — "
+                "this scorer cannot apply pre-Builder",
+            )
 
         patched_run = _build_run(build, "patched")
         if patched_run is None:
@@ -435,22 +450,32 @@ class ReproPassthruRecordedScorer:
 
     def score(self, *, bundle_dir: Path, invocation: dict[str, Any]) -> ScorerResult:
         if _outputs_kind(invocation) != "reproducer":
-            return _na(self.name, self.advisory,
-                       "no reproducer outputs (refusal or unknown)")
+            return _na(
+                self.name, self.advisory, "no reproducer outputs (refusal or unknown)"
+            )
         parsed = _load_reproducer_output(bundle_dir)
         if parsed is None:
-            return _na(self.name, self.advisory,
-                       "reproducer outputs missing or malformed")
+            return _na(
+                self.name, self.advisory, "reproducer outputs missing or malformed"
+            )
         build = _load_build_json(bundle_dir)
         if build is None:
-            return _na(self.name, self.advisory,
-                       "build.json not present; Builder has not run yet — "
-                       "this scorer cannot apply pre-Builder")
+            return _na(
+                self.name,
+                self.advisory,
+                "build.json not present; Builder has not run yet — "
+                "this scorer cannot apply pre-Builder",
+            )
         ground_truth = build.get("passthru_tests_ground_truth")
         if not isinstance(ground_truth, list):
-            return _na(self.name, self.advisory,
-                       "build.json.passthru_tests_ground_truth absent or not a list")
-        gt_names = {entry.get("name") for entry in ground_truth if isinstance(entry, dict)}
+            return _na(
+                self.name,
+                self.advisory,
+                "build.json.passthru_tests_ground_truth absent or not a list",
+            )
+        gt_names = {
+            entry.get("name") for entry in ground_truth if isinstance(entry, dict)
+        }
         gt_names.discard(None)
         model_names = {e.name for e in parsed.passthru_tests}
         if not gt_names and not model_names:
@@ -474,9 +499,11 @@ class ReproPassthruRecordedScorer:
                     "model enumerated passthru tests but Builder found none; "
                     "the model invented entries"
                 ),
-                details={"ground_truth_count": 0,
-                         "model_count": len(model_names),
-                         "spurious": sorted(model_names)},
+                details={
+                    "ground_truth_count": 0,
+                    "model_count": len(model_names),
+                    "spurious": sorted(model_names),
+                },
             )
         intersection = gt_names & model_names
         recall = len(intersection) / len(gt_names)
@@ -529,17 +556,22 @@ class ReproSignalSpecificityScorer:
 
     def score(self, *, bundle_dir: Path, invocation: dict[str, Any]) -> ScorerResult:
         if _outputs_kind(invocation) != "reproducer":
-            return _na(self.name, self.advisory,
-                       "no reproducer outputs (refusal or unknown)")
+            return _na(
+                self.name, self.advisory, "no reproducer outputs (refusal or unknown)"
+            )
         parsed = _load_reproducer_output(bundle_dir)
         if parsed is None:
-            return _na(self.name, self.advisory,
-                       "reproducer outputs missing or malformed")
+            return _na(
+                self.name, self.advisory, "reproducer outputs missing or malformed"
+            )
         build = _load_build_json(bundle_dir)
         if build is None:
-            return _na(self.name, self.advisory,
-                       "build.json not present; Builder has not run yet — "
-                       "this advisory scorer is reported only post-Builder")
+            return _na(
+                self.name,
+                self.advisory,
+                "build.json not present; Builder has not run yet — "
+                "this advisory scorer is reported only post-Builder",
+            )
 
         finding = _read_json(bundle_dir / "finding.json") or {}
         upstream_ref = _read_json(bundle_dir / "upstream-ref.json") or {}
@@ -553,15 +585,13 @@ class ReproSignalSpecificityScorer:
             len(sig_u) >= _SPECIFICITY_LENGTH_FLOOR
             and len(sig_p) >= _SPECIFICITY_LENGTH_FLOOR
         )
-        axis_not_generic = (
-            not _matches_extended_generic(sig_u)
-            and not _matches_extended_generic(sig_p)
-        )
+        axis_not_generic = not _matches_extended_generic(
+            sig_u
+        ) and not _matches_extended_generic(sig_p)
         keywords = _cve_keywords(finding, upstream_ref)
-        axis_keyword = (
-            _signal_contains_any_keyword(sig_u, keywords)
-            or _signal_contains_any_keyword(sig_p, keywords)
-        )
+        axis_keyword = _signal_contains_any_keyword(
+            sig_u, keywords
+        ) or _signal_contains_any_keyword(sig_p, keywords)
         score = (int(axis_length) + int(axis_not_generic) + int(axis_keyword)) / 3
         return ScorerResult(
             scorer_name=self.name,
@@ -657,7 +687,8 @@ def _cve_keywords(finding: dict, upstream_ref: dict) -> set[str]:
 
 
 def _extract_keyword_sources(
-    finding: dict, upstream_ref: dict,
+    finding: dict,
+    upstream_ref: dict,
 ) -> list[str]:
     sources: list[str] = []
     summary = finding.get("summary")

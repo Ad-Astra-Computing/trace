@@ -56,28 +56,54 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
             "reproducer-sampling.json provenance sidecar."
         ),
     )
-    sp.add_argument("--bundle", type=Path, required=True,
-                    help="bundle directory (finalized: patch.diff + inputs present)")
-    sp.add_argument("--model", required=True,
-                    help="Reproducer model id (must differ in family from the Patcher)")
-    sp.add_argument("--k", type=int, default=4,
-                    help="number of candidates to sample (default: 4)")
-    sp.add_argument("--nixpkgs-checkout", type=Path, default=None,
-                    help="nixpkgs checkout for the Builder's patch-apply. REQUIRED "
-                         "for the real local screen: without it the Builder skips "
-                         "patch-apply and the patched arm builds against unpatched "
-                         "source. Treated as disposable (restored to HEAD per draw).")
-    sp.add_argument("--overwrite", action="store_true",
-                    help="resample even if the bundle already has a reproducer.nix "
-                         "(the existing outputs are quarantined if no draw wins)")
-    sp.add_argument("--probe-root", type=Path, default=None,
-                    help="scratch dir for per-draw probe workspaces (default: a "
-                         "temp dir). Candidate files persist here for CI escalation.")
-    sp.add_argument("--exhaustive", action="store_true",
-                    help="keep probing all K past the first winner (audit-slice "
-                         "pass-rate signal); the winner stays the first green.")
-    sp.add_argument("--builder-timeout-seconds", type=int, default=1800,
-                    help="per-build timeout passed to the Builder (default: 1800)")
+    sp.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="bundle directory (finalized: patch.diff + inputs present)",
+    )
+    sp.add_argument(
+        "--model",
+        required=True,
+        help="Reproducer model id (must differ in family from the Patcher)",
+    )
+    sp.add_argument(
+        "--k", type=int, default=4, help="number of candidates to sample (default: 4)"
+    )
+    sp.add_argument(
+        "--nixpkgs-checkout",
+        type=Path,
+        default=None,
+        help="nixpkgs checkout for the Builder's patch-apply. REQUIRED "
+        "for the real local screen: without it the Builder skips "
+        "patch-apply and the patched arm builds against unpatched "
+        "source. Treated as disposable (restored to HEAD per draw).",
+    )
+    sp.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="resample even if the bundle already has a reproducer.nix "
+        "(the existing outputs are quarantined if no draw wins)",
+    )
+    sp.add_argument(
+        "--probe-root",
+        type=Path,
+        default=None,
+        help="scratch dir for per-draw probe workspaces (default: a "
+        "temp dir). Candidate files persist here for CI escalation.",
+    )
+    sp.add_argument(
+        "--exhaustive",
+        action="store_true",
+        help="keep probing all K past the first winner (audit-slice "
+        "pass-rate signal); the winner stays the first green.",
+    )
+    sp.add_argument(
+        "--builder-timeout-seconds",
+        type=int,
+        default=1800,
+        help="per-build timeout passed to the Builder (default: 1800)",
+    )
 
 
 def build_sampling_provenance(
@@ -169,7 +195,9 @@ def _load_inputs(bundle_dir: Path) -> dict[str, Any]:
     def _req(name: str) -> Path:
         p = bundle_dir / name
         if not p.is_file():
-            raise FileNotFoundError(f"reproducer sample requires {name} in the bundle (missing: {p})")
+            raise FileNotFoundError(
+                f"reproducer sample requires {name} in the bundle (missing: {p})"
+            )
         return p
 
     finding = json.loads(_req("finding.json").read_text())
@@ -226,12 +254,17 @@ def run(
     if bundle_json.is_file():
         try:
             if json.loads(bundle_json.read_text()).get("kind") == "advisory-only":
-                print("error: bundle is advisory-only; nothing to reproduce", flush=True)
+                print(
+                    "error: bundle is advisory-only; nothing to reproduce", flush=True
+                )
                 return EXIT_USAGE
         except json.JSONDecodeError:
             pass
     if (bundle_dir / "refusal.json").is_file():
-        print("error: bundle has a Patcher refusal.json; no patch to reproduce", flush=True)
+        print(
+            "error: bundle has a Patcher refusal.json; no patch to reproduce",
+            flush=True,
+        )
         return EXIT_USAGE
 
     # Cross-family rule: the Reproducer model must not share the Patcher's family.
@@ -310,12 +343,14 @@ def run(
         adapter = _adapter_factory(args.model)
     else:
         from tools.trace_cli.execute import _build_adapter_from_model_id
+
         adapter = _build_adapter_from_model_id(args.model, role_label="reproducer")
 
     if _probe_fn is not None:
         probe_fn = _probe_fn
     else:
         from agents.builder.protocol import LocalNixBuildRunner
+
         probe_fn = build_probe_fn(
             bundle_dir=bundle_dir,
             build_runner=LocalNixBuildRunner(),
@@ -348,7 +383,9 @@ def run(
         verifier="local-screen",
         exhaustive=args.exhaustive,
     )
-    sidecar_bytes = (json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    sidecar_bytes = (json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode(
+        "utf-8"
+    )
     canonical_sidecar = bundle_dir / "reproducer-sampling.json"
 
     if result.winner_index is None:
@@ -362,7 +399,9 @@ def run(
         # a reproducer exists) rather than clobbering its provenance.
         # probe-error (build infra) and model-error (adapter/API) both mean a
         # draw was never actually evaluated — the sweep is incomplete.
-        had_infra_error = any(d.kind in ("probe-error", "model-error") for d in result.draws)
+        had_infra_error = any(
+            d.kind in ("probe-error", "model-error") for d in result.draws
+        )
         evaluated = any(d.kind == "reproducer" for d in result.draws)
 
         def _record_preserving() -> str:
@@ -442,8 +481,11 @@ def run(
             flush=True,
         )
 
-    print("next: `trace bundle finalize` to refresh manifest hashes, then dispatch "
-          "bundle-linux-cert.yml to certify the winner in a clean environment.", flush=True)
+    print(
+        "next: `trace bundle finalize` to refresh manifest hashes, then dispatch "
+        "bundle-linux-cert.yml to certify the winner in a clean environment.",
+        flush=True,
+    )
     return EXIT_OK
 
 
@@ -469,17 +511,28 @@ def _validate_finalized_bundle(bundle_dir: Path) -> str | None:
         except json.JSONDecodeError as exc:
             return f"{fname} is malformed: {exc}"
     if _read_patcher_family_from_replay(bundle_dir) is None:
-        return ("replay.json records no Patcher invocation; the cross-family rule "
-                "cannot be enforced. Re-finalize the bundle from its executor run.")
+        return (
+            "replay.json records no Patcher invocation; the cross-family rule "
+            "cannot be enforced. Re-finalize the bundle from its executor run."
+        )
 
     # The Reproducer's inputs must still match the finalized manifest, or a live
     # run bills model calls (and produces signed selection provenance) against
     # inputs that were edited after finalize. Verify each input file the sampler
     # reads against bundle.json.files[...].sha256.
-    files_block = json.loads((bundle_dir / "bundle.json").read_text()).get("files") or {}
+    files_block = (
+        json.loads((bundle_dir / "bundle.json").read_text()).get("files") or {}
+    )
     placeholder = "d" * 64
-    inputs = ["finding.json", "upstream-ref.json", "impact.json", "maintainers.json",
-              "package.nix", "patch.diff", "patch-rationale.md"]
+    inputs = [
+        "finding.json",
+        "upstream-ref.json",
+        "impact.json",
+        "maintainers.json",
+        "package.nix",
+        "patch.diff",
+        "patch-rationale.md",
+    ]
     # Bundle-local PoCs under repro/ are model inputs too (surfaced into the
     # prompt), so any that are manifested must also match. (Most bundles do not
     # manifest repro/ artifacts today; verifying manifested ones is
@@ -497,12 +550,12 @@ def _validate_finalized_bundle(bundle_dir: Path) -> str | None:
             return f"input {name} is in the finalized manifest but missing on disk"
         actual = hashlib.sha256(p.read_bytes()).hexdigest()
         if actual != expected:
-            return (f"input {name} was edited after finalize "
-                    f"(sha {actual[:12]} != manifest {expected[:12]}); re-finalize "
-                    "before sampling so provenance matches the inputs")
+            return (
+                f"input {name} was edited after finalize "
+                f"(sha {actual[:12]} != manifest {expected[:12]}); re-finalize "
+                "before sampling so provenance matches the inputs"
+            )
     return None
-
-
 
 
 def _write_attempt_record(bundle_dir: Path, sidecar_bytes: bytes) -> Path:

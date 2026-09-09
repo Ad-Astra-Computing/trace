@@ -26,6 +26,7 @@ Usage (see lora/submit_hf_gen_canaries_v1.1.sh):
     --secrets HF_TOKEN \\
     lora/hf_authoring_gen_canaries_v1.1.py
 """
+
 import json
 import os
 from pathlib import Path
@@ -44,6 +45,7 @@ TEMPERATURE = 0.0
 
 def load_canary(dataset_repo: str) -> list[dict]:
     from huggingface_hub import hf_hub_download
+
     path = hf_hub_download(
         repo_id=dataset_repo,
         filename="authoring.canary.jsonl",
@@ -69,7 +71,7 @@ def generate(model, tokenizer, messages: list[dict]) -> str:
             top_p=None,
             pad_token_id=tokenizer.eos_token_id,
         )
-    generated_ids = out[0][inputs["input_ids"].shape[1]:]
+    generated_ids = out[0][inputs["input_ids"].shape[1] :]
     return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
 
@@ -114,6 +116,7 @@ def main():
     print(f"Responses written to {out_path}", flush=True)
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.upload_file(
         path_or_fileobj=str(out_path),

@@ -52,12 +52,21 @@ def test_build_response_row_schema_unchanged():
         "mutation_type": None,
     }
     row = job.build_response_row(
-        prov=prov, label="positive", split="canary",
-        user_text="the user turn", generated="=== BEGIN review.md ===\naccept",
+        prov=prov,
+        label="positive",
+        split="canary",
+        user_text="the user turn",
+        generated="=== BEGIN review.md ===\naccept",
     )
     assert set(row.keys()) == {
-        "cve_id", "attr_path", "bundle_id", "label", "split",
-        "mutation_type", "user_sha256", "generated",
+        "cve_id",
+        "attr_path",
+        "bundle_id",
+        "label",
+        "split",
+        "mutation_type",
+        "user_sha256",
+        "generated",
     }
     assert row["cve_id"] == "CVE-2022-37434"
     assert row["label"] == "positive"
@@ -69,7 +78,11 @@ def test_build_response_row_schema_unchanged():
 def test_build_response_row_generated_text_untruncated():
     long_text = "x" * 10_000
     row = job.build_response_row(
-        prov={}, label="negative", split="test", user_text="u", generated=long_text,
+        prov={},
+        label="negative",
+        split="test",
+        user_text="u",
+        generated=long_text,
     )
     assert row["generated"] == long_text
     assert len(row["generated"]) == 10_000
@@ -77,7 +90,11 @@ def test_build_response_row_generated_text_untruncated():
 
 def test_build_decode_settings_greedy_nulls_sampling_params():
     decode = job.build_decode_settings(
-        do_sample=False, max_new_tokens=1024, temperature=0.7, top_p=0.9, pad_token_id=151643,
+        do_sample=False,
+        max_new_tokens=1024,
+        temperature=0.7,
+        top_p=0.9,
+        pad_token_id=151643,
     )
     # temperature/top_p are not consulted by generate() under greedy decode;
     # recording the passed-in defaults would misrepresent what happened.
@@ -93,7 +110,11 @@ def test_build_decode_settings_greedy_nulls_sampling_params():
 
 def test_build_decode_settings_sampling_keeps_params():
     decode = job.build_decode_settings(
-        do_sample=True, max_new_tokens=512, temperature=0.7, top_p=0.9, seed=42,
+        do_sample=True,
+        max_new_tokens=512,
+        temperature=0.7,
+        top_p=0.9,
+        seed=42,
     )
     assert decode["do_sample"] is True
     assert decode["temperature"] == 0.7
@@ -102,9 +123,9 @@ def test_build_decode_settings_sampling_keeps_params():
 
 
 def test_manifest_path_for_nested_responses_path():
-    assert job.manifest_path_for("gate_pilot_responses/corpus-v2-control/responses.jsonl") == (
-        "gate_pilot_responses/corpus-v2-control/run_manifest.json"
-    )
+    assert job.manifest_path_for(
+        "gate_pilot_responses/corpus-v2-control/responses.jsonl"
+    ) == ("gate_pilot_responses/corpus-v2-control/run_manifest.json")
 
 
 def test_manifest_path_for_top_level_responses_path():
@@ -112,7 +133,9 @@ def test_manifest_path_for_top_level_responses_path():
 
 
 def test_build_run_manifest_ties_full_provenance_together():
-    decode = job.build_decode_settings(do_sample=False, max_new_tokens=1024, pad_token_id=0)
+    decode = job.build_decode_settings(
+        do_sample=False, max_new_tokens=1024, pad_token_id=0
+    )
     manifest = job.build_run_manifest(
         task="reviewer-lora-gate-pilot",
         timestamp="2026-07-28T00:00:00Z",
@@ -143,9 +166,18 @@ def test_build_run_manifest_ties_full_provenance_together():
 
 def test_build_run_manifest_defaults_missing_adapter_revision_to_unknown():
     manifest = job.build_run_manifest(
-        task="t", timestamp="unknown", base_model="m", base_model_revision="r",
-        adapter_repo="repo", adapter_revision=None, decode={}, input_filename="f",
-        input_sha256="s", row_count=0, responses_path="p", response_sha256="rs",
+        task="t",
+        timestamp="unknown",
+        base_model="m",
+        base_model_revision="r",
+        adapter_repo="repo",
+        adapter_revision=None,
+        decode={},
+        input_filename="f",
+        input_sha256="s",
+        row_count=0,
+        responses_path="p",
+        response_sha256="rs",
     )
     assert manifest["adapter_revision"] == "unknown"
 

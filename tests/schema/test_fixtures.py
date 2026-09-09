@@ -59,7 +59,9 @@ def test_fixture_matches_expectation(fixture_dir, schemas, strict_hashes):
     assert expect_path.exists(), f"fixture {fixture_dir.name} is missing expect.json"
     expect = json.loads(expect_path.read_text())
     expected = expect.get("overall")
-    assert expected in {"valid", "invalid"}, f"expect.json overall must be valid|invalid"
+    assert expected in {"valid", "invalid"}, (
+        f"expect.json overall must be valid|invalid"
+    )
 
     result: FixtureResult = validate_fixture(
         fixture_dir, schemas=schemas, strict_hashes=strict_hashes
@@ -110,10 +112,13 @@ def test_steward_deferred_fixtures_carry_rule():
 @pytest.mark.strict_hashes
 def test_strict_hashes_runs_only_under_flag(strict_hashes):
     if not strict_hashes:
-        pytest.skip("TRACE_STRICT_HASHES=1 not set; placeholder fixture hashes are tolerated")
+        pytest.skip(
+            "TRACE_STRICT_HASHES=1 not set; placeholder fixture hashes are tolerated"
+        )
     for fixture_dir in _fixture_dirs():
         result = validate_fixture(fixture_dir, strict_hashes=True)
         if result.hash_errors:
             pytest.fail(
-                f"{fixture_dir.name} hash mismatches under strict mode:\n" + "\n".join(result.hash_errors)
+                f"{fixture_dir.name} hash mismatches under strict mode:\n"
+                + "\n".join(result.hash_errors)
             )

@@ -85,7 +85,9 @@ _GOOD_PASSTHRU = """\
 """
 
 
-def _wrap_three_files(nix: str = _GOOD_NIX, log: str = _GOOD_LOG, pj: str = _GOOD_PASSTHRU) -> str:
+def _wrap_three_files(
+    nix: str = _GOOD_NIX, log: str = _GOOD_LOG, pj: str = _GOOD_PASSTHRU
+) -> str:
     return (
         "=== BEGIN reproducer.nix ===\n"
         f"{nix}"
@@ -145,20 +147,36 @@ def test_empty_passthru_array_is_valid() -> None:
 
 
 def test_drv_path_null_is_valid() -> None:
-    pj = json.dumps([
-        {"name": "passthru.tests.basic", "drv_path": None, "kind": "passthru.tests"},
-    ]) + "\n"
+    pj = (
+        json.dumps(
+            [
+                {
+                    "name": "passthru.tests.basic",
+                    "drv_path": None,
+                    "kind": "passthru.tests",
+                },
+            ]
+        )
+        + "\n"
+    )
     raw = _wrap_three_files(pj=pj)
     res = parse_reproducer_output(raw)
     assert res.passthru_tests[0].drv_path is None
 
 
 def test_drv_path_string_is_valid() -> None:
-    pj = json.dumps([
-        {"name": "passthru.tests.basic",
-         "drv_path": "/nix/store/abc-foo.drv",
-         "kind": "passthru.tests"},
-    ]) + "\n"
+    pj = (
+        json.dumps(
+            [
+                {
+                    "name": "passthru.tests.basic",
+                    "drv_path": "/nix/store/abc-foo.drv",
+                    "kind": "passthru.tests",
+                },
+            ]
+        )
+        + "\n"
+    )
     raw = _wrap_three_files(pj=pj)
     res = parse_reproducer_output(raw)
     assert res.passthru_tests[0].drv_path == "/nix/store/abc-foo.drv"
@@ -319,8 +337,14 @@ def test_nix_missing_required_attribute_rejected(missing_attr: str) -> None:
         "}",
     ]
     # Strip the line that defines `missing_attr`.
-    nix = "\n".join(line for line in nix_lines
-                    if not line.lstrip().startswith(f"{missing_attr} =")) + "\n"
+    nix = (
+        "\n".join(
+            line
+            for line in nix_lines
+            if not line.lstrip().startswith(f"{missing_attr} =")
+        )
+        + "\n"
+    )
     raw = _wrap_three_files(nix=nix)
     with pytest.raises(ReproducerOutputMalformed, match=f"`{missing_attr}` attribute"):
         parse_reproducer_output(raw)
@@ -329,11 +353,14 @@ def test_nix_missing_required_attribute_rejected(missing_attr: str) -> None:
 # ─── fetcher policy (v0.1 hash-pinned carve-out) ─────────────────────────
 
 
-@pytest.mark.parametrize("hard_forbidden", [
-    "fetchpatch",
-    "builtins.fetchurl",
-    "builtins.fetchTarball",
-])
+@pytest.mark.parametrize(
+    "hard_forbidden",
+    [
+        "fetchpatch",
+        "builtins.fetchurl",
+        "builtins.fetchTarball",
+    ],
+)
 def test_hard_forbidden_fetcher_rejected(hard_forbidden: str) -> None:
     """Three fetcher classes remain forbidden unconditionally even after
     the hash-pinned carve-out: fetchpatch (patches must come from
@@ -342,7 +369,7 @@ def test_hard_forbidden_fetcher_rejected(hard_forbidden: str) -> None:
     nix = (
         "{ pkgs ? import <nixpkgs> { } }:\n"
         "let\n"
-        f"  fixture = {hard_forbidden} {{ url = \"https://example.invalid/x\"; sha256 = \"...\"; }};\n"
+        f'  fixture = {hard_forbidden} {{ url = "https://example.invalid/x"; sha256 = "..."; }};\n'
         "in {\n"
         "  unpatched = pkgs.demo;\n"
         "  patched = pkgs.demo;\n"
@@ -354,14 +381,17 @@ def test_hard_forbidden_fetcher_rejected(hard_forbidden: str) -> None:
         parse_reproducer_output(raw)
 
 
-@pytest.mark.parametrize("soft_forbidden", [
-    "fetchurl",
-    "fetchzip",
-    "fetchFromGitHub",
-    "fetchgit",
-    "fetchFromGitLab",
-    "fetchFromGitea",
-])
+@pytest.mark.parametrize(
+    "soft_forbidden",
+    [
+        "fetchurl",
+        "fetchzip",
+        "fetchFromGitHub",
+        "fetchgit",
+        "fetchFromGitLab",
+        "fetchFromGitea",
+    ],
+)
 def test_hash_pinnable_fetcher_without_sri_hash_rejected(soft_forbidden: str) -> None:
     """A hash-pinnable fetcher call with no SRI hash literal is still
     rejected — the v0.1 carve-out only opens the gate for call sites
@@ -369,7 +399,7 @@ def test_hash_pinnable_fetcher_without_sri_hash_rejected(soft_forbidden: str) ->
     nix = (
         "{ pkgs ? import <nixpkgs> { } }:\n"
         "let\n"
-        f"  fixture = {soft_forbidden} {{ url = \"https://example.invalid/x\"; sha256 = \"...\"; }};\n"
+        f'  fixture = {soft_forbidden} {{ url = "https://example.invalid/x"; sha256 = "..."; }};\n'
         "in {\n"
         "  unpatched = pkgs.demo;\n"
         "  patched = pkgs.demo;\n"
@@ -390,12 +420,12 @@ def test_hash_pinned_fetchFromGitLab_allowed_for_unpatched_reconstruction() -> N
         "{ pkgs ? import <nixpkgs> { } }:\n"
         "let\n"
         "  unpatched = pkgs.wget2.overrideAttrs (old: {\n"
-        "    version = \"2.2.0\";\n"
+        '    version = "2.2.0";\n'
         "    src = pkgs.fetchFromGitLab {\n"
-        "      owner = \"gnuwget\";\n"
-        "      repo = \"wget2\";\n"
-        "      tag = \"v2.2.0\";\n"
-        "      hash = \"sha256-0tOoStZHr5opehFmuQdFRPYvOv8IMrDTBNFtoweY3VM=\";\n"
+        '      owner = "gnuwget";\n'
+        '      repo = "wget2";\n'
+        '      tag = "v2.2.0";\n'
+        '      hash = "sha256-0tOoStZHr5opehFmuQdFRPYvOv8IMrDTBNFtoweY3VM=";\n'
         "    };\n"
         "  });\n"
         "in {\n"
@@ -416,10 +446,10 @@ def test_hash_pinned_fetchFromGitHub_with_rev_allowed() -> None:
         "{ pkgs ? import <nixpkgs> { } }:\n"
         "let\n"
         "  unpatched_src = pkgs.fetchFromGitHub {\n"
-        "    owner = \"org\";\n"
-        "    repo = \"name\";\n"
-        "    rev = \"v1.2.3\";\n"
-        "    hash = \"sha512-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh==\";\n"
+        '    owner = "org";\n'
+        '    repo = "name";\n'
+        '    rev = "v1.2.3";\n'
+        '    hash = "sha512-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh==";\n'
         "  };\n"
         "in {\n"
         "  unpatched = pkgs.demo.overrideAttrs (_: { src = unpatched_src; });\n"
@@ -439,7 +469,7 @@ def test_hash_pinned_fetcher_with_fakeHash_rejected() -> None:
         "{ pkgs ? import <nixpkgs> { } }:\n"
         "let\n"
         "  bad = pkgs.fetchFromGitLab {\n"
-        "    owner = \"o\"; repo = \"r\"; tag = \"v1\";\n"
+        '    owner = "o"; repo = "r"; tag = "v1";\n'
         "    hash = pkgs.lib.fakeHash;\n"
         "  };\n"
         "in {\n"
@@ -453,13 +483,18 @@ def test_hash_pinned_fetcher_with_fakeHash_rejected() -> None:
         parse_reproducer_output(raw)
 
 
-@pytest.mark.parametrize("floating_assignment", [
-    'rev = "main"',
-    'rev = "master"',
-    'tag = "HEAD"',
-    'ref = "refs/heads/main"',
-])
-def test_hash_pinned_fetcher_with_floating_ref_rejected(floating_assignment: str) -> None:
+@pytest.mark.parametrize(
+    "floating_assignment",
+    [
+        'rev = "main"',
+        'rev = "master"',
+        'tag = "HEAD"',
+        'ref = "refs/heads/main"',
+    ],
+)
+def test_hash_pinned_fetcher_with_floating_ref_rejected(
+    floating_assignment: str,
+) -> None:
     """Even with a real SRI hash, a floating rev/tag/ref defeats the
     carve-out: the hash literal would go stale the next time upstream
     moves the branch, and the sandbox would then fail non-
@@ -468,9 +503,9 @@ def test_hash_pinned_fetcher_with_floating_ref_rejected(floating_assignment: str
         "{ pkgs ? import <nixpkgs> { } }:\n"
         "let\n"
         "  bad = pkgs.fetchFromGitHub {\n"
-        "    owner = \"o\"; repo = \"r\";\n"
+        '    owner = "o"; repo = "r";\n'
         f"    {floating_assignment};\n"
-        "    hash = \"sha256-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh==\";\n"
+        '    hash = "sha256-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh==";\n'
         "  };\n"
         "in {\n"
         "  unpatched = pkgs.demo.overrideAttrs (_: { src = bad; });\n"
@@ -503,8 +538,9 @@ def _log_with(unpatched_signal: str, patched_signal: str) -> str:
 def test_signal_too_short_rejected() -> None:
     short_signal = "x" * (SIGNAL_LENGTH_MIN - 1)
     raw = _wrap_three_files(
-        log=_log_with(short_signal,
-                      "rejected-malformed-length-prefix-as-expected-from-cve-XX")
+        log=_log_with(
+            short_signal, "rejected-malformed-length-prefix-as-expected-from-cve-XX"
+        )
     )
     with pytest.raises(ReproducerOutputMalformed, match="length"):
         parse_reproducer_output(raw)
@@ -513,8 +549,9 @@ def test_signal_too_short_rejected() -> None:
 def test_signal_too_long_rejected() -> None:
     long_signal = "y" * (SIGNAL_LENGTH_MAX + 1)
     raw = _wrap_three_files(
-        log=_log_with(long_signal,
-                      "rejected-malformed-length-prefix-as-expected-from-cve-XX")
+        log=_log_with(
+            long_signal, "rejected-malformed-length-prefix-as-expected-from-cve-XX"
+        )
     )
     with pytest.raises(ReproducerOutputMalformed, match="length"):
         parse_reproducer_output(raw)
@@ -530,11 +567,14 @@ def test_signal_generic_token_rejected(generic: str) -> None:
         # We can't trick the rule; the test must be that the raw lookup
         # fires AS LONG AS length floor is satisfied. If the token is
         # too short to satisfy the floor, length-min rejects it first.
-        pytest.skip(f"generic token {generic!r} is shorter than the length floor; "
-                    "the floor rejects it before the generic-token check fires")
+        pytest.skip(
+            f"generic token {generic!r} is shorter than the length floor; "
+            "the floor rejects it before the generic-token check fires"
+        )
     raw = _wrap_three_files(
-        log=_log_with(generic,
-                      "rejected-malformed-length-prefix-as-expected-from-cve-XX")
+        log=_log_with(
+            generic, "rejected-malformed-length-prefix-as-expected-from-cve-XX"
+        )
     )
     with pytest.raises(ReproducerOutputMalformed):
         parse_reproducer_output(raw)
@@ -656,7 +696,9 @@ def test_duplicate_section_header_rejected() -> None:
 
 
 def test_passthru_not_an_array_rejected() -> None:
-    raw = _wrap_three_files(pj='{"name": "x", "drv_path": null, "kind": "passthru.tests"}\n')
+    raw = _wrap_three_files(
+        pj='{"name": "x", "drv_path": null, "kind": "passthru.tests"}\n'
+    )
     with pytest.raises(ReproducerOutputMalformed, match="JSON array"):
         parse_reproducer_output(raw)
 
@@ -668,9 +710,12 @@ def test_passthru_invalid_json_rejected() -> None:
 
 
 def test_passthru_extra_keys_rejected() -> None:
-    pj = json.dumps([
-        {"name": "x", "drv_path": None, "kind": "passthru.tests", "extra": True}
-    ]) + "\n"
+    pj = (
+        json.dumps(
+            [{"name": "x", "drv_path": None, "kind": "passthru.tests", "extra": True}]
+        )
+        + "\n"
+    )
     raw = _wrap_three_files(pj=pj)
     with pytest.raises(ReproducerOutputMalformed, match="exactly the keys"):
         parse_reproducer_output(raw)
@@ -684,9 +729,7 @@ def test_passthru_missing_keys_rejected() -> None:
 
 
 def test_passthru_kind_not_in_enum_rejected() -> None:
-    pj = json.dumps([
-        {"name": "x", "drv_path": None, "kind": "checkPhase"}
-    ]) + "\n"
+    pj = json.dumps([{"name": "x", "drv_path": None, "kind": "checkPhase"}]) + "\n"
     raw = _wrap_three_files(pj=pj)
     with pytest.raises(ReproducerOutputMalformed, match="kind must be one of"):
         parse_reproducer_output(raw)
@@ -711,13 +754,13 @@ def _proxy_nix(reason: str = "sandbox-cannot-trigger") -> str:
         "in {\n"
         "  inherit unpatched patched;\n"
         "  test = pkgs.runCommand \"repro-proxy\" { } ''\n"
-        "    echo \"rejected-malformed-length-prefix-as-expected-from-cve-XX\"\n"
+        '    echo "rejected-malformed-length-prefix-as-expected-from-cve-XX"\n'
         "  '' // {\n"
         "    meta = {\n"
         "      proxy = true;\n"
-        f"      proxy_reason = \"{reason}\";\n"
-        "      why_not_full_repro = \"The full chain requires CAP_SYS_ADMIN which the build sandbox forbids; only the patched-rejection path is locally verifiable.\";\n"
-        "      expected_limitations = \"This proxy verifies only the parser's malformed-input rejection, not the downstream privilege escalation the unpatched chain reaches.\";\n"
+        f'      proxy_reason = "{reason}";\n'
+        '      why_not_full_repro = "The full chain requires CAP_SYS_ADMIN which the build sandbox forbids; only the patched-rejection path is locally verifiable.";\n'
+        '      expected_limitations = "This proxy verifies only the parser\'s malformed-input rejection, not the downstream privilege escalation the unpatched chain reaches.";\n'
         "    };\n"
         "  };\n"
         "}\n"
@@ -769,22 +812,27 @@ def test_proxy_nix_present_but_log_missing_section_rejected() -> None:
         parse_reproducer_output(raw)
 
 
-@pytest.mark.parametrize("bad_reason", [
-    "convenient",
-    "we-just-couldnt",
-    "platform-issue",
-])
+@pytest.mark.parametrize(
+    "bad_reason",
+    [
+        "convenient",
+        "we-just-couldnt",
+        "platform-issue",
+    ],
+)
 def test_proxy_reason_outside_enum_rejected(bad_reason: str) -> None:
-    raw = _wrap_three_files(nix=_proxy_nix(reason=bad_reason),
-                            log=_proxy_log(reason=bad_reason))
+    raw = _wrap_three_files(
+        nix=_proxy_nix(reason=bad_reason), log=_proxy_log(reason=bad_reason)
+    )
     with pytest.raises(ReproducerOutputMalformed, match="enum"):
         parse_reproducer_output(raw)
 
 
 @pytest.mark.parametrize("reason", sorted(PROXY_REASON_ENUM))
 def test_every_locked_proxy_reason_value_accepted(reason: str) -> None:
-    raw = _wrap_three_files(nix=_proxy_nix(reason=reason),
-                            log=_proxy_log(reason=reason))
+    raw = _wrap_three_files(
+        nix=_proxy_nix(reason=reason), log=_proxy_log(reason=reason)
+    )
     res = parse_reproducer_output(raw)
     assert res.proxy is not None
     assert res.proxy.proxy_reason == reason
@@ -826,7 +874,9 @@ def test_extra_section_after_proxy_rejected() -> None:
     # so we end up with a stray `=== something-else ===` line in body —
     # parser does not crash on this. Document the actual behaviour:
     res = parse_reproducer_output(raw)
-    assert res.kind == "reproducer"  # stray unknown text is in patched/proxy body, not a structural fail
+    assert (
+        res.kind == "reproducer"
+    )  # stray unknown text is in patched/proxy body, not a structural fail
 
 
 # ─── harness lane ───────────────────────────────────────────────────────────
@@ -870,7 +920,11 @@ def test_well_formed_harness_parses() -> None:
         "scripts/lua/rest/v2/delete/recipients.lua",
     )
     assert res.harness.stubbed == (
-        "ntop", "rest_utils", "endpoints", "recipients", "auth",
+        "ntop",
+        "rest_utils",
+        "endpoints",
+        "recipients",
+        "auth",
     )
     assert "notifications capability" in res.harness.effect
 
@@ -895,7 +949,9 @@ def test_log_without_harness_section_parses_as_before() -> None:
     assert res.is_stub_harness is False
 
 
-@pytest.mark.parametrize("missing_key", ["harness_class", "target_files", "stubbed", "effect"])
+@pytest.mark.parametrize(
+    "missing_key", ["harness_class", "target_files", "stubbed", "effect"]
+)
 def test_harness_section_missing_key_rejected(missing_key: str) -> None:
     lines = {
         "harness_class": "harness_class: stub-ambient",
@@ -913,8 +969,7 @@ def test_harness_section_missing_key_rejected(missing_key: str) -> None:
         "SIGNAL_PATCHED: not_granted-refused-before-endpoints-reset-configs\n"
         "EXIT: 0\n"
         "\n"
-        "=== harness ===\n"
-        + "\n".join(lines.values()) + "\n"
+        "=== harness ===\n" + "\n".join(lines.values()) + "\n"
     )
     raw = _wrap_three_files(log=log)
     with pytest.raises(ReproducerOutputMalformed, match="missing required"):
@@ -987,22 +1042,13 @@ def test_refusal_with_trailing_prose_rejected() -> None:
 
 
 def test_refusal_missing_rule_line_rejected() -> None:
-    raw = (
-        "=== BEGIN refusal ===\n"
-        "reason: oops\n"
-        "rule: 1\n"
-        "=== END refusal ===\n"
-    )
+    raw = "=== BEGIN refusal ===\nreason: oops\nrule: 1\n=== END refusal ===\n"
     with pytest.raises(ReproducerOutputMalformed, match="rule:"):
         parse_reproducer_output(raw)
 
 
 def test_refusal_missing_reason_line_rejected() -> None:
-    raw = (
-        "=== BEGIN refusal ===\n"
-        "rule: 1\n"
-        "=== END refusal ===\n"
-    )
+    raw = "=== BEGIN refusal ===\nrule: 1\n=== END refusal ===\n"
     with pytest.raises(ReproducerOutputMalformed, match="rule:|reason:"):
         parse_reproducer_output(raw)
 
@@ -1021,7 +1067,7 @@ def test_v6_or_true_with_rc_capture_immediately_after_rejected() -> None:
         "  unpatched = pkgs.demo.overrideAttrs (old: { passthru.test = pkgs.runCommand \"u\" {} ''\n"
         "    ${pkgs.demo}/bin/demo --crash >run.err 2>&1 || true\n"
         "    rc=$?\n"
-        "    if [ \"$rc\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        '    if [ "$rc" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n'
         "  ''; });\n"
         "  patched = pkgs.demo;\n"
         "  test = unpatched.passthru.test;\n"
@@ -1030,7 +1076,9 @@ def test_v6_or_true_with_rc_capture_immediately_after_rejected() -> None:
         "}\n"
     )
     raw = _wrap_three_files(nix=nix)
-    with pytest.raises(ReproducerOutputMalformed, match="broken `\\|\\| true.*exit-capture"):
+    with pytest.raises(
+        ReproducerOutputMalformed, match="broken `\\|\\| true.*exit-capture"
+    ):
         parse_reproducer_output(raw)
 
 
@@ -1046,7 +1094,7 @@ def test_v6_or_true_with_rc_capture_separated_by_blank_line_rejected() -> None:
         "\n"
         "    # capture the rc\n"
         "    EXIT=$?\n"
-        "    if [ \"$EXIT\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        '    if [ "$EXIT" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n'
         "  ''; });\n"
         "  patched = pkgs.demo;\n"
         "  test = unpatched.passthru.test;\n"
@@ -1055,7 +1103,9 @@ def test_v6_or_true_with_rc_capture_separated_by_blank_line_rejected() -> None:
         "}\n"
     )
     raw = _wrap_three_files(nix=nix)
-    with pytest.raises(ReproducerOutputMalformed, match="broken `\\|\\| true.*exit-capture"):
+    with pytest.raises(
+        ReproducerOutputMalformed, match="broken `\\|\\| true.*exit-capture"
+    ):
         parse_reproducer_output(raw)
 
 
@@ -1071,7 +1121,7 @@ def test_v6_bracketed_capture_pattern_accepted() -> None:
         "    ${pkgs.demo}/bin/demo --crash >run.err 2>&1\n"
         "    rc=$?\n"
         "    set -e\n"
-        "    if [ \"$rc\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        '    if [ "$rc" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n'
         "  ''; });\n"
         "  patched = pkgs.demo;\n"
         "  test = unpatched.passthru.test;\n"
@@ -1099,7 +1149,7 @@ def test_v6_or_true_in_cleanup_context_not_rejected() -> None:
         "    ${pkgs.demo}/bin/demo --crash >run.err 2>&1\n"
         "    rc=$?\n"
         "    set -e\n"
-        "    if [ \"$rc\" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n"
+        '    if [ "$rc" -eq 139 ]; then echo SIGNAL_UNPATCHED: crashed; touch $out; else exit 4; fi\n'
         "  ''; });\n"
         "  patched = pkgs.demo;\n"
         "  test = unpatched.passthru.test;\n"

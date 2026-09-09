@@ -103,13 +103,15 @@ def test_node_with_unknown_field_rejected(validator):
     snap = {
         "schema_version": "1.0.0",
         "nixpkgs_rev": "0" * 40,
-        "nodes": [{
-            "attr_path": "libexample",
-            "drv_path": "/nix/store/00000000000000000000000000000001-libexample-1.4.7.drv",
-            "pname": "libexample",
-            "version": "1.4.7",
-            "risk_score": 0.3,
-        }],
+        "nodes": [
+            {
+                "attr_path": "libexample",
+                "drv_path": "/nix/store/00000000000000000000000000000001-libexample-1.4.7.drv",
+                "pname": "libexample",
+                "version": "1.4.7",
+                "risk_score": 0.3,
+            }
+        ],
     }
     errors = list(validator.iter_errors(snap))
     assert errors
@@ -129,7 +131,9 @@ def _run_cargo(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def test_cargo_build_then_emit_snapshot_validates(validator, cargo_available):
     if not cargo_available:
-        pytest.skip("cargo not on PATH; set TRACE_REQUIRE_CARGO=1 to make this a failure")
+        pytest.skip(
+            "cargo not on PATH; set TRACE_REQUIRE_CARGO=1 to make this a failure"
+        )
 
     build = _run_cargo(["build"])
     assert build.returncode == 0, f"cargo build failed: {build.stderr}"
@@ -140,7 +144,9 @@ def test_cargo_build_then_emit_snapshot_validates(validator, cargo_available):
     try:
         snap = json.loads(run.stdout)
     except json.JSONDecodeError as exc:
-        pytest.fail(f"graph-builder stdout is not valid JSON: {exc}\n{run.stdout[:500]}")
+        pytest.fail(
+            f"graph-builder stdout is not valid JSON: {exc}\n{run.stdout[:500]}"
+        )
 
     errors = [e.message for e in validator.iter_errors(snap)]
     assert not errors, f"emitted snapshot failed schema: {errors}"
@@ -154,10 +160,18 @@ def test_cargo_run_honors_rev_flag(validator, cargo_available):
 
     run = subprocess.run(
         [
-            "cargo", "run", "--quiet", "--manifest-path", str(MANIFEST),
-            "--", "--rev", "abcdef0123456789abcdef0123456789abcdef01",
+            "cargo",
+            "run",
+            "--quiet",
+            "--manifest-path",
+            str(MANIFEST),
+            "--",
+            "--rev",
+            "abcdef0123456789abcdef0123456789abcdef01",
         ],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert run.returncode == 0, f"cargo run --rev failed: {run.stderr}"
     snap = json.loads(run.stdout)

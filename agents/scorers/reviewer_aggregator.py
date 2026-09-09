@@ -41,7 +41,11 @@ from typing import Any
 
 
 KNOWN_REVIEWER_COHORT_LABELS = (
-    "synthetic", "real-single", "inner-loop", "full-corpus", "real-ci-smoke",
+    "synthetic",
+    "real-single",
+    "inner-loop",
+    "full-corpus",
+    "real-ci-smoke",
 )
 
 
@@ -127,14 +131,16 @@ def aggregate_reviewer_reports(
         else:
             verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
 
-        provenance.append(ReviewerProvenanceEntry(
-            file=str(path),
-            bundle_id=_pick(doc, "bundle_id"),
-            invocation_id=_pick(doc, "invocation_id", "patcher_invocation_id"),
-            prompt_sha=_pick(doc, "prompt_sha", "rescored_under_prompt_sha"),
-            model_id=_pick(doc, "model_id"),
-            verdict=verdict,
-        ))
+        provenance.append(
+            ReviewerProvenanceEntry(
+                file=str(path),
+                bundle_id=_pick(doc, "bundle_id"),
+                invocation_id=_pick(doc, "invocation_id", "patcher_invocation_id"),
+                prompt_sha=_pick(doc, "prompt_sha", "rescored_under_prompt_sha"),
+                model_id=_pick(doc, "model_id"),
+                verdict=verdict,
+            )
+        )
 
         # Per-scorer rates. The reports' `scorers[]` is a list of dicts
         # with `scorer_name` + `score` + `applies`. Read each by name;
@@ -179,25 +185,28 @@ def aggregate_reviewer_reports(
     reject_rate = _rate(verdict_counts.get("reject", 0), n_verdict)
     escalate_rate = _rate(verdict_counts.get("escalate", 0), n_verdict)
     evidence_cited_mean = (
-        sum(evidence_samples) / len(evidence_samples)
-        if evidence_samples else None
+        sum(evidence_samples) / len(evidence_samples) if evidence_samples else None
     )
     attestation_correct_rate = (
         sum(attestation_match_samples) / len(attestation_match_samples)
-        if attestation_match_samples else None
+        if attestation_match_samples
+        else None
     )
     # Disagreement rate = fraction NOT aligned with Steward.
     disagreement_rate = (
         1.0 - (sum(disagreement_aligned_samples) / len(disagreement_aligned_samples))
-        if disagreement_aligned_samples else None
+        if disagreement_aligned_samples
+        else None
     )
     patch_comparison_present_rate = (
         sum(patch_comparison_samples) / len(patch_comparison_samples)
-        if patch_comparison_samples else None
+        if patch_comparison_samples
+        else None
     )
     adaptation_equivalence_correct_rate = (
         sum(adaptation_equivalence_samples) / len(adaptation_equivalence_samples)
-        if adaptation_equivalence_samples else None
+        if adaptation_equivalence_samples
+        else None
     )
 
     return ReviewerAggregateResult(
@@ -221,7 +230,9 @@ def expand_review_glob(pattern: str, *, root: Path | None = None) -> list[Path]:
     base = root or Path.cwd()
     paths = sorted(Path(p) for p in glob.glob(pattern, recursive=True))
     if not paths:
-        paths = sorted((base / p) for p in glob.glob(str(base / pattern), recursive=True))
+        paths = sorted(
+            (base / p) for p in glob.glob(str(base / pattern), recursive=True)
+        )
     return [p for p in paths if p.is_file()]
 
 

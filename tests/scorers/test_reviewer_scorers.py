@@ -66,22 +66,28 @@ def _reject_review_md() -> str:
     )
 
 
-def _build_bundle(tmp_path: Path, *,
-                  bundle_kind: str = "auto-merge",
-                  verdict: str | None = "eligible",
-                  exceeds_threshold: bool = False) -> Path:
+def _build_bundle(
+    tmp_path: Path,
+    *,
+    bundle_kind: str = "auto-merge",
+    verdict: str | None = "eligible",
+    exceeds_threshold: bool = False,
+) -> Path:
     bd = tmp_path / "bundle"
     bd.mkdir()
     bundle = {"kind": bundle_kind}
     (bd / "bundle.json").write_text(json.dumps(bundle))
     eligibility = {"verdict": verdict} if verdict else {}
     (bd / "upstream-ref.json").write_text(json.dumps({"eligibility": eligibility}))
-    (bd / "impact.json").write_text(json.dumps({"exceeds_threshold": exceeds_threshold}))
+    (bd / "impact.json").write_text(
+        json.dumps({"exceeds_threshold": exceeds_threshold})
+    )
     return bd
 
 
-def _review_invocation(outputs: list[str], *,
-                      reviewer_model_id: str = "claude-sonnet-4-6") -> dict:
+def _review_invocation(
+    outputs: list[str], *, reviewer_model_id: str = "claude-sonnet-4-6"
+) -> dict:
     return {
         "invocation_id": "00000000-0000-4000-8000-000000000099",
         "outputs": [{"path": p, "sha256": "0" * 64} for p in outputs],
@@ -115,7 +121,8 @@ def test_schema_valid_passes_clean_review(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewSchemaValidScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True and r.advisory is False
     assert r.score == 1.0
@@ -129,7 +136,8 @@ def test_schema_valid_passes_review_with_patch_comparison(tmp_path: Path) -> Non
     bd = _source_backport_bundle(tmp_path)
     (bd / "review.md").write_text(_accept_review_with_patch_comparison())
     r = ReviewSchemaValidScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True and r.advisory is False
     assert r.score == 1.0, r.notes
@@ -139,15 +147,18 @@ def test_schema_valid_passes_review_with_patch_comparison(tmp_path: Path) -> Non
 def test_schema_valid_fails_malformed_review(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     # Missing the required ## Cross-family attestation section.
-    (bd / "review.md").write_text(_accept_review_md().replace(
-        "## Cross-family attestation\n"
-        "reviewer_family: anthropic-sonnet\n"
-        "patcher_family_observed: anthropic-opus\n"
-        "rule_honored: true\n",
-        "",
-    ))
+    (bd / "review.md").write_text(
+        _accept_review_md().replace(
+            "## Cross-family attestation\n"
+            "reviewer_family: anthropic-sonnet\n"
+            "patcher_family_observed: anthropic-opus\n"
+            "rule_honored: true\n",
+            "",
+        )
+    )
     r = ReviewSchemaValidScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.score == 0.0
     assert "fails strict parser" in r.notes
@@ -157,7 +168,8 @@ def test_schema_valid_passes_well_formed_refusal(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
     r = ReviewSchemaValidScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review-refusal.json"]),
     )
     assert r.score == 1.0
 
@@ -166,7 +178,8 @@ def test_schema_valid_fails_refusal_without_rule(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     (bd / "review-refusal.json").write_text(json.dumps({"reason": "x"}))
     r = ReviewSchemaValidScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review-refusal.json"]),
     )
     assert r.score == 0.0
 
@@ -178,7 +191,8 @@ def test_evidence_cited_perfect_when_all_canonical(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewEvidenceCitedScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.score == 1.0
@@ -193,7 +207,8 @@ def test_evidence_cited_partial_when_one_unrecognised(tmp_path: Path) -> None:
     )
     (bd / "review.md").write_text(body)
     r = ReviewEvidenceCitedScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert 0 < r.score < 1
@@ -211,7 +226,8 @@ def test_evidence_cited_recognises_source_context(tmp_path: Path) -> None:
     )
     (bd / "review.md").write_text(body)
     r = ReviewEvidenceCitedScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.score == 1.0
     assert r.details["unrecognised"] == []
@@ -220,7 +236,9 @@ def test_evidence_cited_recognises_source_context(tmp_path: Path) -> None:
 def test_evidence_cited_recognises_cve_patch_alias(tmp_path: Path) -> None:
     # The authored patch is cited by its in-tree <cve>.patch name (= patch.diff).
     bd = _build_bundle(tmp_path)
-    (bd / "bundle.json").write_text(json.dumps({"kind": "human-review-required", "cve_id": "CVE-2024-34490"}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"kind": "human-review-required", "cve_id": "CVE-2024-34490"})
+    )
     (bd / "patch.diff").write_text("--- a\n+++ b\n")
     body = _accept_review_md().replace(
         "- patch.diff\n",
@@ -228,7 +246,8 @@ def test_evidence_cited_recognises_cve_patch_alias(tmp_path: Path) -> None:
     )
     (bd / "review.md").write_text(body)
     r = ReviewEvidenceCitedScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert "CVE-2024-34490.patch" not in r.details["unrecognised"]
 
@@ -244,7 +263,8 @@ def test_evidence_cited_rejects_source_context_traversal(tmp_path: Path) -> None
     )
     (bd / "review.md").write_text(body)
     r = ReviewEvidenceCitedScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert "source-context/../outside.txt" in r.details["unrecognised"]
 
@@ -263,7 +283,8 @@ def test_evidence_cited_rejects_symlinked_source_context_root(tmp_path: Path) ->
     )
     (bd / "review.md").write_text(body)
     r = ReviewEvidenceCitedScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert "source-context/src/secret.c" in r.details["unrecognised"]
 
@@ -272,7 +293,8 @@ def test_evidence_cited_skipped_on_refusal(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
     r = ReviewEvidenceCitedScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review-refusal.json"]),
     )
     assert r.applies is False
 
@@ -299,7 +321,8 @@ def test_disagreement_aligned_when_verdict_matches_steward(tmp_path: Path) -> No
     bd = _build_bundle(tmp_path, bundle_kind="auto-merge", verdict="eligible")
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewDisagreementScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.advisory is True
     assert r.applies is True
@@ -308,41 +331,62 @@ def test_disagreement_aligned_when_verdict_matches_steward(tmp_path: Path) -> No
     assert r.details["verdict"] == "accept"
 
 
-def test_disagreement_contradicts_when_reject_on_clean_auto_merge(tmp_path: Path) -> None:
+def test_disagreement_contradicts_when_reject_on_clean_auto_merge(
+    tmp_path: Path,
+) -> None:
     bd = _build_bundle(tmp_path, bundle_kind="auto-merge", verdict="eligible")
     (bd / "review.md").write_text(_reject_review_md())
     r = ReviewDisagreementScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.advisory is True
     assert r.score == 0.0
     assert r.details["steward_signal"] == "accept"
 
 
-def test_disagreement_adjacent_when_escalate_on_clean_auto_merge(tmp_path: Path) -> None:
+def test_disagreement_adjacent_when_escalate_on_clean_auto_merge(
+    tmp_path: Path,
+) -> None:
     """escalate ↔ accept counts as adjacent (0.5)."""
     bd = _build_bundle(tmp_path, bundle_kind="auto-merge", verdict="eligible")
-    body = _accept_review_md().replace(
-        "## Verdict\naccept\n",
-        "## Verdict\nescalate\n",
-    ).replace("(none)\n", "- severity: medium — adjacent escalate test — patch.diff\n")
+    body = (
+        _accept_review_md()
+        .replace(
+            "## Verdict\naccept\n",
+            "## Verdict\nescalate\n",
+        )
+        .replace(
+            "(none)\n", "- severity: medium — adjacent escalate test — patch.diff\n"
+        )
+    )
     (bd / "review.md").write_text(body)
     r = ReviewDisagreementScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.score == 0.5
 
 
 def test_disagreement_aligned_on_human_review_bundle(tmp_path: Path) -> None:
     """human-review-required bundle, reviewer says escalate → aligned."""
-    bd = _build_bundle(tmp_path, bundle_kind="human-review-required",
-                       verdict="eligible-requires-human-review")
-    body = _accept_review_md().replace(
-        "## Verdict\naccept\n", "## Verdict\nescalate\n"
-    ).replace("(none)\n", "- severity: medium — major-jump triggers escalate — upstream-ref.json\n")
+    bd = _build_bundle(
+        tmp_path,
+        bundle_kind="human-review-required",
+        verdict="eligible-requires-human-review",
+    )
+    body = (
+        _accept_review_md()
+        .replace("## Verdict\naccept\n", "## Verdict\nescalate\n")
+        .replace(
+            "(none)\n",
+            "- severity: medium — major-jump triggers escalate — upstream-ref.json\n",
+        )
+    )
     (bd / "review.md").write_text(body)
     r = ReviewDisagreementScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.score == 1.0
 
@@ -351,7 +395,8 @@ def test_disagreement_skipped_on_refusal(tmp_path: Path) -> None:
     bd = _build_bundle(tmp_path)
     (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
     r = ReviewDisagreementScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review-refusal.json"]),
     )
     assert r.applies is False
     assert r.advisory is True
@@ -371,30 +416,41 @@ def _seed_replay_with_patcher(bd: Path, patcher_model_id: str) -> None:
         "policy_version": "0" * 64,
         "bundle_schema_sha256": "1" * 64,
         "routing_config_sha256": "2" * 64,
-        "tool_manifest": {"flake_lock_sha256": "3" * 64, "tools": [{"name": "trace-cli", "version": "0"}]},
+        "tool_manifest": {
+            "flake_lock_sha256": "3" * 64,
+            "tools": [{"name": "trace-cli", "version": "0"}],
+        },
         "cross_family_rule_honored": True,
-        "roles": [{
-            "role": "patcher",
-            "invocations": [{
-                "invocation_id": "11111111-1111-4111-8111-111111111111",
+        "roles": [
+            {
                 "role": "patcher",
-                "started_at": "2026-04-27T00:00:00Z",
-                "ended_at": "2026-04-27T00:00:01Z",
-                "model": {
-                    "family": "anthropic",
-                    "vendor": "anthropic",
-                    "model_id": patcher_model_id,
-                    "version": "x",
-                    "sampling": {"temperature": 0.0, "top_p": 1.0, "max_tokens": 1024},
-                },
-                "prompt": {"path": "prompts/patcher.v2.md", "sha256": "f" * 64},
-                "inputs": [{"path": "finding.json", "sha256": "0" * 64}],
-                "outputs": [{"path": "patch.diff", "sha256": "0" * 64}],
-                "rng_seed": None,
-                "validators_passed": ["schema-valid-output"],
-                "network_policy_applied": "none",
-            }],
-        }],
+                "invocations": [
+                    {
+                        "invocation_id": "11111111-1111-4111-8111-111111111111",
+                        "role": "patcher",
+                        "started_at": "2026-04-27T00:00:00Z",
+                        "ended_at": "2026-04-27T00:00:01Z",
+                        "model": {
+                            "family": "anthropic",
+                            "vendor": "anthropic",
+                            "model_id": patcher_model_id,
+                            "version": "x",
+                            "sampling": {
+                                "temperature": 0.0,
+                                "top_p": 1.0,
+                                "max_tokens": 1024,
+                            },
+                        },
+                        "prompt": {"path": "prompts/patcher.v2.md", "sha256": "f" * 64},
+                        "inputs": [{"path": "finding.json", "sha256": "0" * 64}],
+                        "outputs": [{"path": "patch.diff", "sha256": "0" * 64}],
+                        "rng_seed": None,
+                        "validators_passed": ["schema-valid-output"],
+                        "network_policy_applied": "none",
+                    }
+                ],
+            }
+        ],
     }
     (bd / "replay.json").write_text(json.dumps(replay, indent=2))
 
@@ -409,7 +465,9 @@ def test_attestation_matches_when_all_three_fields_correct(tmp_path: Path) -> No
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewCrossFamilyAttestationScorer().score(
         bundle_dir=bd,
-        invocation=_review_invocation(["review.md"], reviewer_model_id="claude-sonnet-4-6"),
+        invocation=_review_invocation(
+            ["review.md"], reviewer_model_id="claude-sonnet-4-6"
+        ),
     )
     assert r.applies is True
     assert r.advisory is False
@@ -434,7 +492,9 @@ def test_attestation_fabricated_patcher_family_yields_zero(tmp_path: Path) -> No
     (bd / "review.md").write_text(review)
     r = ReviewCrossFamilyAttestationScorer().score(
         bundle_dir=bd,
-        invocation=_review_invocation(["review.md"], reviewer_model_id="claude-sonnet-4-6"),
+        invocation=_review_invocation(
+            ["review.md"], reviewer_model_id="claude-sonnet-4-6"
+        ),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -458,7 +518,9 @@ def test_attestation_fabricated_reviewer_family_yields_zero(tmp_path: Path) -> N
     (bd / "review.md").write_text(review)
     r = ReviewCrossFamilyAttestationScorer().score(
         bundle_dir=bd,
-        invocation=_review_invocation(["review.md"], reviewer_model_id="claude-sonnet-4-6"),
+        invocation=_review_invocation(
+            ["review.md"], reviewer_model_id="claude-sonnet-4-6"
+        ),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -481,7 +543,9 @@ def test_attestation_fabricated_rule_honored_yields_zero(tmp_path: Path) -> None
     (bd / "review.md").write_text(review)
     r = ReviewCrossFamilyAttestationScorer().score(
         bundle_dir=bd,
-        invocation=_review_invocation(["review.md"], reviewer_model_id="claude-sonnet-4-6"),
+        invocation=_review_invocation(
+            ["review.md"], reviewer_model_id="claude-sonnet-4-6"
+        ),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -505,7 +569,9 @@ def test_attestation_same_family_pair_is_rule_violation(tmp_path: Path) -> None:
     (bd / "review.md").write_text(review)
     r = ReviewCrossFamilyAttestationScorer().score(
         bundle_dir=bd,
-        invocation=_review_invocation(["review.md"], reviewer_model_id="claude-sonnet-4-6"),
+        invocation=_review_invocation(
+            ["review.md"], reviewer_model_id="claude-sonnet-4-6"
+        ),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -521,7 +587,8 @@ def test_attestation_skipped_on_refusal(tmp_path: Path) -> None:
     _seed_replay_with_patcher(bd, "claude-opus-4-7")
     (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
     r = ReviewCrossFamilyAttestationScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review-refusal.json"]),
     )
     assert r.applies is False
     assert r.advisory is False  # non-advisory by design
@@ -534,14 +601,17 @@ def test_attestation_skipped_when_no_patcher_in_replay(tmp_path: Path) -> None:
     # No replay.json at all.
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewCrossFamilyAttestationScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert r.score is None
     assert "no patcher invocation" in r.notes
 
 
-def test_attestation_skipped_when_reviewer_model_id_unresolvable(tmp_path: Path) -> None:
+def test_attestation_skipped_when_reviewer_model_id_unresolvable(
+    tmp_path: Path,
+) -> None:
     """If the reviewer's invocation has a model_id that doesn't map to
     a known family, we can't verify reviewer_family — skip rather
     than score 0.0 (mirrors the same-shape skip for missing patcher)."""
@@ -550,7 +620,9 @@ def test_attestation_skipped_when_reviewer_model_id_unresolvable(tmp_path: Path)
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewCrossFamilyAttestationScorer().score(
         bundle_dir=bd,
-        invocation=_review_invocation(["review.md"], reviewer_model_id="mystery-vendor-0.1"),
+        invocation=_review_invocation(
+            ["review.md"], reviewer_model_id="mystery-vendor-0.1"
+        ),
     )
     assert r.applies is False
     assert r.score is None
@@ -565,12 +637,16 @@ def _source_backport_bundle(tmp_path: Path) -> Path:
     bd = tmp_path / "bundle"
     bd.mkdir()
     (bd / "bundle.json").write_text(json.dumps({"kind": "human-review-required"}))
-    (bd / "upstream-ref.json").write_text(json.dumps({
-        "eligibility": {
-            "verdict": "eligible-requires-human-review",
-            "patch_strategy": "source-backport",
-        }
-    }))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "eligibility": {
+                    "verdict": "eligible-requires-human-review",
+                    "patch_strategy": "source-backport",
+                }
+            }
+        )
+    )
     (bd / "impact.json").write_text(json.dumps({"exceeds_threshold": False}))
     return bd
 
@@ -615,7 +691,8 @@ def test_patch_comparison_not_applicable_for_version_bump(tmp_path: Path) -> Non
     bd = _build_bundle(tmp_path)
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewPatchComparisonPresentScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert r.score is None
@@ -627,7 +704,8 @@ def test_patch_comparison_present_scores_1(tmp_path: Path) -> None:
     bd = _source_backport_bundle(tmp_path)
     (bd / "review.md").write_text(_accept_review_with_patch_comparison())
     r = ReviewPatchComparisonPresentScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.advisory is False
@@ -648,7 +726,8 @@ def test_patch_comparison_abstains_in_adaptation_lane(tmp_path: Path) -> None:
     # A contract-compliant v10 review omits '## Patch comparison'.
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewPatchComparisonPresentScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert r.score is None
@@ -660,7 +739,8 @@ def test_patch_comparison_absent_scores_0(tmp_path: Path) -> None:
     bd = _source_backport_bundle(tmp_path)
     (bd / "review.md").write_text(_accept_review_md())
     r = ReviewPatchComparisonPresentScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.advisory is False
@@ -672,7 +752,8 @@ def test_patch_comparison_skipped_on_refusal(tmp_path: Path) -> None:
     bd = _source_backport_bundle(tmp_path)
     (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
     r = ReviewPatchComparisonPresentScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review-refusal.json"]),
     )
     assert r.applies is False
     assert r.score is None

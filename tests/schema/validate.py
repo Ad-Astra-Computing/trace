@@ -150,7 +150,9 @@ def validate_fixture(
             for rel, meta in bundle.get("files", {}).items():
                 file_path = fixture_dir / rel
                 if not file_path.exists():
-                    result.hash_errors.append(f"{rel}: declared in bundle.json but missing on disk")
+                    result.hash_errors.append(
+                        f"{rel}: declared in bundle.json but missing on disk"
+                    )
                     continue
                 actual = _sha256_file(file_path)
                 declared = meta.get("sha256")

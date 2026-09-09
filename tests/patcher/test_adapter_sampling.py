@@ -46,10 +46,13 @@ def _make_adapter(model_id: str):
             os.environ["ANTHROPIC_API_KEY"] = prev
 
 
-@pytest.mark.parametrize("model_id", [
-    "claude-opus-4-7",
-    "claude-opus-4-7-20260301",  # dated suffix
-])
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "claude-opus-4-7",
+        "claude-opus-4-7-20260301",  # dated suffix
+    ],
+)
 def test_opus_drops_both_sampling_knobs(model_id: str) -> None:
     """Opus 4.7 family deprecated both temperature and top_p. Adapter
     must omit both in the API call."""
@@ -58,12 +61,15 @@ def test_opus_drops_both_sampling_knobs(model_id: str) -> None:
     assert a._model_accepts_only_temperature() is False
 
 
-@pytest.mark.parametrize("model_id", [
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-6-20260301",  # dated suffix
-    "claude-haiku-4-5",
-    "claude-haiku-4-5-20251001",  # dated suffix
-])
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-6-20260301",  # dated suffix
+        "claude-haiku-4-5",
+        "claude-haiku-4-5-20251001",  # dated suffix
+    ],
+)
 def test_sonnet_and_haiku_reject_both_knobs(model_id: str) -> None:
     """Sonnet 4.6 and Haiku 4.5 reject sending both temperature and
     top_p; adapter sends temperature only."""
@@ -72,10 +78,13 @@ def test_sonnet_and_haiku_reject_both_knobs(model_id: str) -> None:
     assert a._model_accepts_only_temperature() is True
 
 
-@pytest.mark.parametrize("model_id", [
-    "claude-3-5-sonnet-20241022",  # older, hypothetical
-    "claude-3-haiku-20240307",     # older, hypothetical
-])
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "claude-3-5-sonnet-20241022",  # older, hypothetical
+        "claude-3-haiku-20240307",  # older, hypothetical
+    ],
+)
 def test_older_models_accept_both_knobs(model_id: str) -> None:
     """Older Claude models accept both knobs without complaint. The
     adapter's default branch sends both."""
@@ -89,4 +98,7 @@ def test_haiku_4_5_in_reject_both_set() -> None:
     in commit landing alongside the 2026-04-29 reproducer probe finding.
     Pin the membership here so a regression is caught instantly."""
     from agents.patcher.adapter import AnthropicAdapter
-    assert "claude-haiku-4-5" in AnthropicAdapter._MODELS_THAT_REJECT_BOTH_SAMPLING_KNOBS
+
+    assert (
+        "claude-haiku-4-5" in AnthropicAdapter._MODELS_THAT_REJECT_BOTH_SAMPLING_KNOBS
+    )

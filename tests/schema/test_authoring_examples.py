@@ -76,7 +76,9 @@ def _is_authoring_supplement(fixture_dir: Path) -> bool:
 
 
 def _authoring_supplement_dirs() -> list[Path]:
-    return sorted(p for p in FIXTURE_ROOT.iterdir() if p.is_dir() and _is_authoring_supplement(p))
+    return sorted(
+        p for p in FIXTURE_ROOT.iterdir() if p.is_dir() and _is_authoring_supplement(p)
+    )
 
 
 def _load(fixture_dir: Path) -> dict:
@@ -120,7 +122,8 @@ def _authoring_pair_dirs() -> list[Path]:
     ship the SAME training example twice, silently inflating the authoring corpus.
     """
     return sorted(
-        p for p in FIXTURE_ROOT.iterdir()
+        p
+        for p in FIXTURE_ROOT.iterdir()
         if p.is_dir() and (p / "authoring-example.json").exists()
     )
 
@@ -138,6 +141,7 @@ def _pair_identity(fixture_dir: Path) -> tuple:
     source of truth for the `index` header strip + hashing).
     """
     from tools.trace_cli.export import _authoring_pair_identity
+
     ex = json.loads((fixture_dir / "authoring-example.json").read_text())
     return _authoring_pair_identity(ex)
 
@@ -205,26 +209,35 @@ def test_authoring_export_emits_no_duplicate_pair_rows(tmp_path):
 
     out = tmp_path / "out"
     args = argparse.Namespace(
-        export_scope="authoring", out=out,
-        traces_root=FIXTURE_ROOT, format="human", split_manifest=None,
+        export_scope="authoring",
+        out=out,
+        traces_root=FIXTURE_ROOT,
+        format="human",
+        split_manifest=None,
     )
     assert ex.run(args) == 0
 
     rows = [json.loads(l) for l in (out / "authoring.jsonl").read_text().splitlines()]
-    canary = [json.loads(l) for l in (out / "authoring-canary.jsonl").read_text().splitlines()]
+    canary = [
+        json.loads(l) for l in (out / "authoring-canary.jsonl").read_text().splitlines()
+    ]
     emitted = rows + canary
 
     # Pair identity of an emitted row: (cve, fix commit, hashed edit). Reuse the
     # exporter's helper so the row-level and dir-level guards agree.
     def _row_identity(rec: dict) -> tuple:
         pv = rec["provenance"]
-        label = rec["messages"][2]["content"]        # assistant turn IS the fix_diff
-        return ex._authoring_pair_identity({
-            "cve_id": pv["cve_id"], "fix_commit": {"commit_sha": pv["fix_commit"]},
-            "fix_diff": label,
-        })
+        label = rec["messages"][2]["content"]  # assistant turn IS the fix_diff
+        return ex._authoring_pair_identity(
+            {
+                "cve_id": pv["cve_id"],
+                "fix_commit": {"commit_sha": pv["fix_commit"]},
+                "fix_diff": label,
+            }
+        )
 
     from collections import Counter
+
     ident_counts = Counter(_row_identity(r) for r in emitted)
     dupes = {i: n for i, n in ident_counts.items() if n > 1}
     assert not dupes, f"emitted authoring rows share a pair identity: {dupes}"
@@ -233,18 +246,22 @@ def test_authoring_export_emits_no_duplicate_pair_rows(tmp_path):
     per_cve = Counter(r["provenance"]["cve_id"] for r in emitted)
     for cve in _KNOWN_ENTANGLED_DUP_CVES:
         assert per_cve[cve] == 1, (
-            f"{cve} redundant pair should emit exactly 1 row, got {per_cve[cve]}")
+            f"{cve} redundant pair should emit exactly 1 row, got {per_cve[cve]}"
+        )
     m = json.loads((out / "manifest.json").read_text())
     skipped_cves = {s["cve_id"] for s in m["authoring_dedup_skips"]}
     # The redundant pairs collapse via the dedup path (logged as a skip)...
     dedup_expected = _KNOWN_ENTANGLED_DUP_CVES - {"CVE-2025-31344"}
     assert dedup_expected <= skipped_cves, (
-        f"manifest must log the deduped redundant pairs; got {skipped_cves}")
+        f"manifest must log the deduped redundant pairs; got {skipped_cves}"
+    )
     # ...except giflib, whose half-patched sibling is dropped by the self-leak gate
     # (excluded, not dedup-skipped).
-    assert any(e["bundle"] == "CVE-2025-31344--giflib-colorcount-bounds-backport"
-               and "self-leak" in e["reason"] for e in m["excluded"]), (
-        "giflib half-patched window must be excluded by the self-leak gate")
+    assert any(
+        e["bundle"] == "CVE-2025-31344--giflib-colorcount-bounds-backport"
+        and "self-leak" in e["reason"]
+        for e in m["excluded"]
+    ), "giflib half-patched window must be excluded by the self-leak gate"
 
 
 @pytest.mark.parametrize(
@@ -254,23 +271,35 @@ def test_authoring_example_shape(fixture_dir):
     ex = _load(fixture_dir)
 
     missing = sorted(REQUIRED_KEYS - set(ex))
-    assert not missing, f"{fixture_dir.name}: authoring-example.json missing keys {missing}"
-
-    assert isinstance(ex["cve_id"], str) and ex["cve_id"], f"{fixture_dir.name}: empty cve_id"
-    assert isinstance(ex["attr_path"], str) and ex["attr_path"], f"{fixture_dir.name}: empty attr_path"
-    assert isinstance(ex["vuln_raw"], str) and ex["vuln_raw"].strip(), f"{fixture_dir.name}: empty vuln_raw"
-    assert isinstance(ex["file"], str) and ex["file"], f"{fixture_dir.name}: empty file"
-    assert isinstance(ex["included_source_files"], list) and ex["included_source_files"], (
-        f"{fixture_dir.name}: included_source_files must be a non-empty list"
+    assert not missing, (
+        f"{fixture_dir.name}: authoring-example.json missing keys {missing}"
     )
+
+    assert isinstance(ex["cve_id"], str) and ex["cve_id"], (
+        f"{fixture_dir.name}: empty cve_id"
+    )
+    assert isinstance(ex["attr_path"], str) and ex["attr_path"], (
+        f"{fixture_dir.name}: empty attr_path"
+    )
+    assert isinstance(ex["vuln_raw"], str) and ex["vuln_raw"].strip(), (
+        f"{fixture_dir.name}: empty vuln_raw"
+    )
+    assert isinstance(ex["file"], str) and ex["file"], f"{fixture_dir.name}: empty file"
+    assert (
+        isinstance(ex["included_source_files"], list) and ex["included_source_files"]
+    ), f"{fixture_dir.name}: included_source_files must be a non-empty list"
     assert isinstance(ex["input_window_truncated"], bool), (
         f"{fixture_dir.name}: input_window_truncated must be a bool"
     )
     assert isinstance(ex["pre_fix_source"], str) and ex["pre_fix_source"].strip(), (
         f"{fixture_dir.name}: empty pre_fix_source"
     )
-    assert isinstance(ex["fix_diff"], str) and ex["fix_diff"].strip(), f"{fixture_dir.name}: empty fix_diff"
-    assert isinstance(ex["label_source"], str) and ex["label_source"], f"{fixture_dir.name}: empty label_source"
+    assert isinstance(ex["fix_diff"], str) and ex["fix_diff"].strip(), (
+        f"{fixture_dir.name}: empty fix_diff"
+    )
+    assert isinstance(ex["label_source"], str) and ex["label_source"], (
+        f"{fixture_dir.name}: empty label_source"
+    )
 
     fc = ex["fix_commit"]
     assert isinstance(fc, dict), f"{fixture_dir.name}: fix_commit must be an object"
@@ -279,9 +308,13 @@ def test_authoring_example_shape(fixture_dir):
     assert isinstance(repo_url, str) and repo_url.startswith(("http://", "https://")), (
         f"{fixture_dir.name}: fix_commit.repo_url must be an http(s) URL, got {repo_url!r}"
     )
-    assert isinstance(commit_sha, str) and len(commit_sha) == 40 and all(
-        c in "0123456789abcdef" for c in commit_sha.lower()
-    ), f"{fixture_dir.name}: fix_commit.commit_sha must be a 40-char hex sha, got {commit_sha!r}"
+    assert (
+        isinstance(commit_sha, str)
+        and len(commit_sha) == 40
+        and all(c in "0123456789abcdef" for c in commit_sha.lower())
+    ), (
+        f"{fixture_dir.name}: fix_commit.commit_sha must be a 40-char hex sha, got {commit_sha!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -345,6 +378,8 @@ def test_authoring_example_diff_grounded_in_window(fixture_dir):
 )
 def test_authoring_supplement_has_upstream_ref(fixture_dir):
     ur_path = fixture_dir / "upstream-ref.json"
-    assert ur_path.exists(), f"{fixture_dir.name}: authoring supplement missing upstream-ref.json"
+    assert ur_path.exists(), (
+        f"{fixture_dir.name}: authoring supplement missing upstream-ref.json"
+    )
     # Must parse; shape is validated by the upstream_ref schema elsewhere.
     json.loads(ur_path.read_text())

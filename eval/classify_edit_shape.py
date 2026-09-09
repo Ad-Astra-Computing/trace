@@ -16,6 +16,7 @@ Shapes (labelled per hunk; the patch is labelled by its largest non-context hunk
 
 Pure functions + a canary-calibrated census when run as __main__.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -23,7 +24,9 @@ import re
 from pathlib import Path
 
 _CTRL = re.compile(r"\b(if|elif|while|for|unless)\b|[?]")
-_GUARD = re.compile(r"\b(if|elif|while|unless)\b")  # conditional guards (NOT `for` iteration)
+_GUARD = re.compile(
+    r"\b(if|elif|while|unless)\b"
+)  # conditional guards (NOT `for` iteration)
 _CMP = re.compile(r"(<=|>=|==|!=|<|>|&&|\|\||\band\b|\bor\b)")
 _STR = re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'')
 _SHIFT = re.compile(r"<<|>>")
@@ -33,8 +36,13 @@ def _code(s: str) -> str:
     """Neutralize string/char literals and shift operators so a `>` inside `"a > b"` or
     the `<` in `1 << N` is not mistaken for a comparison (precision fix, DECISIONS 2026-07-17)."""
     return _SHIFT.sub("  ", _STR.sub('""', s))
+
+
 _CONJ = re.compile(r"(&&|\|\||\band\b|\bor\b)")
-_RAISE = re.compile(r"\b(raise|throw|abort|panic|BUG|error|err|fatal)\b|return\s+(-?\w*E[A-Z_]+|NULL|false|-1)", re.I)
+_RAISE = re.compile(
+    r"\b(raise|throw|abort|panic|BUG|error|err|fatal)\b|return\s+(-?\w*E[A-Z_]+|NULL|false|-1)",
+    re.I,
+)
 _CLAMP = re.compile(r"=\s*[\w\[\]\.\-> ]+;?\s*$|\b(return|goto|break|continue)\b")
 _ASSIGN = re.compile(r"[\w\[\]\.\->]+\s*=\s*[^=]")
 
@@ -43,8 +51,10 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip())
 
 
-_IMPORT = re.compile(r"^\s*(import|from|use|require|require_relative|#include|#import|#define|"
-                     r"#if|#ifdef|#ifndef|#endif|#pragma|package|using|typedef)\b")
+_IMPORT = re.compile(
+    r"^\s*(import|from|use|require|require_relative|#include|#import|#define|"
+    r"#if|#ifdef|#ifndef|#endif|#pragma|package|using|typedef)\b"
+)
 
 
 def _is_comment(s: str) -> bool:
@@ -109,10 +119,19 @@ def _fold_subshape(rem: str, add: str) -> str:
     if _CONJ.search(a) and not _CONJ.search(r):
         return "conjunct-add"
     r_ops, a_ops = _CMP.findall(r), _CMP.findall(a)
-    if r_ops and a_ops and r_ops != a_ops and _tok(r) - _CMP_TOKENS == _tok(a) - _CMP_TOKENS:
+    if (
+        r_ops
+        and a_ops
+        and r_ops != a_ops
+        and _tok(r) - _CMP_TOKENS == _tok(a) - _CMP_TOKENS
+    ):
         return "operator-refine"
     # arithmetic term added in a bound operand (extra_max -> extra_max - len; X -> X - 1)
-    if re.search(r"[-+*/]", a) and _jaccard(r, a) >= 0.5 and len(_tok(a) - _tok(r)) >= 1:
+    if (
+        re.search(r"[-+*/]", a)
+        and _jaccard(r, a) >= 0.5
+        and len(_tok(a) - _tok(r)) >= 1
+    ):
         return "bound-arith-fold"
     return "operand-replace"
 
@@ -131,9 +150,9 @@ def _is_condition_change(rem: str, add: str) -> bool:
     if not (r_has and a_has):
         return False
     if _CMP.findall(r) != _CMP.findall(a):
-        return True                                   # operators changed (refine)
+        return True  # operators changed (refine)
     if _CONJ.search(a) and not _CONJ.search(r):
-        return True                                   # a conjunct was added to the condition
+        return True  # a conjunct was added to the condition
     # same operators: a real fold only if an OPERAND identifier/number changed
     # (bound-arith `have`→`have - len`; operand-replace `zA1`→`zA2`). A change of only
     # punctuation/string literals (Perl `open $_ or return` → `open '<',$_ or return`,
@@ -150,8 +169,9 @@ def classify_hunk(rem: list[str], add: list[str]) -> tuple[str, str]:
             continue
         for ri in range(i1, i2):
             for aj in range(j1, j2):
-                if _jaccard(_code(rem[ri]), _code(add[aj])) >= 0.5 \
-                        and _is_condition_change(rem[ri], add[aj]):
+                if _jaccard(
+                    _code(rem[ri]), _code(add[aj])
+                ) >= 0.5 and _is_condition_change(rem[ri], add[aj]):
                     return "condition-fold", _fold_subshape(rem[ri], add[aj])
     # 2. net-added guard (no paired removal) — clip vs security-guard-add
     if add and not rem:
@@ -174,43 +194,59 @@ def classify_diff(diff: str) -> dict:
     labels = [(len(r) + len(a), classify_hunk(r, a)) for r, a in hunks]
     labels.sort(key=lambda x: -x[0])
     shape, sub = labels[0][1]
-    return {"shape": shape, "subshape": sub, "n_hunks": len(hunks),
-            "per_hunk": [lab for _, lab in labels]}
+    return {
+        "shape": shape,
+        "subshape": sub,
+        "n_hunks": len(hunks),
+        "per_hunk": [lab for _, lab in labels],
+    }
 
 
 # ── canary-calibrated census ──────────────────────────────────────────────────
 def _census() -> None:
     import json
+
     ROOT = Path(__file__).resolve().parents[1]
     canary = ROOT / "exports/authoring-lora/authoring-canary.jsonl"
     train = ROOT / "exports/authoring-lora/authoring.train.jsonl"
-    CAN = {"CVE-2022-37434": "zlib(expect condition-fold)",
-           "CVE-2026-42250": "bzip2(expect condition-fold/bound OR guard)",
-           "CVE-2024-47081": "requests(?)", "CVE-2026-48526": "pyjwt(expect security-guard-add)"}
+    CAN = {
+        "CVE-2022-37434": "zlib(expect condition-fold)",
+        "CVE-2026-42250": "bzip2(expect condition-fold/bound OR guard)",
+        "CVE-2024-47081": "requests(?)",
+        "CVE-2026-48526": "pyjwt(expect security-guard-add)",
+    }
     print("=== CANARY CALIBRATION ===")
     for l in canary.read_text().splitlines():
         if not l.strip():
             continue
-        r = json.loads(l); cve = (r.get("provenance") or {}).get("cve_id", "")
+        r = json.loads(l)
+        cve = (r.get("provenance") or {}).get("cve_id", "")
         if cve in CAN:
-            ref = next((m["content"] for m in r["messages"] if m["role"] == "assistant"), "")
+            ref = next(
+                (m["content"] for m in r["messages"] if m["role"] == "assistant"), ""
+            )
             c = classify_diff(ref)
             print(f"  {CAN[cve]:40} -> {c['shape']}/{c['subshape']}")
     print("\n=== TRAIN CORPUS SHAPE CENSUS ===")
     from collections import Counter
+
     cnt = Counter()
     for l in train.read_text().splitlines():
         if not l.strip():
             continue
         r = json.loads(l)
-        ref = next((m["content"] for m in r["messages"] if m["role"] == "assistant"), "")
+        ref = next(
+            (m["content"] for m in r["messages"] if m["role"] == "assistant"), ""
+        )
         cnt[classify_diff(ref)["shape"]] += 1
     total = sum(cnt.values())
     for shape, n in cnt.most_common():
-        print(f"  {shape:20} {n:3}  ({n/total:.0%})")
+        print(f"  {shape:20} {n:3}  ({n / total:.0%})")
     fold = cnt.get("condition-fold", 0)
-    print(f"\n  condition-fold share: {fold}/{total} = {fold/total:.0%} "
-          f"-> hypothesis {'LIVE (fold-poor)' if fold/total < 0.35 else 'likely dead (fold-rich)'}")
+    print(
+        f"\n  condition-fold share: {fold}/{total} = {fold / total:.0%} "
+        f"-> hypothesis {'LIVE (fold-poor)' if fold / total < 0.35 else 'likely dead (fold-rich)'}"
+    )
 
 
 if __name__ == "__main__":

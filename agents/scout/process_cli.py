@@ -26,7 +26,10 @@ def main() -> int:
     snapshot = os.environ.get("GRAPH_SNAPSHOT", "")
     cve_id = os.environ.get("PROCESS_CVE_ID", "")
     if not snapshot or not cve_id:
-        print("error: GRAPH_SNAPSHOT and PROCESS_CVE_ID env vars required", file=sys.stderr)
+        print(
+            "error: GRAPH_SNAPSHOT and PROCESS_CVE_ID env vars required",
+            file=sys.stderr,
+        )
         return 64
 
     snap_path = Path(snapshot)
@@ -36,11 +39,15 @@ def main() -> int:
 
     graph = CannedGraphLookup(snapshot_from_json(snap_path.read_text()))
     out = process_entry(Path("inbox") / cve_id, graph=graph)
-    print(json.dumps({
-        "cve_id": out.cve_id,
-        "finding_status": out.finding_status,
-        "resolver_status": out.resolver_status,
-    }))
+    print(
+        json.dumps(
+            {
+                "cve_id": out.cve_id,
+                "finding_status": out.finding_status,
+                "resolver_status": out.resolver_status,
+            }
+        )
+    )
     return 0
 
 

@@ -57,13 +57,15 @@ def read_queue(path: Path) -> list[RetryEntry]:
         except json.JSONDecodeError:
             continue
         try:
-            out.append(RetryEntry(
-                cve_id=data["cve_id"],
-                attempts=int(data["attempts"]),
-                first_seen=data["first_seen"],
-                last_seen=data["last_seen"],
-                last_error=data["last_error"],
-            ))
+            out.append(
+                RetryEntry(
+                    cve_id=data["cve_id"],
+                    attempts=int(data["attempts"]),
+                    first_seen=data["first_seen"],
+                    last_seen=data["last_seen"],
+                    last_error=data["last_error"],
+                )
+            )
         except (KeyError, TypeError, ValueError):
             continue
     return out

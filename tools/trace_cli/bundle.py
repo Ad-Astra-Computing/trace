@@ -53,6 +53,7 @@ from typing import Any
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+
 from agents.upstream_ref_resolver import (
     FetchzipFailure,
     FetchzipRequest,
@@ -195,7 +196,8 @@ def assemble_bundle(
                     nixpkgs_rev=nixpkgs_rev,
                 )
                 outcome = prefetch_fetchzip(
-                    request, command_runner=fetchzip_runner,
+                    request,
+                    command_runner=fetchzip_runner,
                 )
                 if isinstance(outcome, FetchzipSuccess):
                     fz_successes.append(outcome)
@@ -222,12 +224,15 @@ def assemble_bundle(
                     nixpkgs_rev=nixpkgs_rev,
                 )
                 outcome = prefetch_go_mod_vendor(
-                    request, command_runner=go_mod_vendor_runner,
+                    request,
+                    command_runner=go_mod_vendor_runner,
                 )
                 if isinstance(outcome, GoModVendorSuccess):
                     gmv_successes.append(outcome)
                     # Drop the corresponding skip entry — now grounded.
-                    remaining_skips = [s for s in remaining_skips if s.name != skip.name]
+                    remaining_skips = [
+                        s for s in remaining_skips if s.name != skip.name
+                    ]
                 else:
                     # Live attempt failed. Drop the skip entry (no longer
                     # accurate: the resolver DID attempt). The failure
@@ -248,27 +253,35 @@ def assemble_bundle(
             grounded_names = [e["name"] for e in ph_entries]
             any_prefetch_field = True
         if remaining_skips:
-            upstream_ref["prefetch_skips"] = [s.to_schema_dict() for s in remaining_skips]
+            upstream_ref["prefetch_skips"] = [
+                s.to_schema_dict() for s in remaining_skips
+            ]
             skip_descrs = [f"{s.name}={s.reason}" for s in remaining_skips]
             any_prefetch_field = True
         if url_outcome.failures or gmv_failures or fz_failures:
             failures_list = list(url_outcome.failures_as_list())
             failures_list += [f.to_schema_dict() for f in fz_failures]
-            failures_list += [_gmv_failure_to_prefetch_failures_entry(f) for f in gmv_failures]
+            failures_list += [
+                _gmv_failure_to_prefetch_failures_entry(f) for f in gmv_failures
+            ]
             # Source-backport: the patch never changes src.hash (version is
             # unchanged by design). A src.hash prefetch failure is informational
             # only; marking it required_for_patch=True would mislead Reviewer
             # into a false rule-8 refusal. Correct the flag here at the producer
             # layer so the training data is unambiguous.
             is_source_backport = (
-                upstream_ref.get("eligibility", {}).get("patch_strategy") == "source-backport"
+                upstream_ref.get("eligibility", {}).get("patch_strategy")
+                == "source-backport"
             )
             if is_source_backport:
                 for f in failures_list:
                     if f.get("name") == "src.hash":
                         f["required_for_patch"] = False
                         if "detail" in f:
-                            f["detail"] = (f["detail"] + " source-backport: src.hash unchanged by patch.")[:2048]
+                            f["detail"] = (
+                                f["detail"]
+                                + " source-backport: src.hash unchanged by patch."
+                            )[:2048]
             upstream_ref.setdefault("prefetch_failures", []).extend(failures_list)
             failure_descrs = [f"{f.name}={f.reason}" for f in url_outcome.failures]
             failure_descrs += [f"{f.name}={f.reason}" for f in fz_failures]
@@ -302,6 +315,7 @@ def assemble_bundle(
     # adding the top-level bundle metadata (bundle_id, tool_manifest, etc.).
     import hashlib as _hashlib
     import uuid as _uuid
+
     upstream_ref_sha = _hashlib.sha256(upstream_ref_out.read_bytes()).hexdigest()
     # Resolver-input.json is the canonical input the resolver consumed;
     # finding.json (if supplied) is recorded as a secondary input. Either
@@ -312,31 +326,37 @@ def assemble_bundle(
         finding_sha = _hashlib.sha256(finding_path.read_bytes()).hexdigest()
         seed_inputs.insert(0, {"path": "finding.json", "sha256": finding_sha})
     seed_replay = {
-        "roles": [{
-            "role": "upstream-ref-resolver",
-            "invocations": [{
-                "invocation_id": str(_uuid.uuid4()),
+        "roles": [
+            {
                 "role": "upstream-ref-resolver",
-                "started_at": _utc_now_iso(),
-                "ended_at": _utc_now_iso(),
-                "model": {
-                    "family": "deterministic-no-model",
-                    "vendor": "internal",
-                    "model_id": "upstream-ref-resolver-deterministic",
-                    "version": "1.0.0",
-                    "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
-                },
-                "prompt": {
-                    "path": "prompts/upstream-ref-resolver.v1.md",
-                    "sha256": "7" * 64,
-                },
-                "inputs": seed_inputs,
-                "outputs": [{"path": "upstream-ref.json", "sha256": upstream_ref_sha}],
-                "rng_seed": None,
-                "validators_passed": ["eligibility-verdict-present"],
-                "network_policy_applied": "feeds-only",
-            }],
-        }],
+                "invocations": [
+                    {
+                        "invocation_id": str(_uuid.uuid4()),
+                        "role": "upstream-ref-resolver",
+                        "started_at": _utc_now_iso(),
+                        "ended_at": _utc_now_iso(),
+                        "model": {
+                            "family": "deterministic-no-model",
+                            "vendor": "internal",
+                            "model_id": "upstream-ref-resolver-deterministic",
+                            "version": "1.0.0",
+                            "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
+                        },
+                        "prompt": {
+                            "path": "prompts/upstream-ref-resolver.v1.md",
+                            "sha256": "7" * 64,
+                        },
+                        "inputs": seed_inputs,
+                        "outputs": [
+                            {"path": "upstream-ref.json", "sha256": upstream_ref_sha}
+                        ],
+                        "rng_seed": None,
+                        "validators_passed": ["eligibility-verdict-present"],
+                        "network_policy_applied": "feeds-only",
+                    }
+                ],
+            }
+        ],
     }
     replay_out = out_dir / "replay.json"
     replay_out.write_text(json.dumps(seed_replay, indent=2) + "\n")
@@ -436,7 +456,8 @@ def _stage_source_context(
             tree, patch_flags = pinned_source.unpack_pinned_source(out_dir, tmp_root)
 
         written = source_context.write_source_context(
-            patch_text, tree, out_dir / "source-context")
+            patch_text, tree, out_dir / "source-context"
+        )
         files_written.extend(f"source-context/{rel}" for rel in written)
 
         # Deterministic applies_verbatim: apply on a throwaway writable copy so the
@@ -540,25 +561,25 @@ def emit_human_summary(result: AssembleResult) -> str:
 # producer role and replay_critical flag the schema expects. Keep this
 # table in sync with the schema if either evolves.
 _CANONICAL_FILES: list[tuple[str, str, bool]] = [
-    ("bundle.json",         "steward",               True),
-    ("finding.json",        "scout",                 True),
-    ("impact.json",         "cartographer",          True),
-    ("maintainers.json",    "cartographer",          True),
-    ("upstream-ref.json",   "upstream-ref-resolver", True),
-    ("patch.diff",          "patcher",               True),
-    ("patch-rationale.md",  "patcher",               True),
-    ("passthru-tests.json", "reproducer",            True),
-    ("reproducer.nix",      "reproducer",            True),
-    ("reproducer-log.txt",  "reproducer",            False),
-    ("reproducer-refusal.json", "reproducer",        True),
-    ("build.json",          "builder",               False),
-    ("review.md",           "reviewer",              True),
-    ("review-refusal.json",       "reviewer",              True),
-    ("review-scoring-report.json", "reviewer",             False),
-    ("sbom-delta.json",           "upstream-ref-resolver", True),
-    ("replay.json",         "steward",               True),
-    ("provenance.jsonl",    "steward",               False),
-    ("bundle.sig",          "steward",               False),
+    ("bundle.json", "steward", True),
+    ("finding.json", "scout", True),
+    ("impact.json", "cartographer", True),
+    ("maintainers.json", "cartographer", True),
+    ("upstream-ref.json", "upstream-ref-resolver", True),
+    ("patch.diff", "patcher", True),
+    ("patch-rationale.md", "patcher", True),
+    ("passthru-tests.json", "reproducer", True),
+    ("reproducer.nix", "reproducer", True),
+    ("reproducer-log.txt", "reproducer", False),
+    ("reproducer-refusal.json", "reproducer", True),
+    ("build.json", "builder", False),
+    ("review.md", "reviewer", True),
+    ("review-refusal.json", "reviewer", True),
+    ("review-scoring-report.json", "reviewer", False),
+    ("sbom-delta.json", "upstream-ref-resolver", True),
+    ("replay.json", "steward", True),
+    ("provenance.jsonl", "steward", False),
+    ("bundle.sig", "steward", False),
 ]
 
 # Placeholder hash + bytes used for files not yet on disk. The schema
@@ -625,9 +646,12 @@ def _validate_bundle_docs(bundle_dir: Path) -> list[str]:
         from referencing import Registry, Resource
     except ImportError:
         import sys
-        print("warning: jsonschema/referencing unavailable; skipping finalize "
-              "doc-schema validation (CI schema fixture test still gates this bundle)",
-              file=sys.stderr)
+
+        print(
+            "warning: jsonschema/referencing unavailable; skipping finalize "
+            "doc-schema validation (CI schema fixture test still gates this bundle)",
+            file=sys.stderr,
+        )
         return []
 
     policy_dir = Path(__file__).resolve().parents[2] / "policy"
@@ -869,8 +893,10 @@ def finalize_bundle(
 
             try:
                 gate_result = _preflight.check_patch_diff_effective_root(
-                    bundle_dir, source_tree=gate_source_tree,
-                    patch_flags=gate_patch_flags)
+                    bundle_dir,
+                    source_tree=gate_source_tree,
+                    patch_flags=gate_patch_flags,
+                )
             except FileNotFoundError as exc:
                 raise BundleSchemaError(f"gate_sourceroot check failed: {exc}") from exc
             except _nested_patch.NestedPatchError as exc:
@@ -880,11 +906,11 @@ def finalize_bundle(
                 ) from exc
             except (RuntimeError, ValueError) as exc:
                 raise BundleSchemaError(
-                    f"gate_sourceroot check could not resolve the pinned "
-                    f"source: {exc}"
+                    f"gate_sourceroot check could not resolve the pinned source: {exc}"
                 ) from exc
             (bundle_dir / "patch-diff-preflight.json").write_text(
-                json.dumps(gate_result, indent=2) + "\n")
+                json.dumps(gate_result, indent=2) + "\n"
+            )
             if not gate_result["ok"]:
                 raise BundleSchemaError(
                     "gate_sourceroot: patch.diff's source patch does NOT apply "
@@ -903,7 +929,9 @@ def finalize_bundle(
         if finding_path.is_file():
             cve_id = json.loads(finding_path.read_text()).get("cve_id")
     if not cve_id:
-        raise ValueError("could not determine cve_id from upstream-ref.json or finding.json")
+        raise ValueError(
+            "could not determine cve_id from upstream-ref.json or finding.json"
+        )
 
     if nixpkgs_rev is None:
         impact_path = bundle_dir / "impact.json"
@@ -924,7 +952,10 @@ def finalize_bundle(
     # not at CI. Synthetic CVE-0000-* fixtures use zero revs by design — exempt them.
     if cve_id and not cve_id.startswith("CVE-0000"):
         import re as _re
-        if not _re.fullmatch(r"[0-9a-f]{40}", nixpkgs_rev or "") or set(nixpkgs_rev) == {"0"}:
+
+        if not _re.fullmatch(r"[0-9a-f]{40}", nixpkgs_rev or "") or set(
+            nixpkgs_rev
+        ) == {"0"}:
             print(
                 f"warning: {cve_id}: nixpkgs_rev is a placeholder/invalid value "
                 f"({nixpkgs_rev[:12]!r}). This bundle CANNOT be certified (the cert "
@@ -951,9 +982,13 @@ def finalize_bundle(
             pass
 
     # reviewer-attested bundles must not include reproducer / review-refusal files.
-    _reviewer_attested_excluded = frozenset({
-        "reproducer.nix", "reproducer-log.txt", "review-refusal.json",
-    })
+    _reviewer_attested_excluded = frozenset(
+        {
+            "reproducer.nix",
+            "reproducer-log.txt",
+            "review-refusal.json",
+        }
+    )
 
     if auto_merge_evidence_path == "reviewer-attested":
         _refuse_reviewer_attested_over_a_refuted_fixture(bundle_dir)
@@ -1007,11 +1042,13 @@ def finalize_bundle(
     # winning draw). It is replay-critical when present so the selection
     # provenance cannot be altered without breaking the signature; absent on
     # bundles whose reproducer was authored single-shot.
-    for fname, producer in (("upstream-fix.patch", "upstream-ref-resolver"),
-                            ("preflight.json", "source-context-extractor"),
-                            ("patch-normalization.json", "patch-normalizer"),
-                            ("patch-context-normalization.json", "context-normalizer"),
-                            ("reproducer-sampling.json", "reproducer")):
+    for fname, producer in (
+        ("upstream-fix.patch", "upstream-ref-resolver"),
+        ("preflight.json", "source-context-extractor"),
+        ("patch-normalization.json", "patch-normalizer"),
+        ("patch-context-normalization.json", "context-normalizer"),
+        ("reproducer-sampling.json", "reproducer"),
+    ):
         path = bundle_dir / fname
         if path.is_file():
             data = path.read_bytes()
@@ -1081,7 +1118,9 @@ def finalize_bundle(
             except json.JSONDecodeError:
                 impact_doc = {}
         verdict = (upstream_ref.get("eligibility") or {}).get("verdict", "")
-        trigger = (upstream_ref.get("eligibility") or {}).get("human_review_trigger", "")
+        trigger = (upstream_ref.get("eligibility") or {}).get(
+            "human_review_trigger", ""
+        )
         if impact_doc.get("exceeds_threshold") is True:
             kind_reason = "blast-radius-exceeds-threshold"
         elif trigger == "major-version-jump":
@@ -1113,14 +1152,21 @@ def finalize_bundle(
     bundle_doc: dict[str, Any] = {
         "schema_version": schema_version,
         **({"patch_strategy": patch_strategy} if patch_strategy else {}),
-        **({"source_context": source_context_manifest} if source_context_manifest else {}),
+        **(
+            {"source_context": source_context_manifest}
+            if source_context_manifest
+            else {}
+        ),
         "bundle_id": bundle_id,
         "cve_id": cve_id,
         "nixpkgs_rev": nixpkgs_rev,
         "kind": bundle_kind,
         **({"kind_reason": kind_reason} if kind_reason else {}),
-        **({"auto_merge_evidence_path": auto_merge_evidence_path}
-           if auto_merge_evidence_path else {}),
+        **(
+            {"auto_merge_evidence_path": auto_merge_evidence_path}
+            if auto_merge_evidence_path
+            else {}
+        ),
         "created_at": created_at,
         "policy_version": "0" * 64,
         "bundle_schema_version": "1" * 64,
@@ -1132,17 +1178,22 @@ def finalize_bundle(
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
                 for fname, _, replay_critical in _CANONICAL_FILES
                 if replay_critical and fname != "bundle.sig" and fname in files_block
-            ] + [
+            ]
+            + [
                 # Optional replay-critical artifacts present on disk (e.g.
                 # upstream-fix.patch on source-backport bundles) must also be
                 # signed, or Steward rule 4 rejects the bundle.
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
-                for fname in ("upstream-fix.patch", "preflight.json",
-                              "patch-normalization.json",
-                              "patch-context-normalization.json",
-                              "reproducer-sampling.json")
+                for fname in (
+                    "upstream-fix.patch",
+                    "preflight.json",
+                    "patch-normalization.json",
+                    "patch-context-normalization.json",
+                    "reproducer-sampling.json",
+                )
                 if fname in files_block and files_block[fname].get("replay_critical")
-            ] + [
+            ]
+            + [
                 # source-context files are replay-critical inputs → signed. Order
                 # matches the sorted manifest so signed_files is deterministic.
                 {"path": e["path"], "sha256": e["sha256"]}
@@ -1225,7 +1276,9 @@ def finalize_bundle(
 # _refresh_resolver_invocation_hashes — an explicit allowlist so the trust
 # boundary is narrow and obvious (codex review 2026-06-15): the resolver's
 # finding.json input and its upstream-ref.json / upstream-fix.patch outputs.
-_RESOLVER_REFRESHABLE = frozenset({"finding.json", "upstream-ref.json", "upstream-fix.patch"})
+_RESOLVER_REFRESHABLE = frozenset(
+    {"finding.json", "upstream-ref.json", "upstream-fix.patch"}
+)
 
 
 def _refresh_resolver_invocation_hashes(roles: list, files_block: dict) -> None:
@@ -1273,13 +1326,19 @@ def _seed_resolver_invocation(bundle_dir: Path, files_block: dict) -> dict:
                 ],
                 "outputs": [
                     {"path": "upstream-ref.json", "sha256": upstream_sha},
-                ] + (
+                ]
+                + (
                     # source-backport: the resolver also supplies the upstream
                     # fix diff (ground truth) — record it as a resolver output so
                     # replay/provenance can attribute the signed artifact.
-                    [{"path": "upstream-fix.patch",
-                      "sha256": files_block["upstream-fix.patch"]["sha256"]}]
-                    if "upstream-fix.patch" in files_block else []
+                    [
+                        {
+                            "path": "upstream-fix.patch",
+                            "sha256": files_block["upstream-fix.patch"]["sha256"],
+                        }
+                    ]
+                    if "upstream-fix.patch" in files_block
+                    else []
                 ),
                 "rng_seed": None,
                 "validators_passed": ["eligibility-verdict-present"],
@@ -1290,15 +1349,17 @@ def _seed_resolver_invocation(bundle_dir: Path, files_block: dict) -> dict:
 
 
 def emit_finalize_summary(result: FinalizeResult) -> str:
-    return "\n".join([
-        "bundle finalize complete",
-        f"  out_dir:               {result.out_dir}",
-        f"  bundle_id:             {result.bundle_id}",
-        f"  cve_id:                {result.cve_id}",
-        f"  kind:                  {result.kind}",
-        f"  real-hashed files:     {', '.join(result.files_real_hash) or '(none)'}",
-        f"  placeholder files:     {', '.join(result.files_placeholder) or '(none)'}",
-    ])
+    return "\n".join(
+        [
+            "bundle finalize complete",
+            f"  out_dir:               {result.out_dir}",
+            f"  bundle_id:             {result.bundle_id}",
+            f"  cve_id:                {result.cve_id}",
+            f"  kind:                  {result.kind}",
+            f"  real-hashed files:     {', '.join(result.files_real_hash) or '(none)'}",
+            f"  placeholder files:     {', '.join(result.files_placeholder) or '(none)'}",
+        ]
+    )
 
 
 __all__ = [

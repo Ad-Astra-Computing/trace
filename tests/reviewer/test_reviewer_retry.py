@@ -61,13 +61,17 @@ class SequenceAdapter:
         self._report_usage = report_usage
         self.calls: list[dict] = []
 
-    def invoke(self, *, system_prompt: str, user_content: str, sampling: dict) -> ModelResponse:
+    def invoke(
+        self, *, system_prompt: str, user_content: str, sampling: dict
+    ) -> ModelResponse:
         idx = min(len(self.calls), len(self._texts) - 1)
-        self.calls.append({
-            "system_prompt_len": len(system_prompt.encode("utf-8")),
-            "user_content_len": len(user_content.encode("utf-8")),
-            "sampling": dict(sampling),
-        })
+        self.calls.append(
+            {
+                "system_prompt_len": len(system_prompt.encode("utf-8")),
+                "user_content_len": len(user_content.encode("utf-8")),
+                "sampling": dict(sampling),
+            }
+        )
         if not self._report_usage:
             in_tok, out_tok = None, None
         elif self._usages is not None:
@@ -91,6 +95,7 @@ class SequenceAdapter:
 def _factory(texts: list[str]):
     def _make(model_id: str) -> SequenceAdapter:
         return SequenceAdapter(model_id, texts)
+
     return _make
 
 
@@ -147,15 +152,16 @@ REVIEW_REJECT = (
 
 
 REFUSAL = (
-    "=== BEGIN refusal ===\n"
-    "rule: 1\n"
-    "reason: patch.diff missing\n"
-    "=== END refusal ==="
+    "=== BEGIN refusal ===\nrule: 1\nreason: patch.diff missing\n=== END refusal ==="
 )
 
 
-FIXTURE_SRC = REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
-MAXIMA_FIXTURE_SRC = REPO_ROOT / "traces" / "example" / "CVE-2024-34490--maxima-plot-tempfile-backport"
+FIXTURE_SRC = (
+    REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+)
+MAXIMA_FIXTURE_SRC = (
+    REPO_ROOT / "traces" / "example" / "CVE-2024-34490--maxima-plot-tempfile-backport"
+)
 
 
 def _build_reviewable_bundle(tmp_path: Path) -> Path:
@@ -172,7 +178,7 @@ def _build_reviewable_bundle(tmp_path: Path) -> Path:
         '   pname = "libexample";\n'
         '-  version = "1.4.7";\n'
         '+  version = "1.4.8";\n'
-        ' \n'
+        " \n"
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         "## Upstream reference\nfix at v1.4.8 per upstream commit abc1234\n\n"
@@ -227,7 +233,10 @@ def _build_adaptation_bundle(tmp_path: Path) -> tuple[Path, str, str]:
     # optional at the parser level) but fails the adaptation-lane contract
     # check, which requires it.
     no_equivalence_body = re.sub(
-        r"\n## Equivalence assessment\n.*?(?=\n## )", "", body, flags=re.DOTALL,
+        r"\n## Equivalence assessment\n.*?(?=\n## )",
+        "",
+        body,
+        flags=re.DOTALL,
     )
     assert "## Equivalence assessment" not in no_equivalence_body
     missing_equivalence_text = (
@@ -270,13 +279,18 @@ def test_retry_on_parse_malformed_then_valid_review(tmp_path: Path) -> None:
     assert cost is not None
     # Cost of two attempts strictly exceeds a single attempt's cost.
     from agents.cost import actual_cost_usd
+
     single = actual_cost_usd(
-        model_id="claude-sonnet-4-6", input_tokens=100, output_tokens=50,
+        model_id="claude-sonnet-4-6",
+        input_tokens=100,
+        output_tokens=50,
     )
     assert single is not None and cost > single
     assert cost == pytest.approx(
         actual_cost_usd(
-            model_id="claude-sonnet-4-6", input_tokens=200, output_tokens=100,
+            model_id="claude-sonnet-4-6",
+            input_tokens=200,
+            output_tokens=100,
         )
     )
 
@@ -284,10 +298,15 @@ def test_retry_on_parse_malformed_then_valid_review(tmp_path: Path) -> None:
 # ─── (b) adaptation-lane missing-equivalence-then-valid (the live flake) ──
 
 
-def test_retry_on_adaptation_lane_missing_equivalence_then_valid(tmp_path: Path) -> None:
-    bundle_dir, valid_text, missing_equivalence_text = _build_adaptation_bundle(tmp_path)
+def test_retry_on_adaptation_lane_missing_equivalence_then_valid(
+    tmp_path: Path,
+) -> None:
+    bundle_dir, valid_text, missing_equivalence_text = _build_adaptation_bundle(
+        tmp_path
+    )
     adapter = SequenceAdapter(
-        "claude-sonnet-4-5-20250929", [missing_equivalence_text, valid_text],
+        "claude-sonnet-4-5-20250929",
+        [missing_equivalence_text, valid_text],
     )
     result = execute(
         role="reviewer",
@@ -321,7 +340,8 @@ def test_retry_on_adaptation_lane_missing_equivalence_then_valid(tmp_path: Path)
 def test_both_attempts_malformed_raises_execution_error(tmp_path: Path) -> None:
     bundle_dir = _build_reviewable_bundle(tmp_path)
     adapter = SequenceAdapter(
-        "claude-sonnet-4-6", [MALFORMED_TEXT_1, MALFORMED_TEXT_2],
+        "claude-sonnet-4-6",
+        [MALFORMED_TEXT_1, MALFORMED_TEXT_2],
     )
     with pytest.raises(ExecutionError, match="reviewer output malformed"):
         execute(
@@ -414,7 +434,9 @@ def test_unobserved_usage_stays_null_no_zero_coercion(tmp_path: Path) -> None:
     responses feed the None-safe aggregation."""
     bundle_dir = _build_reviewable_bundle(tmp_path)
     adapter = SequenceAdapter(
-        "claude-sonnet-4-6", [MALFORMED_TEXT_1, REVIEW_OK], report_usage=False,
+        "claude-sonnet-4-6",
+        [MALFORMED_TEXT_1, REVIEW_OK],
+        report_usage=False,
     )
     result = execute(
         role="reviewer",
@@ -445,7 +467,9 @@ def test_partial_usage_across_attempts_stays_null(tmp_path: Path) -> None:
     bundle_dir = _build_reviewable_bundle(tmp_path)
     # Attempt 1 (malformed) reports 100/50; attempt 2 (valid) reports nothing.
     adapter = SequenceAdapter(
-        "claude-sonnet-4-6", [MALFORMED_TEXT_1, REVIEW_OK], usages=[(100, 50), None],
+        "claude-sonnet-4-6",
+        [MALFORMED_TEXT_1, REVIEW_OK],
+        usages=[(100, 50), None],
     )
     result = execute(
         role="reviewer",

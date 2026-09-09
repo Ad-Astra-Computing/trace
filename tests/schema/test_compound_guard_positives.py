@@ -44,6 +44,8 @@ def _bundle_dir(name: str):
         if (cand / "reorg.json").exists():
             return cand
     raise AssertionError(f"no reorg bundle named {name!r} under {POSITIVE_ROOTS}")
+
+
 EXAMPLE_ROOT = REPO_ROOT / "traces" / "example"
 
 GUARD_REORG_TYPES = {"guard-demorgan", "guard-hoist", "guard-split", "guard-reorder"}
@@ -66,6 +68,7 @@ GUARD_DIRS = _guard_positive_dirs()
 # are compared on (value, order-and-count-of-operand-evaluations), not on value
 # alone.
 # --------------------------------------------------------------------------- #
+
 
 class Ops:
     """Side-effect-free operand supplier that records each read, in order."""
@@ -102,7 +105,9 @@ def assert_equivalent(orig, rewrite, space: dict[str, list]) -> None:
         values = dict(zip(names, combo))
         got_o = _run(orig, values)
         got_r = _run(rewrite, values)
-        assert got_o == got_r, f"guard mismatch at {values}: orig={got_o} rewrite={got_r}"
+        assert got_o == got_r, (
+            f"guard mismatch at {values}: orig={got_o} rewrite={got_r}"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -110,6 +115,7 @@ def assert_equivalent(orig, rewrite, space: dict[str, list]) -> None:
 # exact C text; `pins` re-asserts that text against reorg.json so a re-mint with a
 # different rewrite fails here instead of passing against a stale model.
 # --------------------------------------------------------------------------- #
+
 
 def _procps_orig(o):
     # if (!ret && size && nelems)
@@ -150,7 +156,9 @@ def _proxychains_demorgan(o):
 
 def _libarchive_orig(o):
     # if (l > limit || (l == limit && digit >= last_digit_limit))
-    return o.l() > o.limit() or (o.l() == o.limit() and o.digit() >= o.last_digit_limit())
+    return o.l() > o.limit() or (
+        o.l() == o.limit() and o.digit() >= o.last_digit_limit()
+    )
 
 
 def _libarchive_hoist(o):
@@ -207,7 +215,13 @@ def _libxml2_relaxng_hoist(o):
 def _libxml2_catalog_split_orig(o):
     # if (A && B && C && D && E) { ...; break; }
     ran = []
-    if o.type_is_next() and o.url_eq() and o.value_eq() and o.prefer_eq() and o.group_eq():
+    if (
+        o.type_is_next()
+        and o.url_eq()
+        and o.value_eq()
+        and o.prefer_eq()
+        and o.group_eq()
+    ):
         ran.append("dedup")
     return ran
 
@@ -264,7 +278,12 @@ MODELS: dict[str, dict] = {
     "CVE-2026-15028--libarchive-tar-atol-oob-backport--guard-hoist": dict(
         orig=_libarchive_orig,
         rewrite=_libarchive_hoist,
-        space={"l": _SMALL, "limit": _SMALL, "digit": _SMALL, "last_digit_limit": _SMALL},
+        space={
+            "l": _SMALL,
+            "limit": _SMALL,
+            "digit": _SMALL,
+            "last_digit_limit": _SMALL,
+        },
         pins=(
             "if (l > limit || (l == limit && digit >= last_digit_limit)) {",
             "if (l > limit || at_digit_limit) {",
@@ -350,7 +369,9 @@ def test_guard_positives_present():
     """The v1.11 balance move ships at least six hard compound-guard positives —
     enough train-eligible hard positives to offset the five compound-condition
     negatives, plus the probe-reserved ones held out of training."""
-    assert len(GUARD_DIRS) >= 6, f"expected >=6 guard-* positives, found {len(GUARD_DIRS)}"
+    assert len(GUARD_DIRS) >= 6, (
+        f"expected >=6 guard-* positives, found {len(GUARD_DIRS)}"
+    )
 
 
 @pytest.mark.parametrize("bundle_dir", GUARD_DIRS, ids=lambda p: p.name)
@@ -433,7 +454,9 @@ def test_guard_rewrite_is_the_only_content_change(bundle_dir: Path):
     for line in removed:
         assert line in guard_lines or is_header(line), f"unexpected removal: {line!r}"
     for line in added:
-        assert line in rewrite_lines or is_header(line), f"unexpected addition: {line!r}"
+        assert line in rewrite_lines or is_header(line), (
+            f"unexpected addition: {line!r}"
+        )
     # the original guard is gone, the rewrite is present
     for line in guard_lines:
         assert line not in var_lines
@@ -460,14 +483,24 @@ def test_hunk_header_offsets_are_preserved(bundle_dir: Path):
         for line in lines:
             m = hdr.match(line)
             if m:
-                out.append((m.group(1) or "", int(m.group(2)), m.group(3), int(m.group(4)), m.group(5)))
+                out.append(
+                    (
+                        m.group(1) or "",
+                        int(m.group(2)),
+                        m.group(3),
+                        int(m.group(4)),
+                        m.group(5),
+                    )
+                )
         return out
 
     base_h, var_h = headers(base_lines), headers(var_lines)
     assert len(base_h) == len(var_h), "hunk count changed"
     bumped = 0
     for b, v in zip(base_h, var_h):
-        assert b[0] == v[0] and b[1] == v[1] and b[3] == v[3], "hunk start lines changed"
+        assert b[0] == v[0] and b[1] == v[1] and b[3] == v[3], (
+            "hunk start lines changed"
+        )
         assert b[2] == v[2], "old-side count changed"
         b_new = int(b[4]) if b[4] is not None else 1
         v_new = int(v[4]) if v[4] is not None else 1
@@ -506,13 +539,16 @@ def test_guard_rewrite_is_semantically_equivalent(name: str):
         names = sorted(model["space"])
         for combo in itertools.product(*(model["space"][n] for n in names)):
             values = dict(zip(names, combo))
-            assert bool(model["orig"](Ops(**values))) == bool(model["rewrite"](Ops(**values))), values
+            assert bool(model["orig"](Ops(**values))) == bool(
+                model["rewrite"](Ops(**values))
+            ), values
 
 
 def test_trace_comparison_catches_the_short_circuit_trap():
     """Guard rail on the proof machinery itself: reordering `p && p->x` keeps the
     truth table but changes the evaluation trace, and MUST fail assert_equivalent.
     (This is the discard rule that kept several candidate guards out of the corpus.)"""
+
     def orig(o):
         return o.p() is not None and o.p_x()
 

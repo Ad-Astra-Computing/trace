@@ -50,6 +50,7 @@ Base-only control:
   INCLUDE_BASE=1 ADAPTERS= UPLOAD_FILENAME=zlib-ablation-base-responses.jsonl \\
     hf jobs uv run ... lora/hf_authoring_zlib_ablation.py
 """
+
 import json
 import os
 from pathlib import Path
@@ -73,7 +74,9 @@ else:
     _sel = [a.strip() for a in _adapters_env.split(",") if a.strip()]
     for a in _sel:
         if a not in _ALL_ADAPTER_REPOS:
-            raise RuntimeError(f"unknown adapter {a!r}; known: {list(_ALL_ADAPTER_REPOS)}")
+            raise RuntimeError(
+                f"unknown adapter {a!r}; known: {list(_ALL_ADAPTER_REPOS)}"
+            )
     ADAPTER_REPOS = {a: _ALL_ADAPTER_REPOS[a] for a in _sel}
 INCLUDE_BASE = os.environ.get("INCLUDE_BASE", "0") == "1"
 UPLOAD_FILENAME = os.environ.get("UPLOAD_FILENAME", "zlib-ablation-responses.jsonl")
@@ -102,6 +105,7 @@ SRC_HEADER = "\n\n# Vulnerable source"
 
 def load_zlib_record(dataset_repo: str) -> dict:
     from huggingface_hub import hf_hub_download
+
     path = hf_hub_download(
         repo_id=dataset_repo,
         filename="authoring.canary.jsonl",
@@ -139,9 +143,13 @@ def build_variants(user_content: str) -> dict[str, str]:
     narrowed_code = "\n".join(lines[idx:])
     # Sanity: EXLEN distractor gone, EXTRA fix site retained, braces balanced.
     assert "case EXLEN:" not in narrowed_code, "narrowed still has EXLEN"
-    assert "state->head->extra = Z_NULL;" not in narrowed_code, "narrowed kept distractor"
+    assert "state->head->extra = Z_NULL;" not in narrowed_code, (
+        "narrowed kept distractor"
+    )
     assert "len = state->head->extra_len - state->length;" in narrowed_code
-    assert narrowed_code.count("{") == narrowed_code.count("}"), "narrowed brace imbalance"
+    assert narrowed_code.count("{") == narrowed_code.count("}"), (
+        "narrowed brace imbalance"
+    )
     narrowed = head + "```c\n" + narrowed_code + "\n```" + tail
 
     # --- reordered-hint: append hint sentence to the CVE description ---
@@ -169,7 +177,7 @@ def generate(model, tokenizer, system: str, user: str) -> str:
             top_p=None,
             pad_token_id=tokenizer.eos_token_id,
         )
-    generated_ids = out[0][inputs["input_ids"].shape[1]:]
+    generated_ids = out[0][inputs["input_ids"].shape[1] :]
     return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
 
@@ -222,7 +230,9 @@ def main():
         peft_name = label.replace(".", "_")
         print(f"\n=== Attaching adapter {label} ({adapter_repo}) ===", flush=True)
         if model is None:
-            model = PeftModel.from_pretrained(base, adapter_repo, adapter_name=peft_name)
+            model = PeftModel.from_pretrained(
+                base, adapter_repo, adapter_name=peft_name
+            )
         else:
             model.load_adapter(adapter_repo, adapter_name=peft_name)
         model.set_adapter(peft_name)
@@ -241,6 +251,7 @@ def main():
     print(f"\nResponses written to {out_path}", flush=True)
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.upload_file(
         path_or_fileobj=str(out_path),

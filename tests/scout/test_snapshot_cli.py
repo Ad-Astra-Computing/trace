@@ -48,8 +48,12 @@ def test_creates_parent_dirs(tmp_path: Path) -> None:
     assert out.is_file()
 
 
-def test_build_failure_exits_ten(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    with patch.object(snapshot_cli, "build_snapshot", side_effect=SnapshotBuildError("nope")):
+def test_build_failure_exits_ten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with patch.object(
+        snapshot_cli, "build_snapshot", side_effect=SnapshotBuildError("nope")
+    ):
         rc = snapshot_cli.main(["--out", str(tmp_path / "snap.json")])
     assert rc == 10
     assert "nope" in capsys.readouterr().err
@@ -57,10 +61,14 @@ def test_build_failure_exits_ten(tmp_path: Path, capsys: pytest.CaptureFixture[s
 
 def test_nixpkgs_arg_threaded_to_builder(tmp_path: Path) -> None:
     with patch.object(snapshot_cli, "build_snapshot", return_value=[]) as mock_build:
-        snapshot_cli.main([
-            "--nixpkgs", "/path/to/nixpkgs",
-            "--out", str(tmp_path / "snap.json"),
-        ])
+        snapshot_cli.main(
+            [
+                "--nixpkgs",
+                "/path/to/nixpkgs",
+                "--out",
+                str(tmp_path / "snap.json"),
+            ]
+        )
     assert mock_build.call_args.kwargs["nixpkgs"] == "/path/to/nixpkgs"
 
 
@@ -76,7 +84,9 @@ def test_timeout_arg_threaded(tmp_path: Path) -> None:
     assert mock_build.call_args.kwargs["timeout_s"] == 60
 
 
-def test_summary_printed_to_stderr(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_summary_printed_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     with patch.object(snapshot_cli, "build_snapshot", return_value=_records()):
         snapshot_cli.main(["--out", str(tmp_path / "snap.json")])
     err = capsys.readouterr().err

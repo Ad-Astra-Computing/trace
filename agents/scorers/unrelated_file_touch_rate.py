@@ -48,8 +48,11 @@ class UnrelatedFileTouchRateScorer:
         out_paths = {o["path"] for o in invocation.get("outputs") or []}
         if "refusal.json" in out_paths:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="refusal: nothing was touched",
             )
 
@@ -57,28 +60,41 @@ class UnrelatedFileTouchRateScorer:
         finding_path = bundle_dir / "finding.json"
         if not diff_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="patch.diff not on disk",
             )
         if not finding_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="finding.json missing; cannot determine related paths",
             )
 
         diff = diff_path.read_text()
         finding = json.loads(finding_path.read_text())
         affected = finding.get("affected") or []
-        attrs = [a.get("attr_path") for a in affected if isinstance(a, dict) and a.get("attr_path")]
+        attrs = [
+            a.get("attr_path")
+            for a in affected
+            if isinstance(a, dict) and a.get("attr_path")
+        ]
         attr_basenames = [a.split(".")[-1] for a in attrs]
 
         touched = _extract_touched_paths(diff)
         if not touched:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=1.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=1.0,
                 notes="no files touched (vacuously zero unrelated)",
                 details={"touched": [], "unrelated": []},
             )
@@ -93,8 +109,11 @@ class UnrelatedFileTouchRateScorer:
 
         score = 1.0 - (len(unrelated) / len(touched))
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=score,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=score,
             notes=(
                 f"{len(unrelated)}/{len(touched)} touched files unrelated to "
                 f"affected attrs={attrs}"

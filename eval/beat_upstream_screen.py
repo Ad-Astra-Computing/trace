@@ -49,6 +49,7 @@ Usage:
   python3 eval/beat_upstream_screen.py --snapshot snapshot.json \
       --cve CVE-2026-64161 --cve CVE-2026-64170
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,8 +81,10 @@ _KERNEL_ATTR_PREFIXES = ("linux", "linuxKernel", "linuxPackages")
 
 
 def _is_kernel(attr_path: str) -> bool:
-    return any(attr_path == p or attr_path.startswith(p + ".") or attr_path.startswith(p + "_")
-               for p in _KERNEL_ATTR_PREFIXES)
+    return any(
+        attr_path == p or attr_path.startswith(p + ".") or attr_path.startswith(p + "_")
+        for p in _KERNEL_ATTR_PREFIXES
+    )
 
 
 def _source_backport_ref(resolver_input: dict) -> dict | None:
@@ -124,7 +127,9 @@ def corpus_fix_commits(root: Path) -> dict[tuple[str, str], str]:
     return out
 
 
-def _duplicate_of(ref: dict, corpus: dict[tuple[str, str], str], *, cve_id: str) -> str | None:
+def _duplicate_of(
+    ref: dict, corpus: dict[tuple[str, str], str], *, cve_id: str
+) -> str | None:
     """The bundle already carrying this fix commit under a DIFFERENT CVE id.
 
     One upstream commit often closes several advisories: HiddenLayer filed both
@@ -148,9 +153,23 @@ def _nixpkgs_pr_exists(cve_id: str) -> bool | None:
     """
     try:
         r = subprocess.run(
-            ["gh", "search", "prs", "--repo", "NixOS/nixpkgs", cve_id,
-             "--state", "all", "--json", "number", "--limit", "5"],
-            capture_output=True, text=True, timeout=60,
+            [
+                "gh",
+                "search",
+                "prs",
+                "--repo",
+                "NixOS/nixpkgs",
+                cve_id,
+                "--state",
+                "all",
+                "--json",
+                "number",
+                "--limit",
+                "5",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -166,9 +185,20 @@ def _nixpkgs_code_mentions(cve_id: str) -> bool | None:
     """True/False if the CVE id already appears in NixOS/nixpkgs default-branch code."""
     try:
         r = subprocess.run(
-            ["gh", "api", "-X", "GET", "search/code",
-             "-f", f"q={cve_id} repo:NixOS/nixpkgs", "--jq", ".total_count"],
-            capture_output=True, text=True, timeout=60,
+            [
+                "gh",
+                "api",
+                "-X",
+                "GET",
+                "search/code",
+                "-f",
+                f"q={cve_id} repo:NixOS/nixpkgs",
+                "--jq",
+                ".total_count",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -184,7 +214,9 @@ def _nixpkgs_code_mentions(cve_id: str) -> bool | None:
 # already contains the fix commit, because nixpkgs then fixes the CVE by bumping to that
 # release (the low-value bot path), not by a model-authored source-backport.
 
-_PRERELEASE_RE = re.compile(r"(?:^|[-._])(rc|beta|alpha|pre|dev|snapshot|nightly|preview|next|canary)", re.I)
+_PRERELEASE_RE = re.compile(
+    r"(?:^|[-._])(rc|beta|alpha|pre|dev|snapshot|nightly|preview|next|canary)", re.I
+)
 
 
 def _is_prerelease(tag: str) -> bool:
@@ -207,7 +239,9 @@ def _fetch_cve_record(cve_id: str) -> dict | None:
     import urllib.request
 
     try:
-        with urllib.request.urlopen(_CVE_RECORD_URL.format(cve_id=cve_id), timeout=30) as fh:
+        with urllib.request.urlopen(
+            _CVE_RECORD_URL.format(cve_id=cve_id), timeout=30
+        ) as fh:
             return json.load(fh)
     except Exception:  # noqa: BLE001 - an unreachable record is data, not a crash
         return None
@@ -224,7 +258,9 @@ def _cmp_ver(a: str, b: str) -> int | None:
     return (pa > pb) - (pa < pb)
 
 
-def _packaged_version_verdict(record: dict | None, pname: str, current_version: str) -> str:
+def _packaged_version_verdict(
+    record: dict | None, pname: str, current_version: str
+) -> str:
     """Does the packaged version fall inside the CVE's affected range?
 
     Returns 'in-range', 'out-of-range' or 'unknown'. This is the gate that catches
@@ -293,8 +329,11 @@ def _packaged_version_verdict(record: dict | None, pname: str, current_version: 
 _PACKAGE_SET_LANGUAGE = {
     "haskellPackages": {"Haskell"},
     "perlPackages": {"Perl"},
-    "pythonPackages": {"Python"}, "python3Packages": {"Python"}, "python312Packages": {"Python"},
-    "python313Packages": {"Python"}, "python311Packages": {"Python"},
+    "pythonPackages": {"Python"},
+    "python3Packages": {"Python"},
+    "python312Packages": {"Python"},
+    "python313Packages": {"Python"},
+    "python311Packages": {"Python"},
     "nodePackages": {"JavaScript", "TypeScript"},
     "rubyPackages": {"Ruby"},
     "luaPackages": {"Lua"},
@@ -323,8 +362,12 @@ def _gh_repo_language(slug: str) -> str | None:
     if not slug or slug.startswith("gitlab:"):
         return None
     try:
-        r = subprocess.run(["gh", "api", f"repos/{slug}", "--jq", ".language"],
-                           capture_output=True, text=True, timeout=60)
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}", "--jq", ".language"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     lang = (r.stdout or "").strip()
@@ -367,7 +410,7 @@ def _list_tags(slug: str) -> list[str] | None:
     if slug.startswith("gitlab:"):
         import urllib.parse
 
-        project = urllib.parse.quote(slug[len("gitlab:"):], safe="")
+        project = urllib.parse.quote(slug[len("gitlab:") :], safe="")
         data = _gitlab_api(f"projects/{project}/repository/tags?per_page=100")
         if not isinstance(data, list):
             return None
@@ -375,7 +418,9 @@ def _list_tags(slug: str) -> list[str] | None:
     try:
         r = subprocess.run(
             ["gh", "api", f"repos/{slug}/tags", "--paginate", "--jq", ".[].name"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -389,18 +434,28 @@ def _tag_contains(slug: str, fix_sha: str, tag: str) -> bool | None:
     if slug.startswith("gitlab:"):
         import urllib.parse
 
-        project = urllib.parse.quote(slug[len("gitlab:"):], safe="")
+        project = urllib.parse.quote(slug[len("gitlab:") :], safe="")
         refs = f"refs[]={urllib.parse.quote(fix_sha)}&refs[]={urllib.parse.quote(tag)}"
         data = _gitlab_api(f"projects/{project}/repository/merge_base?{refs}")
         if not isinstance(data, dict):
             return None
         base = data.get("id") or ""
         # The merge base of an ancestor and its descendant is the ancestor itself.
-        return bool(base) and (base == fix_sha or fix_sha.startswith(base) or base.startswith(fix_sha))
+        return bool(base) and (
+            base == fix_sha or fix_sha.startswith(base) or base.startswith(fix_sha)
+        )
     try:
         r = subprocess.run(
-            ["gh", "api", f"repos/{slug}/compare/{fix_sha}...{tag}", "--jq", ".behind_by"],
-            capture_output=True, text=True, timeout=60,
+            [
+                "gh",
+                "api",
+                f"repos/{slug}/compare/{fix_sha}...{tag}",
+                "--jq",
+                ".behind_by",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -413,9 +468,14 @@ def _tag_contains(slug: str, fix_sha: str, tag: str) -> bool | None:
         return None
 
 
-def _packaged_release_carries_fix(ref: dict, current_version: str | None, *, tag_cache: dict,
-                                  list_tags=_list_tags,
-                                  tag_contains=_tag_contains) -> str | None:
+def _packaged_release_carries_fix(
+    ref: dict,
+    current_version: str | None,
+    *,
+    tag_cache: dict,
+    list_tags=_list_tags,
+    tag_contains=_tag_contains,
+) -> str | None:
     """The packaged version's own tag, when that tag already contains the fix.
 
     `_fixed_release_status` only looks at tags NEWER than the packaged version,
@@ -443,8 +503,14 @@ def _packaged_release_carries_fix(ref: dict, current_version: str | None, *, tag
     return None
 
 
-def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: dict,
-                          list_tags=_list_tags, tag_contains=_tag_contains) -> tuple[str, str | None]:
+def _fixed_release_status(
+    ref: dict,
+    current_version: str | None,
+    *,
+    tag_cache: dict,
+    list_tags=_list_tags,
+    tag_contains=_tag_contains,
+) -> tuple[str, str | None]:
     """Classify whether an upstream release already carries the fix commit.
 
     Returns (status, tag):
@@ -487,7 +553,9 @@ def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: 
         if tv is not None and pkg_ver is not None and tv <= pkg_ver:
             continue
         cands.append((tv or (), t))
-    cands.sort(reverse=True)  # newest-first; the newest stable tag usually carries the fix
+    cands.sort(
+        reverse=True
+    )  # newest-first; the newest stable tag usually carries the fix
 
     prerelease_hit = None
     any_failed = False
@@ -516,18 +584,42 @@ def _fixed_release_status(ref: dict, current_version: str | None, *, tag_cache: 
 _RELEASE_PREP_RE = re.compile(
     r"\b(prepar\w*\s+(?:for\s+)?(?:the\s+)?(?:next\s+)?release|"
     r"bump\w*\s+version|version\s+bump|back\s+to\s+\S*-?dev|post-?release|"
-    r"begin\s+\S*\s*dev|release\s+v?\d)", re.I)
+    r"begin\s+\S*\s*dev|release\s+v?\d)",
+    re.I,
+)
 # files that carry no vulnerable code — a fix that touches ONLY these is not a source fix.
 _MECHANICAL_FILE_RE = re.compile(
     r"(^|/)(ChangeLog\w*|NEWS|AUTHORS|COPYING|LICENSE\w*|VERSION|"
     r"configure\.ac|configure\.in|config\.h\.in|Makefile\.am|Makefile\.in|"
     r"\.github/|debian/changelog|[^/]+\.spec|version\.(h|c|py|go|rb|txt)|"
-    r"__version__\.py|package\.json|Cargo\.toml)$", re.I)
+    r"__version__\.py|package\.json|Cargo\.toml)$",
+    re.I,
+)
 # advisory-symbol extraction: function calls `foo_bar(` and source-file paths from the summary.
 _FUNC_RE = re.compile(r"\b([a-z_][a-z0-9_]{3,})\s*\(")
-_SRCFILE_RE = re.compile(r"\b([\w./-]+\.(?:c|h|cc|cpp|hpp|go|py|rb|rs|js|ts|php|java|pl))\b", re.I)
-_STOPWORDS = frozenset({"this", "that", "when", "then", "with", "from", "into", "func",
-                        "function", "call", "calls", "size", "used", "null", "true", "false"})
+_SRCFILE_RE = re.compile(
+    r"\b([\w./-]+\.(?:c|h|cc|cpp|hpp|go|py|rb|rs|js|ts|php|java|pl))\b", re.I
+)
+_STOPWORDS = frozenset(
+    {
+        "this",
+        "that",
+        "when",
+        "then",
+        "with",
+        "from",
+        "into",
+        "func",
+        "function",
+        "call",
+        "calls",
+        "size",
+        "used",
+        "null",
+        "true",
+        "false",
+    }
+)
 _CANONICAL_SHAPES = frozenset({"condition-fold", "guard-clip", "security-guard-add"})
 
 
@@ -538,9 +630,16 @@ def _gh_commit(slug: str, sha: str) -> dict | None:
     """
     try:
         r = subprocess.run(
-            ["gh", "api", f"repos/{slug}/commits/{sha}",
-             "--jq", "{message: .commit.message, files: [.files[] | {filename, patch}]}"],
-            capture_output=True, text=True, timeout=60,
+            [
+                "gh",
+                "api",
+                f"repos/{slug}/commits/{sha}",
+                "--jq",
+                "{message: .commit.message, files: [.files[] | {filename, patch}]}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -566,7 +665,9 @@ def _advisory_symbols(summary: str) -> set[str]:
     return toks
 
 
-def _verify_fix_commit(commit: dict, advisory_tokens: set[str]) -> tuple[str, str | None]:
+def _verify_fix_commit(
+    commit: dict, advisory_tokens: set[str]
+) -> tuple[str, str | None]:
     """Is the claimed fix commit a plausible source fix? (status, reason).
 
       'verified'   -> touches code and (if we have advisory symbols) overlaps them
@@ -584,8 +685,11 @@ def _verify_fix_commit(commit: dict, advisory_tokens: set[str]) -> tuple[str, st
     if filenames and not code_files:
         return ("unverified", "only-mechanical-files")
     if advisory_tokens:
-        blob = (" ".join(filenames) + " "
-                + " ".join(f.get("patch", "") or "" for f in files)).lower()
+        blob = (
+            " ".join(filenames)
+            + " "
+            + " ".join(f.get("patch", "") or "" for f in files)
+        ).lower()
         if not any(tok in blob for tok in advisory_tokens):
             return ("unverified", "no-advisory-symbol-overlap")
     return ("verified", None)
@@ -601,29 +705,41 @@ def _fix_shape_class(commit: dict) -> dict:
     """
     files = commit.get("files") or []
     patch = "\n".join(
-        f"diff --git a/{f['filename']} b/{f['filename']}\n{f.get('patch','')}"
-        for f in files if f.get("filename") and f.get("patch"))
+        f"diff --git a/{f['filename']} b/{f['filename']}\n{f.get('patch', '')}"
+        for f in files
+        if f.get("filename") and f.get("patch")
+    )
     c = classify_diff(patch)
     c["fix_shape_class"] = (
-        "canonical" if c["shape"] in _CANONICAL_SHAPES and c.get("n_hunks", 0) <= 2
-        else "design-freedom")
+        "canonical"
+        if c["shape"] in _CANONICAL_SHAPES and c.get("n_hunks", 0) <= 2
+        else "design-freedom"
+    )
     return c
 
 
-def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
-               nvd_api_key: str | None, check_nixpkgs: bool,
-               tag_cache: dict | None = None,
-               reject_when_fixed_release: bool = False,
-               corpus: dict[tuple[str, str], str] | None = None,
-               fetch_commit=_gh_commit,
-               fetch_cve_record=_fetch_cve_record,
-               repo_language=_gh_repo_language) -> dict:
+def screen_cve(
+    cve_id: str,
+    *,
+    graph: CannedGraphLookup,
+    inbox: Path,
+    nvd_api_key: str | None,
+    check_nixpkgs: bool,
+    tag_cache: dict | None = None,
+    reject_when_fixed_release: bool = False,
+    corpus: dict[tuple[str, str], str] | None = None,
+    fetch_commit=_gh_commit,
+    fetch_cve_record=_fetch_cve_record,
+    repo_language=_gh_repo_language,
+) -> dict:
     """Run one CVE through poll -> process -> classify. Returns a verdict dict."""
     v: dict = {"cve_id": cve_id, "survives": False, "reject": None}
     outcome = poll_one(cve_id, graph=graph, root=inbox, nvd_api_key=nvd_api_key)
     v["poll_action"] = outcome.action
     if outcome.action != "written":
-        v["reject"] = f"poll:{outcome.action}"  # skipped-irrelevant / fetch-failed / rate-limited
+        v["reject"] = (
+            f"poll:{outcome.action}"  # skipped-irrelevant / fetch-failed / rate-limited
+        )
         return v
 
     proc = process_entry(inbox / cve_id, graph=graph)
@@ -661,7 +777,10 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
         # tag-lag gate first: if a stable upstream release already carries the fix, this is
         # bump-shaped and there is nothing to source-backport — decide it before the id checks.
         status, tag = _fixed_release_status(
-            ref, v.get("current_version"), tag_cache=tag_cache if tag_cache is not None else {})
+            ref,
+            v.get("current_version"),
+            tag_cache=tag_cache if tag_cache is not None else {},
+        )
         v["fixed_release_status"] = status
         if status == "reject":
             # A stable release carrying the fix means nixpkgs' own remediation is
@@ -675,7 +794,9 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
                 v["reject"] = "fixed-release-exists"
                 return v
         if status == "prerelease":
-            v["fixed_prerelease_only"] = tag  # survives; nixpkgs won't bump to a pre-release
+            v["fixed_prerelease_only"] = (
+                tag  # survives; nixpkgs won't bump to a pre-release
+            )
         elif status == "incomplete":
             v["tag_lag_check_incomplete"] = True  # surface, don't silently pass
 
@@ -696,13 +817,17 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
         record = fetch_cve_record(cve_id)
         pname = (attr or "").split(".")[-1]
         v["packaged_version_verdict"] = _packaged_version_verdict(
-            record, pname, v.get("current_version") or "")
+            record, pname, v.get("current_version") or ""
+        )
         if v["packaged_version_verdict"] == "out-of-range":
             v["reject"] = "packaged-version-out-of-range"
             return v
 
         already = _packaged_release_carries_fix(
-            ref, v.get("current_version"), tag_cache=tag_cache if tag_cache is not None else {})
+            ref,
+            v.get("current_version"),
+            tag_cache=tag_cache if tag_cache is not None else {},
+        )
         if already:
             v["packaged_release_tag"] = already
             v["reject"] = "packaged-version-already-fixed"
@@ -728,20 +853,26 @@ def screen_cve(cve_id: str, *, graph: CannedGraphLookup, inbox: Path,
         sha = commits[0].get("commit_sha", "") if commits else ""
         commit = fetch_commit(slug, sha) if (slug and sha) else None
         if commit is None:
-            v["fix_commit_status"] = "incomplete"  # couldn't fetch — can't verify or shape
+            v["fix_commit_status"] = (
+                "incomplete"  # couldn't fetch — can't verify or shape
+            )
             v["gradeable"] = None
         else:
             summary = ""
             finding_path = inbox / cve_id / "finding.json"
             if finding_path.is_file():
                 try:
-                    summary = json.loads(finding_path.read_text()).get("summary", "") or ""
+                    summary = (
+                        json.loads(finding_path.read_text()).get("summary", "") or ""
+                    )
                 except (json.JSONDecodeError, OSError):
                     summary = ""
             status, reason = _verify_fix_commit(commit, _advisory_symbols(summary))
             v["fix_commit_status"] = status
             if status == "unverified":
-                v["fix_commit_unverified"] = reason  # ground truth suspect: not gradeable
+                v["fix_commit_unverified"] = (
+                    reason  # ground truth suspect: not gradeable
+                )
             v["gradeable"] = status == "verified"
             v["fix_shape"] = _fix_shape_class(commit)
 
@@ -760,18 +891,38 @@ def _parse_iso(s: str) -> datetime:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--snapshot", type=Path, required=True, help="graph-snapshot JSON")
-    ap.add_argument("--cve", action="append", default=[], help="explicit CVE id (repeatable); skips discovery")
+    ap.add_argument(
+        "--cve",
+        action="append",
+        default=[],
+        help="explicit CVE id (repeatable); skips discovery",
+    )
     ap.add_argument("--lookback-hours", type=float, default=72.0)
-    ap.add_argument("--since", help="ISO-8601 window start (overrides --lookback-hours)")
+    ap.add_argument(
+        "--since", help="ISO-8601 window start (overrides --lookback-hours)"
+    )
     ap.add_argument("--until", help="ISO-8601 window end (default: now)")
-    ap.add_argument("--check-nixpkgs", action="store_true", help="run gh PR/code negative-evidence checks")
-    ap.add_argument("--reject-when-fixed-release", action="store_true",
-                    help="drop a CVE whose fix already ships in a stable upstream release "
-                         "(the pre-2026-09-05 behaviour; by default such a CVE survives with "
-                         "fix_available_as=release)")
-    ap.add_argument("--inbox", type=Path, default=None, help="inbox dir (default: a temp dir)")
-    ap.add_argument("--out", type=Path, default=None, help="write full verdict JSON here")
-    ap.add_argument("--limit", type=int, default=None, help="cap CVEs screened (discovery order)")
+    ap.add_argument(
+        "--check-nixpkgs",
+        action="store_true",
+        help="run gh PR/code negative-evidence checks",
+    )
+    ap.add_argument(
+        "--reject-when-fixed-release",
+        action="store_true",
+        help="drop a CVE whose fix already ships in a stable upstream release "
+        "(the pre-2026-09-05 behaviour; by default such a CVE survives with "
+        "fix_available_as=release)",
+    )
+    ap.add_argument(
+        "--inbox", type=Path, default=None, help="inbox dir (default: a temp dir)"
+    )
+    ap.add_argument(
+        "--out", type=Path, default=None, help="write full verdict JSON here"
+    )
+    ap.add_argument(
+        "--limit", type=int, default=None, help="cap CVEs screened (discovery order)"
+    )
     args = ap.parse_args(argv)
 
     if not args.snapshot.is_file():
@@ -785,7 +936,11 @@ def main(argv: list[str] | None = None) -> int:
         cve_ids = list(args.cve)
     else:
         until = _parse_iso(args.until) if args.until else datetime.now(timezone.utc)
-        since = _parse_iso(args.since) if args.since else until - timedelta(hours=args.lookback_hours)
+        since = (
+            _parse_iso(args.since)
+            if args.since
+            else until - timedelta(hours=args.lookback_hours)
+        )
         cve_ids = list_recent_cves(since=since, until=until, api_key=nvd_api_key)
     if args.limit:
         cve_ids = cve_ids[: args.limit]
@@ -801,13 +956,18 @@ def main(argv: list[str] | None = None) -> int:
     tag_cache: dict = {}  # one upstream tag-list fetch per repo, shared across candidates
     try:
         for cid in cve_ids:
-            verdicts.append(screen_cve(
-                cid, graph=graph, inbox=inbox,
-                nvd_api_key=nvd_api_key, check_nixpkgs=args.check_nixpkgs,
-                reject_when_fixed_release=args.reject_when_fixed_release,
-                tag_cache=tag_cache,
-                corpus=corpus,
-            ))
+            verdicts.append(
+                screen_cve(
+                    cid,
+                    graph=graph,
+                    inbox=inbox,
+                    nvd_api_key=nvd_api_key,
+                    check_nixpkgs=args.check_nixpkgs,
+                    reject_when_fixed_release=args.reject_when_fixed_release,
+                    tag_cache=tag_cache,
+                    corpus=corpus,
+                )
+            )
     finally:
         if tmp is not None:
             tmp.cleanup()
@@ -815,20 +975,29 @@ def main(argv: list[str] | None = None) -> int:
     survivors = [v for v in verdicts if v["survives"]]
     print(f"beat-upstream screen — {len(cve_ids)} CVEs, {len(survivors)} survivor(s)")
     from collections import Counter
+
     reasons = Counter(v["reject"] for v in verdicts if v["reject"])
     for reason, n in reasons.most_common():
         print(f"  reject {reason:28} {n}")
     for v in survivors:
-        print(f"  SURVIVOR {v['cve_id']}  {v.get('attr_path')}  {v.get('current_version')}")
+        print(
+            f"  SURVIVOR {v['cve_id']}  {v.get('attr_path')}  {v.get('current_version')}"
+        )
         for fc in v.get("fix_commits", []):
             print(f"    fix: {fc.get('repo_url')} @ {fc.get('commit_sha')}")
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps({
-            "screened": len(cve_ids), "survivors": len(survivors),
-            "verdicts": verdicts,
-        }, indent=2))
+        args.out.write_text(
+            json.dumps(
+                {
+                    "screened": len(cve_ids),
+                    "survivors": len(survivors),
+                    "verdicts": verdicts,
+                },
+                indent=2,
+            )
+        )
         print(f"wrote {args.out}")
     return 0
 

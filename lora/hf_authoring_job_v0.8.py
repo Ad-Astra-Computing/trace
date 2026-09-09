@@ -47,6 +47,7 @@ Submission (see lora/submit_hf_authoring_job_v0.8.sh):
     -e HUB_MODEL_ID=adastracomputing/authoring-lora-v0.8 \\
     lora/hf_authoring_job_v0.8.py
 """
+
 import json
 import os
 from pathlib import Path
@@ -72,8 +73,13 @@ LORA_RANK = 16
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
 LORA_TARGET_MODULES = [
-    "q_proj", "k_proj", "v_proj", "o_proj",
-    "gate_proj", "up_proj", "down_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
 ]
 
 # v0.8: 375 steps × grad_accum 4 = 1500 effective steps ≈ 4.3 passes over 88 train examples
@@ -94,6 +100,7 @@ def make_formatting_func(tok):
             tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
             for msgs in examples["messages"]
         ]
+
     return fmt
 
 
@@ -102,7 +109,9 @@ def main():
 
     data_dir = Path(os.environ.get("DATA_DIR", "/data"))
     adapter_dir = Path(os.environ.get("ADAPTER_DIR", "/tmp/authoring-lora-v0.8"))
-    hub_model_id = os.environ.get("HUB_MODEL_ID", "adastracomputing/authoring-lora-v0.8")
+    hub_model_id = os.environ.get(
+        "HUB_MODEL_ID", "adastracomputing/authoring-lora-v0.8"
+    )
     adapter_dir.mkdir(parents=True, exist_ok=True)
 
     train_file = os.environ.get("TRAIN_FILE", "authoring.train.jsonl")
@@ -121,8 +130,12 @@ def main():
     train_text = "\n".join(json.dumps(r) for r in load_jsonl(train_path))
 
     # Canary exclusion: none of the 4 canary families may be in training data
-    for cve, name in [("CVE-2026-48526", "pyjwt"), ("CVE-2022-37434", "zlib"),
-                      ("CVE-2024-47081", "requests"), ("CVE-2026-42250", "bzip2")]:
+    for cve, name in [
+        ("CVE-2026-48526", "pyjwt"),
+        ("CVE-2022-37434", "zlib"),
+        ("CVE-2024-47081", "requests"),
+        ("CVE-2026-42250", "bzip2"),
+    ]:
         if cve in train_text:
             raise RuntimeError(
                 f"ABORT: canary {cve} ({name}) detected in training data. "
@@ -140,21 +153,30 @@ def main():
             "&& python3 eval/package_authoring_lora.py "
             "--export-dir exports/authoring-v5/ --out-dir exports/authoring-v5-lora/"
         )
-    print("v0.8 corpus check: rule 5 (minimal structural change) system prompt present", flush=True)
+    print(
+        "v0.8 corpus check: rule 5 (minimal structural change) system prompt present",
+        flush=True,
+    )
 
     if "most specific method or class" not in train_text:
         raise RuntimeError(
             "ABORT: v0.8 system prompt rule 6 not found in training data. "
             "Re-export with the v0.8 exporter."
         )
-    print("v0.8 corpus check: rule 6 (most specific class) system prompt present", flush=True)
+    print(
+        "v0.8 corpus check: rule 6 (most specific class) system prompt present",
+        flush=True,
+    )
 
     if "recursive self-call" not in train_text:
         raise RuntimeError(
             "ABORT: v0.8 system prompt rule 7 not found in training data. "
             "Re-export with the v0.8 exporter (export.py _AUTHORING_SYSTEM with rule 7)."
         )
-    print("v0.8 corpus check: rule 7 (no recursive self-call) system prompt present", flush=True)
+    print(
+        "v0.8 corpus check: rule 7 (no recursive self-call) system prompt present",
+        flush=True,
+    )
 
     # Required training examples: grub2 simplify/replace patterns
     if "CVE-2024-45781" not in train_text:
@@ -162,14 +184,20 @@ def main():
             "ABORT: CVE-2024-45781 (grub2-ufs strlcpy) not found in training data. "
             "Re-export with data/splits/authoring-v5.json."
         )
-    print("v0.8 corpus check: CVE-2024-45781 (grub2-ufs, simplify/replace) present", flush=True)
+    print(
+        "v0.8 corpus check: CVE-2024-45781 (grub2-ufs, simplify/replace) present",
+        flush=True,
+    )
 
     if "CVE-2024-45782" not in train_text:
         raise RuntimeError(
             "ABORT: CVE-2024-45782 (grub2-hfs strlcpy) not found in training data. "
             "Re-export with data/splits/authoring-v5.json."
         )
-    print("v0.8 corpus check: CVE-2024-45782 (grub2-hfs, simplify/replace) present", flush=True)
+    print(
+        "v0.8 corpus check: CVE-2024-45782 (grub2-hfs, simplify/replace) present",
+        flush=True,
+    )
 
     if "CVE-2026-33236" not in train_text and "nltk" not in train_text.lower():
         raise RuntimeError(
@@ -187,7 +215,10 @@ def main():
 
     # Dev set integrity
     dev_text = "\n".join(json.dumps(r) for r in load_jsonl(valid_path))
-    if "python_multipart" not in dev_text and "python-multipart" not in dev_text.lower():
+    if (
+        "python_multipart" not in dev_text
+        and "python-multipart" not in dev_text.lower()
+    ):
         raise RuntimeError(
             "ABORT: python-multipart not found in dev data. "
             "v0.8 dev set must include Python examples for mixed-language eval signal."
@@ -267,8 +298,14 @@ def main():
     )
 
     print(f"Model  {MODEL_ID} @ {MODEL_REVISION}", flush=True)
-    print(f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4", flush=True)
-    print(f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} warmup={warmup_steps} seed={SEED}", flush=True)
+    print(
+        f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4",
+        flush=True,
+    )
+    print(
+        f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} warmup={warmup_steps} seed={SEED}",
+        flush=True,
+    )
 
     train_result = trainer.train()
 
@@ -306,6 +343,7 @@ def main():
     tokenizer.save_pretrained(str(adapter_dir))
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.upload_file(
         path_or_fileobj=str(manifest_path),

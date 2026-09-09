@@ -37,8 +37,8 @@ def _valid_patch_response() -> str:
         "--- a/pkgs/by-name/li/libexample/package.nix\n"
         "+++ b/pkgs/by-name/li/libexample/package.nix\n"
         "@@ -1,2 +1,2 @@\n"
-        "-version = \"1.4.7\";\n"
-        "+version = \"1.4.8\";\n"
+        '-version = "1.4.7";\n'
+        '+version = "1.4.8";\n'
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + VALID_RATIONALE
@@ -53,7 +53,9 @@ def test_parses_valid_patch_response():
     r = parse_patcher_output(_valid_patch_response())
     assert r.kind == "patch"
     assert r.patch_diff and r.patch_diff.startswith("--- a/pkgs/by-name/li/libexample")
-    assert r.patch_rationale_md and r.patch_rationale_md.startswith("## Upstream reference")
+    assert r.patch_rationale_md and r.patch_rationale_md.startswith(
+        "## Upstream reference"
+    )
     assert r.refusal_rule is None
     assert r.refusal_reason is None
 
@@ -87,10 +89,7 @@ def test_rejects_whitespace_only():
 
 
 def test_rejects_prose_preamble_before_block():
-    raw = (
-        "Sure! Here is the patch you asked for.\n\n"
-        + _valid_patch_response()
-    )
+    raw = "Sure! Here is the patch you asked for.\n\n" + _valid_patch_response()
     with pytest.raises(PatcherOutputMalformed, match="before the first"):
         parse_patcher_output(raw)
 
@@ -102,21 +101,13 @@ def test_rejects_prose_trailer_after_block():
 
 
 def test_rejects_unknown_block_name():
-    raw = (
-        "=== BEGIN answer ===\n"
-        "some content\n"
-        "=== END answer ==="
-    )
+    raw = "=== BEGIN answer ===\nsome content\n=== END answer ==="
     with pytest.raises(PatcherOutputMalformed, match="no '=== BEGIN"):
         parse_patcher_output(raw)
 
 
 def test_rejects_missing_rationale_block():
-    raw = (
-        "=== BEGIN patch.diff ===\n"
-        "--- a/file\n+++ b/file\n"
-        "=== END patch.diff ==="
-    )
+    raw = "=== BEGIN patch.diff ===\n--- a/file\n+++ b/file\n=== END patch.diff ==="
     with pytest.raises(PatcherOutputMalformed, match="expected two sequential"):
         parse_patcher_output(raw)
 
@@ -132,7 +123,9 @@ def test_rejects_rationale_missing_heading():
         + missing
         + "=== END patch-rationale.md ==="
     )
-    with pytest.raises(PatcherOutputMalformed, match="missing required level-2 headings"):
+    with pytest.raises(
+        PatcherOutputMalformed, match="missing required level-2 headings"
+    ):
         parse_patcher_output(raw)
 
 
@@ -217,12 +210,10 @@ def test_accepts_refusal_rule_9():
 
 
 def test_rejects_refusal_missing_reason():
-    raw = (
-        "=== BEGIN refusal ===\n"
-        "rule: 1\n"
-        "=== END refusal ==="
-    )
-    with pytest.raises(PatcherOutputMalformed, match="at least a 'rule:' line and a 'reason:' line"):
+    raw = "=== BEGIN refusal ===\nrule: 1\n=== END refusal ==="
+    with pytest.raises(
+        PatcherOutputMalformed, match="at least a 'rule:' line and a 'reason:' line"
+    ):
         parse_patcher_output(raw)
 
 

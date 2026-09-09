@@ -36,7 +36,9 @@ from agents.scout.graph_lookup import GraphMatch
 _FIXTURE = Path(__file__).parent / "fixtures" / "cpe-page-libtiff.json"
 
 
-def _ok_http(body: bytes, status: int = 200, headers: dict[str, str] | None = None) -> Any:
+def _ok_http(
+    body: bytes, status: int = 200, headers: dict[str, str] | None = None
+) -> Any:
     return MagicMock(return_value=(status, body, headers or {}))
 
 
@@ -53,8 +55,18 @@ def test_parse_extracts_cpe_strings_from_real_fixture() -> None:
 def test_parse_skips_deprecated_entries() -> None:
     payload = {
         "products": [
-            {"cpe": {"cpeName": "cpe:2.3:a:x:active:1.0:*:*:*:*:*:*:*", "deprecated": False}},
-            {"cpe": {"cpeName": "cpe:2.3:a:x:gone:1.0:*:*:*:*:*:*:*", "deprecated": True}},
+            {
+                "cpe": {
+                    "cpeName": "cpe:2.3:a:x:active:1.0:*:*:*:*:*:*:*",
+                    "deprecated": False,
+                }
+            },
+            {
+                "cpe": {
+                    "cpeName": "cpe:2.3:a:x:gone:1.0:*:*:*:*:*:*:*",
+                    "deprecated": True,
+                }
+            },
         ]
     }
     cpes = parse_cpe_page(payload)
@@ -71,19 +83,29 @@ def test_parse_tolerates_missing_products_key() -> None:
 
 
 def _build_page(cpes: list[str], total: int, start: int, per_page: int) -> bytes:
-    return json.dumps({
-        "totalResults": total,
-        "startIndex": start,
-        "resultsPerPage": per_page,
-        "products": [{"cpe": {"cpeName": c, "deprecated": False}} for c in cpes],
-    }).encode()
+    return json.dumps(
+        {
+            "totalResults": total,
+            "startIndex": start,
+            "resultsPerPage": per_page,
+            "products": [{"cpe": {"cpeName": c, "deprecated": False}} for c in cpes],
+        }
+    ).encode()
 
 
 def test_fetch_walks_all_pages() -> None:
-    page1 = _build_page(["cpe:2.3:a:x:a:1:*:*:*:*:*:*:*",
-                         "cpe:2.3:a:x:b:1:*:*:*:*:*:*:*"], total=4, start=0, per_page=2)
-    page2 = _build_page(["cpe:2.3:a:x:c:1:*:*:*:*:*:*:*",
-                         "cpe:2.3:a:x:d:1:*:*:*:*:*:*:*"], total=4, start=2, per_page=2)
+    page1 = _build_page(
+        ["cpe:2.3:a:x:a:1:*:*:*:*:*:*:*", "cpe:2.3:a:x:b:1:*:*:*:*:*:*:*"],
+        total=4,
+        start=0,
+        per_page=2,
+    )
+    page2 = _build_page(
+        ["cpe:2.3:a:x:c:1:*:*:*:*:*:*:*", "cpe:2.3:a:x:d:1:*:*:*:*:*:*:*"],
+        total=4,
+        start=2,
+        per_page=2,
+    )
     fn = MagicMock()
     fn.side_effect = [(200, page1, {}), (200, page2, {})]
     pages = list(fetch_all_cpe_pages(http=fn))
@@ -119,16 +141,22 @@ def test_fetch_url_error_propagates_after_retries_exhausted() -> None:
 def test_fetch_retries_transient_then_succeeds() -> None:
     """A read timeout on one page should retry, not kill the whole walk."""
     page = _build_page([], total=0, start=0, per_page=10000)
-    fn = MagicMock(side_effect=[
-        (503, b"", {}),
-        TimeoutError("read timed out"),
-        (200, page, {}),
-    ])
+    fn = MagicMock(
+        side_effect=[
+            (503, b"", {}),
+            TimeoutError("read timed out"),
+            (200, page, {}),
+        ]
+    )
     sleeps: list[float] = []
-    pages = list(fetch_all_cpe_pages(
-        http=fn, max_retries_per_page=3, backoff_schedule=(1, 2, 4),
-        sleep=sleeps.append,
-    ))
+    pages = list(
+        fetch_all_cpe_pages(
+            http=fn,
+            max_retries_per_page=3,
+            backoff_schedule=(1, 2, 4),
+            sleep=sleeps.append,
+        )
+    )
     assert len(pages) == 1
     assert fn.call_count == 3
     assert sleeps == [1.0, 2.0]
@@ -136,14 +164,20 @@ def test_fetch_retries_transient_then_succeeds() -> None:
 
 def test_fetch_retries_rate_limit_with_retry_after() -> None:
     page = _build_page([], total=0, start=0, per_page=10000)
-    fn = MagicMock(side_effect=[
-        (429, b"", {"Retry-After": "7"}),
-        (200, page, {}),
-    ])
+    fn = MagicMock(
+        side_effect=[
+            (429, b"", {"Retry-After": "7"}),
+            (200, page, {}),
+        ]
+    )
     sleeps: list[float] = []
-    list(fetch_all_cpe_pages(
-        http=fn, max_retries_per_page=3, sleep=sleeps.append,
-    ))
+    list(
+        fetch_all_cpe_pages(
+            http=fn,
+            max_retries_per_page=3,
+            sleep=sleeps.append,
+        )
+    )
     assert sleeps == [7.0]
 
 
@@ -152,10 +186,14 @@ def test_fetch_retries_capped_at_max_retries() -> None:
     fn = MagicMock(return_value=(503, b"", {}))
     sleeps: list[float] = []
     with pytest.raises(FeedTransientError):
-        list(fetch_all_cpe_pages(
-            http=fn, max_retries_per_page=2, backoff_schedule=(1, 2, 4),
-            sleep=sleeps.append,
-        ))
+        list(
+            fetch_all_cpe_pages(
+                http=fn,
+                max_retries_per_page=2,
+                backoff_schedule=(1, 2, 4),
+                sleep=sleeps.append,
+            )
+        )
     assert fn.call_count == 3  # initial + 2 retries
     assert sleeps == [1.0, 2.0]
 
@@ -203,13 +241,19 @@ def test_build_product_index_skips_unparseable_cpes() -> None:
 
 def test_enrich_attaches_matching_cpes_to_record() -> None:
     records = [
-        GraphMatch(attr_path="libtiff", drv_path="attr:libtiff",
-                   pname="libtiff", version="4.7.1"),
+        GraphMatch(
+            attr_path="libtiff",
+            drv_path="attr:libtiff",
+            pname="libtiff",
+            version="4.7.1",
+        ),
     ]
-    index = {"libtiff": [
-        "cpe:2.3:a:libtiff:libtiff:4.7.0:*:*:*:*:*:*:*",
-        "cpe:2.3:a:libtiff:libtiff:4.6.0:*:*:*:*:*:*:*",
-    ]}
+    index = {
+        "libtiff": [
+            "cpe:2.3:a:libtiff:libtiff:4.7.0:*:*:*:*:*:*:*",
+            "cpe:2.3:a:libtiff:libtiff:4.6.0:*:*:*:*:*:*:*",
+        ]
+    }
     enriched = enrich_records_with_cpes(records, index)
     assert len(enriched) == 1
     assert len(enriched[0].cpes) == 2
@@ -218,8 +262,12 @@ def test_enrich_attaches_matching_cpes_to_record() -> None:
 
 def test_enrich_preserves_records_without_match() -> None:
     records = [
-        GraphMatch(attr_path="weirdlib", drv_path="attr:weirdlib",
-                   pname="weirdlib", version="1.0"),
+        GraphMatch(
+            attr_path="weirdlib",
+            drv_path="attr:weirdlib",
+            pname="weirdlib",
+            version="1.0",
+        ),
     ]
     enriched = enrich_records_with_cpes(records, {"libtiff": ["cpe:2.3:a:x:libtiff:*"]})
     assert enriched[0].cpes == ()
@@ -230,8 +278,10 @@ def test_enrich_does_not_clobber_existing_cpes() -> None:
     future iteration). Enrichment unions, doesn't replace."""
     records = [
         GraphMatch(
-            attr_path="libtiff", drv_path="attr:libtiff",
-            pname="libtiff", version="4.7.1",
+            attr_path="libtiff",
+            drv_path="attr:libtiff",
+            pname="libtiff",
+            version="4.7.1",
             cpes=("cpe:2.3:a:libtiff:libtiff:4.7.1:*:*:*:*:*:*:*",),
         ),
     ]
@@ -246,8 +296,12 @@ def test_enrich_does_not_clobber_existing_cpes() -> None:
 
 def test_enrich_is_case_insensitive_on_pname() -> None:
     records = [
-        GraphMatch(attr_path="LibreSSL", drv_path="attr:LibreSSL",
-                   pname="libressl", version="3.9.2"),
+        GraphMatch(
+            attr_path="LibreSSL",
+            drv_path="attr:LibreSSL",
+            pname="libressl",
+            version="3.9.2",
+        ),
     ]
     # Index built from lowercased products; enrichment lowercases lookup key.
     index = {"libressl": ["cpe:2.3:a:libressl:libressl:3.9.2:*:*:*:*:*:*:*"]}
@@ -280,6 +334,7 @@ def test_read_missing_index_raises(tmp_path: Path) -> None:
 def test_live_keyword_search_libtiff() -> None:
     from agents.scout.cpe_dictionary import _NVD_BASE
     import urllib.parse, urllib.request, json as _json
+
     url = f"{_NVD_BASE}?keywordSearch=libtiff&resultsPerPage=5"
     with urllib.request.urlopen(url, timeout=30) as resp:
         body = resp.read()

@@ -81,7 +81,9 @@ def normalize(
     out: dict[str, Any] = {
         "feed": feed,
         "cve_id": cve_id,
-        "published_at": primary.get("datePublished") or primary.get("published_at") or fetched_at,
+        "published_at": primary.get("datePublished")
+        or primary.get("published_at")
+        or fetched_at,
     }
     if severity:
         out["severity"] = severity
@@ -131,7 +133,9 @@ def _underlying_feed(primary: dict[str, Any]) -> str:
     return "nvd"  # cve_list_v5 is the common default
 
 
-def _collect_cpes(primary: dict[str, Any], data: dict[str, Any]) -> list[dict[str, Any]]:
+def _collect_cpes(
+    primary: dict[str, Any], data: dict[str, Any]
+) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
 
@@ -169,7 +173,7 @@ def _normalize_cpe_to_23(cpe: str) -> str | None:
     if cpe.startswith("cpe:2.3:"):
         return cpe
     if cpe.startswith("cpe:/"):
-        body = cpe[len("cpe:/"):]
+        body = cpe[len("cpe:/") :]
         fields = body.split(":")
         # Pad 2.2 up to 7 then extend to 11 for 2.3.
         while len(fields) < 11:
@@ -245,7 +249,9 @@ def _collect_references(primary: dict[str, Any]) -> list[dict[str, str]]:
         if not url or url in seen:
             continue
         seen.add(url)
-        out.append({"url": url, "kind": _reference_kind(ref if isinstance(ref, dict) else {})})
+        out.append(
+            {"url": url, "kind": _reference_kind(ref if isinstance(ref, dict) else {})}
+        )
     return out
 
 

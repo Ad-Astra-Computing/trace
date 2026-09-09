@@ -151,7 +151,9 @@ def test_composition__min_three_per_non_trivial_bucket(corpus, frozen_required):
                 violations.append(
                     f"{axis}.{bucket}: {counts.get(bucket, 0)} (<3 required)"
                 )
-    assert not violations, "non-trivial bucket minima violated:\n  " + "\n  ".join(violations)
+    assert not violations, "non-trivial bucket minima violated:\n  " + "\n  ".join(
+        violations
+    )
 
 
 def test_composition__at_least_10_ineligibility_entries(corpus, frozen_required):
@@ -159,8 +161,7 @@ def test_composition__at_least_10_ineligibility_entries(corpus, frozen_required)
         pytest.skip("corpus not frozen and TRACE_REQUIRE_FULL_CORPUS not set")
     real_entries = [e for e in corpus["entries"] if not e.get("is_example")]
     ineligible = [
-        e for e in real_entries
-        if e["expected_v0_eligibility"] != "auto-merge-eligible"
+        e for e in real_entries if e["expected_v0_eligibility"] != "auto-merge-eligible"
     ]
     assert len(ineligible) >= 10, (
         f"corpus must include >= 10 entries expected to fail v0 "

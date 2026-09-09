@@ -59,6 +59,7 @@ def _build_opa_input(fixture_dir: Path) -> dict:
     `not input.foo` as false on null, but as true on absent. The rules
     use `not input.build` semantics, so we omit-on-absent to match.
     """
+
     def _load_json(name: str) -> dict | None:
         p = fixture_dir / name
         return json.loads(p.read_text()) if p.exists() else None
@@ -96,7 +97,8 @@ def _run_opa(fixture_input: dict) -> dict:
             "opa",
             "eval",
             "--format=json",
-            "--data", str(POLICY_FILE),
+            "--data",
+            str(POLICY_FILE),
             "--stdin-input",
             "data.trace.steward",
         ],
@@ -168,8 +170,7 @@ def test_steward_decision(fixture_dir, opa_available):
 
     if steward_expected in ("valid", "escalate"):
         assert allow is True, (
-            f"{fixture_dir.name}: expected Steward allow but got deny. "
-            f"Deny set: {deny}"
+            f"{fixture_dir.name}: expected Steward allow but got deny. Deny set: {deny}"
         )
         assert deny == [], (
             f"{fixture_dir.name}: expected empty deny set but got: {deny}"

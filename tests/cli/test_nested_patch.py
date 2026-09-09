@@ -86,6 +86,7 @@ diff --git a/package.nix b/package.nix
 +b
 """
     import pytest
+
     with pytest.raises(nested_patch.NestedPatchError):
         nested_patch.extract_nested_source_patch(only_package_nix)
 
@@ -110,7 +111,10 @@ diff --git a/package.nix b/package.nix
 +  extra = true;
 """
     import pytest
-    with pytest.raises(nested_patch.NestedPatchError, match="modifies existing nested patch"):
+
+    with pytest.raises(
+        nested_patch.NestedPatchError, match="modifies existing nested patch"
+    ):
         nested_patch.extract_nested_source_patch(modifies_existing_patch)
 
 
@@ -136,7 +140,10 @@ diff --git a/existing.patch b/existing.patch
 +new
 """
     import pytest
-    with pytest.raises(nested_patch.NestedPatchError, match="modifies existing nested patch"):
+
+    with pytest.raises(
+        nested_patch.NestedPatchError, match="modifies existing nested patch"
+    ):
         nested_patch.extract_nested_source_patch(mixed)
 
 
@@ -156,7 +163,7 @@ def test_unwrap_preserves_no_trailing_newline() -> None:
     )
     inner, names = nested_patch.extract_nested_source_patch(no_newline)
     assert names == ["CVE.patch"]
-    assert inner == "line one\nline two"        # no trailing newline, no marker
+    assert inner == "line one\nline two"  # no trailing newline, no marker
     assert "No newline" not in inner
 
 
@@ -196,5 +203,6 @@ new file mode 100644
 ++++ b/lib/b.c
 """
     import pytest
+
     with pytest.raises(nested_patch.NestedPatchError, match="multiple nested patch"):
         nested_patch.extract_nested_source_patch(two_added)

@@ -107,19 +107,28 @@ def test_unstable_pin_routes_to_human_review_not_crash():
     human review because upgrade ordering cannot be established."""
     from agents.upstream_ref_resolver import resolve
 
-    out = resolve({
-        "cve_id": "CVE-0000-2100",
-        "current_version": "0-unstable-2026-01-30",
-        "candidate_refs": [{
-            "version": "1.2.3",
-            "release_url": "https://ex.invalid/r/1.2.3",
-            "changelog_url": "https://ex.invalid/c#1.2.3",
-            "advisory_urls": ["https://ex.invalid/a"],
-            "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
-                      "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
-            "tier_hint": "point-release-small-delta",
-        }],
-    })
+    out = resolve(
+        {
+            "cve_id": "CVE-0000-2100",
+            "current_version": "0-unstable-2026-01-30",
+            "candidate_refs": [
+                {
+                    "version": "1.2.3",
+                    "release_url": "https://ex.invalid/r/1.2.3",
+                    "changelog_url": "https://ex.invalid/c#1.2.3",
+                    "advisory_urls": ["https://ex.invalid/a"],
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                    "tier_hint": "point-release-small-delta",
+                }
+            ],
+        }
+    )
     el = out["eligibility"]
     assert el["verdict"] == "eligible-requires-human-review"
     assert el["human_review_trigger"] == "unparseable-version-comparison"
@@ -132,19 +141,28 @@ def test_unstable_target_does_not_auto_merge():
     The guard must dominate and route to human review."""
     from agents.upstream_ref_resolver import resolve
 
-    out = resolve({
-        "cve_id": "CVE-0000-2101",
-        "current_version": "1.2.3",
-        "candidate_refs": [{
-            "version": "0-unstable-2026-02-01",
-            "release_url": "https://ex.invalid/r/unstable",
-            "changelog_url": "https://ex.invalid/c#unstable",
-            "advisory_urls": ["https://ex.invalid/a"],
-            "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
-                      "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
-            "tier_hint": "point-release-small-delta",
-        }],
-    })
+    out = resolve(
+        {
+            "cve_id": "CVE-0000-2101",
+            "current_version": "1.2.3",
+            "candidate_refs": [
+                {
+                    "version": "0-unstable-2026-02-01",
+                    "release_url": "https://ex.invalid/r/unstable",
+                    "changelog_url": "https://ex.invalid/c#unstable",
+                    "advisory_urls": ["https://ex.invalid/a"],
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                    "tier_hint": "point-release-small-delta",
+                }
+            ],
+        }
+    )
     el = out["eligibility"]
     assert el["verdict"] == "eligible-requires-human-review"
     assert el["human_review_trigger"] == "unparseable-version-comparison"
@@ -157,26 +175,42 @@ def test_parseable_upgrade_wins_over_unstable_pin():
     unparseable candidate must not shadow a genuine fixed release."""
     from agents.upstream_ref_resolver import resolve
 
-    out = resolve({
-        "cve_id": "CVE-0000-2102",
-        "current_version": "1.2.3",
-        "candidate_refs": [
-            {"version": "0-unstable-2026-02-01",
-             "release_url": "https://ex.invalid/r/unstable",
-             "changelog_url": "https://ex.invalid/c#unstable",
-             "advisory_urls": ["https://ex.invalid/a"],
-             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
-                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
-             "tier_hint": "point-release-small-delta"},
-            {"version": "1.2.4",
-             "release_url": "https://ex.invalid/r/1.2.4",
-             "changelog_url": "https://ex.invalid/c#1.2.4",
-             "advisory_urls": ["https://ex.invalid/a"],
-             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
-                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
-             "tier_hint": "point-release-small-delta"},
-        ],
-    })
+    out = resolve(
+        {
+            "cve_id": "CVE-0000-2102",
+            "current_version": "1.2.3",
+            "candidate_refs": [
+                {
+                    "version": "0-unstable-2026-02-01",
+                    "release_url": "https://ex.invalid/r/unstable",
+                    "changelog_url": "https://ex.invalid/c#unstable",
+                    "advisory_urls": ["https://ex.invalid/a"],
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                    "tier_hint": "point-release-small-delta",
+                },
+                {
+                    "version": "1.2.4",
+                    "release_url": "https://ex.invalid/r/1.2.4",
+                    "changelog_url": "https://ex.invalid/c#1.2.4",
+                    "advisory_urls": ["https://ex.invalid/a"],
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                    "tier_hint": "point-release-small-delta",
+                },
+            ],
+        }
+    )
     assert out["eligibility"]["verdict"] == "eligible"
     assert out["target_version"] == "1.2.4"
 
@@ -189,22 +223,38 @@ def test_unparseable_candidate_beats_equal_version_placeholder():
     caller priority, and the verdict reflects it (unparseable, not no-target)."""
     from agents.upstream_ref_resolver import resolve
 
-    out = resolve({
-        "cve_id": "CVE-0000-2103",
-        "current_version": "1.2.3",
-        "candidate_refs": [
-            {"version": "1.2.3",  # equal-version placeholder, listed FIRST
-             "release_url": "https://ex.invalid/r/1.2.3",
-             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
-                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"}},
-            {"version": "0-unstable-2026-02-01",  # real unstable-pin fix, listed second
-             "release_url": "https://ex.invalid/r/unstable",
-             "changelog_url": "https://ex.invalid/c#unstable",
-             "advisory_urls": ["https://ex.invalid/a"],
-             "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
-                       "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"}},
-        ],
-    })
+    out = resolve(
+        {
+            "cve_id": "CVE-0000-2103",
+            "current_version": "1.2.3",
+            "candidate_refs": [
+                {
+                    "version": "1.2.3",  # equal-version placeholder, listed FIRST
+                    "release_url": "https://ex.invalid/r/1.2.3",
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                },
+                {
+                    "version": "0-unstable-2026-02-01",  # real unstable-pin fix, listed second
+                    "release_url": "https://ex.invalid/r/unstable",
+                    "changelog_url": "https://ex.invalid/c#unstable",
+                    "advisory_urls": ["https://ex.invalid/a"],
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                },
+            ],
+        }
+    )
     el = out["eligibility"]
     assert out["target_version"] == "0-unstable-2026-02-01"
     assert el["human_review_trigger"] == "unparseable-version-comparison"
@@ -213,16 +263,31 @@ def test_unparseable_candidate_beats_equal_version_placeholder():
 def test_source_backport_signal_precedence():
     """patch_strategy is authoritative; tier_hint is the lighter hint (peer 2026-06-11)."""
     from agents.upstream_ref_resolver.resolver import _is_source_backport_signal
+
     # explicit patch_strategy wins, even against a contradicting tier_hint
-    assert _is_source_backport_signal(
-        {"eligibility": {"patch_strategy": "source-backport"}, "tier_hint": "point-release-small-delta"}
-    ) is True
-    assert _is_source_backport_signal(
-        {"eligibility": {"patch_strategy": "version-bump"}, "tier_hint": "source-backport"}
-    ) is False
+    assert (
+        _is_source_backport_signal(
+            {
+                "eligibility": {"patch_strategy": "source-backport"},
+                "tier_hint": "point-release-small-delta",
+            }
+        )
+        is True
+    )
+    assert (
+        _is_source_backport_signal(
+            {
+                "eligibility": {"patch_strategy": "version-bump"},
+                "tier_hint": "source-backport",
+            }
+        )
+        is False
+    )
     # tier_hint consulted only when patch_strategy absent
     assert _is_source_backport_signal({"tier_hint": "source-backport"}) is True
-    assert _is_source_backport_signal({"tier_hint": "point-release-small-delta"}) is False
+    assert (
+        _is_source_backport_signal({"tier_hint": "point-release-small-delta"}) is False
+    )
     assert _is_source_backport_signal({}) is False
 
 
@@ -232,17 +297,31 @@ def test_source_backport_carries_through_review_reason():
     SURFACE it (peer 2026-06-11): a clean-applying backport may still be
     necessary-but-not-sufficient, so the human must confirm sufficiency."""
     from agents.upstream_ref_resolver import resolve
-    out = resolve({
-        "cve_id": "CVE-0000-2099", "current_version": "1.0.8",
-        "candidate_refs": [{
-            "version": "1.0.8", "release_url": "https://ex.invalid/c/deadbeef",
-            "upstream_fix_commits": [{"repo_url": "https://ex.invalid/r", "commit_sha": "deadbeef"}],
-            "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [],
-                      "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
-            "tier_hint": "source-backport",
-            "requires_review_reason": "placeholder-target-version",
-        }],
-    })
+
+    out = resolve(
+        {
+            "cve_id": "CVE-0000-2099",
+            "current_version": "1.0.8",
+            "candidate_refs": [
+                {
+                    "version": "1.0.8",
+                    "release_url": "https://ex.invalid/c/deadbeef",
+                    "upstream_fix_commits": [
+                        {"repo_url": "https://ex.invalid/r", "commit_sha": "deadbeef"}
+                    ],
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                    "tier_hint": "source-backport",
+                    "requires_review_reason": "placeholder-target-version",
+                }
+            ],
+        }
+    )
     el = out["eligibility"]
     assert el["verdict"] == "eligible-requires-human-review"
     assert el["patch_strategy"] == "source-backport"

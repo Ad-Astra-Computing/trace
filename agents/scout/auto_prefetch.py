@@ -89,7 +89,10 @@ _SRC_FETCHFROMGITHUB_RE = re.compile(r"\bsrc\s*=\s*fetchFromGitHub\s*\{", re.DOT
 @dataclass(frozen=True)
 class AutoPrefetchStats:
     """Per-entry stats; aggregator sums these across a batch."""
-    skipped_reason: str | None = None  # "env-not-set" | "no-nixpkgs-root" | "no-package-source" | None
+
+    skipped_reason: str | None = (
+        None  # "env-not-set" | "no-nixpkgs-root" | "no-package-source" | None
+    )
     primary_src_class: str = "no-source-resolved"  # one of _SRC_PRIMARY_CLASSES
     # Diagnostic from path_resolver when skipped_reason="no-package-source".
     # Free-form short string surfaced from PackageSourceNotFound's message
@@ -206,12 +209,13 @@ def auto_prefetch_for_entry(
             current_version=upstream_ref.get("current_version") or "",
         )
         result = prefetch_fetchzip(
-            request, command_runner=fetchzip_command_runner,
+            request,
+            command_runner=fetchzip_command_runner,
         )
         if isinstance(result, FetchzipSuccess):
-            upstream_ref["prefetch_hashes"] = (
-                upstream_ref.get("prefetch_hashes", []) + [result.to_schema_dict()]
-            )
+            upstream_ref["prefetch_hashes"] = upstream_ref.get(
+                "prefetch_hashes", []
+            ) + [result.to_schema_dict()]
             _atomic_write_json(upstream_ref_path, upstream_ref)
             return AutoPrefetchStats(
                 primary_src_class=primary,
@@ -222,9 +226,9 @@ def auto_prefetch_for_entry(
             )
         # FetchzipFailure: required_for_patch=True so Steward routes to
         # human-review per the existing patcher-not-ready rule.
-        upstream_ref["prefetch_failures"] = (
-            upstream_ref.get("prefetch_failures", []) + [result.to_schema_dict()]
-        )
+        upstream_ref["prefetch_failures"] = upstream_ref.get(
+            "prefetch_failures", []
+        ) + [result.to_schema_dict()]
         _atomic_write_json(upstream_ref_path, upstream_ref)
         return AutoPrefetchStats(
             primary_src_class=primary,
@@ -278,8 +282,7 @@ def auto_prefetch_for_entry(
             existing = upstream_ref.get("prefetch_skips", [])
             seen = {(s.get("name"), s.get("reason")) for s in existing}
             merged = list(existing) + [
-                s for s in new_skips
-                if (s["name"], s["reason"]) not in seen
+                s for s in new_skips if (s["name"], s["reason"]) not in seen
             ]
             upstream_ref["prefetch_skips"] = merged
 
@@ -309,8 +312,7 @@ def auto_prefetch_for_entry(
         existing = upstream_ref.get("prefetch_skips", [])
         seen = {(s.get("name"), s.get("reason")) for s in existing}
         merged = list(existing) + [
-            s for s in new_skips
-            if (s["name"], s["reason"]) not in seen
+            s for s in new_skips if (s["name"], s["reason"]) not in seen
         ]
         upstream_ref["prefetch_skips"] = merged
         _atomic_write_json(upstream_ref_path, upstream_ref)
@@ -345,7 +347,9 @@ def _classify_source(package_source: str) -> tuple[str, bool]:
     return "other", has_vendor
 
 
-def _classify_only(upstream_ref: dict, *, package_source: str | None) -> AutoPrefetchStats:
+def _classify_only(
+    upstream_ref: dict, *, package_source: str | None
+) -> AutoPrefetchStats:
     """Idempotency path: return stats for an already-populated entry
     without re-running prefetch. Source-class is unknown without
     package text, so report 'other' to avoid double-counting."""
@@ -458,7 +462,9 @@ def aggregate_stats(stats_list: list[AutoPrefetchStats]) -> dict[str, Any]:
         agg["fetchFromGitHub-attempted"] += s.fetchFromGitHub_attempted
         agg["fetchFromGitHub-succeeded"] += s.fetchFromGitHub_succeeded
         agg["fetchFromGitHub-failed"] += s.fetchFromGitHub_failed
-        agg["fetchFromGitHub-present-but-skipped"] += s.fetchFromGitHub_present_but_skipped
+        agg["fetchFromGitHub-present-but-skipped"] += (
+            s.fetchFromGitHub_present_but_skipped
+        )
         agg["fetchzip-present-but-skipped"] += s.fetchzip_present_but_skipped
         agg["go-mod-vendor-present-but-skipped"] += s.go_mod_vendor_present_but_skipped
     return agg

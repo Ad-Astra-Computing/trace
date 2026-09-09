@@ -28,6 +28,7 @@ Usage:
   python3 scripts/upgrade_review_to_v7.py traces/example/CVE-*/review.md
   python3 scripts/upgrade_review_to_v7.py --dry-run traces/example/CVE-*/review.md
 """
+
 from __future__ import annotations
 import argparse
 import re
@@ -39,9 +40,9 @@ from dataclasses import dataclass
 @dataclass
 class Hunk:
     header: str  # "hunk N — description"
-    ufp_lines: list[str]   # `+ line` / `- line` from upstream-fix.patch
-    pd_lines: list[str]    # `+ line` / `- line` from patch.diff
-    comparison: str        # match | mismatch | missing-hunk
+    ufp_lines: list[str]  # `+ line` / `- line` from upstream-fix.patch
+    pd_lines: list[str]  # `+ line` / `- line` from patch.diff
+    comparison: str  # match | mismatch | missing-hunk
 
 
 def _extract_bullets(section_text: str) -> list[str]:
@@ -64,14 +65,16 @@ def parse_pc_section(pc_text: str) -> tuple[list[Hunk], str]:
         # Find upstream-fix.patch sub-section
         ufp_m = re.search(
             r"- upstream-fix\.patch\s*[:\(][^\n]*\n(.*?)(?=- patch\.diff|$)",
-            hunk_body, re.DOTALL | re.IGNORECASE,
+            hunk_body,
+            re.DOTALL | re.IGNORECASE,
         )
         ufp_lines = _extract_bullets(ufp_m.group(1)) if ufp_m else []
 
         # Find patch.diff sub-section
         pd_m = re.search(
             r"- patch\.diff[^\n]*\n(.*?)(?=- comparison\s*:|$)",
-            hunk_body, re.DOTALL | re.IGNORECASE,
+            hunk_body,
+            re.DOTALL | re.IGNORECASE,
         )
         pd_lines = _extract_bullets(pd_m.group(1)) if pd_m else []
 
@@ -79,15 +82,19 @@ def parse_pc_section(pc_text: str) -> tuple[list[Hunk], str]:
         comp_m = re.search(r"comparison\s*:\s*(\S[\w-]*)", hunk_body, re.IGNORECASE)
         comparison = comp_m.group(1).lower() if comp_m else "unknown"
 
-        hunks.append(Hunk(
-            header=hunk_header,
-            ufp_lines=ufp_lines,
-            pd_lines=pd_lines,
-            comparison=comparison,
-        ))
+        hunks.append(
+            Hunk(
+                header=hunk_header,
+                ufp_lines=ufp_lines,
+                pd_lines=pd_lines,
+                comparison=comparison,
+            )
+        )
 
     # Extract conclusion line
-    conc_m = re.search(r"\nconclusion\s*:(.*?)(?:\n##|\Z)", pc_text, re.DOTALL | re.IGNORECASE)
+    conc_m = re.search(
+        r"\nconclusion\s*:(.*?)(?:\n##|\Z)", pc_text, re.DOTALL | re.IGNORECASE
+    )
     conclusion = ("conclusion:" + conc_m.group(1).rstrip()).strip() if conc_m else ""
 
     return hunks, conclusion
@@ -128,8 +135,10 @@ def build_v7_sections(hunks: list[Hunk], conclusion: str) -> str:
         pc_lines.append("")
 
     return (
-        "\n".join(pd_lines).rstrip() + "\n\n"
-        + "\n".join(ufp_lines).rstrip() + "\n\n"
+        "\n".join(pd_lines).rstrip()
+        + "\n\n"
+        + "\n".join(ufp_lines).rstrip()
+        + "\n\n"
         + "\n".join(pc_lines).rstrip()
     )
 
@@ -166,7 +175,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("files", nargs="+", type=Path)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--check", action="store_true", help="exit 1 if any file needs transform")
+    ap.add_argument(
+        "--check", action="store_true", help="exit 1 if any file needs transform"
+    )
     args = ap.parse_args()
 
     changed = 0

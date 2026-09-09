@@ -47,6 +47,7 @@ Do not re-litigate "more data" / format / objective after this.
 
 Submission: lora/submit_hf_authoring_job_lossmask.sh
 """
+
 import json
 import os
 from pathlib import Path
@@ -72,8 +73,13 @@ LORA_RANK = 16
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
 LORA_TARGET_MODULES = [
-    "q_proj", "k_proj", "v_proj", "o_proj",
-    "gate_proj", "up_proj", "down_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
 ]
 
 MAX_STEPS = int(os.environ.get("MAX_STEPS", "375"))
@@ -96,6 +102,7 @@ def make_formatting_func(tok):
             tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
             for msgs in examples["messages"]
         ]
+
     return fmt
 
 
@@ -104,7 +111,9 @@ def main():
 
     data_dir = Path(os.environ.get("DATA_DIR", "/data"))
     adapter_dir = Path(os.environ.get("ADAPTER_DIR", "/tmp/authoring-lora-lossmask"))
-    hub_model_id = os.environ.get("HUB_MODEL_ID", "adastracomputing/authoring-lora-lossmask")
+    hub_model_id = os.environ.get(
+        "HUB_MODEL_ID", "adastracomputing/authoring-lora-lossmask"
+    )
     adapter_dir.mkdir(parents=True, exist_ok=True)
 
     train_file = os.environ.get("TRAIN_FILE", "authoring.train.jsonl")
@@ -122,8 +131,12 @@ def main():
     # --- Integrity checks (identical to v10-clean) ---
     train_text = "\n".join(json.dumps(r) for r in load_jsonl(train_path))
 
-    for cve, name in [("CVE-2026-48526", "pyjwt"), ("CVE-2022-37434", "zlib"),
-                      ("CVE-2024-47081", "requests"), ("CVE-2026-42250", "bzip2-canary")]:
+    for cve, name in [
+        ("CVE-2026-48526", "pyjwt"),
+        ("CVE-2022-37434", "zlib"),
+        ("CVE-2024-47081", "requests"),
+        ("CVE-2026-42250", "bzip2-canary"),
+    ]:
         if cve in train_text:
             raise RuntimeError(
                 f"ABORT: canary {cve} ({name}) detected in training data. "
@@ -219,9 +232,18 @@ def main():
     )
 
     print(f"Model  {MODEL_ID} @ {MODEL_REVISION}", flush=True)
-    print(f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4", flush=True)
-    print("Loss   COMPLETION-ONLY (prompt masked to -100 via response template)", flush=True)
-    print(f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} warmup={warmup_steps} seed={SEED}", flush=True)
+    print(
+        f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4",
+        flush=True,
+    )
+    print(
+        "Loss   COMPLETION-ONLY (prompt masked to -100 via response template)",
+        flush=True,
+    )
+    print(
+        f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} warmup={warmup_steps} seed={SEED}",
+        flush=True,
+    )
 
     train_result = trainer.train()
 
@@ -262,6 +284,7 @@ def main():
     tokenizer.save_pretrained(str(adapter_dir))
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.upload_file(
         path_or_fileobj=str(manifest_path),

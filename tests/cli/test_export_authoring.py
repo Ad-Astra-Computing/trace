@@ -54,13 +54,22 @@ _DEFAULT_PRE_FIX = (
 )
 
 
-def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
-                   fix_diff: str = _FIX_DIFF, kind: str = "human-review-required",
-                   rekor: int | None = 1796253004,
-                   behavioral: bool = True, cert_green: bool = False,
-                   pre_fix: str = _DEFAULT_PRE_FIX,
-                   file: str = "src/libproxychains.c",
-                   included: list[str] | None = None) -> Path:
+def _cached_bundle(
+    root: Path,
+    name: str,
+    *,
+    cve: str,
+    attr: str,
+    summary: str,
+    fix_diff: str = _FIX_DIFF,
+    kind: str = "human-review-required",
+    rekor: int | None = 1796253004,
+    behavioral: bool = True,
+    cert_green: bool = False,
+    pre_fix: str = _DEFAULT_PRE_FIX,
+    file: str = "src/libproxychains.c",
+    included: list[str] | None = None,
+) -> Path:
     """Write a behaviorally-complete source-backport fixture. `behavioral=False`
     makes the unpatched reproducer fire no signal (the Tier-B gate must exclude
     it). `cert_green=True` adds the signature + accepting review so the bundle is
@@ -71,32 +80,52 @@ def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
     if rekor is not None:
         bundle["signed_manifest"] = {"rekor_log_index": rekor}
     (bd / "bundle.json").write_text(json.dumps(bundle))
-    (bd / "finding.json").write_text(json.dumps(
-        {"cve_id": cve, "summary": summary, "affected": [{"attr_path": attr}]}))
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"cve_id": cve, "eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "finding.json").write_text(
+        json.dumps(
+            {"cve_id": cve, "summary": summary, "affected": [{"attr_path": attr}]}
+        )
+    )
+    (bd / "upstream-ref.json").write_text(
+        json.dumps(
+            {"cve_id": cve, "eligibility": {"patch_strategy": "source-backport"}}
+        )
+    )
     # Pre-built cache so _authoring_pair returns offline.
     cache = {
-        "cve_id": cve, "attr_path": attr, "vuln_raw": summary,
+        "cve_id": cve,
+        "attr_path": attr,
+        "vuln_raw": summary,
         "file": file,
         "pre_fix_source": pre_fix,
         "fix_diff": fix_diff,
-        "fix_commit": {"repo_url": "https://github.com/rofl0r/proxychains-ng",
-                       "commit_sha": "cc005b713281"},
+        "fix_commit": {
+            "repo_url": "https://github.com/rofl0r/proxychains-ng",
+            "commit_sha": "cc005b713281",
+        },
     }
-    if included is not None:                    # multi-file window: declare shown files
+    if included is not None:  # multi-file window: declare shown files
         cache["included_source_files"] = included
     (bd / "authoring-example.json").write_text(json.dumps(cache))
     # Behavioral-gate evidence: a real discriminator + a build record.
     (bd / "patch.diff").write_text(_PATCH_DIFF)
     (bd / "reproducer.nix").write_text(
-        '# echo "SIGNAL_UNPATCHED" when vuln fires; "SIGNAL_PATCHED" when fixed\n')
-    (bd / "build.json").write_text(json.dumps({
-        "patch_apply": {"applied": True, "files_changed": ["src/libproxychains.c"]},
-        "unpatched": {"outcome": "succeeded",
-                      "stdout_stderr": "SIGNAL_UNPATCHED" if behavioral else "no signal"},
-        "patched": {"outcome": "succeeded", "stdout_stderr": "SIGNAL_PATCHED"},
-    }))
+        '# echo "SIGNAL_UNPATCHED" when vuln fires; "SIGNAL_PATCHED" when fixed\n'
+    )
+    (bd / "build.json").write_text(
+        json.dumps(
+            {
+                "patch_apply": {
+                    "applied": True,
+                    "files_changed": ["src/libproxychains.c"],
+                },
+                "unpatched": {
+                    "outcome": "succeeded",
+                    "stdout_stderr": "SIGNAL_UNPATCHED" if behavioral else "no signal",
+                },
+                "patched": {"outcome": "succeeded", "stdout_stderr": "SIGNAL_PATCHED"},
+            }
+        )
+    )
     if cert_green:
         (bd / "bundle.sig").write_text("sig")
         (bd / "upstream-fix.patch").write_text(fix_diff)
@@ -104,17 +133,25 @@ def _cached_bundle(root: Path, name: str, *, cve: str, attr: str, summary: str,
     return bd
 
 
-def _args(out: Path, root: Path, split_manifest: Path | None = None) -> argparse.Namespace:
-    return argparse.Namespace(export_scope="authoring", out=out, traces_root=root,
-                              format="json", split_manifest=split_manifest)
+def _args(
+    out: Path, root: Path, split_manifest: Path | None = None
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        export_scope="authoring",
+        out=out,
+        traces_root=root,
+        format="json",
+        split_manifest=split_manifest,
+    )
 
 
 # --- pure scrub functions -------------------------------------------------
 
+
 def test_fix_symbols_only_from_changed_lines():
     syms = ex._fix_symbols(_FIX_DIFF)
-    assert "RS_PT_SOCKS5" in syms          # on a removed line
-    assert "proxytype" in syms             # changed line (len>=6, no '_': proxytype is 9)
+    assert "RS_PT_SOCKS5" in syms  # on a removed line
+    assert "proxytype" in syms  # changed line (len>=6, no '_': proxytype is 9)
     assert "proxy_from_string" not in syms  # only in the @@ hunk header (context)
 
 
@@ -122,48 +159,66 @@ def test_fix_symbols_skips_string_literal_words():
     """Words that live only inside an error-message string are prose, not a tell
     of where the fix lands — they must not become fix-symbols (the ffmpeg av_log
     over-scrub class). Genuine code identifiers on the same line are still kept."""
-    diff = ("--- a/x.c\n+++ b/x.c\n@@ -1 +1 @@\n"
-            '-  log_message("too few columns");\n'
-            '+  emit_warning("too few columns or planes here");\n')
+    diff = (
+        "--- a/x.c\n+++ b/x.c\n@@ -1 +1 @@\n"
+        '-  log_message("too few columns");\n'
+        '+  emit_warning("too few columns or planes here");\n'
+    )
     syms = ex._fix_symbols(diff)
-    assert "log_message" in syms and "emit_warning" in syms   # code idents kept
-    assert "columns" not in syms and "planes" not in syms     # string-only prose dropped
+    assert "log_message" in syms and "emit_warning" in syms  # code idents kept
+    assert "columns" not in syms and "planes" not in syms  # string-only prose dropped
 
 
 def test_fix_symbols_skips_comment_words():
     """`//` and block-comment prose must not become fix-symbols (the libwebp /
     relaxng comment over-scrub class); a real identifier on a code line is kept."""
-    line_comment = ("--- a/x.c\n+++ b/x.c\n@@ -1 +2 @@\n"
-                    "+  // Contiguous memory segment of decoded entries\n"
-                    "+  HuffmanTables tables;\n")
+    line_comment = (
+        "--- a/x.c\n+++ b/x.c\n@@ -1 +2 @@\n"
+        "+  // Contiguous memory segment of decoded entries\n"
+        "+  HuffmanTables tables;\n"
+    )
     syms = ex._fix_symbols(line_comment)
-    assert "HuffmanTables" in syms                                   # code ident kept
-    assert "Contiguous" not in syms and "segment" not in syms        # comment prose dropped
-    block = ("--- a/y.c\n+++ b/y.c\n@@ -1 +3 @@\n"
-             "+/*\n"
-             "+ * Default include limit to avoid runaway recursion\n"
-             "+ */\n"
-             "+  static const int kIncludeMax = 1000;\n")
+    assert "HuffmanTables" in syms  # code ident kept
+    assert "Contiguous" not in syms and "segment" not in syms  # comment prose dropped
+    block = (
+        "--- a/y.c\n+++ b/y.c\n@@ -1 +3 @@\n"
+        "+/*\n"
+        "+ * Default include limit to avoid runaway recursion\n"
+        "+ */\n"
+        "+  static const int kIncludeMax = 1000;\n"
+    )
     bsyms = ex._fix_symbols(block)
-    assert "kIncludeMax" in bsyms and "1000" in bsyms               # code kept
-    assert "include" not in bsyms and "recursion" not in bsyms      # block-comment prose dropped
+    assert "kIncludeMax" in bsyms and "1000" in bsyms  # code kept
+    assert (
+        "include" not in bsyms and "recursion" not in bsyms
+    )  # block-comment prose dropped
 
 
 def test_fix_symbols_skips_blockcomment_without_star_prefix():
     """A multi-line block comment whose continuation lines have NO leading `*`
     (`/*\\n  prose\\n*/`) must still be fully dropped — the comment-open state is
     threaded across lines (codex review 2026-06-29)."""
-    diff = ("--- a/z.c\n+++ b/z.c\n@@ -1 +4 @@\n"
-            "+/*\n"
-            "+   runaway recursion overflow when parsing nested includes\n"
-            "+   keeps growing the working buffer\n"
-            "+*/\n"
-            "+  parse_nested(node);\n")
+    diff = (
+        "--- a/z.c\n+++ b/z.c\n@@ -1 +4 @@\n"
+        "+/*\n"
+        "+   runaway recursion overflow when parsing nested includes\n"
+        "+   keeps growing the working buffer\n"
+        "+*/\n"
+        "+  parse_nested(node);\n"
+    )
     syms = ex._fix_symbols(diff)
-    assert "parse_nested" in syms                                   # code kept
-    for prose in ("runaway", "recursion", "overflow", "parsing", "includes",
-                  "growing", "working", "buffer"):
-        assert prose not in syms                                    # no-star continuation dropped
+    assert "parse_nested" in syms  # code kept
+    for prose in (
+        "runaway",
+        "recursion",
+        "overflow",
+        "parsing",
+        "includes",
+        "growing",
+        "working",
+        "buffer",
+    ):
+        assert prose not in syms  # no-star continuation dropped
 
 
 def test_code_only_keeps_deref_and_preprocessor():
@@ -180,7 +235,7 @@ def test_code_only_keeps_deref_and_preprocessor():
 def test_fix_symbols_skips_generic_short_tokens():
     syms = ex._fix_symbols("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-if (a > b)\n+if (a >= b)\n")
     assert "if" not in syms  # too short / generic
-    assert syms == set()     # nothing distinctive changed
+    assert syms == set()  # nothing distinctive changed
 
 
 def test_fix_symbols_extracts_only_moved_numeric_literal():
@@ -188,13 +243,15 @@ def test_fix_symbols_extracts_only_moved_numeric_literal():
     diff = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-if (n > 10 && cap == 256)\n+if (n > 8 && cap == 256)\n"
     syms = ex._fix_symbols(diff)
     assert "10" in syms and "8" not in syms  # 8 is single-digit (too generic)
-    assert "256" not in syms                 # unchanged on both sides — a vuln fact
+    assert "256" not in syms  # unchanged on both sides — a vuln fact
 
 
 def test_fix_symbols_ignores_single_digit_offbyone():
     # bzip2 shape: `MAX` -> `MAX - 1`. The `1` is too generic; the identifier carries it.
-    diff = ("--- a/x\n+++ b/x\n@@ -1 +1 @@\n"
-            "-if (c >= BZ_MAX_HANDLED_BLOCKS)\n+if (c >= BZ_MAX_HANDLED_BLOCKS - 1)\n")
+    diff = (
+        "--- a/x\n+++ b/x\n@@ -1 +1 @@\n"
+        "-if (c >= BZ_MAX_HANDLED_BLOCKS)\n+if (c >= BZ_MAX_HANDLED_BLOCKS - 1)\n"
+    )
     syms = ex._fix_symbols(diff)
     assert "BZ_MAX_HANDLED_BLOCKS" in syms
     assert "1" not in syms
@@ -202,17 +259,21 @@ def test_fix_symbols_ignores_single_digit_offbyone():
 
 def test_mentions_word_boundary_for_numbers():
     assert ex._mentions("the limit is 50 blocks", "50")
-    assert not ex._mentions("version 1.0.8 is affected", "50")  # 50 not inside 5000/1.0.8
-    assert not ex._mentions("more than 50000 magics", "50")     # boundary, not substring
-    assert ex._mentions("calls slotat() directly", "slotat")    # identifier substring
+    assert not ex._mentions(
+        "version 1.0.8 is affected", "50"
+    )  # 50 not inside 5000/1.0.8
+    assert not ex._mentions("more than 50000 magics", "50")  # boundary, not substring
+    assert ex._mentions("calls slotat() directly", "slotat")  # identifier substring
 
 
 def test_scrub_summary_drops_sentence_naming_the_fix_symbol():
-    summary = ("Stack overflow in proxy_from_string when a credential exceeds 255 bytes. "
-               "The bounds check was gated on proxytype == RS_PT_SOCKS5, excluding HTTP.")
+    summary = (
+        "Stack overflow in proxy_from_string when a credential exceeds 255 bytes. "
+        "The bounds check was gated on proxytype == RS_PT_SOCKS5, excluding HTTP."
+    )
     scrubbed = ex._scrub_summary(summary, _FIX_DIFF)
-    assert "RS_PT_SOCKS5" not in scrubbed         # the leaky sentence is gone
-    assert "Stack overflow" in scrubbed           # the vuln description survives
+    assert "RS_PT_SOCKS5" not in scrubbed  # the leaky sentence is gone
+    assert "Stack overflow" in scrubbed  # the vuln description survives
 
 
 def test_scrub_summary_drops_remediation_language():
@@ -224,12 +285,20 @@ def test_scrub_summary_drops_remediation_language():
 
 # --- end-to-end export ----------------------------------------------------
 
+
 def test_authoring_export_builds_clean_pair(tmp_path, capsys):
     root = tmp_path / "traces"
-    summary = ("Stack-based buffer overflow in proxy_from_string when a username exceeds "
-               "255 bytes. It was gated on proxytype == RS_PT_SOCKS5.")
-    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
-                   cve="CVE-2025-34451", attr="proxychains-ng", summary=summary)
+    summary = (
+        "Stack-based buffer overflow in proxy_from_string when a username exceeds "
+        "255 bytes. It was gated on proxytype == RS_PT_SOCKS5."
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--proxychains-ng-backport",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary=summary,
+    )
     rc = ex.run(_args(tmp_path / "out", root))
     assert rc == 0
     lines = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
@@ -241,8 +310,8 @@ def test_authoring_export_builds_clean_pair(tmp_path, capsys):
     # The fix symbol is scrubbed from the DESCRIPTION; it legitimately remains in the
     # shown pre-fix source (RS_PT_SOCKS5 is on the line the model must edit).
     description = user.split("# Vulnerable source")[0]
-    assert "RS_PT_SOCKS5" not in description     # fix symbol scrubbed from the description
-    assert "buffer overflow" in description      # vuln preserved
+    assert "RS_PT_SOCKS5" not in description  # fix symbol scrubbed from the description
+    assert "buffer overflow" in description  # vuln preserved
     assert ex_rec["messages"][2]["content"].startswith("diff --git")  # label = the fix
     assert ex_rec["task"] == "author-from-vuln"
     assert ex_rec["provenance"]["cve_id"] == "CVE-2025-34451"
@@ -256,10 +325,14 @@ def test_authoring_export_builds_clean_pair(tmp_path, capsys):
 def test_authoring_tier_cert_green(tmp_path):
     """A signed + Reviewer-accepted source-backport tags as cert-green (Tier A)."""
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
-                   cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   cert_green=True)
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--proxychains-ng-backport",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        cert_green=True,
+    )
     ex.run(_args(tmp_path / "out", root))
     rec = json.loads((tmp_path / "out" / "authoring.jsonl").read_text().splitlines()[0])
     assert rec["provenance"]["authoring_validation_tier"] == "cert-green"
@@ -273,10 +346,14 @@ def test_authoring_excludes_behavioral_gate_failure(tmp_path):
     """A pair whose unpatched reproducer fires no signal has no behavioral evidence
     the bug exists; the Tier-B gate excludes it rather than ship an unvalidated label."""
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2025-34451--unfired-backport",
-                   cve="CVE-2025-34451", attr="unfired",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   behavioral=False)
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--unfired-backport",
+        cve="CVE-2025-34451",
+        attr="unfired",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        behavioral=False,
+    )
     ex.run(_args(tmp_path / "out", root))
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert manifest["eligible_examples"] == 0
@@ -289,8 +366,13 @@ def test_authoring_export_excludes_unscrubbable_summary(tmp_path):
     """If every sentence names a fix symbol, the summary scrubs to empty and the
     bundle is excluded rather than shipping a leaky/empty input."""
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2025-34451--leaky-backport", cve="CVE-2025-34451",
-                   attr="leaky", summary="proxytype RS_PT_SOCKS5 gate removed.")
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--leaky-backport",
+        cve="CVE-2025-34451",
+        attr="leaky",
+        summary="proxytype RS_PT_SOCKS5 gate removed.",
+    )
     rc = ex.run(_args(tmp_path / "out", root))
     assert rc == 0
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -311,28 +393,41 @@ def test_authoring_export_dedups_identical_pair(tmp_path):
     root = tmp_path / "traces"
     # Same cve, same fix_commit sha, same fix_diff (the cache fixes pre_fix_source
     # too) -> identical pair identity. Only the vuln summary length differs.
-    _cached_bundle(root, "CVE-2025-34451--a-terse", cve="CVE-2025-34451",
-                   attr="proxychains-ng", summary="Stack overflow in proxy handling.")
-    _cached_bundle(root, "CVE-2025-34451--b-richer", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary=("Stack overflow in proxy_from_string when parsing a proxy "
-                            "entry whose credentials exceed the fixed-size on-stack "
-                            "buffer, letting a crafted config corrupt the stack."))
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--a-terse",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy handling.",
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--b-richer",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary=(
+            "Stack overflow in proxy_from_string when parsing a proxy "
+            "entry whose credentials exceed the fixed-size on-stack "
+            "buffer, letting a crafted config corrupt the stack."
+        ),
+    )
     ex.run(_args(tmp_path / "out", root))
     rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
-    assert len(rows) == 1                          # the duplicate row is deduped
+    assert len(rows) == 1  # the duplicate row is deduped
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
     skips = m["authoring_dedup_skips"]
     assert len(skips) == 1
-    assert skips[0]["bundle"] == "CVE-2025-34451--a-terse"      # terser sibling dropped
-    assert skips[0]["kept"] == "CVE-2025-34451--b-richer"       # richer vuln_raw kept
+    assert skips[0]["bundle"] == "CVE-2025-34451--a-terse"  # terser sibling dropped
+    assert skips[0]["kept"] == "CVE-2025-34451--b-richer"  # richer vuln_raw kept
     assert "duplicate authoring pair" in skips[0]["reason"]
 
 
 def test_label_fully_grounded_removed_line_absent():
     """A label that removes a line absent from the window is not grounded."""
-    diff = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,2 @@\n"
-            " int keep;\n-int gone_from_window;\n+int replacement;\n")
+    diff = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,2 @@\n"
+        " int keep;\n-int gone_from_window;\n+int replacement;\n"
+    )
     assert ex._label_fully_grounded(diff, "int keep;\nint gone_from_window;") is True
     assert ex._label_fully_grounded(diff, "int keep;\nint something_else;") is False
 
@@ -340,8 +435,10 @@ def test_label_fully_grounded_removed_line_absent():
 def test_label_fully_grounded_pure_addition_falls_back_to_context():
     """A pure-addition hunk grounds on its context lines when there is nothing to
     remove — the region it adds into must be visible."""
-    diff = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,3 @@\n"
-            " int a;\n+int added;\n int b;\n")
+    diff = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,3 @@\n"
+        " int a;\n+int added;\n int b;\n"
+    )
     assert ex._label_fully_grounded(diff, "int a;\nint b;") is True
     assert ex._label_fully_grounded(diff, "int a;\nint z;") is False
 
@@ -350,15 +447,19 @@ def test_label_self_leaked_pure_addition_already_present():
     """A pure-addition fix whose every added line already sits in the window is an
     answer key (>=2 lines); a lone common statement is not flagged."""
     pre = "  guard();\n  if (x > n) {\n    fail();\n  }\n  more();"
-    leaked = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,1 +1,4 @@\n"
-              "+  if (x > n) {\n+    fail();\n+  }\n")
+    leaked = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,1 +1,4 @@\n"
+        "+  if (x > n) {\n+    fail();\n+  }\n"
+    )
     assert ex._label_self_leaked(leaked, pre) is True
     # A single common added line present elsewhere is NOT a leak.
-    one = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1 +1,2 @@\n+  more();\n")
+    one = "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1 +1,2 @@\n+  more();\n"
     assert ex._label_self_leaked(one, pre) is False
     # A fix that also removes a line is not a pure-addition self-leak.
-    withdel = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,4 @@\n"
-               "-  old();\n+  if (x > n) {\n+    fail();\n+  }\n")
+    withdel = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1,2 +1,4 @@\n"
+        "-  old();\n+  if (x > n) {\n+    fail();\n+  }\n"
+    )
     assert ex._label_self_leaked(withdel, pre) is False
 
 
@@ -366,10 +467,14 @@ def test_authoring_export_excludes_ungrounded_label(tmp_path):
     """A cached pair whose label edits code absent from the shown window is excluded
     at export (the stale-cache grounding hole)."""
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2025-34451--ungrounded", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   pre_fix="int unrelated_window_body;")   # lacks _FIX_DIFF's removed line
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--ungrounded",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        pre_fix="int unrelated_window_body;",
+    )  # lacks _FIX_DIFF's removed line
     ex.run(_args(tmp_path / "out", root))
     assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -381,14 +486,20 @@ def test_authoring_export_excludes_self_leaked_label(tmp_path):
     excluded as an answer key."""
     root = tmp_path / "traces"
     # >=3 added lines already present in the window AS A CONTIGUOUS BLOCK (half-patched).
-    add_only = ("diff --git a/src/libproxychains.c b/src/libproxychains.c\n"
-                "--- a/src/libproxychains.c\n+++ b/src/libproxychains.c\n"
-                "@@ -0,0 +1,3 @@\n+\tif (len > 255)\n+\t\tabort_now();\n+\t\treturn 0;\n")
-    _cached_bundle(root, "CVE-2025-34451--selfleak", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   fix_diff=add_only,
-                   pre_fix="static int f(void)\n{\n\tif (len > 255)\n\t\tabort_now();\n\t\treturn 0;\n}")
+    add_only = (
+        "diff --git a/src/libproxychains.c b/src/libproxychains.c\n"
+        "--- a/src/libproxychains.c\n+++ b/src/libproxychains.c\n"
+        "@@ -0,0 +1,3 @@\n+\tif (len > 255)\n+\t\tabort_now();\n+\t\treturn 0;\n"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--selfleak",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        fix_diff=add_only,
+        pre_fix="static int f(void)\n{\n\tif (len > 255)\n\t\tabort_now();\n\t\treturn 0;\n}",
+    )
     ex.run(_args(tmp_path / "out", root))
     assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -401,13 +512,20 @@ def test_authoring_export_excludes_omitted_edited_file(tmp_path):
     half of the grounding gate — codex P2). The window shows libproxychains.c and
     contains `return 0;`; the label edits src/other.c, removing a matching `return 0;`."""
     root = tmp_path / "traces"
-    other = ("diff --git a/src/other.c b/src/other.c\n--- a/src/other.c\n+++ b/src/other.c\n"
-             "@@ -1,2 +1,2 @@\n int x;\n-\t\treturn 0;\n+\t\treturn 1;\n")
-    _cached_bundle(root, "CVE-2025-34451--omitted", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   fix_diff=other, file="src/libproxychains.c",
-                   pre_fix="static int f(void)\n{\n\tint x;\n\t\treturn 0;\n}")
+    other = (
+        "diff --git a/src/other.c b/src/other.c\n--- a/src/other.c\n+++ b/src/other.c\n"
+        "@@ -1,2 +1,2 @@\n int x;\n-\t\treturn 0;\n+\t\treturn 1;\n"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--omitted",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        fix_diff=other,
+        file="src/libproxychains.c",
+        pre_fix="static int f(void)\n{\n\tint x;\n\t\treturn 0;\n}",
+    )
     ex.run(_args(tmp_path / "out", root))
     assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -418,13 +536,20 @@ def test_authoring_export_excludes_omitted_deleted_file(tmp_path):
     """A label that DELETES a file not shown in the window is excluded — the edited
     path is read from the `---` side even though `+++` is /dev/null (codex P2)."""
     root = tmp_path / "traces"
-    deletion = ("diff --git a/src/gone.c b/src/gone.c\n--- a/src/gone.c\n+++ /dev/null\n"
-                "@@ -1,2 +0,0 @@\n-int x;\n-\t\treturn 0;\n")
-    _cached_bundle(root, "CVE-2025-34451--deleted", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   fix_diff=deletion, file="src/libproxychains.c",
-                   pre_fix="static int f(void)\n{\n\tint x;\n\t\treturn 0;\n}")
+    deletion = (
+        "diff --git a/src/gone.c b/src/gone.c\n--- a/src/gone.c\n+++ /dev/null\n"
+        "@@ -1,2 +0,0 @@\n-int x;\n-\t\treturn 0;\n"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--deleted",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        fix_diff=deletion,
+        file="src/libproxychains.c",
+        pre_fix="static int f(void)\n{\n\tint x;\n\t\treturn 0;\n}",
+    )
     ex.run(_args(tmp_path / "out", root))
     assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -437,16 +562,27 @@ def test_authoring_export_grounds_per_file_not_global_pool(tmp_path):
     absent from b.c's section but present in a.c's — a global pool would wrongly pass
     (codex P2)."""
     root = tmp_path / "traces"
-    multi = ("diff --git a/src/a.c b/src/a.c\n--- a/src/a.c\n+++ b/src/a.c\n"
-             "@@ -1,2 +1,2 @@\n int a;\n-\t\treturn 0;\n+\t\treturn 1;\n"
-             "diff --git a/src/b.c b/src/b.c\n--- a/src/b.c\n+++ b/src/b.c\n"
-             "@@ -1,2 +1,2 @@\n int b;\n-\t\treturn 0;\n+\t\treturn 2;\n")
-    win = ("/* ==== file: src/a.c ==== */\nint a;\n\t\treturn 0;\n\n"
-           "/* ==== file: src/b.c ==== */\nint b;")   # b.c section lacks `return 0;`
-    _cached_bundle(root, "CVE-2025-34451--perfile", cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Overflow across two files with a long input value here.",
-                   fix_diff=multi, file="src/a.c", pre_fix=win,
-                   included=["src/a.c", "src/b.c"])
+    multi = (
+        "diff --git a/src/a.c b/src/a.c\n--- a/src/a.c\n+++ b/src/a.c\n"
+        "@@ -1,2 +1,2 @@\n int a;\n-\t\treturn 0;\n+\t\treturn 1;\n"
+        "diff --git a/src/b.c b/src/b.c\n--- a/src/b.c\n+++ b/src/b.c\n"
+        "@@ -1,2 +1,2 @@\n int b;\n-\t\treturn 0;\n+\t\treturn 2;\n"
+    )
+    win = (
+        "/* ==== file: src/a.c ==== */\nint a;\n\t\treturn 0;\n\n"
+        "/* ==== file: src/b.c ==== */\nint b;"
+    )  # b.c section lacks `return 0;`
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--perfile",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Overflow across two files with a long input value here.",
+        fix_diff=multi,
+        file="src/a.c",
+        pre_fix=win,
+        included=["src/a.c", "src/b.c"],
+    )
     ex.run(_args(tmp_path / "out", root))
     assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -458,12 +594,20 @@ def test_authoring_export_grounds_sql_comment_removed_line(tmp_path):
     `--- ...` in the diff but is hunk CONTENT, not a file header — it must still be
     grounded (codex P2). Here `-- legacy hint` is NOT in the window, so exclude."""
     root = tmp_path / "traces"
-    diff = ("diff --git a/q.sql b/q.sql\n--- a/q.sql\n+++ b/q.sql\n"
-            "@@ -1,2 +1,1 @@\n--- legacy hint\n-SELECT 1;\n+SELECT 2;\n")
-    _cached_bundle(root, "CVE-2025-34451--sqlcomment", cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Injection via a crafted query value in the handler here.",
-                   fix_diff=diff, file="q.sql",
-                   pre_fix="SELECT 1;\nSELECT 3;")     # window lacks `-- legacy hint`
+    diff = (
+        "diff --git a/q.sql b/q.sql\n--- a/q.sql\n+++ b/q.sql\n"
+        "@@ -1,2 +1,1 @@\n--- legacy hint\n-SELECT 1;\n+SELECT 2;\n"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--sqlcomment",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Injection via a crafted query value in the handler here.",
+        fix_diff=diff,
+        file="q.sql",
+        pre_fix="SELECT 1;\nSELECT 3;",
+    )  # window lacks `-- legacy hint`
     ex.run(_args(tmp_path / "out", root))
     assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -475,13 +619,20 @@ def test_authoring_export_excludes_pure_addition_to_omitted_file(tmp_path):
     shown in the window is excluded — edited files are tracked from the diff headers,
     not just from removed/context lines (codex P2)."""
     root = tmp_path / "traces"
-    new_file = ("diff --git a/src/new.c b/src/new.c\n--- /dev/null\n+++ b/src/new.c\n"
-                "@@ -0,0 +1,2 @@\n+int brand_new_a;\n+int brand_new_b;\n")
-    _cached_bundle(root, "CVE-2025-34451--newfile", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   fix_diff=new_file, file="src/libproxychains.c",   # window shows a DIFFERENT file
-                   pre_fix="static int f(void)\n{\n\treturn 0;\n}")
+    new_file = (
+        "diff --git a/src/new.c b/src/new.c\n--- /dev/null\n+++ b/src/new.c\n"
+        "@@ -0,0 +1,2 @@\n+int brand_new_a;\n+int brand_new_b;\n"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--newfile",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        fix_diff=new_file,
+        file="src/libproxychains.c",  # window shows a DIFFERENT file
+        pre_fix="static int f(void)\n{\n\treturn 0;\n}",
+    )
     ex.run(_args(tmp_path / "out", root))
     assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
@@ -493,19 +644,35 @@ def test_authoring_export_keeps_same_edit_different_file(tmp_path):
     dedup identity includes the edited path, so it is not a window-only duplicate
     (codex P2)."""
     root = tmp_path / "traces"
-    hunk = "@@ -1,2 +1,2 @@\n int n;\n-\tif (n > 512) fail();\n+\tif (n > 256) fail();\n"
+    hunk = (
+        "@@ -1,2 +1,2 @@\n int n;\n-\tif (n > 512) fail();\n+\tif (n > 256) fail();\n"
+    )
     diff_a = f"diff --git a/src/a.c b/src/a.c\n--- a/src/a.c\n+++ b/src/a.c\n{hunk}"
     diff_b = f"diff --git a/src/b.c b/src/b.c\n--- a/src/b.c\n+++ b/src/b.c\n{hunk}"
     win = "static void g(void)\n{\n\tint n;\n\tif (n > 512) fail();\n}"
-    _cached_bundle(root, "CVE-2025-34451--file-a", cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Overflow in path A with a long input value here.",
-                   fix_diff=diff_a, file="src/a.c", pre_fix=win)
-    _cached_bundle(root, "CVE-2025-34451--file-b", cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Overflow in path B with a long input value here now.",
-                   fix_diff=diff_b, file="src/b.c", pre_fix=win)
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--file-a",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Overflow in path A with a long input value here.",
+        fix_diff=diff_a,
+        file="src/a.c",
+        pre_fix=win,
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--file-b",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Overflow in path B with a long input value here now.",
+        fix_diff=diff_b,
+        file="src/b.c",
+        pre_fix=win,
+    )
     ex.run(_args(tmp_path / "out", root))
     rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
-    assert len(rows) == 2                          # same edit text, different file -> distinct
+    assert len(rows) == 2  # same edit text, different file -> distinct
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert m["authoring_dedup_skips"] == []
 
@@ -515,20 +682,38 @@ def test_authoring_export_keeps_same_edit_different_hunk_position(tmp_path):
     the identity includes the hunk line-number span, not just the edit text (codex
     P2). Two bundles edit `if (n > 512)`->`if (n > 256)` at line 10 vs line 200."""
     root = tmp_path / "traces"
+
     def _diff(start):
-        return (f"diff --git a/src/x.c b/src/x.c\n--- a/src/x.c\n+++ b/src/x.c\n"
-                f"@@ -{start},2 +{start},2 @@\n int n;\n-\tif (n > 512) fail();\n"
-                f"+\tif (n > 256) fail();\n")
+        return (
+            f"diff --git a/src/x.c b/src/x.c\n--- a/src/x.c\n+++ b/src/x.c\n"
+            f"@@ -{start},2 +{start},2 @@\n int n;\n-\tif (n > 512) fail();\n"
+            f"+\tif (n > 256) fail();\n"
+        )
+
     win = "static void g(void)\n{\n\tint n;\n\tif (n > 512) fail();\n}"
-    _cached_bundle(root, "CVE-2025-34451--hunk-lo", cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Overflow at the first guard site with a long value here.",
-                   fix_diff=_diff(10), file="src/x.c", pre_fix=win)
-    _cached_bundle(root, "CVE-2025-34451--hunk-hi", cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Overflow at the second guard site with a long value here.",
-                   fix_diff=_diff(200), file="src/x.c", pre_fix=win)
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--hunk-lo",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Overflow at the first guard site with a long value here.",
+        fix_diff=_diff(10),
+        file="src/x.c",
+        pre_fix=win,
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--hunk-hi",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Overflow at the second guard site with a long value here.",
+        fix_diff=_diff(200),
+        file="src/x.c",
+        pre_fix=win,
+    )
     ex.run(_args(tmp_path / "out", root))
     rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
-    assert len(rows) == 2                          # same edit text, different line -> distinct
+    assert len(rows) == 2  # same edit text, different line -> distinct
 
 
 def test_self_leak_spares_repeated_idiom_at_new_site():
@@ -536,26 +721,37 @@ def test_self_leak_spares_repeated_idiom_at_new_site():
     at a NEW site is NOT a self-leak even though those lines appear elsewhere in the
     window — the added block is not a contiguous run there, and it is under the 3-line
     bar (codex P2)."""
-    diff = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
-            "@@ -5,2 +5,4 @@\n int n;\n+\tfree(buf);\n+\treturn -1;\n more();\n")
+    diff = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
+        "@@ -5,2 +5,4 @@\n int n;\n+\tfree(buf);\n+\treturn -1;\n more();\n"
+    )
     # window has free(buf); and return -1; but NON-contiguously (other lines between).
     win = "int a;\n\tfree(buf);\n\tlog(a);\n\treturn -1;\n\tint n;\n\tmore();"
     assert ex._label_self_leaked(diff, win) is False
     # And the giflib-style contiguous >=3 block IS still caught.
-    leak = ("diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n"
-            "@@ -1,0 +1,3 @@\n+\tguard();\n+\tcheck();\n+\tfail();\n")
-    assert ex._label_self_leaked(leak, "pre\n\tguard();\n\tcheck();\n\tfail();\npost") is True
+    leak = (
+        "diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n"
+        "@@ -1,0 +1,3 @@\n+\tguard();\n+\tcheck();\n+\tfail();\n"
+    )
+    assert (
+        ex._label_self_leaked(leak, "pre\n\tguard();\n\tcheck();\n\tfail();\npost")
+        is True
+    )
 
 
 def test_self_leak_caught_across_multiple_hunks():
     """A multi-hunk pure-addition half-patched fix — each block sits contiguously at
     its OWN site in the window, with unchanged lines between — is still a self-leak
     (per-block contiguity, codex P2)."""
-    diff = ("diff --git a/z.c b/z.c\n--- a/z.c\n+++ b/z.c\n"
-            "@@ -3,2 +3,4 @@\n int a;\n+\tguard_a();\n+\tcheck_a();\n int b;\n"
-            "@@ -20,1 +22,3 @@\n int c;\n+\tguard_b();\n+\tcheck_b();\n")
-    win = ("int a;\n\tguard_a();\n\tcheck_a();\n int b;\n"
-           "lots of other unchanged lines here\n int c;\n\tguard_b();\n\tcheck_b();")
+    diff = (
+        "diff --git a/z.c b/z.c\n--- a/z.c\n+++ b/z.c\n"
+        "@@ -3,2 +3,4 @@\n int a;\n+\tguard_a();\n+\tcheck_a();\n int b;\n"
+        "@@ -20,1 +22,3 @@\n int c;\n+\tguard_b();\n+\tcheck_b();\n"
+    )
+    win = (
+        "int a;\n\tguard_a();\n\tcheck_a();\n int b;\n"
+        "lots of other unchanged lines here\n int c;\n\tguard_b();\n\tcheck_b();"
+    )
     assert ex._label_self_leaked(diff, win) is True
 
 
@@ -563,14 +759,18 @@ def test_parse_diff_handles_dashdash_content_line():
     """A removed line starting with `-- ` (rendered `--- ` in the diff) and an added
     line starting with `++ ` (rendered `+++ `) are hunk CONTENT delimited by the hunk
     counts, never parsed as file headers (codex P2)."""
-    diff = ("diff --git a/m.c b/m.c\n--- a/m.c\n+++ b/m.c\n"
-            "@@ -1,3 +1,3 @@\n keep;\n--- old marker\n+++ new marker\n tail;\n")
+    diff = (
+        "diff --git a/m.c b/m.c\n--- a/m.c\n+++ b/m.c\n"
+        "@@ -1,3 +1,3 @@\n keep;\n--- old marker\n+++ new marker\n tail;\n"
+    )
     p = ex._parse_fix_diff(diff)
     assert p["files"] == ["m.c"]
     assert p["removed"]["m.c"] == ["-- old marker"]
     assert p["added"]["m.c"] == ["++ new marker"]
     # grounding sees the real removed line -> the window must actually contain it.
-    assert ex._label_fully_grounded(diff, "keep;\n-- old marker\ntail;", ["m.c"]) is True
+    assert (
+        ex._label_fully_grounded(diff, "keep;\n-- old marker\ntail;", ["m.c"]) is True
+    )
     assert ex._label_fully_grounded(diff, "keep;\ntail;", ["m.c"]) is False
 
 
@@ -578,20 +778,31 @@ def test_pair_identity_keeps_spans_tied_to_files():
     """Two multi-file labels with the same text at SWAPPED line ranges across files
     (a.c@10/b.c@20 vs a.c@20/b.c@10) are distinct — hunk spans stay tied to their
     file in the identity (codex P2)."""
+
     def _pair(a_line, b_line):
-        return {"cve_id": "CVE-2025-1", "fix_commit": {"commit_sha": "deadbeef"},
-                "fix_diff": (f"diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n"
-                             f"@@ -{a_line},1 +{a_line},2 @@\n int x;\n+\tguard();\n"
-                             f"diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n"
-                             f"@@ -{b_line},1 +{b_line},2 @@\n int y;\n+\tcheck();\n")}
-    assert ex._authoring_pair_identity(_pair(10, 20)) != ex._authoring_pair_identity(_pair(20, 10))
+        return {
+            "cve_id": "CVE-2025-1",
+            "fix_commit": {"commit_sha": "deadbeef"},
+            "fix_diff": (
+                f"diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n"
+                f"@@ -{a_line},1 +{a_line},2 @@\n int x;\n+\tguard();\n"
+                f"diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n"
+                f"@@ -{b_line},1 +{b_line},2 @@\n int y;\n+\tcheck();\n"
+            ),
+        }
+
+    assert ex._authoring_pair_identity(_pair(10, 20)) != ex._authoring_pair_identity(
+        _pair(20, 10)
+    )
     # But the SAME label under a different FILE ORDER still collapses (P3).
     same_a = "diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n@@ -1,1 +1,2 @@\n int x;\n+\tg();\n"
     same_b = "diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n@@ -1,1 +1,2 @@\n int y;\n+\tc();\n"
-    id_ab = ex._authoring_pair_identity({"cve_id": "C", "fix_commit": {"commit_sha": "s"},
-                                         "fix_diff": same_a + same_b})
-    id_ba = ex._authoring_pair_identity({"cve_id": "C", "fix_commit": {"commit_sha": "s"},
-                                         "fix_diff": same_b + same_a})
+    id_ab = ex._authoring_pair_identity(
+        {"cve_id": "C", "fix_commit": {"commit_sha": "s"}, "fix_diff": same_a + same_b}
+    )
+    id_ba = ex._authoring_pair_identity(
+        {"cve_id": "C", "fix_commit": {"commit_sha": "s"}, "fix_diff": same_b + same_a}
+    )
     assert id_ab == id_ba
 
 
@@ -601,18 +812,28 @@ def test_authoring_export_collapses_window_only_duplicate(tmp_path):
     edit, not the window."""
     root = tmp_path / "traces"
     narrow = _DEFAULT_PRE_FIX
-    wide = "/* leading context */\nint spacer;\n" + _DEFAULT_PRE_FIX + "\n/* trailing */"
-    _cached_bundle(root, "CVE-2025-34451--narrow", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   pre_fix=narrow)
-    _cached_bundle(root, "CVE-2025-34451--wide", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials here.",
-                   pre_fix=wide)
+    wide = (
+        "/* leading context */\nint spacer;\n" + _DEFAULT_PRE_FIX + "\n/* trailing */"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--narrow",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        pre_fix=narrow,
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--wide",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials here.",
+        pre_fix=wide,
+    )
     ex.run(_args(tmp_path / "out", root))
     rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
-    assert len(rows) == 1                          # same edit -> one row despite two windows
+    assert len(rows) == 1  # same edit -> one row despite two windows
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert len(m["authoring_dedup_skips"]) == 1
 
@@ -628,28 +849,43 @@ def test_authoring_export_keeps_distinct_same_cve_pairs(tmp_path):
         "@@ -300,3 +300,3 @@ static int other_path(void)\n"
         " \tint len = get_len();\n"
         "-\tif(len > 512) overflow();\n"
-        "+\tif(len > 256) overflow();\n")
-    _cached_bundle(root, "CVE-2025-34451--hunk-a", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.")
-    _cached_bundle(root, "CVE-2025-34451--hunk-b", cve="CVE-2025-34451",
-                   attr="proxychains-ng",
-                   summary="A crafted input triggers memory corruption when the request field is too long.",
-                   fix_diff=other_diff,
-                   pre_fix=("static int other_path(void)\n{\n\tint len = get_len();\n"
-                            "\tif(len > 512) overflow();\n}"))
+        "+\tif(len > 256) overflow();\n"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--hunk-a",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--hunk-b",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="A crafted input triggers memory corruption when the request field is too long.",
+        fix_diff=other_diff,
+        pre_fix=(
+            "static int other_path(void)\n{\n\tint len = get_len();\n"
+            "\tif(len > 512) overflow();\n}"
+        ),
+    )
     ex.run(_args(tmp_path / "out", root))
     rows = (tmp_path / "out" / "authoring.jsonl").read_text().splitlines()
-    assert len(rows) == 2                          # distinct pairs both survive
+    assert len(rows) == 2  # distinct pairs both survive
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
-    assert m["authoring_dedup_skips"] == []        # nothing deduped
+    assert m["authoring_dedup_skips"] == []  # nothing deduped
 
 
 def test_authoring_manifest_records_leakage_partition(tmp_path):
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
-                   cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.")
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--proxychains-ng-backport",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+    )
     ex.run(_args(tmp_path / "out", root))
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert manifest["scope"] == "authoring"
@@ -659,6 +895,7 @@ def test_authoring_manifest_records_leakage_partition(tmp_path):
 
 
 # ── input-file selection for multi-file fix commits (CVE-2026-0989 shape) ──────
+
 
 def test_pick_input_file_prefers_highest_churn_impl_over_header():
     # libxml2 CVE-2026-0989: header listed first, but the vuln (and the bulk of
@@ -717,13 +954,19 @@ def test_authoring_pair_skips_nixpkgs_repo_commit(tmp_path):
     bd = tmp_path / "CVE-2025-6170--libxml2-backport"
     bd.mkdir(parents=True)
     (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-6170"}))
-    (bd / "upstream-ref.json").write_text(json.dumps({
-        "eligibility": {"patch_strategy": "source-backport"},
-        "upstream_fix_commits": [{
-            "repo_url": "https://github.com/NixOS/nixpkgs",
-            "commit_sha": "2da008e2ee4eda00000000000000000000000000",
-        }],
-    }))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "eligibility": {"patch_strategy": "source-backport"},
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://github.com/NixOS/nixpkgs",
+                        "commit_sha": "2da008e2ee4eda00000000000000000000000000",
+                    }
+                ],
+            }
+        )
+    )
     assert ex._authoring_pair(bd) is None
 
 
@@ -732,11 +975,20 @@ def test_authoring_pair_skips_cached_nixpkgs_pair(tmp_path):
     nixpkgs packaging commit must not export (the guard runs before cache-return)."""
     bd = tmp_path / "CVE-2025-6170--libxml2-backport"
     bd.mkdir(parents=True)
-    (bd / "authoring-example.json").write_text(json.dumps({
-        "cve_id": "CVE-2025-6170", "file": "pkgs/development/libraries/libxml2/default.nix",
-        "pre_fix_source": "{ ... }", "fix_diff": "diff --git a/default.nix b/default.nix\n",
-        "fix_commit": {"repo_url": "https://github.com/NixOS/nixpkgs", "commit_sha": "2da008e2"},
-    }))
+    (bd / "authoring-example.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-2025-6170",
+                "file": "pkgs/development/libraries/libxml2/default.nix",
+                "pre_fix_source": "{ ... }",
+                "fix_diff": "diff --git a/default.nix b/default.nix\n",
+                "fix_commit": {
+                    "repo_url": "https://github.com/NixOS/nixpkgs",
+                    "commit_sha": "2da008e2",
+                },
+            }
+        )
+    )
     assert ex._authoring_pair(bd) is None
 
 
@@ -744,10 +996,10 @@ def test_is_nixpkgs_repo_url_forms():
     assert ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs")
     assert ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs.git")
     assert ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs/")
-    assert ex._is_nixpkgs_repo("git@github.com:NixOS/nixpkgs.git")   # scp-style
+    assert ex._is_nixpkgs_repo("git@github.com:NixOS/nixpkgs.git")  # scp-style
     assert not ex._is_nixpkgs_repo("https://github.com/NixOS/nixpkgs-tools")  # anchored
     assert not ex._is_nixpkgs_repo("https://gitlab.gnome.org/GNOME/libxml2")
-    assert not ex._is_nixpkgs_repo(None)    # malformed: no crash, treated as not-nixpkgs
+    assert not ex._is_nixpkgs_repo(None)  # malformed: no crash, treated as not-nixpkgs
     assert not ex._is_nixpkgs_repo(1234)
 
 
@@ -761,10 +1013,12 @@ def test_hunk_windows_single_region():
 def test_hunk_windows_merges_overlap_and_elides_gaps():
     lines = [f"L{i}" for i in range(1000)]
     out = ex._hunk_windows(lines, [10, 12, 800], radius=5)  # 10&12 overlap; 800 distant
-    assert out.count("/* ... */") == 1          # one gap (merged 10/12 vs 800)
-    assert "L5" in out.splitlines() and "L16" in out.splitlines()  # merged first region (lines[5:17])
-    assert "L4" not in out.splitlines()           # just outside the first window
-    assert "L799" in out.splitlines()             # distant hunk region present (label-consistent)
+    assert out.count("/* ... */") == 1  # one gap (merged 10/12 vs 800)
+    assert (
+        "L5" in out.splitlines() and "L16" in out.splitlines()
+    )  # merged first region (lines[5:17])
+    assert "L4" not in out.splitlines()  # just outside the first window
+    assert "L799" in out.splitlines()  # distant hunk region present (label-consistent)
     # bounded by hunk count, not the 1000-line file span
     assert len(out.splitlines()) < 60
 
@@ -774,11 +1028,12 @@ def test_hunk_windows_merges_overlap_and_elides_gaps():
 # upstream-fix.patch (Reviewer ground truth) over `git show <fix-sha>`, which can
 # carry release-commit noise (pyjwt version bump) or drop hunks (python-multipart).
 
+
 def test_strip_ab_prefix():
     assert ex._strip_ab_prefix("a/jwt/algorithms.py") == "jwt/algorithms.py"
     assert ex._strip_ab_prefix("b/jwt/algorithms.py") == "jwt/algorithms.py"
-    assert ex._strip_ab_prefix("bzip2recover.c") == "bzip2recover.c"   # bare, untouched
-    assert ex._strip_ab_prefix("  a/x.c \n") == "x.c"                   # whitespace tidy
+    assert ex._strip_ab_prefix("bzip2recover.c") == "bzip2recover.c"  # bare, untouched
+    assert ex._strip_ab_prefix("  a/x.c \n") == "x.c"  # whitespace tidy
 
 
 def test_label_from_patch_diff_git_format():
@@ -794,8 +1049,10 @@ def test_label_from_patch_diff_git_format():
     r = ex._authoring_label_from_patch(patch)
     assert list(r["churn"]) == ["jwt/algorithms.py"]
     assert r["added"] == set()
-    assert "__version__" not in r["fix_diff"]                    # release noise excluded
-    assert r["fix_diff"].startswith("diff --git a/jwt/algorithms.py b/jwt/algorithms.py")
+    assert "__version__" not in r["fix_diff"]  # release noise excluded
+    assert r["fix_diff"].startswith(
+        "diff --git a/jwt/algorithms.py b/jwt/algorithms.py"
+    )
 
 
 def test_label_from_patch_bare_and_a_slash_headers():
@@ -804,7 +1061,7 @@ def test_label_from_patch_bare_and_a_slash_headers():
         patch = header + "@@ -10,2 +10,2 @@\n-old line\n+new line\n"
         r = ex._authoring_label_from_patch(patch)
         assert list(r["churn"]) == ["src/x.c"]
-        assert "diff --git a/src/x.c b/src/x.c" in r["fix_diff"]   # canonicalized
+        assert "diff --git a/src/x.c b/src/x.c" in r["fix_diff"]  # canonicalized
 
 
 def test_label_from_patch_keeps_all_hunks():
@@ -816,8 +1073,11 @@ def test_label_from_patch_keeps_all_hunks():
         "@@ -1414,4 +1418,2 @@\n-    self.logger.warning('skip')\n-    i += 2\n+    i = length\n+    break\n"
     )
     r = ex._authoring_label_from_patch(patch)
-    assert ex._file_diff_starts(r["fix_diff"], "multipart.py") == [1105, 1414]  # both hunks
-    assert r["churn"]["multipart.py"] == 8                        # 3 removed + 5 added
+    assert ex._file_diff_starts(r["fix_diff"], "multipart.py") == [
+        1105,
+        1414,
+    ]  # both hunks
+    assert r["churn"]["multipart.py"] == 8  # 3 removed + 5 added
 
 
 def test_label_from_patch_drops_non_source_files():
@@ -830,27 +1090,33 @@ def test_label_from_patch_drops_non_source_files():
         "@@ -1,1 +1,2 @@\n test\n+more test\n"
     )
     r = ex._authoring_label_from_patch(patch)
-    assert list(r["churn"]) == ["src/parser.c"]                  # test file dropped
+    assert list(r["churn"]) == ["src/parser.c"]  # test file dropped
     assert "tests/test_parser.c" not in r["fix_diff"]
 
 
 def test_label_from_patch_detects_added_file_and_none_when_all_nonsource():
-    added = ("diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n"
-             "@@ -0,0 +1,2 @@\n+int x;\n+int y;\n")
+    added = (
+        "diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n"
+        "@@ -0,0 +1,2 @@\n+int x;\n+int y;\n"
+    )
     r = ex._authoring_label_from_patch(added)
     assert r["added"] == {"new.c"}
     # all-non-source -> nothing to author from
-    assert ex._authoring_label_from_patch(
-        "--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1 +1 @@\n-a\n+b\n") is None
+    assert (
+        ex._authoring_label_from_patch(
+            "--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1 +1 @@\n-a\n+b\n"
+        )
+        is None
+    )
 
 
 def test_label_from_patch_preserves_dev_null_headers():
     # An added source file keeps `--- /dev/null`; a deleted one keeps `+++ /dev/null`
     # so the label is a faithful add/delete diff, not a spurious modify.
-    added = ("diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n@@ -0,0 +1,1 @@\n+int x;\n")
+    added = "diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n@@ -0,0 +1,1 @@\n+int x;\n"
     r = ex._authoring_label_from_patch(added)
     assert "--- /dev/null" in r["fix_diff"] and "+++ b/new.c" in r["fix_diff"]
-    deleted = ("diff --git a/old.c b/old.c\n--- a/old.c\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-int y;\n")
+    deleted = "diff --git a/old.c b/old.c\n--- a/old.c\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-int y;\n"
     r2 = ex._authoring_label_from_patch(deleted)
     assert "--- a/old.c" in r2["fix_diff"] and "+++ /dev/null" in r2["fix_diff"]
 
@@ -858,42 +1124,66 @@ def test_label_from_patch_preserves_dev_null_headers():
 def test_label_file_has_removed_is_file_scoped():
     # x.c is pure-addition; y.c has a deletion. has-removed for x.c must be False
     # (another file's deletion must not vouch for a suffix-resolved x.c).
-    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -10,1 +10,2 @@\n ctx;\n+added;\n"
-           "diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n@@ -5,2 +5,1 @@\n-gone;\n ctx2;\n")
+    fix = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -10,1 +10,2 @@\n ctx;\n+added;\n"
+        "diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n@@ -5,2 +5,1 @@\n-gone;\n ctx2;\n"
+    )
     assert ex._label_file_has_removed(fix, "y.c")
     assert not ex._label_file_has_removed(fix, "x.c")
 
 
 def test_patch_grounded_removed_lines_present_vs_absent():
-    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
-           "@@ -10,2 +10,2 @@\n-    int bad = 1;\n+    int good = 1;\n")
-    assert ex._patch_grounded(fix, "x.c", "void f() {\n    int bad = 1;\n}")       # removed line present
-    assert not ex._patch_grounded(fix, "x.c", "void f() {\n    int other = 1;\n}")  # absent -> ungrounded
+    fix = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
+        "@@ -10,2 +10,2 @@\n-    int bad = 1;\n+    int good = 1;\n"
+    )
+    assert ex._patch_grounded(
+        fix, "x.c", "void f() {\n    int bad = 1;\n}"
+    )  # removed line present
+    assert not ex._patch_grounded(
+        fix, "x.c", "void f() {\n    int other = 1;\n}"
+    )  # absent -> ungrounded
 
 
 def test_patch_grounded_pure_addition_uses_context():
     # No removed lines -> require the hunk CONTEXT to appear in the window.
-    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
-           "@@ -10,2 +10,3 @@\n context anchor;\n+    int added;\n trailing;\n")
-    assert ex._patch_grounded(fix, "x.c", "context anchor;\ntrailing;\nmore;")     # context present
-    assert not ex._patch_grounded(fix, "x.c", "unrelated;\nlines;")                # context absent
+    fix = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
+        "@@ -10,2 +10,3 @@\n context anchor;\n+    int added;\n trailing;\n"
+    )
+    assert ex._patch_grounded(
+        fix, "x.c", "context anchor;\ntrailing;\nmore;"
+    )  # context present
+    assert not ex._patch_grounded(fix, "x.c", "unrelated;\nlines;")  # context absent
 
 
 def test_patch_grounded_scopes_to_named_file():
     # A removed line belonging to ANOTHER file must not be required in fpath's window.
-    fix = ("diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -10,2 +10,2 @@\n-here;\n+now;\n"
-           "diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n@@ -5,2 +5,2 @@\n-elsewhere;\n+changed;\n")
-    assert ex._patch_grounded(fix, "x.c", "here;\nrest;")   # only x.c's `here;` checked
+    fix = (
+        "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -10,2 +10,2 @@\n-here;\n+now;\n"
+        "diff --git a/y.c b/y.c\n--- a/y.c\n+++ b/y.c\n@@ -5,2 +5,2 @@\n-elsewhere;\n+changed;\n"
+    )
+    assert ex._patch_grounded(fix, "x.c", "here;\nrest;")  # only x.c's `here;` checked
 
 
 # ── offline integration: patch-preferred, version-bump excluded, divergent fallback ──
 
+
 def _git(repo: Path, *a: str):
     import subprocess
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True,
-                          env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
-                               "PATH": __import__("os").environ.get("PATH", "")})
+
+    return subprocess.run(
+        ["git", "-C", str(repo), *a],
+        capture_output=True,
+        text=True,
+        env={
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+            "PATH": __import__("os").environ.get("PATH", ""),
+        },
+    )
 
 
 def _fix_repo(tmp_path: Path, parent_src: str, fix_src: str, *, extra_commit_file=None):
@@ -904,24 +1194,39 @@ def _fix_repo(tmp_path: Path, parent_src: str, fix_src: str, *, extra_commit_fil
     repo.mkdir()
     _git(repo, "init", "-q")
     (repo / "impl.c").write_text(parent_src)
-    _git(repo, "add", "-A"); _git(repo, "commit", "-qm", "parent")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "parent")
     (repo / "impl.c").write_text(fix_src)
     if extra_commit_file:
         (repo / extra_commit_file).write_text("__version__ = '2.0'\n")
-    _git(repo, "add", "-A"); _git(repo, "commit", "-qm", "fix")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "fix")
     return repo, _git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
 def _bundle(tmp_path, repo, sha, patch_body):
     bd = tmp_path / "CVE-2099-0001--local-backport"
     bd.mkdir()
-    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "x", "cve_id": "CVE-2099-0001"}))
-    (bd / "finding.json").write_text(json.dumps(
-        {"cve_id": "CVE-2099-0001", "summary": "Overflow when input is large.",
-         "affected": [{"attr_path": "local"}]}))
-    (bd / "upstream-ref.json").write_text(json.dumps({
-        "eligibility": {"patch_strategy": "source-backport"},
-        "upstream_fix_commits": [{"repo_url": str(repo), "commit_sha": sha}]}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"bundle_id": "x", "cve_id": "CVE-2099-0001"})
+    )
+    (bd / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-2099-0001",
+                "summary": "Overflow when input is large.",
+                "affected": [{"attr_path": "local"}],
+            }
+        )
+    )
+    (bd / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "eligibility": {"patch_strategy": "source-backport"},
+                "upstream_fix_commits": [{"repo_url": str(repo), "commit_sha": sha}],
+            }
+        )
+    )
     (bd / "upstream-fix.patch").write_text(patch_body)
     return bd
 
@@ -932,8 +1237,11 @@ def _allow_file_proto(monkeypatch):
     exercise the LABEL logic, not the protocol guard, so widen it locally."""
     bp = ex_bp()
     monkeypatch.setattr(bp, "_validate_repo_url", lambda u: u)
-    monkeypatch.setattr(bp, "_HARDENED_ENV",
-                        {**bp._HARDENED_ENV, "GIT_ALLOW_PROTOCOL": "file:https:git:ssh"})
+    monkeypatch.setattr(
+        bp,
+        "_HARDENED_ENV",
+        {**bp._HARDENED_ENV, "GIT_ALLOW_PROTOCOL": "file:https:git:ssh"},
+    )
 
 
 def test_authoring_prefers_curated_patch_over_noisy_git_show(tmp_path, monkeypatch):
@@ -942,15 +1250,20 @@ def test_authoring_prefers_curated_patch_over_noisy_git_show(tmp_path, monkeypat
     parent = "int f() {\n    int n = read();\n    use(n);\n    return 0;\n}\n"
     fixed = "int f() {\n    int n = read();\n    if (n > 255) return -1;\n    use(n);\n    return 0;\n}\n"
     repo, sha = _fix_repo(tmp_path, parent, fixed, extra_commit_file="version.py")
-    patch = ("--- a/impl.c\n+++ b/impl.c\n@@ -2,3 +2,4 @@\n"
-             "     int n = read();\n+    if (n > 255) return -1;\n     use(n);\n     return 0;\n")
+    patch = (
+        "--- a/impl.c\n+++ b/impl.c\n@@ -2,3 +2,4 @@\n"
+        "     int n = read();\n+    if (n > 255) return -1;\n     use(n);\n     return 0;\n"
+    )
     bd = _bundle(tmp_path, repo, sha, patch)
     pair = ex._authoring_pair(bd)
     assert pair is not None
     assert pair["label_source"] == "upstream-fix.patch"
-    assert "__version__" not in pair["fix_diff"]            # release noise excluded
+    assert "__version__" not in pair["fix_diff"]  # release noise excluded
     assert "n > 255" in pair["fix_diff"]
-    assert "if (n > 255) return -1;" in pair["pre_fix_source"] or "use(n)" in pair["pre_fix_source"]
+    assert (
+        "if (n > 255) return -1;" in pair["pre_fix_source"]
+        or "use(n)" in pair["pre_fix_source"]
+    )
 
 
 def test_authoring_falls_back_when_patch_base_diverges(tmp_path, monkeypatch):
@@ -958,58 +1271,89 @@ def test_authoring_falls_back_when_patch_base_diverges(tmp_path, monkeypatch):
     # against a different base) -> ungrounded -> git-show fallback (procps shape).
     _allow_file_proto(monkeypatch)
     parent = "int f() {\n    int n = read();\n    use(n);\n}\n"
-    fixed = "int f() {\n    int n = read();\n    if (n > 255) return -1;\n    use(n);\n}\n"
+    fixed = (
+        "int f() {\n    int n = read();\n    if (n > 255) return -1;\n    use(n);\n}\n"
+    )
     repo, sha = _fix_repo(tmp_path, parent, fixed)
     # patch claims to remove a line absent from this parent:
-    patch = ("--- a/impl.c\n+++ b/impl.c\n@@ -2,2 +2,2 @@\n"
-             "-    int n = scanf_unbounded();\n+    int n = read_bounded();\n")
+    patch = (
+        "--- a/impl.c\n+++ b/impl.c\n@@ -2,2 +2,2 @@\n"
+        "-    int n = scanf_unbounded();\n+    int n = read_bounded();\n"
+    )
     bd = _bundle(tmp_path, repo, sha, patch)
     pair = ex._authoring_pair(bd)
     assert pair is not None
-    assert pair["label_source"] == "git-show-fallback"      # diverged -> git-show
-    assert "n > 255" in pair["fix_diff"]                    # the REAL commit's fix
+    assert pair["label_source"] == "git-show-fallback"  # diverged -> git-show
+    assert "n > 255" in pair["fix_diff"]  # the REAL commit's fix
 
 
 def ex_bp():
     from tools.trace_cli import backport_patch as bp
+
     return bp
 
 
 # ── held-out canary split (authoring gate pilot) ──────────────────────────────
 
+
 def test_authoring_canary_split_held_out_of_training(tmp_path):
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
-                   attr="zlib", summary="Heap over-read in inflate when processing a gzip header.")
-    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport", cve="CVE-2025-34451",
-                   attr="proxychains-ng", summary="Stack overflow in proxy parsing with long credentials.")
+    _cached_bundle(
+        root,
+        "CVE-2022-37434--zlib-backport",
+        cve="CVE-2022-37434",
+        attr="zlib",
+        summary="Heap over-read in inflate when processing a gzip header.",
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--proxychains-ng-backport",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy parsing with long credentials.",
+    )
     manifest = tmp_path / "split.json"
-    manifest.write_text(json.dumps({"name": "t", "overrides": {"zlib": {"split": "canary"}}}))
+    manifest.write_text(
+        json.dumps({"name": "t", "overrides": {"zlib": {"split": "canary"}}})
+    )
     rc = ex.run(_args(tmp_path / "out", root, split_manifest=manifest))
     assert rc == 0
     out = tmp_path / "out"
     train = [json.loads(l) for l in (out / "authoring.jsonl").read_text().splitlines()]
-    canary = [json.loads(l) for l in (out / "authoring-canary.jsonl").read_text().splitlines()]
-    assert [e["provenance"]["cve_id"] for e in train] == ["CVE-2025-34451"]   # zlib held out
-    assert [e["provenance"]["cve_id"] for e in canary] == ["CVE-2022-37434"]  # zlib is canary
+    canary = [
+        json.loads(l) for l in (out / "authoring-canary.jsonl").read_text().splitlines()
+    ]
+    assert [e["provenance"]["cve_id"] for e in train] == [
+        "CVE-2025-34451"
+    ]  # zlib held out
+    assert [e["provenance"]["cve_id"] for e in canary] == [
+        "CVE-2022-37434"
+    ]  # zlib is canary
     assert all(e["split"] == "canary" for e in canary)
     m = json.loads((out / "manifest.json").read_text())
     assert m["canary_examples"] == 1
     assert m["canary_families"] == ["zlib"]
     assert m["canary_cves"] == ["CVE-2022-37434"]
     assert m["split_manifest"]["name"] == "t"
-    assert "CVE-2022-37434" not in [e["provenance"]["cve_id"] for e in train]  # NO leakage
+    assert "CVE-2022-37434" not in [
+        e["provenance"]["cve_id"] for e in train
+    ]  # NO leakage
 
 
 def test_authoring_canary_file_empty_without_manifest(tmp_path):
     # Deterministic output: the canary file is always written (empty when none) so a
     # reused output dir can't surface a stale held-out set (codex 2026-06-25).
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
-                   attr="zlib", summary="Heap over-read in inflate processing a gzip header.")
+    _cached_bundle(
+        root,
+        "CVE-2022-37434--zlib-backport",
+        cve="CVE-2022-37434",
+        attr="zlib",
+        summary="Heap over-read in inflate processing a gzip header.",
+    )
     ex.run(_args(tmp_path / "out", root))
     canary = tmp_path / "out" / "authoring-canary.jsonl"
-    assert canary.exists() and canary.read_text() == ""   # present but empty
+    assert canary.exists() and canary.read_text() == ""  # present but empty
     m = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert m["canary_examples"] == 0 and m["split_manifest"] is None
 
@@ -1017,21 +1361,33 @@ def test_authoring_canary_file_empty_without_manifest(tmp_path):
 def test_authoring_canary_file_overwritten_stale(tmp_path):
     # A run with canaries then a run without must not leave the stale canary set.
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
-                   attr="zlib", summary="Heap over-read in inflate.")
+    _cached_bundle(
+        root,
+        "CVE-2022-37434--zlib-backport",
+        cve="CVE-2022-37434",
+        attr="zlib",
+        summary="Heap over-read in inflate.",
+    )
     out = tmp_path / "out"
     mani = tmp_path / "split.json"
-    mani.write_text(json.dumps({"name": "t", "overrides": {"zlib": {"split": "canary"}}}))
+    mani.write_text(
+        json.dumps({"name": "t", "overrides": {"zlib": {"split": "canary"}}})
+    )
     ex.run(_args(out, root, split_manifest=mani))
-    assert (out / "authoring-canary.jsonl").read_text() != ""   # canary written
-    ex.run(_args(out, root))                                     # rerun, no manifest
-    assert (out / "authoring-canary.jsonl").read_text() == ""    # stale set cleared
+    assert (out / "authoring-canary.jsonl").read_text() != ""  # canary written
+    ex.run(_args(out, root))  # rerun, no manifest
+    assert (out / "authoring-canary.jsonl").read_text() == ""  # stale set cleared
 
 
 def test_authoring_split_manifest_missing_file_errors(tmp_path):
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2022-37434--zlib-backport", cve="CVE-2022-37434",
-                   attr="zlib", summary="Heap over-read in inflate.")
+    _cached_bundle(
+        root,
+        "CVE-2022-37434--zlib-backport",
+        cve="CVE-2022-37434",
+        attr="zlib",
+        summary="Heap over-read in inflate.",
+    )
     rc = ex.run(_args(tmp_path / "out", root, split_manifest=tmp_path / "nope.json"))
     assert rc == 2
 
@@ -1046,19 +1402,30 @@ def test_authoring_v1_manifest_is_valid_and_clean():
 
 # --- B: fetch-skip observability + C: multi-file label auditability ----------
 
+
 def test_authoring_pair_records_unsafe_sha_skip(tmp_path):
     """A real source-backport whose upstream sha is not resolvable must not vanish
     silently: _authoring_pair appends a {bundle, reason} to `skips`. (The non-hex
     sha is rejected offline, before any fetch.)"""
     bd = tmp_path / "CVE-2024-0001--demo"
     bd.mkdir(parents=True)
-    (bd / "upstream-ref.json").write_text(json.dumps({
-        "cve_id": "CVE-2024-0001",
-        "eligibility": {"patch_strategy": "source-backport"},
-        "upstream_fix_commits": [
-            {"repo_url": "https://github.com/demo/proj", "commit_sha": "NOTHEXSHA"}],
-    }))
-    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2024-0001", "summary": "x"}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-2024-0001",
+                "eligibility": {"patch_strategy": "source-backport"},
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://github.com/demo/proj",
+                        "commit_sha": "NOTHEXSHA",
+                    }
+                ],
+            }
+        )
+    )
+    (bd / "finding.json").write_text(
+        json.dumps({"cve_id": "CVE-2024-0001", "summary": "x"})
+    )
     skips: list[dict] = []
     pair = ex._authoring_pair(bd, skips=skips)
     assert pair is None
@@ -1071,8 +1438,12 @@ def test_authoring_pair_expected_skip_not_recorded(tmp_path):
     anomalies, not every bundle the exporter passes over."""
     bd = tmp_path / "CVE-2024-0002--demo"
     bd.mkdir(parents=True)
-    (bd / "upstream-ref.json").write_text(json.dumps({"cve_id": "CVE-2024-0002"}))  # no source-backport
-    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2024-0002", "summary": "x"}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"cve_id": "CVE-2024-0002"})
+    )  # no source-backport
+    (bd / "finding.json").write_text(
+        json.dumps({"cve_id": "CVE-2024-0002", "summary": "x"})
+    )
     skips: list[dict] = []
     assert ex._authoring_pair(bd, skips=skips) is None
     assert skips == []
@@ -1082,19 +1453,26 @@ def test_authoring_manifest_records_multi_file_label(tmp_path):
     """A pair whose LABEL spans >1 file records label_file_count and is listed in
     manifest.multi_file_label_bundles; the fetch_skips field is always present."""
     root = tmp_path / "traces"
-    multi = (_FIX_DIFF +
-             "diff --git a/src/other.c b/src/other.c\n"
-             "--- a/src/other.c\n+++ b/src/other.c\n@@ -1 +1 @@\n-old_line\n+new_line\n")
-    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
-                   cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Stack overflow in proxy_from_string with long credentials.",
-                   fix_diff=multi,
-                   # A real multi-file window renders each file behind a
-                   # `/* ==== file: X ==== */` boundary; per-file grounding checks each
-                   # file's lines against its OWN section.
-                   pre_fix=(f"/* ==== file: src/libproxychains.c ==== */\n{_DEFAULT_PRE_FIX}"
-                            "\n\n/* ==== file: src/other.c ==== */\nold_line"),
-                   included=["src/libproxychains.c", "src/other.c"])
+    multi = (
+        _FIX_DIFF + "diff --git a/src/other.c b/src/other.c\n"
+        "--- a/src/other.c\n+++ b/src/other.c\n@@ -1 +1 @@\n-old_line\n+new_line\n"
+    )
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--proxychains-ng-backport",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Stack overflow in proxy_from_string with long credentials.",
+        fix_diff=multi,
+        # A real multi-file window renders each file behind a
+        # `/* ==== file: X ==== */` boundary; per-file grounding checks each
+        # file's lines against its OWN section.
+        pre_fix=(
+            f"/* ==== file: src/libproxychains.c ==== */\n{_DEFAULT_PRE_FIX}"
+            "\n\n/* ==== file: src/other.c ==== */\nold_line"
+        ),
+        included=["src/libproxychains.c", "src/other.c"],
+    )
     ex.run(_args(tmp_path / "out", root))
     rec = json.loads((tmp_path / "out" / "authoring.jsonl").read_text().splitlines()[0])
     assert rec["provenance"]["label_file_count"] == 2
@@ -1121,8 +1499,12 @@ def _make_targz(members: dict[str, str]) -> bytes:
 
 
 def test_archive_url_ok_allowlist():
-    assert ex._archive_url_ok("https://cpan.metacpan.org/authors/id/M/ML/MLEHMANN/JSON-XS-4.03.tar.gz")
-    assert ex._archive_url_ok("https://ftp.example.cpan.org/x.tar.gz")  # sub-domain of cpan.org
+    assert ex._archive_url_ok(
+        "https://cpan.metacpan.org/authors/id/M/ML/MLEHMANN/JSON-XS-4.03.tar.gz"
+    )
+    assert ex._archive_url_ok(
+        "https://ftp.example.cpan.org/x.tar.gz"
+    )  # sub-domain of cpan.org
     # rejected: wrong scheme, off-list host, non-string
     assert not ex._archive_url_ok("http://cpan.metacpan.org/x.tar.gz")
     assert not ex._archive_url_ok("https://evil.example.com/x.tar.gz")
@@ -1131,13 +1513,16 @@ def test_archive_url_ok_allowlist():
 
 
 def test_tar_member_text_reads_exact_member():
-    data = _make_targz({"JSON-XS-4.03/XS.xs": "line1\nline2\n", "JSON-XS-4.03/README": "x"})
+    data = _make_targz(
+        {"JSON-XS-4.03/XS.xs": "line1\nline2\n", "JSON-XS-4.03/README": "x"}
+    )
     assert ex._tar_member_text(data, "JSON-XS-4.03/XS.xs") == "line1\nline2\n"
 
 
 def test_tar_member_text_rejects_traversal_and_absolute():
     data = _make_targz({"ok": "x"})
     import pytest
+
     for bad in ("../etc/passwd", "/etc/passwd"):
         with pytest.raises(ValueError):
             ex._tar_member_text(data, bad)
@@ -1146,6 +1531,7 @@ def test_tar_member_text_rejects_traversal_and_absolute():
 def test_tar_member_text_size_cap():
     data = _make_targz({"big": "A" * 100})
     import pytest
+
     with pytest.raises(ValueError):
         ex._tar_member_text(data, "big", max_member_bytes=10)
 
@@ -1154,7 +1540,9 @@ def test_authoring_pair_from_tarballs_grounds_and_caches(tmp_path, monkeypatch):
     # pre-fix member contains the line the patch REMOVES; fixed member contains the
     # line it ADDS. Grounding must pass and the pair must cache offline.
     pre = "ctx a\nbad_old_line;\nctx b\n" + "\n".join(f"f{i}" for i in range(40)) + "\n"
-    fixed = "ctx a\ngood_new_line;\nctx b\n" + "\n".join(f"f{i}" for i in range(40)) + "\n"
+    fixed = (
+        "ctx a\ngood_new_line;\nctx b\n" + "\n".join(f"f{i}" for i in range(40)) + "\n"
+    )
     patch = (
         "--- a/Mod.pm\n"
         "+++ b/Mod.pm\n"
@@ -1167,22 +1555,40 @@ def test_authoring_pair_from_tarballs_grounds_and_caches(tmp_path, monkeypatch):
     bd = tmp_path / "CVE-2099-0001--mod-backport"
     bd.mkdir()
     (bd / "upstream-fix.patch").write_text(patch)
-    (bd / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-2099-0001",
-        "summary": "A flaw in Mod.pm.",
-        "affected": [{"attr_path": "perlPackages.Mod"}],
-    }))
-    (bd / "source-archives.json").write_text(json.dumps({
-        "label_grounding_source": "upstream-release-tarball",
-        "file": "Mod.pm",
-        "release_url": "https://cpan.metacpan.org/release/Mod-2.0",
-        "pre_fix": {"url": "https://cpan.metacpan.org/Mod-1.0.tar.gz", "sha256": "a" * 64, "member": "Mod-1.0/Mod.pm"},
-        "fixed": {"url": "https://cpan.metacpan.org/Mod-2.0.tar.gz", "sha256": "b" * 64, "member": "Mod-2.0/Mod.pm"},
-    }))
+    (bd / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-2099-0001",
+                "summary": "A flaw in Mod.pm.",
+                "affected": [{"attr_path": "perlPackages.Mod"}],
+            }
+        )
+    )
+    (bd / "source-archives.json").write_text(
+        json.dumps(
+            {
+                "label_grounding_source": "upstream-release-tarball",
+                "file": "Mod.pm",
+                "release_url": "https://cpan.metacpan.org/release/Mod-2.0",
+                "pre_fix": {
+                    "url": "https://cpan.metacpan.org/Mod-1.0.tar.gz",
+                    "sha256": "a" * 64,
+                    "member": "Mod-1.0/Mod.pm",
+                },
+                "fixed": {
+                    "url": "https://cpan.metacpan.org/Mod-2.0.tar.gz",
+                    "sha256": "b" * 64,
+                    "member": "Mod-2.0/Mod.pm",
+                },
+            }
+        )
+    )
     pre_tgz = _make_targz({"Mod-1.0/Mod.pm": pre})
     fixed_tgz = _make_targz({"Mod-2.0/Mod.pm": fixed})
+
     def fake_fetch(url, sha256, **kw):
         return pre_tgz if "1.0" in url else fixed_tgz
+
     monkeypatch.setattr(ex, "_fetch_verified", fake_fetch)
 
     skips = []
@@ -1193,34 +1599,67 @@ def test_authoring_pair_from_tarballs_grounds_and_caches(tmp_path, monkeypatch):
     assert "bad_old_line;" in pair["pre_fix_source"]
     assert pair["fix_commit"]["commit_sha"] == ""
     # cached offline: a second call returns without re-fetching
-    monkeypatch.setattr(ex, "_fetch_verified", lambda *a, **k: (_ for _ in ()).throw(AssertionError("refetched")))
+    monkeypatch.setattr(
+        ex,
+        "_fetch_verified",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("refetched")),
+    )
     assert ex._authoring_pair(bd)["file"] == "Mod.pm"
 
 
-def test_authoring_pair_from_tarballs_rejects_ungrounded_added_line(tmp_path, monkeypatch):
+def test_authoring_pair_from_tarballs_rejects_ungrounded_added_line(
+    tmp_path, monkeypatch
+):
     # fixed member does NOT contain the added line -> grounding must fail (None+skip)
     pre = "ctx a\nbad_old_line;\nctx b\n"
     fixed = "ctx a\nSOMETHING_ELSE;\nctx b\n"
-    patch = ("--- a/Mod.pm\n+++ b/Mod.pm\n@@ -1,3 +1,3 @@\n ctx a\n-bad_old_line;\n+good_new_line;\n ctx b\n")
+    patch = "--- a/Mod.pm\n+++ b/Mod.pm\n@@ -1,3 +1,3 @@\n ctx a\n-bad_old_line;\n+good_new_line;\n ctx b\n"
     bd = tmp_path / "CVE-2099-0002--mod-backport"
     bd.mkdir()
     (bd / "upstream-fix.patch").write_text(patch)
-    (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2099-0002", "summary": "x",
-                                                 "affected": [{"attr_path": "perlPackages.Mod"}]}))
-    (bd / "source-archives.json").write_text(json.dumps({
-        "label_grounding_source": "upstream-release-tarball", "file": "Mod.pm",
-        "pre_fix": {"url": "https://cpan.metacpan.org/Mod-1.0.tar.gz", "sha256": "a" * 64, "member": "Mod-1.0/Mod.pm"},
-        "fixed": {"url": "https://cpan.metacpan.org/Mod-2.0.tar.gz", "sha256": "b" * 64, "member": "Mod-2.0/Mod.pm"},
-    }))
-    monkeypatch.setattr(ex, "_fetch_verified",
-                        lambda url, *a, **k: _make_targz({"Mod-1.0/Mod.pm": pre}) if "1.0" in url
-                        else _make_targz({"Mod-2.0/Mod.pm": fixed}))
+    (bd / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-2099-0002",
+                "summary": "x",
+                "affected": [{"attr_path": "perlPackages.Mod"}],
+            }
+        )
+    )
+    (bd / "source-archives.json").write_text(
+        json.dumps(
+            {
+                "label_grounding_source": "upstream-release-tarball",
+                "file": "Mod.pm",
+                "pre_fix": {
+                    "url": "https://cpan.metacpan.org/Mod-1.0.tar.gz",
+                    "sha256": "a" * 64,
+                    "member": "Mod-1.0/Mod.pm",
+                },
+                "fixed": {
+                    "url": "https://cpan.metacpan.org/Mod-2.0.tar.gz",
+                    "sha256": "b" * 64,
+                    "member": "Mod-2.0/Mod.pm",
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(
+        ex,
+        "_fetch_verified",
+        lambda url, *a, **k: (
+            _make_targz({"Mod-1.0/Mod.pm": pre})
+            if "1.0" in url
+            else _make_targz({"Mod-2.0/Mod.pm": fixed})
+        ),
+    )
     skips = []
     assert ex._authoring_pair(bd, skips=skips) is None
     assert any("added-lines not all present" in s["reason"] for s in skips)
 
 
 # --- multi-file authoring input window (codex <redacted-session-id> 2026-06-29) --------------
+
 
 def _mk_blob(marker, at_line, n=40):
     """A blob of `n` ctx lines with `marker` placed at 1-based `at_line`."""
@@ -1242,7 +1681,9 @@ def test_multi_file_window_grounds_every_file():
         "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
         "bar.c": (_mk_blob("    int bad_bar = 2;", 12), True),
     }
-    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    out = ex._multi_file_window(
+        _TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp)
+    )
     assert out is not None
     assert out["included"] == ["foo.c", "bar.c"]
     assert out["primary"] == "foo.c"
@@ -1255,7 +1696,9 @@ def test_multi_file_window_grounds_every_file():
 
 def test_multi_file_window_rejects_unresolved_file():
     blobs = {"foo.c": (_mk_blob("    int bad_foo = 1;", 10), True)}  # bar.c missing
-    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    out = ex._multi_file_window(
+        _TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp)
+    )
     assert out is None
 
 
@@ -1266,13 +1709,16 @@ def test_multi_file_window_rejects_ungrounded_removed_line():
         "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
         "bar.c": (_mk_blob("    something else;", 12), True),
     }
-    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    out = ex._multi_file_window(
+        _TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp)
+    )
     assert out is None
 
 
 def test_multi_file_window_rejects_more_than_cap():
-    out = ex._multi_file_window(_TWO_FILE_DIFF, ["a.c", "b.c", "c.c", "d.c"],
-                                lambda fp: ([], True))
+    out = ex._multi_file_window(
+        _TWO_FILE_DIFF, ["a.c", "b.c", "c.c", "d.c"], lambda fp: ([], True)
+    )
     assert out is None
 
 
@@ -1299,7 +1745,9 @@ def test_multi_file_window_truncates_to_fit_budget(monkeypatch):
         "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
         "bar.c": (_mk_blob("    int bad_bar = 2;", 12), True),
     }
-    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    out = ex._multi_file_window(
+        _TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp)
+    )
     assert out is not None
     assert out["truncated"] is True
     # Truncation shrinks the radius but every removed line (hunk-centred) survives.
@@ -1312,11 +1760,14 @@ def test_multi_file_window_rejects_when_budget_too_small(monkeypatch):
         "foo.c": (_mk_blob("    int bad_foo = 1;", 10), True),
         "bar.c": (_mk_blob("    int bad_bar = 2;", 12), True),
     }
-    out = ex._multi_file_window(_TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp))
+    out = ex._multi_file_window(
+        _TWO_FILE_DIFF, ["foo.c", "bar.c"], lambda fp: blobs.get(fp)
+    )
     assert out is None
 
 
 # --- format-patch trailer normalization + multi-file window budget (2026-07-13) ---
+
 
 def test_strip_format_patch_trailer_all_generator_variants():
     """git format-patch / GitLab / cgit all append a `--`/`-- ` separator + a
@@ -1340,6 +1791,7 @@ def test_no_exported_authoring_label_carries_a_format_patch_trailer():
     """Corpus invariant: no cached authoring label ships a format-patch trailer.
     Scans the on-disk caches (no network) so a re-introduced trailer fails here."""
     import glob
+
     offenders = []
     for ae in glob.glob("traces/example/*/authoring-example.json"):
         fd = json.load(open(ae)).get("fix_diff", "")
@@ -1386,7 +1838,8 @@ def test_multi_file_window_excludes_above_cap():
     files = [f"f{i}.c" for i in range(n)]
     diff = "".join(
         f"diff --git a/{f} b/{f}\n--- a/{f}\n+++ b/{f}\n@@ -1,1 +1,1 @@\n-old{i}\n+new{i}\n"
-        for i, f in enumerate(files))
+        for i, f in enumerate(files)
+    )
     blob = lambda fp: ([f"old{files.index(fp)}"], True) if fp in files else None
     assert ex._multi_file_window(diff, files, blob) is None
 
@@ -1396,10 +1849,17 @@ def test_authoring_export_excludes_oversized_window(tmp_path):
     emitted as a pair the tokenizer would silently truncate. Mirrors the multi-file
     exclude-not-degrade policy for the single-file path. (codex <redacted-session-id> 2026-07-13)"""
     root = tmp_path / "traces"
-    summary = ("Stack-based buffer overflow in proxy_from_string when a username exceeds "
-               "255 bytes. It was gated on proxytype == RS_PT_SOCKS5.")
-    bd = _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
-                        cve="CVE-2025-34451", attr="proxychains-ng", summary=summary)
+    summary = (
+        "Stack-based buffer overflow in proxy_from_string when a username exceeds "
+        "255 bytes. It was gated on proxytype == RS_PT_SOCKS5."
+    )
+    bd = _cached_bundle(
+        root,
+        "CVE-2025-34451--proxychains-ng-backport",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary=summary,
+    )
     # Overwrite the cached window with one just over the budget (an early exporter
     # left contiguous first-hunk-to-last-hunk windows this large in cache).
     cache = json.loads((bd / "authoring-example.json").read_text())
@@ -1409,19 +1869,28 @@ def test_authoring_export_excludes_oversized_window(tmp_path):
 
     rc = ex.run(_args(tmp_path / "out", root))
     assert rc == 0
-    assert (tmp_path / "out" / "authoring.jsonl").read_text().strip() == ""  # not emitted
+    assert (
+        tmp_path / "out" / "authoring.jsonl"
+    ).read_text().strip() == ""  # not emitted
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
-    reasons = [e["reason"] for e in manifest.get("excluded", [])
-               if e["bundle"].startswith("CVE-2025-34451")]
+    reasons = [
+        e["reason"]
+        for e in manifest.get("excluded", [])
+        if e["bundle"].startswith("CVE-2025-34451")
+    ]
     assert reasons and "budget" in reasons[0], reasons
 
 
 def test_authoring_export_window_within_budget_is_kept(tmp_path):
     """Control: a normal small window exports fine and records input_window_chars."""
     root = tmp_path / "traces"
-    _cached_bundle(root, "CVE-2025-34451--proxychains-ng-backport",
-                   cve="CVE-2025-34451", attr="proxychains-ng",
-                   summary="Buffer overflow in proxy_from_string over 255 bytes.")
+    _cached_bundle(
+        root,
+        "CVE-2025-34451--proxychains-ng-backport",
+        cve="CVE-2025-34451",
+        attr="proxychains-ng",
+        summary="Buffer overflow in proxy_from_string over 255 bytes.",
+    )
     rc = ex.run(_args(tmp_path / "out", root))
     assert rc == 0
     rec = json.loads((tmp_path / "out" / "authoring.jsonl").read_text().splitlines()[0])

@@ -33,24 +33,33 @@ class UpstreamRefComplianceScorer:
         out_paths = {o["path"] for o in invocation.get("outputs") or []}
         if "refusal.json" in out_paths:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="patcher invocation produced a refusal; "
-                      "upstream-ref compliance is not applicable",
+                "upstream-ref compliance is not applicable",
             )
 
         rat_path = bundle_dir / "patch-rationale.md"
         upstream_ref_path = bundle_dir / "upstream-ref.json"
         if not rat_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="patch-rationale.md not on disk",
             )
         if not upstream_ref_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="upstream-ref.json missing from bundle; nothing to compare against",
             )
 
@@ -71,10 +80,13 @@ class UpstreamRefComplianceScorer:
 
         if not expected_tokens:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="upstream-ref.json carries no target_version, tag, or "
-                      "upstream_fix_commits to check against",
+                "upstream_fix_commits to check against",
             )
 
         upstream_section = _extract_section(rationale, "## Upstream reference")
@@ -103,8 +115,11 @@ class UpstreamRefComplianceScorer:
 
         score = len(present_anywhere) / len(expected_tokens)
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=score,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=score,
             notes=(
                 f"{len(present_anywhere)}/{len(expected_tokens)} expected "
                 f"upstream-ref citations present (target/tag/commit shas)"

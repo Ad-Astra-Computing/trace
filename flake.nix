@@ -4,10 +4,21 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      treefmt-nix,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs { inherit system; };
         pythonEnv = pkgs.python3.withPackages (ps: [
@@ -17,8 +28,34 @@
           ps.anthropic
           ps.openai
         ]);
+
+        treefmtEval = treefmt-nix.lib.evalModule pkgs {
+          projectRootFile = "flake.nix";
+          # traces/, eval/experiments/ and tests/fixtures/ are model-authored
+          # evidence bound to replay.json hashes. Formatting them would break
+          # bundle provenance, so they are excluded from every formatter.
+          settings.global.excludes = [
+            "traces/**"
+            "eval/experiments/**"
+            "tests/fixtures/**"
+          ];
+          programs = {
+            nixfmt.enable = true;
+            ruff.format = true;
+          };
+        };
       in
       {
+        formatter = treefmtEval.config.build.wrapper;
+
+        checks.formatting = treefmtEval.config.build.check self;
+
+        checks.eval-fixtures = pkgs.runCommand "eval-fixtures" { } ''
+          cd ${self}
+          PYTHONPATH=${self} TRACE_ROOT=${self} ${pythonEnv}/bin/python3 -m pytest -q -p no:cacheprovider tests/schema/test_fixtures.py tests/docs/test_seed_index.py
+          touch $out
+        '';
+
         devShells.default = pkgs.mkShell {
           name = "trace";
           packages = [
@@ -82,7 +119,12 @@
           in
           pkgs.mkShell {
             name = "trace-lora";
-            packages = [ loraEnv pkgs.jq pkgs.git pkgs.coreutils ];
+            packages = [
+              loraEnv
+              pkgs.jq
+              pkgs.git
+              pkgs.coreutils
+            ];
             shellHook = ''
               export TRACE_ROOT="$PWD"
               {
@@ -117,5 +159,6 @@
             echo "  cargo: $(cargo --version)"
           '';
         };
-      });
+      }
+    );
 }

@@ -61,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.graph_snapshot.is_file():
-        print(f"error: graph snapshot not found: {args.graph_snapshot}", file=sys.stderr)
+        print(
+            f"error: graph snapshot not found: {args.graph_snapshot}", file=sys.stderr
+        )
         return _EXIT_USAGE
 
     try:
@@ -106,16 +108,18 @@ def _load_snapshot(path: Path) -> CannedGraphLookup:
         raise TypeError("snapshot must be a JSON array")
     records: list[GraphMatch] = []
     for entry in raw:
-        records.append(GraphMatch(
-            attr_path=entry["attr_path"],
-            drv_path=entry["drv_path"],
-            pname=entry["pname"],
-            version=entry["version"],
-            cpes=tuple(entry.get("cpes") or ()),
-            purls=tuple(entry.get("purls") or ()),
-            src_url=entry.get("src_url"),
-            src_hash=entry.get("src_hash"),
-        ))
+        records.append(
+            GraphMatch(
+                attr_path=entry["attr_path"],
+                drv_path=entry["drv_path"],
+                pname=entry["pname"],
+                version=entry["version"],
+                cpes=tuple(entry.get("cpes") or ()),
+                purls=tuple(entry.get("purls") or ()),
+                src_url=entry.get("src_url"),
+                src_hash=entry.get("src_hash"),
+            )
+        )
     return CannedGraphLookup(records)
 
 

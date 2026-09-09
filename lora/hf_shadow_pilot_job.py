@@ -24,6 +24,7 @@ Submission (see lora/submit_hf_shadow_pilot.sh):
     -e ADAPTER_REPO=adastracomputing/reviewer-lora-v1.0 \\
     lora/hf_shadow_pilot_job.py
 """
+
 import json
 import os
 from pathlib import Path
@@ -55,8 +56,10 @@ def main():
         bnb_4bit_use_double_quant=True,
     )
     base = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL, revision=BASE_REVISION,
-        quantization_config=bnb_config, device_map="auto",
+        BASE_MODEL,
+        revision=BASE_REVISION,
+        quantization_config=bnb_config,
+        device_map="auto",
     )
     model = PeftModel.from_pretrained(base, adapter_repo)
     model.eval()
@@ -65,7 +68,9 @@ def main():
     for i, rec in enumerate(records):
         msgs = rec["messages"][:2]  # system + user only
         text = tokenizer.apply_chat_template(
-            msgs, tokenize=False, add_generation_prompt=True,
+            msgs,
+            tokenize=False,
+            add_generation_prompt=True,
         )
         inputs = tokenizer(text, return_tensors="pt").to(model.device)
         with torch.inference_mode():
@@ -75,7 +80,7 @@ def main():
                 do_sample=False,
                 pad_token_id=tokenizer.eos_token_id,
             )
-        response_ids = out[0][inputs["input_ids"].shape[-1]:]
+        response_ids = out[0][inputs["input_ids"].shape[-1] :]
         response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
         prov = rec.get("provenance", {})
         entry = {
@@ -88,9 +93,10 @@ def main():
             "lora_response": response,
         }
         responses.append(entry)
-        print(f"[{i+1}/{len(records)}] {prov.get('cve_id')} done", flush=True)
+        print(f"[{i + 1}/{len(records)}] {prov.get('cve_id')} done", flush=True)
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     out_path = Path("/tmp/shadow_pilot_responses.jsonl")
     out_path.write_text("\n".join(json.dumps(r) for r in responses) + "\n")

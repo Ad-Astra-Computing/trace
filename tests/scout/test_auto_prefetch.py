@@ -61,24 +61,36 @@ def _seed_entry(
 
 
 def _mk_nixpkgs_with_package(
-    root: Path, *, attr: str = "foo", contents: str | None = None,
+    root: Path,
+    *,
+    attr: str = "foo",
+    contents: str | None = None,
 ) -> Path:
     pkg_dir = root / "pkgs" / "by-name" / attr[:2] / attr
     pkg_dir.mkdir(parents=True)
-    src = contents or '{ ... }: { version = "1.0.0"; src = fetchurl { url = "https://example.test/${pname}-${version}.tar.gz"; }; }'
+    src = (
+        contents
+        or '{ ... }: { version = "1.0.0"; src = fetchurl { url = "https://example.test/${pname}-${version}.tar.gz"; }; }'
+    )
     (pkg_dir / "package.nix").write_text(src)
     return root
 
 
 def _ok_prefetch(url: str, algo: str) -> tuple[str, str, str | None]:
-    return ("ok", "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "nix-prefetch-url 2.18.1")
+    return (
+        "ok",
+        "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "nix-prefetch-url 2.18.1",
+    )
 
 
 def _failing_prefetch(url: str, algo: str) -> tuple[str, str, str | None]:
     return ("fetch-error-404", "404 Not Found", "nix-prefetch-url 2.18.1")
 
 
-def test_env_gate_skips_silently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_env_gate_skips_silently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With NEITHER TRACE_REAL_PREFETCH nor TRACE_REAL_FETCHZIP set,
     auto-prefetch skips silently."""
     monkeypatch.delenv("TRACE_REAL_PREFETCH", raising=False)
@@ -86,7 +98,10 @@ def test_env_gate_skips_silently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs")
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=_ok_prefetch,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=_ok_prefetch,
     )
     assert stats.skipped_reason == "env-not-set"
     upstream = json.loads((entry / "upstream-ref.json").read_text())
@@ -97,29 +112,36 @@ def test_no_nixpkgs_root_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     entry = _seed_entry(tmp_path)
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=None, prefetch_url_fn=_ok_prefetch,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=None,
+        prefetch_url_fn=_ok_prefetch,
     )
     assert stats.skipped_reason == "no-nixpkgs-root"
 
 
 def test_plain_fetchurl_attempted_and_succeeds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     src = (
-        '{ stdenv, fetchurl }: stdenv.mkDerivation {\n'
+        "{ stdenv, fetchurl }: stdenv.mkDerivation {\n"
         '  pname = "foo";\n'
         '  version = "1.0.0";\n'
-        '  src = fetchurl {\n'
+        "  src = fetchurl {\n"
         '    url = "https://example.test/foo-${version}.tar.gz";\n'
         '    hash = "sha256-OLD";\n'
-        '  };\n'
-        '}\n'
+        "  };\n"
+        "}\n"
     )
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs", contents=src)
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=_ok_prefetch,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=_ok_prefetch,
     )
     assert stats.skipped_reason is None
     assert stats.primary_src_class == "plain-fetchurl"
@@ -128,20 +150,24 @@ def test_plain_fetchurl_attempted_and_succeeds(
     assert stats.plain_fetchurl_failed == 0
     upstream = json.loads((entry / "upstream-ref.json").read_text())
     assert upstream["prefetch_hashes"][0]["value"].startswith("sha256-")
-    assert upstream["prefetch_hashes"][0]["url"] == "https://example.test/foo-1.0.1.tar.gz"
+    assert (
+        upstream["prefetch_hashes"][0]["url"] == "https://example.test/foo-1.0.1.tar.gz"
+    )
 
 
 def test_plain_fetchurl_prefetch_failure_records_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
-    src = (
-        '{ fetchurl }: { src = fetchurl { url = "https://example.test/foo-${version}.tar.gz"; }; }'
-    )
+    src = '{ fetchurl }: { src = fetchurl { url = "https://example.test/foo-${version}.tar.gz"; }; }'
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs", contents=src)
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=_failing_prefetch,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=_failing_prefetch,
     )
     assert stats.plain_fetchurl_failed == 1
     upstream = json.loads((entry / "upstream-ref.json").read_text())
@@ -150,7 +176,8 @@ def test_plain_fetchurl_prefetch_failure_records_failure(
 
 
 def test_fetchfromgithub_skipped_without_fetchzip_gate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without TRACE_REAL_FETCHZIP, fetchFromGitHub is detected and
     counted but NOT prefetched. The plain-fetchurl gate alone does
@@ -158,7 +185,7 @@ def test_fetchfromgithub_skipped_without_fetchzip_gate(
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     monkeypatch.delenv("TRACE_REAL_FETCHZIP", raising=False)
     src = (
-        '{ fetchFromGitHub }: { src = fetchFromGitHub {\n'
+        "{ fetchFromGitHub }: { src = fetchFromGitHub {\n"
         '  owner = "nicolargo"; repo = "glances";\n'
         '  tag = "v${version}"; hash = "sha256-OLD"; }; }'
     )
@@ -171,7 +198,10 @@ def test_fetchfromgithub_skipped_without_fetchzip_gate(
         return _ok_prefetch(url, algo)
 
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=spy,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=spy,
     )
     assert stats.primary_src_class == "fetchFromGitHub"
     assert stats.fetchFromGitHub_present_but_skipped == 1
@@ -180,30 +210,41 @@ def test_fetchfromgithub_skipped_without_fetchzip_gate(
 
 
 def _ok_fetchzip(expr: str, req: Any) -> tuple[str, str, str, str]:
-    return ("ok", "sha256-NEWGITHUBHASHFROMFAKEHASHEXTRACTION12345=",
-            "nix-build 2.18.1", f"nix-build -E '<expr>'")
+    return (
+        "ok",
+        "sha256-NEWGITHUBHASHFROMFAKEHASHEXTRACTION12345=",
+        "nix-build 2.18.1",
+        f"nix-build -E '<expr>'",
+    )
 
 
 def _failing_fetchzip(expr: str, req: Any) -> tuple[str, str, str, str]:
-    return ("err", "exit 1: hash mismatch parser saw nothing",
-            "nix-build 2.18.1", f"nix-build -E '<expr>'")
+    return (
+        "err",
+        "exit 1: hash mismatch parser saw nothing",
+        "nix-build 2.18.1",
+        f"nix-build -E '<expr>'",
+    )
 
 
 def test_fetchfromgithub_attempted_when_fetchzip_gate_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With TRACE_REAL_FETCHZIP=1, fetchFromGitHub IS prefetched via
     the fetchzip FOD-extraction path. Hash lands in prefetch_hashes."""
     monkeypatch.setenv("TRACE_REAL_FETCHZIP", "1")
     src = (
-        '{ fetchFromGitHub }: { src = fetchFromGitHub {\n'
+        "{ fetchFromGitHub }: { src = fetchFromGitHub {\n"
         '  owner = "nicolargo"; repo = "glances";\n'
         '  tag = "v${version}"; hash = "sha256-OLD"; }; }'
     )
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs", contents=src)
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
         fetchzip_command_runner=_ok_fetchzip,
     )
     assert stats.primary_src_class == "fetchFromGitHub"
@@ -218,20 +259,23 @@ def test_fetchfromgithub_attempted_when_fetchzip_gate_set(
 
 
 def test_fetchfromgithub_failure_records_prefetch_failures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Prefetch failure produces a structured prefetch_failures[]
     entry with required_for_patch=True. Steward then routes to
     human-review-required via the existing patcher-not-ready rule."""
     monkeypatch.setenv("TRACE_REAL_FETCHZIP", "1")
     src = (
-        '{ fetchFromGitHub }: { src = fetchFromGitHub {\n'
+        "{ fetchFromGitHub }: { src = fetchFromGitHub {\n"
         '  owner = "x"; repo = "y"; tag = "v${version}"; hash = "sha256-OLD"; }; }'
     )
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs", contents=src)
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
         fetchzip_command_runner=_failing_fetchzip,
     )
     assert stats.fetchFromGitHub_attempted == 1
@@ -244,14 +288,18 @@ def test_fetchfromgithub_failure_records_prefetch_failures(
 
 
 def test_fetchzip_detected_but_not_prefetched(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     src = '{ fetchzip }: { src = fetchzip { url = "https://example.test/foo-${version}.tar.gz"; }; }'
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs", contents=src)
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=_ok_prefetch,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=_ok_prefetch,
     )
     assert stats.primary_src_class == "fetchzip"
     assert stats.fetchzip_present_but_skipped == 1
@@ -259,22 +307,26 @@ def test_fetchzip_detected_but_not_prefetched(
 
 
 def test_vendor_style_hash_co_occurs_with_src_class(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A Go module typically pairs fetchFromGitHub with vendorHash. Both
     are reported so the operator can see the second-tier prefetch
     needed beyond src.hash."""
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     src = (
-        '{ buildGoModule, fetchFromGitHub }: buildGoModule {\n'
+        "{ buildGoModule, fetchFromGitHub }: buildGoModule {\n"
         '  src = fetchFromGitHub { owner = "x"; repo = "y"; tag = "v${version}"; hash = "sha256-A"; };\n'
         '  vendorHash = "sha256-B";\n'
-        '}'
+        "}"
     )
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs", contents=src)
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=_ok_prefetch,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=_ok_prefetch,
     )
     assert stats.primary_src_class == "fetchFromGitHub"
     assert stats.has_vendor_style_hash is True
@@ -282,19 +334,24 @@ def test_vendor_style_hash_co_occurs_with_src_class(
 
 
 def test_idempotent_when_prefetch_hashes_already_populated(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     entry = _seed_entry(
         tmp_path,
-        extra_upstream={"prefetch_hashes": [{
-            "name": "src",
-            "algorithm": "sha256",
-            "value": "sha256-EXISTING",
-            "source": "manual",
-            "prefetch_kind": "release-archive",
-            "replay_critical": True,
-        }]},
+        extra_upstream={
+            "prefetch_hashes": [
+                {
+                    "name": "src",
+                    "algorithm": "sha256",
+                    "value": "sha256-EXISTING",
+                    "source": "manual",
+                    "prefetch_kind": "release-archive",
+                    "replay_critical": True,
+                }
+            ]
+        },
     )
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs")
     invoked: list[str] = []
@@ -304,7 +361,10 @@ def test_idempotent_when_prefetch_hashes_already_populated(
         return _ok_prefetch(url, algo)
 
     stats = auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=spy,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=spy,
     )
     assert stats.skipped_reason == "already-populated"
     assert invoked == []
@@ -314,15 +374,18 @@ def test_idempotent_when_prefetch_hashes_already_populated(
 
 
 def test_no_package_source_resolved_records_skip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     entry = _seed_entry(tmp_path)
     empty_nixpkgs = tmp_path / "empty"
     empty_nixpkgs.mkdir()
     stats = auto_prefetch_for_entry(
-        entry, attr_path="not-found",
-        nixpkgs_root=empty_nixpkgs, prefetch_url_fn=_ok_prefetch,
+        entry,
+        attr_path="not-found",
+        nixpkgs_root=empty_nixpkgs,
+        prefetch_url_fn=_ok_prefetch,
     )
     assert stats.skipped_reason == "no-package-source"
     # Slice 5j: surface the resolver's diagnostic so the cron run summary
@@ -391,11 +454,13 @@ def test_aggregate_stats_partitions_by_class() -> None:
     stats = [
         AutoPrefetchStats(
             primary_src_class="plain-fetchurl",
-            plain_fetchurl_attempted=1, plain_fetchurl_succeeded=1,
+            plain_fetchurl_attempted=1,
+            plain_fetchurl_succeeded=1,
         ),
         AutoPrefetchStats(
             primary_src_class="plain-fetchurl",
-            plain_fetchurl_attempted=1, plain_fetchurl_failed=1,
+            plain_fetchurl_attempted=1,
+            plain_fetchurl_failed=1,
         ),
         AutoPrefetchStats(
             primary_src_class="fetchFromGitHub",
@@ -416,10 +481,13 @@ def test_aggregate_stats_partitions_by_class() -> None:
         AutoPrefetchStats(skipped_reason="no-package-source"),
     ]
     # Add a fetchFromGitHub-attempted entry to confirm 5e fields aggregate.
-    stats.append(AutoPrefetchStats(
-        primary_src_class="fetchFromGitHub",
-        fetchFromGitHub_attempted=1, fetchFromGitHub_succeeded=1,
-    ))
+    stats.append(
+        AutoPrefetchStats(
+            primary_src_class="fetchFromGitHub",
+            fetchFromGitHub_attempted=1,
+            fetchFromGitHub_succeeded=1,
+        )
+    )
     agg = aggregate_stats(stats)
     assert agg["plain-fetchurl-attempted"] == 2
     assert agg["plain-fetchurl-succeeded"] == 1
@@ -436,14 +504,18 @@ def test_aggregate_stats_partitions_by_class() -> None:
 
 
 def test_atomic_write_does_not_leak_temps(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRACE_REAL_PREFETCH", "1")
     src = '{ fetchurl }: { src = fetchurl { url = "https://example.test/foo-${version}.tar.gz"; }; }'
     entry = _seed_entry(tmp_path)
     nixpkgs = _mk_nixpkgs_with_package(tmp_path / "nixpkgs", contents=src)
     auto_prefetch_for_entry(
-        entry, attr_path="foo", nixpkgs_root=nixpkgs, prefetch_url_fn=_ok_prefetch,
+        entry,
+        attr_path="foo",
+        nixpkgs_root=nixpkgs,
+        prefetch_url_fn=_ok_prefetch,
     )
     leftovers = [p for p in entry.iterdir() if p.name.startswith("upstream-ref.json.")]
     assert leftovers == []

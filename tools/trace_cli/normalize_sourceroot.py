@@ -83,6 +83,7 @@ class NormalizationError(ValueError):
 
 # ─── hunk-aware line classification ──────────────────────────────────────────
 
+
 def _iter_line_roles(patch_text: str):
     """Yield ``(line, role)`` for each line of a unified diff, tracking hunk
     state so a hunk-body CONTENT line is never confused with a file header.
@@ -98,13 +99,13 @@ def _iter_line_roles(patch_text: str):
     in_hunk = False
     for line in patch_text.splitlines():
         if in_hunk and (old_rem > 0 or new_rem > 0):
-            if line.startswith("\\"):            # "\ No newline at end of file"
+            if line.startswith("\\"):  # "\ No newline at end of file"
                 pass
             elif line.startswith("-"):
                 old_rem -= 1
             elif line.startswith("+"):
                 new_rem -= 1
-            else:                                # context (" " prefix) or blank
+            else:  # context (" " prefix) or blank
                 old_rem -= 1
                 new_rem -= 1
             yield line, "content"
@@ -126,12 +127,12 @@ def _iter_line_roles(patch_text: str):
 
 # ─── path rewriting ─────────────────────────────────────────────────────────
 
+
 def _drop_components(path: str, n: int) -> str:
     parts = path.split("/")
     if len(parts) <= n:
         raise NormalizationError(
-            f"cannot strip {n} leading path component(s) from {path!r}: "
-            f"too shallow"
+            f"cannot strip {n} leading path component(s) from {path!r}: too shallow"
         )
     return "/".join(parts[n:])
 
@@ -174,6 +175,7 @@ def rewrite_patch_paths(patch_text: str, extra_strip: int) -> str:
 
 
 # ─── strip-level search ─────────────────────────────────────────────────────
+
 
 def find_unique_normalizing_strip(
     effective_root: Path,
@@ -229,6 +231,7 @@ def find_unique_normalizing_strip(
 
 
 # ─── patch.diff write-back ──────────────────────────────────────────────────
+
 
 def _rewrap_nested_section(section: dict[str, Any], extra_strip: int) -> list[str]:
     raw = section["raw_lines"]
@@ -289,7 +292,8 @@ def normalize_patch_diff(original_patch_diff_text: str, extra_strip: int) -> str
             )
     sections = nested_patch._split_diff_sections(original_patch_diff_text)
     nested = [
-        s for s in sections
+        s
+        for s in sections
         if s["is_new_file"] and nested_patch._basename(s["path"]).endswith(".patch")
     ]
     if len(nested) > 1:
@@ -302,7 +306,9 @@ def normalize_patch_diff(original_patch_diff_text: str, extra_strip: int) -> str
         target = nested[0]
         for s in sections:
             out_sections.append(
-                _rewrap_nested_section(s, extra_strip) if s is target else s["raw_lines"]
+                _rewrap_nested_section(s, extra_strip)
+                if s is target
+                else s["raw_lines"]
             )
     else:
         for s in sections:
@@ -318,13 +324,16 @@ def normalize_patch_diff(original_patch_diff_text: str, extra_strip: int) -> str
 
 # ─── attestation ─────────────────────────────────────────────────────────────
 
+
 def strip_path_headers(patch_text: str) -> str:
     """Drop every FILE-HEADER line (``diff --git``/``---``/``+++``/``index``
     outside a hunk), leaving only hunk headers + content. Used to prove a
     normalization changed ONLY path representation — never the guard/fix bytes.
     Hunk-aware (via :func:`_iter_line_roles`) so a content line that looks like
     a header stays in the body and is compared by the identity proof."""
-    kept = [line for line, role in _iter_line_roles(patch_text) if role != "file_header"]
+    kept = [
+        line for line, role in _iter_line_roles(patch_text) if role != "file_header"
+    ]
     return "\n".join(kept)
 
 
@@ -335,12 +344,16 @@ def sha256_text(text: str) -> str:
 def _extract_plus_paths(patch_text: str) -> list[str]:
     # Hunk-aware: only count `+++ b/…` FILE headers, never a `+++ b/…` that is
     # actually added hunk content.
-    return [m.group(1)
-            for line, role in _iter_line_roles(patch_text)
-            if role == "file_header" and (m := _NEW_HDR_RE.match(line))]
+    return [
+        m.group(1)
+        for line, role in _iter_line_roles(patch_text)
+        if role == "file_header" and (m := _NEW_HDR_RE.match(line))
+    ]
 
 
-def compute_path_mappings(raw_inner: str, normalized_inner: str) -> list[dict[str, str]]:
+def compute_path_mappings(
+    raw_inner: str, normalized_inner: str
+) -> list[dict[str, str]]:
     """Pair each raw ``+++ b/<path>`` header (in order) with its normalized
     counterpart. Raises :class:`NormalizationError` if the file COUNT differs
     (would mean normalization silently added/dropped a file section — refuse
@@ -390,7 +403,10 @@ def build_attestation(
         )
     return {
         "schema": ATTESTATION_SCHEMA,
-        "tool": {"name": "trace-bundle-normalize-sourceroot", "version": NORMALIZER_VERSION},
+        "tool": {
+            "name": "trace-bundle-normalize-sourceroot",
+            "version": NORMALIZER_VERSION,
+        },
         "bundle_dir": str(bundle_dir),
         "raw_patch_diff_sha256": sha256_text(raw_patch_diff_text),
         "raw_source_patch_sha256": sha256_text(raw_source_patch_text),
@@ -398,7 +414,9 @@ def build_attestation(
         "normalized_source_patch_sha256": sha256_text(normalized_source_patch_text),
         "patcher_invocation_raw_response_sha256": patcher_invocation_sha,
         "extra_path_components_stripped": extra_strip,
-        "path_mappings": compute_path_mappings(raw_source_patch_text, normalized_source_patch_text),
+        "path_mappings": compute_path_mappings(
+            raw_source_patch_text, normalized_source_patch_text
+        ),
         "body_identity_proof": {
             "raw_body_sha256": raw_body_hash,
             "normalized_body_sha256": norm_body_hash,
@@ -409,7 +427,8 @@ def build_attestation(
         "effective_root_path": str(effective_root),
         "source_hash": source_hash,
         "dry_run": {
-            "applies": True, "fuzz": 0,
+            "applies": True,
+            "fuzz": 0,
             "patch_flags": list(patch_flags),
             "output": dry_run_output[:4096],
         },
@@ -421,6 +440,7 @@ def build_attestation(
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
+
 
 def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p = subs.add_parser(
@@ -439,25 +459,35 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     )
     p.add_argument("bundle_dir", type=Path)
     p.add_argument(
-        "--source-tree", type=Path, default=None,
+        "--source-tree",
+        type=Path,
+        default=None,
         help="pre-unpacked EFFECTIVE source root (the dir patchPhase would "
-             "cd into) to dry-run against; skips the nix unpack.",
+        "cd into) to dry-run against; skips the nix unpack.",
     )
     p.add_argument(
-        "--strip-max", type=int, default=DEFAULT_MAX_EXTRA_STRIP,
+        "--strip-max",
+        type=int,
+        default=DEFAULT_MAX_EXTRA_STRIP,
         help=f"max extra path components to try stripping (default {DEFAULT_MAX_EXTRA_STRIP})",
     )
     p.add_argument(
-        "--patch-flags", type=str, default=None, metavar="FLAGS",
+        "--patch-flags",
+        type=str,
+        default=None,
+        metavar="FLAGS",
         help="(--source-tree mode only) the package's patchFlags to dry-run "
-             "with, as one whitespace-separated string. Use the `=` form so "
-             "argparse accepts dash-prefixed values, e.g. --patch-flags=-p0 or "
-             "--patch-flags='-p0 -d sub'. Ignored when the source is "
-             "nix-unpacked (the package's evaluated patchFlags are used). "
-             "Defaults to -p1.",
+        "with, as one whitespace-separated string. Use the `=` form so "
+        "argparse accepts dash-prefixed values, e.g. --patch-flags=-p0 or "
+        "--patch-flags='-p0 -d sub'. Ignored when the source is "
+        "nix-unpacked (the package's evaluated patchFlags are used). "
+        "Defaults to -p1.",
     )
-    p.add_argument("--apply", action="store_true",
-                    help="write the normalized patch.diff + attestation")
+    p.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the normalized patch.diff + attestation",
+    )
     p.add_argument("--format", choices=("human", "json"), default="human")
     return p
 
@@ -474,16 +504,20 @@ def _emit_error(fmt: str, exit_code: int, message: str) -> int:
 def run(args: argparse.Namespace, repo_root: Path) -> int:
     bundle_dir: Path = args.bundle_dir.resolve()
     if not bundle_dir.is_dir():
-        return _emit_error(args.format, EXIT_NOT_FOUND, f"bundle dir not found: {bundle_dir}")
+        return _emit_error(
+            args.format, EXIT_NOT_FOUND, f"bundle dir not found: {bundle_dir}"
+        )
 
     patch_diff_path = bundle_dir / "patch.diff"
     if not patch_diff_path.is_file():
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                            f"no patch.diff in {bundle_dir}")
+        return _emit_error(
+            args.format, EXIT_NOT_FOUND, f"no patch.diff in {bundle_dir}"
+        )
     raw_patch_diff_text = patch_diff_path.read_text()
     try:
         raw_inner_text, nested_names = nested_patch.extract_nested_source_patch(
-            raw_patch_diff_text)
+            raw_patch_diff_text
+        )
     except nested_patch.NestedPatchError as exc:
         return _emit_error(args.format, EXIT_EXTRACT_FAILED, str(exc))
 
@@ -496,8 +530,11 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         if args.source_tree is not None:
             effective_root = args.source_tree.resolve()
             if not effective_root.is_dir():
-                return _emit_error(args.format, EXIT_NOT_FOUND,
-                                    f"--source-tree not a directory: {effective_root}")
+                return _emit_error(
+                    args.format,
+                    EXIT_NOT_FOUND,
+                    f"--source-tree not a directory: {effective_root}",
+                )
             # No nix eval in --source-tree mode: honor an explicit --patch-flags
             # override so a non-`-p1` package can still be validated faithfully;
             # default to the nixpkgs default when unspecified.
@@ -516,7 +553,8 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         else:
             try:
                 eff = pinned_source.unpack_pinned_source_with_effective_root(
-                    bundle_dir, tmp_root)
+                    bundle_dir, tmp_root
+                )
             except (RuntimeError, ValueError) as exc:
                 return _emit_error(args.format, EXIT_UNPACK_FAILED, str(exc))
             # patchPhase applies the package's own `patches` list BEFORE the
@@ -526,12 +564,14 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
             # closed, require a prepared --source-tree. (0 for krb5 on Linux.)
             if eff.preceding_patches > 0:
                 return _emit_error(
-                    args.format, EXIT_UNPACK_FAILED,
+                    args.format,
+                    EXIT_UNPACK_FAILED,
                     f"package applies {eff.preceding_patches} preceding "
                     f"patch(es) before the model patch; normalizing against "
                     f"pristine pkg.src may attest a strip that fails the real "
                     f"patchPhase. Pass --source-tree with a tree already "
-                    f"prepared through those patches.")
+                    f"prepared through those patches.",
+                )
             effective_root = eff.effective_root
             source_root = eff.source_root
             nixpkgs_rev = eff.nixpkgs_rev
@@ -539,19 +579,25 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
             patch_flags = eff.patch_flags  # the package's evaluated patchFlags
 
         extra_strip, attempts = find_unique_normalizing_strip(
-            effective_root, raw_inner_text, args.strip_max, patch_flags)
+            effective_root, raw_inner_text, args.strip_max, patch_flags
+        )
 
         if extra_strip == 0:
             # Nothing to normalize; record a pass.
             result = {
-                "ok": True, "bundle_dir": str(bundle_dir),
+                "ok": True,
+                "bundle_dir": str(bundle_dir),
                 "normalization_needed": False,
                 "nested_patch_files": nested_names,
                 "effective_root": str(effective_root),
                 "source_root": source_root,
                 "diagnostics": attempts[0][1][:4096],
             }
-            _emit(args.format, result, "NORMALIZE-SOURCEROOT: already applies (no change needed)")
+            _emit(
+                args.format,
+                result,
+                "NORMALIZE-SOURCEROOT: already applies (no change needed)",
+            )
             return EXIT_OK
 
         if extra_strip is None:
@@ -563,9 +609,17 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
                 f"a genuine base mismatch (0 succeed) or an ambiguous patch "
                 f"(>1 succeed); refusing to guess. attempts={detail!r}"
             )
-            _emit(args.format, {"ok": False, "bundle_dir": str(bundle_dir), "error": msg,
-                                 "attempts": {str(k): v[0] for k, v in attempts.items()}},
-                  f"NORMALIZE-SOURCEROOT: AMBIGUOUS/UNRESOLVED\n{msg}", is_error=True)
+            _emit(
+                args.format,
+                {
+                    "ok": False,
+                    "bundle_dir": str(bundle_dir),
+                    "error": msg,
+                    "attempts": {str(k): v[0] for k, v in attempts.items()},
+                },
+                f"NORMALIZE-SOURCEROOT: AMBIGUOUS/UNRESOLVED\n{msg}",
+                is_error=True,
+            )
             return EXIT_AMBIGUOUS
 
         # extra_strip is a unique positive depth: normalizable.
@@ -580,19 +634,26 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
                 f"sourceRoot ({effective_root}); re-run with --apply to fix "
                 f"it and emit {ATTESTATION_FILENAME}"
             )
-            _emit(args.format, {
-                "ok": False, "bundle_dir": str(bundle_dir),
-                "normalization_needed": True,
-                "extra_path_components_stripped": extra_strip,
-                "effective_root": str(effective_root),
-                "source_root": source_root,
-                "error": msg,
-            }, f"NORMALIZE-SOURCEROOT: FAIL-CLOSED (no --apply)\n{msg}", is_error=True)
+            _emit(
+                args.format,
+                {
+                    "ok": False,
+                    "bundle_dir": str(bundle_dir),
+                    "normalization_needed": True,
+                    "extra_path_components_stripped": extra_strip,
+                    "effective_root": str(effective_root),
+                    "source_root": source_root,
+                    "error": msg,
+                },
+                f"NORMALIZE-SOURCEROOT: FAIL-CLOSED (no --apply)\n{msg}",
+                is_error=True,
+            )
             return EXIT_APPLY_FAILED
 
         try:
             normalized_patch_diff_text = normalize_patch_diff(
-                raw_patch_diff_text, extra_strip)
+                raw_patch_diff_text, extra_strip
+            )
             attestation = build_attestation(
                 bundle_dir=bundle_dir,
                 raw_patch_diff_text=raw_patch_diff_text,
@@ -609,18 +670,27 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
                 patcher_invocation_sha=_read_patcher_invocation_sha(bundle_dir),
             )
         except NormalizationError as exc:
-            _emit(args.format, {"ok": False, "bundle_dir": str(bundle_dir), "error": str(exc)},
-                  f"NORMALIZE-SOURCEROOT: REFUSED\n{exc}", is_error=True)
+            _emit(
+                args.format,
+                {"ok": False, "bundle_dir": str(bundle_dir), "error": str(exc)},
+                f"NORMALIZE-SOURCEROOT: REFUSED\n{exc}",
+                is_error=True,
+            )
             return EXIT_APPLY_FAILED
     finally:
         tmp_ctx.cleanup()
 
     patch_diff_path.write_text(normalized_patch_diff_text)
-    (bundle_dir / ATTESTATION_FILENAME).write_text(json.dumps(attestation, indent=2) + "\n")
-    _emit(args.format, {"ok": True, "bundle_dir": str(bundle_dir), "attestation": attestation},
-          f"NORMALIZE-SOURCEROOT: APPLIED (extra_strip={extra_strip})\n"
-          f"  wrote: patch.diff, {ATTESTATION_FILENAME}\n"
-          f"  path mappings: {attestation['path_mappings']}")
+    (bundle_dir / ATTESTATION_FILENAME).write_text(
+        json.dumps(attestation, indent=2) + "\n"
+    )
+    _emit(
+        args.format,
+        {"ok": True, "bundle_dir": str(bundle_dir), "attestation": attestation},
+        f"NORMALIZE-SOURCEROOT: APPLIED (extra_strip={extra_strip})\n"
+        f"  wrote: patch.diff, {ATTESTATION_FILENAME}\n"
+        f"  path mappings: {attestation['path_mappings']}",
+    )
     return EXIT_OK
 
 
@@ -636,7 +706,9 @@ def _read_patcher_invocation_sha(bundle_dir: Path) -> str | None:
     return val if isinstance(val, str) else None
 
 
-def _emit(fmt: str, payload: dict[str, Any], human_header: str, is_error: bool = False) -> None:
+def _emit(
+    fmt: str, payload: dict[str, Any], human_header: str, is_error: bool = False
+) -> None:
     if fmt == "json":
         json.dump(payload, sys.stdout, indent=2)
         sys.stdout.write("\n")

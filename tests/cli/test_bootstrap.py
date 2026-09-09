@@ -4,6 +4,7 @@ The screen writes an inbox entry per CVE. Turning one into a bundle took the sam
 six mechanical steps by hand on wget CVE-2026-16599 and chirp CVE-2026-78136, and
 the shortlist has 105 entries. See docs/specs/candidate-bootstrap.md.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,31 +19,55 @@ from tools.trace_cli.bootstrap import (
 )
 
 
-def _entry(tmp_path: Path, *, attr: str = "wget", commits=None, cve: str = "CVE-2026-16599") -> Path:
+def _entry(
+    tmp_path: Path, *, attr: str = "wget", commits=None, cve: str = "CVE-2026-16599"
+) -> Path:
     d = tmp_path / cve
     d.mkdir()
     if commits is None:
-        commits = [{"repo_url": "https://gitlab.com/gnuwget/wget", "commit_sha": "e" * 40}]
-    (d / "resolver-input.json").write_text(json.dumps({
-        "cve_id": cve,
-        "current_version": "1.25.0",
-        "attr_path": attr,
-        "candidate_refs": [{
-            "version": "1.25.0",
-            "tier_hint": "security-patch-release",
-            "advisory_urls": ["https://example.org/advisory"],
-            "upstream_fix_commits": commits,
-        }],
-    }))
-    (d / "finding.json").write_text(json.dumps({
-        "schema_version": "1.0.0", "cve_id": cve, "source_feeds": ["nvd"],
-        "severity": {"rating": "medium"}, "published_at": "2026-08-25T00:00:00Z",
-        "summary": "a summary",
-        "mapping": {"method": "pname-heuristic"},
-        "affected": [{"attr_path": attr, "version": "1.25.0", "pname": attr.split(".")[-1],
-                      "drv_path": "/nix/store/" + "0" * 32 + "-x.drv", "confidence": "high"}],
-        "replay_critical": True,
-    }))
+        commits = [
+            {"repo_url": "https://gitlab.com/gnuwget/wget", "commit_sha": "e" * 40}
+        ]
+    (d / "resolver-input.json").write_text(
+        json.dumps(
+            {
+                "cve_id": cve,
+                "current_version": "1.25.0",
+                "attr_path": attr,
+                "candidate_refs": [
+                    {
+                        "version": "1.25.0",
+                        "tier_hint": "security-patch-release",
+                        "advisory_urls": ["https://example.org/advisory"],
+                        "upstream_fix_commits": commits,
+                    }
+                ],
+            }
+        )
+    )
+    (d / "finding.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": cve,
+                "source_feeds": ["nvd"],
+                "severity": {"rating": "medium"},
+                "published_at": "2026-08-25T00:00:00Z",
+                "summary": "a summary",
+                "mapping": {"method": "pname-heuristic"},
+                "affected": [
+                    {
+                        "attr_path": attr,
+                        "version": "1.25.0",
+                        "pname": attr.split(".")[-1],
+                        "drv_path": "/nix/store/" + "0" * 32 + "-x.drv",
+                        "confidence": "high",
+                    }
+                ],
+                "replay_critical": True,
+            }
+        )
+    )
     return d
 
 
@@ -72,7 +97,12 @@ def test_writes_the_staged_inputs(tmp_path):
 
     assert (out / "package.nix").read_text() == "{ lib }: {}\n"
     assert (out / "upstream-fix.patch").read_text().startswith("--- a/x")
-    for name in ("finding.json", "resolver-input.json", "impact.json", "maintainers.json"):
+    for name in (
+        "finding.json",
+        "resolver-input.json",
+        "impact.json",
+        "maintainers.json",
+    ):
         assert (out / name).exists(), name
     assert result.attr_path == "wget"
     assert result.package_nix_path == "pkgs/by-name/wg/wget/package.nix"
@@ -110,7 +140,10 @@ def test_placeholders_match_their_schemas(tmp_path):
     out = tmp_path / "bundle"
     _run(entry, out)
     root = Path(__file__).resolve().parents[2]
-    for name, schema in (("impact", "impact-schema.json"), ("maintainers", "maintainers-schema.json")):
+    for name, schema in (
+        ("impact", "impact-schema.json"),
+        ("maintainers", "maintainers-schema.json"),
+    ):
         s = json.loads((root / "policy" / schema).read_text())
         doc = json.loads((out / f"{name}.json").read_text())
         jsonschema.Draft202012Validator(s).validate(doc)
@@ -130,14 +163,29 @@ def test_patch_is_fetched_from_the_first_fix_commit(tmp_path):
 def test_github_and_codeberg_commit_urls(tmp_path):
     seen = []
     for repo, expected in (
-        ("https://github.com/kk7ds/chirp", "https://github.com/kk7ds/chirp/commit/{sha}.patch"),
-        ("https://codeberg.org/forgejo/forgejo", "https://codeberg.org/forgejo/forgejo/commit/{sha}.patch"),
+        (
+            "https://github.com/kk7ds/chirp",
+            "https://github.com/kk7ds/chirp/commit/{sha}.patch",
+        ),
+        (
+            "https://codeberg.org/forgejo/forgejo",
+            "https://codeberg.org/forgejo/forgejo/commit/{sha}.patch",
+        ),
     ):
-        entry = _entry(tmp_path, cve=f"CVE-2026-{len(seen)}",
-                       commits=[{"repo_url": repo, "commit_sha": "a" * 40}])
-        _run(entry, tmp_path / f"out{len(seen)}", fetch_patch=lambda u: seen.append(u) or "p\n")
-    assert seen == ["https://github.com/kk7ds/chirp/commit/" + "a" * 40 + ".patch",
-                    "https://codeberg.org/forgejo/forgejo/commit/" + "a" * 40 + ".patch"]
+        entry = _entry(
+            tmp_path,
+            cve=f"CVE-2026-{len(seen)}",
+            commits=[{"repo_url": repo, "commit_sha": "a" * 40}],
+        )
+        _run(
+            entry,
+            tmp_path / f"out{len(seen)}",
+            fetch_patch=lambda u: seen.append(u) or "p\n",
+        )
+    assert seen == [
+        "https://github.com/kk7ds/chirp/commit/" + "a" * 40 + ".patch",
+        "https://codeberg.org/forgejo/forgejo/commit/" + "a" * 40 + ".patch",
+    ]
 
 
 def test_refuses_without_resolver_input(tmp_path):
@@ -167,8 +215,12 @@ def test_package_path_override_is_used(tmp_path):
         return "{ }\n"
 
     entry = _entry(tmp_path, attr="python3Packages.foo")
-    _run(entry, tmp_path / "bundle", read_pinned_file=read,
-         package_path="pkgs/development/python-modules/foo/default.nix")
+    _run(
+        entry,
+        tmp_path / "bundle",
+        read_pinned_file=read,
+        package_path="pkgs/development/python-modules/foo/default.nix",
+    )
     assert seen == ["pkgs/development/python-modules/foo/default.nix"]
 
 
@@ -216,15 +268,22 @@ def test_refuses_when_the_pinned_version_differs(tmp_path):
     pinned revision carried 2.0.5."""
     entry = _entry(tmp_path)
     with pytest.raises(BootstrapError, match="1.24.5"):
-        _run(entry, tmp_path / "bundle",
-             read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.24.5";\n}\n')
+        _run(
+            entry,
+            tmp_path / "bundle",
+            read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.24.5";\n}\n',
+        )
 
 
 def test_version_drift_can_be_overridden(tmp_path):
     entry = _entry(tmp_path)
     out = tmp_path / "bundle"
-    _run(entry, out, allow_version_drift=True,
-         read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.24.5";\n}\n')
+    _run(
+        entry,
+        out,
+        allow_version_drift=True,
+        read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.24.5";\n}\n',
+    )
     assert (out / "package.nix").exists()
 
 
@@ -234,22 +293,36 @@ def test_a_multivariant_file_passes_when_any_variant_matches(tmp_path):
     whose libxml2 attr was exactly the screened version."""
     entry = _entry(tmp_path)
     out = tmp_path / "bundle"
-    _run(entry, out, read_pinned_file=lambda c, r, p: (
-        '{ }: {\n  libxml2_13 = { version = "1.24.5"; };\n  libxml2 = { version = "1.25.0"; };\n}\n'))
+    _run(
+        entry,
+        out,
+        read_pinned_file=lambda c, r, p: (
+            '{ }: {\n  libxml2_13 = { version = "1.24.5"; };\n  libxml2 = { version = "1.25.0"; };\n}\n'
+        ),
+    )
     assert (out / "package.nix").exists()
 
 
 def test_a_multivariant_file_names_every_version_when_none_matches(tmp_path):
     entry = _entry(tmp_path)
     with pytest.raises(BootstrapError, match="1.24.5, 1.24.6"):
-        _run(entry, tmp_path / "bundle",
-             read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.24.5";\n  version = "1.24.6";\n}\n')
+        _run(
+            entry,
+            tmp_path / "bundle",
+            read_pinned_file=lambda c, r, p: (
+                '{ }: {\n  version = "1.24.5";\n  version = "1.24.6";\n}\n'
+            ),
+        )
 
 
 def test_matching_version_passes(tmp_path):
     entry = _entry(tmp_path)
     out = tmp_path / "bundle"
-    _run(entry, out, read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.25.0";\n}\n')
+    _run(
+        entry,
+        out,
+        read_pinned_file=lambda c, r, p: '{ }: {\n  version = "1.25.0";\n}\n',
+    )
     assert (out / "package.nix").exists()
 
 
@@ -287,4 +360,7 @@ def test_real_drv_paths_are_kept(tmp_path):
 
     out = tmp_path / "bundle"
     _run(entry, out)
-    assert json.loads((out / "finding.json").read_text())["affected"][0]["drv_path"] == real
+    assert (
+        json.loads((out / "finding.json").read_text())["affected"][0]["drv_path"]
+        == real
+    )

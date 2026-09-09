@@ -47,7 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     upd = sub.add_parser("update", help="update queue from a run summary")
     upd.add_argument("--queue", required=True, type=Path)
     upd.add_argument("--run-summary", required=True, type=Path)
-    upd.add_argument("--run-at", required=True, help="ISO-8601 UTC timestamp for this run")
+    upd.add_argument(
+        "--run-at", required=True, help="ISO-8601 UTC timestamp for this run"
+    )
     upd.add_argument("--max-attempts", type=int, default=3)
     upd.add_argument(
         "--also-enqueue",

@@ -71,7 +71,9 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
     required = {"finding", "upstream_ref", "impact", "maintainers", "package_source"}
     missing = required - set(inputs)
     if missing:
-        raise ValueError(f"assemble_user_content: missing input keys: {sorted(missing)}")
+        raise ValueError(
+            f"assemble_user_content: missing input keys: {sorted(missing)}"
+        )
 
     def j(obj: Any) -> str:
         return json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False)
@@ -110,7 +112,9 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
     # Source-backport strategy: surface the resolver-supplied upstream fix diff
     # as ground truth for the fix content. Only present when the resolver
     # authorized patch_strategy="source-backport" in upstream-ref.json.
-    if inputs.get("patch_strategy") == "source-backport" and inputs.get("upstream_fix_patch"):
+    if inputs.get("patch_strategy") == "source-backport" and inputs.get(
+        "upstream_fix_patch"
+    ):
         parts += [
             "## patch_strategy: source-backport (resolver-authorized)",
             "Do NOT bump the version. Author the upstream fix below as an in-tree",

@@ -22,7 +22,8 @@ def _make_patch(tmp: Path, before: str, after: str) -> Path:
     b.write_text(after)
     proc = subprocess.run(
         ["diff", "-u", "--label", "a/foo.c", "--label", "b/foo.c", str(a), str(b)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 1, proc.stderr
     p = tmp / "upstream-fix.patch"
@@ -49,8 +50,11 @@ def test_stage_writes_source_context_and_verbatim_true(tmp_path):
     out.mkdir()
     written: list[str] = []
     _stage_source_context(
-        out_dir=out, upstream_fix_patch_path=patch, source_tree=tree,
-        write_source_context=True, files_written=written,
+        out_dir=out,
+        upstream_fix_patch_path=patch,
+        source_tree=tree,
+        write_source_context=True,
+        files_written=written,
     )
     assert (out / "upstream-fix.patch").is_file()
     assert (out / "source-context" / "foo.c").read_text() == _BEFORE
@@ -69,8 +73,11 @@ def test_stage_divergent_base_yields_verbatim_false(tmp_path):
     out = tmp_path / "bundle"
     out.mkdir()
     _stage_source_context(
-        out_dir=out, upstream_fix_patch_path=patch, source_tree=tree,
-        write_source_context=True, files_written=[],
+        out_dir=out,
+        upstream_fix_patch_path=patch,
+        source_tree=tree,
+        write_source_context=True,
+        files_written=[],
     )
     # the affected file is still captured (it exists; the PATCH is what fails)
     assert (out / "source-context" / "foo.c").read_text() == _DIVERGENT
@@ -97,8 +104,11 @@ def test_stage_addition_only_fix_stays_on_verbatim_lane(tmp_path):
     out.mkdir()
     written: list[str] = []
     _stage_source_context(
-        out_dir=out, upstream_fix_patch_path=patch, source_tree=tree,
-        write_source_context=True, files_written=written,
+        out_dir=out,
+        upstream_fix_patch_path=patch,
+        source_tree=tree,
+        write_source_context=True,
+        files_written=written,
     )
     assert (out / "upstream-fix.patch").is_file()
     assert not (out / "source-context").exists()
@@ -114,8 +124,13 @@ def test_restage_clears_stale_source_context(tmp_path):
     # first run: a real adaptation-lane patch → source-context/foo.c + preflight.json
     patch1 = _make_patch(tmp_path, _BEFORE, _AFTER)
     tree = _source_tree(tmp_path, "src", _BEFORE)
-    _stage_source_context(out_dir=out, upstream_fix_patch_path=patch1,
-                          source_tree=tree, write_source_context=True, files_written=[])
+    _stage_source_context(
+        out_dir=out,
+        upstream_fix_patch_path=patch1,
+        source_tree=tree,
+        write_source_context=True,
+        files_written=[],
+    )
     assert (out / "source-context" / "foo.c").is_file()
     assert (out / "preflight.json").is_file()
     # second run: addition-only patch → both stale artifacts removed
@@ -124,8 +139,13 @@ def test_restage_clears_stale_source_context(tmp_path):
         "diff --git a/new.c b/new.c\nnew file mode 100644\n--- /dev/null\n"
         "+++ b/new.c\n@@ -0,0 +1 @@\n+int x;\n"
     )
-    _stage_source_context(out_dir=out, upstream_fix_patch_path=add_only,
-                          source_tree=tree, write_source_context=True, files_written=[])
+    _stage_source_context(
+        out_dir=out,
+        upstream_fix_patch_path=add_only,
+        source_tree=tree,
+        write_source_context=True,
+        files_written=[],
+    )
     assert not (out / "source-context").exists()
     assert not (out / "preflight.json").exists()
 
@@ -136,8 +156,11 @@ def test_stage_without_source_tree_stages_diff_only(tmp_path):
     out.mkdir()
     written: list[str] = []
     _stage_source_context(
-        out_dir=out, upstream_fix_patch_path=patch, source_tree=None,
-        write_source_context=False, files_written=written,
+        out_dir=out,
+        upstream_fix_patch_path=patch,
+        source_tree=None,
+        write_source_context=False,
+        files_written=written,
     )
     assert (out / "upstream-fix.patch").is_file()
     assert not (out / "source-context").exists()

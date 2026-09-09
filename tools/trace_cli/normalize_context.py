@@ -72,6 +72,7 @@ def sha256_text(text: str) -> str:
 
 # ─── unified-diff parsing (count-driven, fail-closed) ────────────────────────
 
+
 def _parse_unified_diff(text: str, label: str) -> list[dict[str, Any]]:
     """Parse ``text`` into file entries ``{"path", "header", "hunks"}``.
 
@@ -105,10 +106,8 @@ def _parse_unified_diff(text: str, label: str) -> list[dict[str, Any]]:
             )
         hunk_starts = [i for i, ln in enumerate(section) if _HUNK_HDR_RE.match(ln)]
         if not hunk_starts:
-            raise ContextNormalizationError(
-                f"{label}: file `{path}` has no hunks"
-            )
-        header = section[:hunk_starts[0]]
+            raise ContextNormalizationError(f"{label}: file `{path}` has no hunks")
+        header = section[: hunk_starts[0]]
         hunks: list[list[str]] = []
         for i in hunk_starts:
             m = _HUNK_HDR_RE.match(section[i])
@@ -174,6 +173,7 @@ def _deleted_lines(text: str) -> list[str]:
 
 # ─── ground-truth substitution ───────────────────────────────────────────────
 
+
 def substitute_hunks_from_ground_truth(
     raw_inner_text: str, ground_truth_text: str
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -236,14 +236,16 @@ def substitute_hunks_from_ground_truth(
                     f"representation defect; refusing to substitute"
                 )
             if rh != gh:
-                substitutions.append({
-                    "file": rf["path"],
-                    "hunk_index": idx,
-                    "raw_header": rh[0],
-                    "ground_truth_header": gh[0],
-                    "raw_hunk_sha256": sha256_text("\n".join(rh)),
-                    "ground_truth_hunk_sha256": sha256_text("\n".join(gh)),
-                })
+                substitutions.append(
+                    {
+                        "file": rf["path"],
+                        "hunk_index": idx,
+                        "raw_header": rh[0],
+                        "ground_truth_header": gh[0],
+                        "raw_hunk_sha256": sha256_text("\n".join(rh)),
+                        "ground_truth_hunk_sha256": sha256_text("\n".join(gh)),
+                    }
+                )
             new_hunks.append(list(gh))
         normalized_files.append((rf, new_hunks))
 
@@ -273,7 +275,10 @@ def substitute_hunks_from_ground_truth(
 
 # ─── patch.diff write-back ───────────────────────────────────────────────────
 
-def rebuild_patch_diff(original_patch_diff_text: str, normalized_inner_text: str) -> str:
+
+def rebuild_patch_diff(
+    original_patch_diff_text: str, normalized_inner_text: str
+) -> str:
     """Return ``patch.diff`` with its single nested ``*.patch`` payload replaced
     by ``normalized_inner_text``; every other section (``package.nix`` wiring,
     …) is copied through byte-identical, and the nested new-file hunk header's
@@ -289,7 +294,8 @@ def rebuild_patch_diff(original_patch_diff_text: str, normalized_inner_text: str
             )
     sections = nested_patch._split_diff_sections(original_patch_diff_text)
     nested = [
-        s for s in sections
+        s
+        for s in sections
         if s["is_new_file"] and nested_patch._basename(s["path"]).endswith(".patch")
     ]
     if len(nested) != 1:
@@ -327,6 +333,7 @@ def rebuild_patch_diff(original_patch_diff_text: str, normalized_inner_text: str
 
 
 # ─── attestation ─────────────────────────────────────────────────────────────
+
 
 def build_attestation(
     *,
@@ -372,7 +379,10 @@ def build_attestation(
         )
     return {
         "schema": ATTESTATION_SCHEMA,
-        "tool": {"name": "trace-bundle-normalize-context", "version": NORMALIZER_VERSION},
+        "tool": {
+            "name": "trace-bundle-normalize-context",
+            "version": NORMALIZER_VERSION,
+        },
         "bundle_dir": str(bundle_dir),
         "raw_patch_diff_sha256": sha256_text(raw_patch_diff_text),
         "raw_source_patch_sha256": sha256_text(raw_inner_text),
@@ -400,7 +410,8 @@ def build_attestation(
         "source_hash": source_hash,
         "raw_dry_run": {"applies": raw_dry_run_applies, "fuzz": 0},
         "dry_run": {
-            "applies": True, "fuzz": 0,
+            "applies": True,
+            "fuzz": 0,
             "patch_flags": list(patch_flags),
             "output": dry_run_output[:4096],
         },
@@ -411,6 +422,7 @@ def build_attestation(
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
+
 
 def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p = subs.add_parser(
@@ -430,28 +442,40 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     )
     p.add_argument("bundle_dir", type=Path)
     p.add_argument(
-        "--ground-truth", type=Path, default=None,
+        "--ground-truth",
+        type=Path,
+        default=None,
         help="ground-truth patch to substitute hunks from "
-             "(default: <bundle_dir>/upstream-fix.patch)",
+        "(default: <bundle_dir>/upstream-fix.patch)",
     )
     p.add_argument(
-        "--source-tree", type=Path, default=None,
+        "--source-tree",
+        type=Path,
+        default=None,
         help="pre-unpacked EFFECTIVE source root (the dir patchPhase would "
-             "cd into) to dry-run against; skips the nix unpack.",
+        "cd into) to dry-run against; skips the nix unpack.",
     )
     p.add_argument(
-        "--patch-flags", type=str, default=None, metavar="FLAGS",
+        "--patch-flags",
+        type=str,
+        default=None,
+        metavar="FLAGS",
         help="(--source-tree mode only) the package's patchFlags to dry-run "
-             "with, as one whitespace-separated string; use the `=` form, "
-             "e.g. --patch-flags=-p0. Defaults to -p1.",
+        "with, as one whitespace-separated string; use the `=` form, "
+        "e.g. --patch-flags=-p0. Defaults to -p1.",
     )
-    p.add_argument("--apply", action="store_true",
-                   help="write the normalized patch.diff + attestation")
+    p.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the normalized patch.diff + attestation",
+    )
     p.add_argument("--format", choices=("human", "json"), default="human")
     return p
 
 
-def _emit(fmt: str, payload: dict[str, Any], human_header: str, is_error: bool = False) -> None:
+def _emit(
+    fmt: str, payload: dict[str, Any], human_header: str, is_error: bool = False
+) -> None:
     if fmt == "json":
         json.dump(payload, sys.stdout, indent=2)
         sys.stdout.write("\n")
@@ -468,7 +492,9 @@ def _emit_error(fmt: str, exit_code: int, message: str) -> int:
     return exit_code
 
 
-def _dry_run(effective_root: Path, inner_text: str, patch_flags: list[str]) -> tuple[bool, str]:
+def _dry_run(
+    effective_root: Path, inner_text: str, patch_flags: list[str]
+) -> tuple[bool, str]:
     with tempfile.TemporaryDirectory(prefix="trace-normalize-ctx-") as tmp:
         tmp_path = Path(tmp)
         work = tmp_path / "work"
@@ -481,41 +507,60 @@ def _dry_run(effective_root: Path, inner_text: str, patch_flags: list[str]) -> t
 def run(args: argparse.Namespace, repo_root: Path) -> int:
     bundle_dir: Path = args.bundle_dir.resolve()
     if not bundle_dir.is_dir():
-        return _emit_error(args.format, EXIT_NOT_FOUND, f"bundle dir not found: {bundle_dir}")
+        return _emit_error(
+            args.format, EXIT_NOT_FOUND, f"bundle dir not found: {bundle_dir}"
+        )
 
     patch_diff_path = bundle_dir / "patch.diff"
     if not patch_diff_path.is_file():
-        return _emit_error(args.format, EXIT_NOT_FOUND, f"no patch.diff in {bundle_dir}")
+        return _emit_error(
+            args.format, EXIT_NOT_FOUND, f"no patch.diff in {bundle_dir}"
+        )
     ground_truth_path: Path = (
-        args.ground_truth.resolve() if args.ground_truth is not None
+        args.ground_truth.resolve()
+        if args.ground_truth is not None
         else bundle_dir / "upstream-fix.patch"
     )
     if not ground_truth_path.is_file():
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                           f"ground-truth patch not found: {ground_truth_path}")
+        return _emit_error(
+            args.format,
+            EXIT_NOT_FOUND,
+            f"ground-truth patch not found: {ground_truth_path}",
+        )
 
     raw_patch_diff_text = patch_diff_path.read_text()
     ground_truth_text = ground_truth_path.read_text()
     try:
         raw_inner_text, nested_names = nested_patch.extract_nested_source_patch(
-            raw_patch_diff_text)
+            raw_patch_diff_text
+        )
     except nested_patch.NestedPatchError as exc:
         return _emit_error(args.format, EXIT_EXTRACT_FAILED, str(exc))
 
     try:
         normalized_inner_text, substitutions = substitute_hunks_from_ground_truth(
-            raw_inner_text, ground_truth_text)
+            raw_inner_text, ground_truth_text
+        )
     except ContextNormalizationError as exc:
-        _emit(args.format, {"ok": False, "bundle_dir": str(bundle_dir), "error": str(exc)},
-              f"NORMALIZE-CONTEXT: INELIGIBLE\n{exc}", is_error=True)
+        _emit(
+            args.format,
+            {"ok": False, "bundle_dir": str(bundle_dir), "error": str(exc)},
+            f"NORMALIZE-CONTEXT: INELIGIBLE\n{exc}",
+            is_error=True,
+        )
         return EXIT_REFUSED
 
     if not substitutions:
-        _emit(args.format, {
-            "ok": True, "bundle_dir": str(bundle_dir),
-            "normalization_needed": False,
-            "nested_patch_files": nested_names,
-        }, "NORMALIZE-CONTEXT: payload already matches ground truth (no change needed)")
+        _emit(
+            args.format,
+            {
+                "ok": True,
+                "bundle_dir": str(bundle_dir),
+                "normalization_needed": False,
+                "nested_patch_files": nested_names,
+            },
+            "NORMALIZE-CONTEXT: payload already matches ground truth (no change needed)",
+        )
         return EXIT_OK
 
     source_root: str | None = None
@@ -527,8 +572,11 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         if args.source_tree is not None:
             effective_root = args.source_tree.resolve()
             if not effective_root.is_dir():
-                return _emit_error(args.format, EXIT_NOT_FOUND,
-                                   f"--source-tree not a directory: {effective_root}")
+                return _emit_error(
+                    args.format,
+                    EXIT_NOT_FOUND,
+                    f"--source-tree not a directory: {effective_root}",
+                )
             _pf = getattr(args, "patch_flags", None)
             if _pf is None:
                 patch_flags = ["-p1"]
@@ -539,16 +587,19 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         else:
             try:
                 eff = pinned_source.unpack_pinned_source_with_effective_root(
-                    bundle_dir, tmp_root)
+                    bundle_dir, tmp_root
+                )
             except (RuntimeError, ValueError) as exc:
                 return _emit_error(args.format, EXIT_UNPACK_FAILED, str(exc))
             if eff.preceding_patches > 0:
                 return _emit_error(
-                    args.format, EXIT_UNPACK_FAILED,
+                    args.format,
+                    EXIT_UNPACK_FAILED,
                     f"package applies {eff.preceding_patches} preceding "
                     f"patch(es) before the model patch; dry-running against "
                     f"pristine pkg.src could mis-report. Pass --source-tree "
-                    f"with a tree already prepared through those patches.")
+                    f"with a tree already prepared through those patches.",
+                )
             effective_root = eff.effective_root
             source_root = eff.source_root
             nixpkgs_rev = eff.nixpkgs_rev
@@ -556,15 +607,21 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
             patch_flags = eff.patch_flags
 
         raw_applies, _raw_out = _dry_run(effective_root, raw_inner_text, patch_flags)
-        norm_applies, norm_out = _dry_run(effective_root, normalized_inner_text, patch_flags)
+        norm_applies, norm_out = _dry_run(
+            effective_root, normalized_inner_text, patch_flags
+        )
         if not norm_applies:
             msg = (
                 f"normalized payload does NOT apply at fuzz=0 from "
                 f"{effective_root} — the ground truth itself does not fit "
                 f"this base; nothing to attest. patch output:\n{norm_out[:2000]}"
             )
-            _emit(args.format, {"ok": False, "bundle_dir": str(bundle_dir), "error": msg},
-                  f"NORMALIZE-CONTEXT: GROUND TRUTH DOES NOT APPLY\n{msg}", is_error=True)
+            _emit(
+                args.format,
+                {"ok": False, "bundle_dir": str(bundle_dir), "error": msg},
+                f"NORMALIZE-CONTEXT: GROUND TRUTH DOES NOT APPLY\n{msg}",
+                is_error=True,
+            )
             return EXIT_APPLY_FAILED
 
         if not args.apply:
@@ -574,18 +631,25 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
                 f"{effective_root}; re-run with --apply to fix it and emit "
                 f"{ATTESTATION_FILENAME}"
             )
-            _emit(args.format, {
-                "ok": False, "bundle_dir": str(bundle_dir),
-                "normalization_needed": True,
-                "hunk_substitutions": substitutions,
-                "raw_payload_applies": raw_applies,
-                "error": msg,
-            }, f"NORMALIZE-CONTEXT: FAIL-CLOSED (no --apply)\n{msg}", is_error=True)
+            _emit(
+                args.format,
+                {
+                    "ok": False,
+                    "bundle_dir": str(bundle_dir),
+                    "normalization_needed": True,
+                    "hunk_substitutions": substitutions,
+                    "raw_payload_applies": raw_applies,
+                    "error": msg,
+                },
+                f"NORMALIZE-CONTEXT: FAIL-CLOSED (no --apply)\n{msg}",
+                is_error=True,
+            )
             return EXIT_APPLY_FAILED
 
         try:
             normalized_patch_diff_text = rebuild_patch_diff(
-                raw_patch_diff_text, normalized_inner_text)
+                raw_patch_diff_text, normalized_inner_text
+            )
             attestation = build_attestation(
                 bundle_dir=bundle_dir,
                 raw_patch_diff_text=raw_patch_diff_text,
@@ -605,18 +669,27 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
                 patcher_invocation_sha=_read_patcher_invocation_sha(bundle_dir),
             )
         except ContextNormalizationError as exc:
-            _emit(args.format, {"ok": False, "bundle_dir": str(bundle_dir), "error": str(exc)},
-                  f"NORMALIZE-CONTEXT: REFUSED\n{exc}", is_error=True)
+            _emit(
+                args.format,
+                {"ok": False, "bundle_dir": str(bundle_dir), "error": str(exc)},
+                f"NORMALIZE-CONTEXT: REFUSED\n{exc}",
+                is_error=True,
+            )
             return EXIT_APPLY_FAILED
     finally:
         tmp_ctx.cleanup()
 
     patch_diff_path.write_text(normalized_patch_diff_text)
-    (bundle_dir / ATTESTATION_FILENAME).write_text(json.dumps(attestation, indent=2) + "\n")
-    _emit(args.format, {"ok": True, "bundle_dir": str(bundle_dir), "attestation": attestation},
-          f"NORMALIZE-CONTEXT: APPLIED ({len(substitutions)} hunk substitution(s))\n"
-          f"  wrote: patch.diff, {ATTESTATION_FILENAME}\n"
-          f"  REMINDER: the Reviewer must be re-run live on the normalized bytes")
+    (bundle_dir / ATTESTATION_FILENAME).write_text(
+        json.dumps(attestation, indent=2) + "\n"
+    )
+    _emit(
+        args.format,
+        {"ok": True, "bundle_dir": str(bundle_dir), "attestation": attestation},
+        f"NORMALIZE-CONTEXT: APPLIED ({len(substitutions)} hunk substitution(s))\n"
+        f"  wrote: patch.diff, {ATTESTATION_FILENAME}\n"
+        f"  REMINDER: the Reviewer must be re-run live on the normalized bytes",
+    )
     return EXIT_OK
 
 

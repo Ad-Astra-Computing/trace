@@ -21,6 +21,7 @@ Writes exports/authoring-v8/authoring.jsonl, the messages-only split files
 manifest.json, mirroring the layout of the v7 HF dataset repo.
 With --upload, also pushes to adastracomputing/authoring-lora-data-v8.
 """
+
 import argparse
 import json
 import re
@@ -152,8 +153,14 @@ def _scrub_summary(summary: str, fix_diff: str) -> str:
 def _fence_lang(filename: str) -> str:
     ext = Path(filename).suffix
     return {
-        ".c": "c", ".h": "c", ".cpp": "cpp", ".py": "python",
-        ".go": "go", ".rs": "rust", ".java": "java", ".rb": "ruby",
+        ".c": "c",
+        ".h": "c",
+        ".cpp": "cpp",
+        ".py": "python",
+        ".go": "go",
+        ".rs": "rust",
+        ".java": "java",
+        ".rb": "ruby",
     }.get(ext, "")
 
 
@@ -166,7 +173,10 @@ def _build_record(ae: dict, split: str) -> dict | None:
 
     vuln = _scrub_summary(ae["vuln_raw"], fix_diff)
     if not vuln:
-        print(f"  WARN {cve_id}: description empty after scrub — using raw", file=sys.stderr)
+        print(
+            f"  WARN {cve_id}: description empty after scrub — using raw",
+            file=sys.stderr,
+        )
         vuln = ae["vuln_raw"]
 
     user = (
@@ -199,7 +209,9 @@ def _build_record(ae: dict, split: str) -> dict | None:
             "included_source_files": included,
             "omitted_source_files": [],
             "input_window_truncated": bool(ae.get("input_window_truncated", False)),
-            "authoring_multifile_status": "single-file" if label_file_count <= 1 else "multifile-v1",
+            "authoring_multifile_status": "single-file"
+            if label_file_count <= 1
+            else "multifile-v1",
             "eligible_under_multifile_v1": label_file_count <= 3,
             "label_grounding_source": ae.get("label_source", "upstream-fix.patch"),
         },
@@ -226,15 +238,21 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--upload", action="store_true", help="push to HF dataset repo")
     ap.add_argument(
-        "--traces-root", type=Path, default=Path("traces/example"),
+        "--traces-root",
+        type=Path,
+        default=Path("traces/example"),
         help="root of CVE-* bundles",
     )
     ap.add_argument(
-        "--v6-jsonl", type=Path, default=Path("exports/authoring-v6/authoring.jsonl"),
+        "--v6-jsonl",
+        type=Path,
+        default=Path("exports/authoring-v6/authoring.jsonl"),
         help="v6 base JSONL to extend",
     )
     ap.add_argument(
-        "--out", type=Path, default=Path("exports/authoring-v8"),
+        "--out",
+        type=Path,
+        default=Path("exports/authoring-v8"),
         help="output directory",
     )
     args = ap.parse_args()
@@ -244,7 +262,9 @@ def main() -> None:
         sys.exit(2)
 
     # Load v6 records.
-    v6_records = [json.loads(ln) for ln in args.v6_jsonl.read_text().splitlines() if ln.strip()]
+    v6_records = [
+        json.loads(ln) for ln in args.v6_jsonl.read_text().splitlines() if ln.strip()
+    ]
     print(f"v6 base: {len(v6_records)} records")
 
     # Build supplement records for the hand-authored examples.
@@ -299,7 +319,11 @@ def main() -> None:
         tok_vals.append(est)
         if est > SEQ_LEN_BUDGET:
             over_seq_len.append(
-                {"cve": ex["provenance"].get("cve_id"), "est_tokens": est, "split": ex["split"]}
+                {
+                    "cve": ex["provenance"].get("cve_id"),
+                    "est_tokens": est,
+                    "split": ex["split"],
+                }
             )
 
     manifest = {
@@ -335,6 +359,7 @@ def main() -> None:
 
     if args.upload:
         from huggingface_hub import HfApi
+
         api = HfApi()
         repo_id = "adastracomputing/authoring-lora-data-v8"
         api.create_repo(repo_id, repo_type="dataset", exist_ok=True, private=True)

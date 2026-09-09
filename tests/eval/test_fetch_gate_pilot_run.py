@@ -40,9 +40,12 @@ def _fake_hub(tmp_path: Path, files: dict[str, bytes]):
 
 
 def test_default_manifest_path_for_nested():
-    assert fetch_mod.default_manifest_path_for(
-        "gate_pilot_responses/corpus-v2-control/responses.jsonl"
-    ) == "gate_pilot_responses/corpus-v2-control/run_manifest.json"
+    assert (
+        fetch_mod.default_manifest_path_for(
+            "gate_pilot_responses/corpus-v2-control/responses.jsonl"
+        )
+        == "gate_pilot_responses/corpus-v2-control/run_manifest.json"
+    )
 
 
 def test_default_manifest_path_for_top_level():
@@ -52,12 +55,17 @@ def test_default_manifest_path_for_top_level():
 def test_fetch_run_downloads_and_verifies(tmp_path):
     responses_bytes = b'{"bundle_id": "abc", "generated": "accept"}\n'
     response_sha256 = hashlib.sha256(responses_bytes).hexdigest()
-    manifest_bytes = json.dumps({"response_sha256": response_sha256, "row_count": 1}).encode()
+    manifest_bytes = json.dumps(
+        {"response_sha256": response_sha256, "row_count": 1}
+    ).encode()
 
-    download_fn = _fake_hub(tmp_path, {
-        "gate_pilot_responses/responses.jsonl": responses_bytes,
-        "gate_pilot_responses/run_manifest.json": manifest_bytes,
-    })
+    download_fn = _fake_hub(
+        tmp_path,
+        {
+            "gate_pilot_responses/responses.jsonl": responses_bytes,
+            "gate_pilot_responses/run_manifest.json": manifest_bytes,
+        },
+    )
 
     out_dir = tmp_path / "local_run"
     summary = fetch_mod.fetch_run(
@@ -78,10 +86,13 @@ def test_fetch_run_raises_on_sha256_mismatch(tmp_path):
     responses_bytes = b'{"bundle_id": "abc"}\n'
     manifest_bytes = json.dumps({"response_sha256": "0" * 64}).encode()
 
-    download_fn = _fake_hub(tmp_path, {
-        "gate_pilot_responses/responses.jsonl": responses_bytes,
-        "gate_pilot_responses/run_manifest.json": manifest_bytes,
-    })
+    download_fn = _fake_hub(
+        tmp_path,
+        {
+            "gate_pilot_responses/responses.jsonl": responses_bytes,
+            "gate_pilot_responses/run_manifest.json": manifest_bytes,
+        },
+    )
 
     with pytest.raises(RuntimeError, match="sha256 mismatch"):
         fetch_mod.fetch_run(
@@ -96,10 +107,13 @@ def test_fetch_run_no_verify_skips_mismatch_check(tmp_path):
     responses_bytes = b'{"bundle_id": "abc"}\n'
     manifest_bytes = json.dumps({"response_sha256": "0" * 64}).encode()
 
-    download_fn = _fake_hub(tmp_path, {
-        "gate_pilot_responses/responses.jsonl": responses_bytes,
-        "gate_pilot_responses/run_manifest.json": manifest_bytes,
-    })
+    download_fn = _fake_hub(
+        tmp_path,
+        {
+            "gate_pilot_responses/responses.jsonl": responses_bytes,
+            "gate_pilot_responses/run_manifest.json": manifest_bytes,
+        },
+    )
 
     summary = fetch_mod.fetch_run(
         adapter_repo="repo",
@@ -115,9 +129,12 @@ def test_fetch_run_missing_manifest_is_not_fatal(tmp_path):
     """Older runs (predating this instrumentation) have no run_manifest.json.
     The download must still succeed, just report manifest_present=False."""
     responses_bytes = b'{"bundle_id": "abc"}\n'
-    download_fn = _fake_hub(tmp_path, {
-        "gate_pilot_responses/responses.jsonl": responses_bytes,
-    })
+    download_fn = _fake_hub(
+        tmp_path,
+        {
+            "gate_pilot_responses/responses.jsonl": responses_bytes,
+        },
+    )
 
     summary = fetch_mod.fetch_run(
         adapter_repo="repo",
@@ -132,12 +149,17 @@ def test_fetch_run_missing_manifest_is_not_fatal(tmp_path):
 
 
 def test_fetch_run_custom_manifest_path(tmp_path):
-    responses_bytes = b'{}\n'
-    manifest_bytes = json.dumps({"response_sha256": hashlib.sha256(responses_bytes).hexdigest()}).encode()
-    download_fn = _fake_hub(tmp_path, {
-        "responses.jsonl": responses_bytes,
-        "custom/manifest.json": manifest_bytes,
-    })
+    responses_bytes = b"{}\n"
+    manifest_bytes = json.dumps(
+        {"response_sha256": hashlib.sha256(responses_bytes).hexdigest()}
+    ).encode()
+    download_fn = _fake_hub(
+        tmp_path,
+        {
+            "responses.jsonl": responses_bytes,
+            "custom/manifest.json": manifest_bytes,
+        },
+    )
 
     summary = fetch_mod.fetch_run(
         adapter_repo="repo",

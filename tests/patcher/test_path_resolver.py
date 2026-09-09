@@ -46,7 +46,7 @@ def test_by_name_resolves_modern_attr(tmp_path: Path) -> None:
     assert result.path.parent.name == "radare2"
     assert result.relative == "pkgs/by-name/ra/radare2/package.nix"
     assert result.strategy == "by-name"
-    assert "version = \"6.1.2\"" in result.content
+    assert 'version = "6.1.2"' in result.content
 
 
 def test_by_name_two_letter_directory_correct(tmp_path: Path) -> None:
@@ -78,9 +78,7 @@ def test_namespaced_attr_without_nix_eval_raises(tmp_path: Path) -> None:
     Without use_nix_eval=True the resolver raises with a clear reason."""
     nixpkgs = _mk_nixpkgs(tmp_path)
     with pytest.raises(PackageSourceNotFound, match="namespaced"):
-        resolve_package_source(
-            "python3Packages.requests", nixpkgs_root=nixpkgs
-        )
+        resolve_package_source("python3Packages.requests", nixpkgs_root=nixpkgs)
 
 
 def test_namespaced_attr_with_nix_eval_resolves(tmp_path: Path) -> None:
@@ -88,11 +86,19 @@ def test_namespaced_attr_with_nix_eval_resolves(tmp_path: Path) -> None:
     nix-eval (no by-name attempt). This is the cron path for
     haskellPackages.total / linuxKernel.kernels.* / etc."""
     nixpkgs = _mk_nixpkgs(tmp_path)
-    target = nixpkgs / "pkgs" / "development" / "haskell-modules" / "configuration-common.nix"
+    target = (
+        nixpkgs
+        / "pkgs"
+        / "development"
+        / "haskell-modules"
+        / "configuration-common.nix"
+    )
     target.parent.mkdir(parents=True)
-    target.write_text('{ ... }: { }')
-    with patch("agents.patcher.path_resolver._run_nix_eval_position",
-               return_value=(f"{target}:1", "ok")):
+    target.write_text("{ ... }: { }")
+    with patch(
+        "agents.patcher.path_resolver._run_nix_eval_position",
+        return_value=(f"{target}:1", "ok"),
+    ):
         result = resolve_package_source(
             "haskellPackages.total",
             nixpkgs_root=nixpkgs,
@@ -111,8 +117,10 @@ def test_nix_eval_fallback_invoked_when_use_nix_eval_true(tmp_path: Path) -> Non
     target.parent.mkdir(parents=True)
     target.write_text('{ ... }: { version = "0.6"; }')
 
-    with patch("agents.patcher.path_resolver._run_nix_eval_position",
-               return_value=(f"{target}:1", "ok")):
+    with patch(
+        "agents.patcher.path_resolver._run_nix_eval_position",
+        return_value=(f"{target}:1", "ok"),
+    ):
         result = resolve_package_source(
             "radamsa",
             nixpkgs_root=nixpkgs,
@@ -125,8 +133,10 @@ def test_nix_eval_fallback_invoked_when_use_nix_eval_true(tmp_path: Path) -> Non
 
 def test_nix_eval_fallback_failure_surfaces_diagnostic(tmp_path: Path) -> None:
     nixpkgs = _mk_nixpkgs(tmp_path)
-    with patch("agents.patcher.path_resolver._run_nix_eval_position",
-               return_value=(None, "nix-eval-exit-1:attr 'long-tail-pkg' missing")):
+    with patch(
+        "agents.patcher.path_resolver._run_nix_eval_position",
+        return_value=(None, "nix-eval-exit-1:attr 'long-tail-pkg' missing"),
+    ):
         with pytest.raises(PackageSourceNotFound, match="nix-eval-exit-1"):
             resolve_package_source(
                 "long-tail-pkg",
@@ -147,8 +157,10 @@ def test_nix_eval_position_outside_nixpkgs_root_rejected(tmp_path: Path) -> None
     (elsewhere_root / "default.nix").write_text("{}")
     # `elsewhere_root` is a sibling of nixpkgs, not under it, and not
     # under any /nix/store/<hash>-source tree.
-    with patch("agents.patcher.path_resolver._run_nix_eval_position",
-               return_value=(str(elsewhere_root / "default.nix") + ":1", "ok")):
+    with patch(
+        "agents.patcher.path_resolver._run_nix_eval_position",
+        return_value=(str(elsewhere_root / "default.nix") + ":1", "ok"),
+    ):
         with pytest.raises(PackageSourceNotFound, match="outside"):
             resolve_package_source(
                 "alien-pkg",
@@ -167,7 +179,9 @@ def test_store_source_re_recognizes_unpacked_flake_paths() -> None:
 
     accept = [
         "/nix/store/" + ("a" * 32) + "-source",
-        "/nix/store/" + ("a" * 32) + "-source/pkgs/os-specific/linux/kernel/mainline.nix",
+        "/nix/store/"
+        + ("a" * 32)
+        + "-source/pkgs/os-specific/linux/kernel/mainline.nix",
         "/nix/store/" + ("0z" * 16) + "-source/flake.nix",
     ]
     for p in accept:
@@ -201,9 +215,15 @@ def test_nix_eval_phantom_path_rerooted_to_nixpkgs(tmp_path: Path) -> None:
     real.parent.mkdir(parents=True)
     real.write_text('{ ... }: { src = fetchurl { url = "..."; }; }')
 
-    phantom = "/nix/store/" + ("c" * 32) + "-source/pkgs/os-specific/linux/kernel/mainline.nix"
-    with patch("agents.patcher.path_resolver._run_nix_eval_position",
-               return_value=(f"{phantom}:34", "ok")):
+    phantom = (
+        "/nix/store/"
+        + ("c" * 32)
+        + "-source/pkgs/os-specific/linux/kernel/mainline.nix"
+    )
+    with patch(
+        "agents.patcher.path_resolver._run_nix_eval_position",
+        return_value=(f"{phantom}:34", "ok"),
+    ):
         result = resolve_package_source(
             "linux",
             nixpkgs_root=nixpkgs,
@@ -226,8 +246,10 @@ def test_nix_eval_phantom_relative_not_in_root_rejected(tmp_path: Path) -> None:
     # Don't create the kernel file; rerooted path will be missing.
 
     phantom = "/nix/store/" + ("d" * 32) + "-source/pkgs/never/exists.nix"
-    with patch("agents.patcher.path_resolver._run_nix_eval_position",
-               return_value=(f"{phantom}:1", "ok")):
+    with patch(
+        "agents.patcher.path_resolver._run_nix_eval_position",
+        return_value=(f"{phantom}:1", "ok"),
+    ):
         with pytest.raises(PackageSourceNotFound, match="not a file"):
             resolve_package_source(
                 "missing",
@@ -246,9 +268,11 @@ def test_nix_eval_alt_store_source_accepted(tmp_path: Path) -> None:
     # Build a fake alternate store-source tree under tmp_path so we
     # can exercise the alt-source path without poking /nix/store.
     fake_store_root = tmp_path / "fake-store" / "nix" / "store" / ("b" * 32 + "-source")
-    target = fake_store_root / "pkgs" / "os-specific" / "linux" / "kernel" / "mainline.nix"
+    target = (
+        fake_store_root / "pkgs" / "os-specific" / "linux" / "kernel" / "mainline.nix"
+    )
     target.parent.mkdir(parents=True)
-    target.write_text('{ ... }: { }')
+    target.write_text("{ ... }: { }")
 
     # Patch the regex to accept fake_store_root's prefix in addition to
     # the real /nix/store one. Cleanest way to keep the test hermetic
@@ -256,9 +280,13 @@ def test_nix_eval_alt_store_source_accepted(tmp_path: Path) -> None:
     fake_re = re.compile(
         rf"^(?P<prefix>{re.escape(str(tmp_path))}/fake-store/nix/store/[0-9a-z]{{32}}-source)(?:/(?P<rest>.*))?$"
     )
-    with patch("agents.patcher.path_resolver._run_nix_eval_position",
-               return_value=(f"{target}:34", "ok")), \
-         patch("agents.patcher.path_resolver._STORE_SOURCE_RE", fake_re):
+    with (
+        patch(
+            "agents.patcher.path_resolver._run_nix_eval_position",
+            return_value=(f"{target}:34", "ok"),
+        ),
+        patch("agents.patcher.path_resolver._STORE_SOURCE_RE", fake_re),
+    ):
         result = resolve_package_source(
             "linux",
             nixpkgs_root=nixpkgs,

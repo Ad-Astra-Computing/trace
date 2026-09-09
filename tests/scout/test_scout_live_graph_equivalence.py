@@ -40,7 +40,10 @@ def extract_prereqs() -> tuple[str, str] | None:
     rev = lock["nodes"]["nixpkgs"]["locked"]["rev"]
     archive = subprocess.run(
         ["nix", "flake", "archive", "--json"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     store = json.loads(archive.stdout)["inputs"]["nixpkgs"]["path"]
     return rev, store
@@ -49,31 +52,44 @@ def extract_prereqs() -> tuple[str, str] | None:
 def _live_snapshot(rev: str, store: str, attrs: list[str]) -> dict:
     proc = subprocess.run(
         [
-            "cargo", "run", "--quiet", "--manifest-path", str(GRAPH_MANIFEST),
-            "--", "extract",
-            "--rev", rev,
-            "--nixpkgs", store,
-            "--attrs", ",".join(attrs),
+            "cargo",
+            "run",
+            "--quiet",
+            "--manifest-path",
+            str(GRAPH_MANIFEST),
+            "--",
+            "extract",
+            "--rev",
+            rev,
+            "--nixpkgs",
+            store,
+            "--attrs",
+            ",".join(attrs),
         ],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return json.loads(proc.stdout)
 
 
 def _snapshot_to_canned_lookup(snap: dict) -> CannedGraphLookup:
-    return CannedGraphLookup([
-        GraphMatch(
-            attr_path=n["attr_path"],
-            drv_path=n["drv_path"],
-            pname=n["pname"],
-            version=n["version"],
-            cpes=tuple(n.get("cpes") or ()),
-            purls=tuple(n.get("purls") or ()),
-            src_url=n.get("src_url"),
-            src_hash=n.get("src_hash"),
-        )
-        for n in snap["nodes"]
-    ])
+    return CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path=n["attr_path"],
+                drv_path=n["drv_path"],
+                pname=n["pname"],
+                version=n["version"],
+                cpes=tuple(n.get("cpes") or ()),
+                purls=tuple(n.get("purls") or ()),
+                src_url=n.get("src_url"),
+                src_hash=n.get("src_hash"),
+            )
+            for n in snap["nodes"]
+        ]
+    )
 
 
 def _normalized_advisory(pname: str) -> dict:
@@ -114,14 +130,16 @@ def test_scout_agrees_between_canned_and_live_graph(extract_prereqs):
     rev, store = extract_prereqs
 
     # Canned graph: a hand-rolled GraphMatch for `hello`.
-    canned = CannedGraphLookup([
-        GraphMatch(
-            attr_path="hello",
-            drv_path="/nix/store/00000000000000000000000000000001-hello-stub.drv",
-            pname="hello",
-            version="0.0.0-stub",
-        )
-    ])
+    canned = CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path="hello",
+                drv_path="/nix/store/00000000000000000000000000000001-hello-stub.drv",
+                pname="hello",
+                version="0.0.0-stub",
+            )
+        ]
+    )
 
     # Live graph: the Rust builder extracts `hello` from real nixpkgs.
     live_snap = _live_snapshot(rev, store, ["hello"])
@@ -170,4 +188,7 @@ def test_scout_mapping_failure_agrees_between_graphs(extract_prereqs):
 
     assert canned_result["status"] == "mapping-failure"
     assert live_result["status"] == "mapping-failure"
-    assert canned_result["mapping_failure"]["reason"] == live_result["mapping_failure"]["reason"]
+    assert (
+        canned_result["mapping_failure"]["reason"]
+        == live_result["mapping_failure"]["reason"]
+    )

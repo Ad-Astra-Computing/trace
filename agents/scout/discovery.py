@@ -43,9 +43,13 @@ def list_recent_cves(
     api_key: str | None = None,
 ) -> list[str]:
     if since.tzinfo is None or until.tzinfo is None:
-        raise ValueError("list_recent_cves requires tz-aware (timezone-aware) datetimes; NVD timestamps are UTC")
+        raise ValueError(
+            "list_recent_cves requires tz-aware (timezone-aware) datetimes; NVD timestamps are UTC"
+        )
     if since >= until:
-        raise ValueError(f"since ({since.isoformat()}) must be before until ({until.isoformat()})")
+        raise ValueError(
+            f"since ({since.isoformat()}) must be before until ({until.isoformat()})"
+        )
 
     headers = {"Accept": "application/json", "User-Agent": _USER_AGENT}
     if api_key:
@@ -61,6 +65,7 @@ def list_recent_cves(
 
         if status == 429:
             from agents.scout.feed_client import _parse_retry_after
+
             raise FeedRateLimit(_parse_retry_after(_resp_headers))
         if status >= 500:
             raise FeedTransientError(f"NVD list returned {status}")

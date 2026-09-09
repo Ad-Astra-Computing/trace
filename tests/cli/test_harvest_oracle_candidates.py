@@ -153,9 +153,7 @@ def _build_fake_nixpkgs(root: Path) -> Path:
         '{ }: {\n  version = "1.21";\n'
         "  patches = [ ./CVE-2026-40355-and-CVE-2026-40356.patch ];\n}\n"
     )
-    (krb5_dir / "CVE-2026-40355-and-CVE-2026-40356.patch").write_text(
-        DOUBLE_CVE_PATCH
-    )
+    (krb5_dir / "CVE-2026-40355-and-CVE-2026-40356.patch").write_text(DOUBLE_CVE_PATCH)
 
     return nixpkgs_dir
 
@@ -247,7 +245,12 @@ def test_parse_patch_empty_bytes_is_unknown_shaped() -> None:
     assert parsed["n_files"] == 0
     assert parsed["n_hunks"] == 0
     assert parsed["is_format_patch"] is False
-    assert hoc.classify(parsed["is_format_patch"], parsed["adaptation_signals"], parsed["n_hunks"]) == "unknown"
+    assert (
+        hoc.classify(
+            parsed["is_format_patch"], parsed["adaptation_signals"], parsed["n_hunks"]
+        )
+        == "unknown"
+    )
 
 
 # ─── classify ───────────────────────────────────────────────────────────────
@@ -300,7 +303,14 @@ def test_derive_package_name_fallback_to_parent_dir(tmp_path: Path) -> None:
 def test_parse_pinned_version_found(tmp_path: Path) -> None:
     nixpkgs_dir = _build_fake_nixpkgs(tmp_path)
     pkgs_root = nixpkgs_dir / "pkgs"
-    patch_path = nixpkgs_dir / "pkgs" / "by-name" / "ma" / "maxima" / "5.47.0-CVE-2024-34490.patch"
+    patch_path = (
+        nixpkgs_dir
+        / "pkgs"
+        / "by-name"
+        / "ma"
+        / "maxima"
+        / "5.47.0-CVE-2024-34490.patch"
+    )
     anchor = hoc.find_anchor_dir(patch_path, pkgs_root)
     assert hoc.parse_pinned_version(anchor) == "5.47.0"
 
@@ -667,6 +677,7 @@ def test_empty_when_a_side_has_no_payload():
 
 def test_verify_pair_cli(tmp_path, capsys):
     import json as _json
+
     a = tmp_path / "maint.patch"
     b = tmp_path / "up.patch"
     a.write_text(_UP)

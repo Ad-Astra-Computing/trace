@@ -70,9 +70,7 @@ CANONICAL_BUNDLE_ARTIFACTS: tuple[str, ...] = (
 # (so a bundle that doesn't have one gets no credit for citing it). Maps the
 # filename to a no-op presence check at scoring time. Source-backport bundles
 # carry upstream-fix.patch (the ground-truth diff the Reviewer verifies against).
-_OPTIONAL_BUNDLE_ARTIFACTS: tuple[str, ...] = (
-    "upstream-fix.patch",
-)
+_OPTIONAL_BUNDLE_ARTIFACTS: tuple[str, ...] = ("upstream-fix.patch",)
 
 
 def reviewer_scorer_names() -> tuple[str, ...]:
@@ -199,28 +197,44 @@ class ReviewSchemaValidScorer:
             return self._score_refusal(bundle_dir)
         if kind != "review":
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=f"reviewer invocation outputs are not in the canonical set; got {sorted({o['path'] for o in invocation.get('outputs') or []})}",
             )
 
         parsed = _load_review_md(bundle_dir)
         if parsed is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="review.md missing or fails strict parser",
             )
         # Schema check on the parsed shape.
         try:
             from jsonschema import Draft202012Validator
-            schema_path = Path(__file__).resolve().parents[2] / "policy" / "reviewer-output-schema.json"
+
+            schema_path = (
+                Path(__file__).resolve().parents[2]
+                / "policy"
+                / "reviewer-output-schema.json"
+            )
             schema = json.loads(schema_path.read_text())
-            errors = list(Draft202012Validator(schema).iter_errors(parsed.to_schema_dict()))
+            errors = list(
+                Draft202012Validator(schema).iter_errors(parsed.to_schema_dict())
+            )
             if errors:
                 return ScorerResult(
-                    self.name, self.version,
-                    applies=True, advisory=False, score=0.0,
+                    self.name,
+                    self.version,
+                    applies=True,
+                    advisory=False,
+                    score=0.0,
                     notes=f"review.md parses but fails reviewer-output-schema: {errors[0].message}",
                     details={"first_schema_error": errors[0].message},
                 )
@@ -231,8 +245,11 @@ class ReviewSchemaValidScorer:
             pass
 
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=1.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=1.0,
             notes=f"review.md parses cleanly and matches schema; verdict={parsed.verdict}",
             details={"verdict": parsed.verdict, "n_findings": len(parsed.findings)},
         )
@@ -241,27 +258,39 @@ class ReviewSchemaValidScorer:
         ref_path = bundle_dir / "review-refusal.json"
         if not ref_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="review-refusal.json missing",
             )
         try:
             body = json.loads(ref_path.read_text())
         except json.JSONDecodeError as exc:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=f"review-refusal.json invalid JSON: {exc}",
             )
         if not (isinstance(body, dict) and "rule" in body and "reason" in body):
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="review-refusal.json missing rule or reason",
             )
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=1.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=1.0,
             notes=f"review-refusal.json well-formed; rule={body['rule']}",
             details={"rule": body["rule"]},
         )
@@ -314,24 +343,33 @@ class ReviewEvidenceCitedScorer:
         kind = _outputs_kind(invocation)
         if kind == "refusal":
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="reviewer refusal: evidence-cited is not applicable",
             )
 
         parsed = _load_review_md(bundle_dir)
         if parsed is None or parsed.kind != "review":
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="review.md missing or fails strict parser",
             )
 
         cited = parsed.cited_evidence
         if not cited:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="cited_evidence is empty",
             )
 
@@ -362,14 +400,21 @@ class ReviewEvidenceCitedScorer:
                 recognised.append(entry)
             elif _is_source_context_citation(artifact, bundle_dir):
                 recognised.append(entry)
-            elif cve_id and artifact == f"{cve_id}.patch" and (bundle_dir / "patch.diff").is_file():
+            elif (
+                cve_id
+                and artifact == f"{cve_id}.patch"
+                and (bundle_dir / "patch.diff").is_file()
+            ):
                 recognised.append(entry)
             else:
                 unrecognised.append(entry)
         score = len(recognised) / len(cited)
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=score,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=score,
             notes=(
                 f"{len(recognised)}/{len(cited)} citations name canonical "
                 f"bundle artifacts; unrecognised: {unrecognised or '(none)'}"
@@ -422,6 +467,7 @@ class ReviewCrossFamilyAttestationScorer:
             (parser failures should already have flagged it via
             review-schema-valid).
     """
+
     name = "review-cross-family-attestation"
     version = SCORER_VERSION
     advisory = False
@@ -430,24 +476,33 @@ class ReviewCrossFamilyAttestationScorer:
         kind = _outputs_kind(invocation)
         if kind == "refusal":
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="reviewer refusal: cross-family attestation is not applicable",
             )
 
         parsed = _load_review_md(bundle_dir)
         if parsed is None or parsed.kind != "review" or parsed.cross_family is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="review.md missing / malformed / lacks cross-family attestation",
             )
 
         recorded_patcher = _patcher_family_from_replay(bundle_dir)
         if recorded_patcher is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="replay.json has no patcher invocation; cannot verify attestation",
             )
 
@@ -455,8 +510,11 @@ class ReviewCrossFamilyAttestationScorer:
         recorded_reviewer = _model_id_to_family(reviewer_model_id)
         if recorded_reviewer is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes=(
                     f"reviewer invocation has no resolvable model family "
                     f"(model_id={reviewer_model_id!r}); cannot verify attestation"
@@ -495,8 +553,11 @@ class ReviewCrossFamilyAttestationScorer:
         }
         if not mismatches:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=1.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=1.0,
                 notes=(
                     f"attestation matches on all three fields: reviewer_family="
                     f"{recorded_reviewer!r}, patcher_family_observed="
@@ -505,8 +566,11 @@ class ReviewCrossFamilyAttestationScorer:
                 details=details,
             )
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=0.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=0.0,
             notes=(
                 f"attestation FABRICATED on {', '.join(mismatches)}: "
                 f"recorded (reviewer_family={recorded_reviewer!r}, "
@@ -539,6 +603,7 @@ class ReviewPatchComparisonPresentScorer:
       0.0 — source-backport and ## Patch comparison section is absent
       None+applies=False — not a source-backport, or review.md missing
     """
+
     name = "review-patch-comparison-present"
     version = SCORER_VERSION
     advisory = False
@@ -547,8 +612,11 @@ class ReviewPatchComparisonPresentScorer:
         kind = _outputs_kind(invocation)
         if kind == "refusal":
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="reviewer refusal: patch-comparison check is not applicable",
             )
 
@@ -556,23 +624,32 @@ class ReviewPatchComparisonPresentScorer:
         upstream_ref_path = bundle_dir / "upstream-ref.json"
         if not upstream_ref_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="upstream-ref.json missing; cannot determine patch_strategy",
             )
         try:
             upstream_ref = json.loads(upstream_ref_path.read_text())
         except json.JSONDecodeError:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="upstream-ref.json invalid JSON",
             )
         patch_strategy = (upstream_ref.get("eligibility") or {}).get("patch_strategy")
         if patch_strategy != "source-backport":
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes=f"patch_strategy={patch_strategy!r}; scorer only applies to source-backport",
             )
 
@@ -584,8 +661,11 @@ class ReviewPatchComparisonPresentScorer:
         # rate. The adaptation-equivalence scorer covers this lane instead.
         if _is_adaptation_lane(bundle_dir):
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes=(
                     "adaptation lane (applies_verbatim!=true): '## Patch comparison' "
                     "is replaced by '## Equivalence assessment'; scored by "
@@ -596,23 +676,32 @@ class ReviewPatchComparisonPresentScorer:
         parsed = _load_review_md(bundle_dir)
         if parsed is None or parsed.kind != "review":
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="review.md missing or fails strict parser",
             )
 
         if parsed.patch_comparison_raw is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=(
                     "source-backport review is missing required '## Patch comparison' "
                     "section (v5+ contract: check 0 must be an explicit evidence record)"
                 ),
             )
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=1.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=1.0,
             notes=(
                 f"'## Patch comparison' section present "
                 f"({len(parsed.patch_comparison_raw)} chars)"
@@ -710,6 +799,7 @@ class ReviewAdaptationEquivalenceScorer:
       None+applies=False — refusal, non-adaptation-lane bundle, no
             resolvable cve_id, or no registered oracle.
     """
+
     name = "review-adaptation-equivalence"
     version = SCORER_VERSION
     advisory = False
@@ -718,15 +808,21 @@ class ReviewAdaptationEquivalenceScorer:
         kind = _outputs_kind(invocation)
         if kind == "refusal":
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="reviewer refusal: adaptation-equivalence check is not applicable",
             )
 
         if not _is_adaptation_lane(bundle_dir):
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes=(
                     "bundle is not in the adaptation lane (no non-empty "
                     "source-context/ or preflight.json.applies_verbatim is true)"
@@ -736,16 +832,22 @@ class ReviewAdaptationEquivalenceScorer:
         cve_id = _cve_id_from_finding(bundle_dir)
         if cve_id is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="finding.json missing, invalid, or lacks a cve_id",
             )
 
         oracle = get_oracle(cve_id)
         if oracle is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes=f"no adaptation-equivalence oracle registered for {cve_id}",
             )
 
@@ -760,15 +862,21 @@ class ReviewAdaptationEquivalenceScorer:
         patch_path = bundle_dir / "patch.diff"
         if not patch_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes=f"patch.diff missing; cannot bind oracle label for {cve_id}",
             )
         bundle_patch_sha = sha256(patch_path.read_bytes()).hexdigest()
         if bundle_patch_sha != oracle.adjudicated_patch_sha256:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes=(
                     f"bundle patch.diff (sha256={bundle_patch_sha[:12]}…) does not "
                     f"match the adjudicated adaptation "
@@ -785,8 +893,11 @@ class ReviewAdaptationEquivalenceScorer:
         parsed = _load_review_md(bundle_dir)
         if parsed is None or parsed.kind != "review":
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="review.md missing or fails strict parser",
                 details={
                     "cve_id": cve_id,
@@ -798,7 +909,9 @@ class ReviewAdaptationEquivalenceScorer:
                 },
             )
 
-        reviewer_equivalence = parse_equivalence_verdict(parsed.equivalence_assessment_raw)
+        reviewer_equivalence = parse_equivalence_verdict(
+            parsed.equivalence_assessment_raw
+        )
 
         details_base: dict[str, Any] = {
             "cve_id": cve_id,
@@ -811,8 +924,11 @@ class ReviewAdaptationEquivalenceScorer:
 
         if reviewer_equivalence is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=(
                     "adaptation-lane review has no '## Equivalence assessment' "
                     "'equivalence:' line"
@@ -822,8 +938,11 @@ class ReviewAdaptationEquivalenceScorer:
 
         if reviewer_equivalence == oracle.ground_truth_equivalence:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=1.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=1.0,
                 notes=(
                     f"reviewer equivalence={reviewer_equivalence!r} matches oracle "
                     f"ground truth for {cve_id}"
@@ -833,8 +952,11 @@ class ReviewAdaptationEquivalenceScorer:
 
         if reviewer_equivalence == "indeterminate":
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=(
                     f"reviewer declared 'indeterminate' against a settled oracle label "
                     f"({oracle.ground_truth_equivalence!r} for {cve_id}); "
@@ -845,8 +967,11 @@ class ReviewAdaptationEquivalenceScorer:
 
         if reviewer_equivalence not in VALID_EQUIVALENCE_VALUES:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=(
                     f"reviewer declared unrecognized equivalence value "
                     f"{reviewer_equivalence!r} (oracle ground truth is "
@@ -856,8 +981,11 @@ class ReviewAdaptationEquivalenceScorer:
             )
 
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=0.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=0.0,
             notes=(
                 f"reviewer equivalence={reviewer_equivalence!r} contradicts oracle "
                 f"ground truth {oracle.ground_truth_equivalence!r} for {cve_id} "
@@ -879,16 +1007,22 @@ class ReviewDisagreementScorer:
         kind = _outputs_kind(invocation)
         if kind == "refusal":
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=True, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=True,
+                score=None,
                 notes="reviewer refusal: disagreement signal is not applicable",
             )
 
         parsed = _load_review_md(bundle_dir)
         if parsed is None or parsed.kind != "review":
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=True, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=True,
+                score=None,
                 notes="review.md missing or unparseable; cannot compare to Steward signal",
             )
 
@@ -899,30 +1033,44 @@ class ReviewDisagreementScorer:
         verdict = parsed.verdict
         if steward_signal is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=True, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=True,
+                score=None,
                 notes="Steward signal not derivable from bundle artifacts",
             )
 
         # Score by alignment.
         if steward_signal == verdict:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=True, score=1.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=True,
+                score=1.0,
                 notes=f"verdict={verdict!r} matches Steward signal {steward_signal!r}",
                 details={"verdict": verdict, "steward_signal": steward_signal},
             )
-        if (steward_signal, verdict) == ("accept", "escalate") or \
-           (steward_signal, verdict) == ("escalate", "accept"):
+        if (steward_signal, verdict) == ("accept", "escalate") or (
+            steward_signal,
+            verdict,
+        ) == ("escalate", "accept"):
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=True, score=0.5,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=True,
+                score=0.5,
                 notes=f"verdict={verdict!r} adjacent to Steward signal {steward_signal!r}",
                 details={"verdict": verdict, "steward_signal": steward_signal},
             )
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=True, score=0.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=True,
+            score=0.0,
             notes=f"verdict={verdict!r} contradicts Steward signal {steward_signal!r}",
             details={"verdict": verdict, "steward_signal": steward_signal},
         )

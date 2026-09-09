@@ -22,6 +22,7 @@ Usage:
   python3 eval/pr_accuracy.py                         # score all scorable bundles
   python3 eval/pr_accuracy.py --traces-root traces/example --out data/reports/pr-accuracy.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -160,21 +161,31 @@ def main() -> None:
     add_full = sum(1 for r in results if r["added_recall"] >= 0.999)
 
     print(f"PR accuracy — {n} source-backport bundles scored vs upstream ground truth")
-    print(f"  exact fix match     : {exact_n}/{n} ({round(100*exact_n/n)}%)")
-    print(f"  full added-line recall: {add_full}/{n} ({round(100*add_full/n)}%)")
+    print(f"  exact fix match     : {exact_n}/{n} ({round(100 * exact_n / n)}%)")
+    print(f"  full added-line recall: {add_full}/{n} ({round(100 * add_full / n)}%)")
     print(f"  mean added_recall   : {mean_add}")
     print(f"  mean removed_recall : {mean_rm}")
     print("  imperfect fixes (added_recall < 1.0):")
     for r in sorted(results, key=lambda x: x["added_recall"]):
         if r["added_recall"] < 0.999:
-            print(f"    {r['bundle']:52} add={r['added_recall']} rm={r['removed_recall']}")
+            print(
+                f"    {r['bundle']:52} add={r['added_recall']} rm={r['removed_recall']}"
+            )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps({
-        "scored": n, "exact": exact_n, "full_added_recall": add_full,
-        "mean_added_recall": mean_add, "mean_removed_recall": mean_rm,
-        "results": results,
-    }, indent=2))
+    args.out.write_text(
+        json.dumps(
+            {
+                "scored": n,
+                "exact": exact_n,
+                "full_added_recall": add_full,
+                "mean_added_recall": mean_add,
+                "mean_removed_recall": mean_rm,
+                "results": results,
+            },
+            indent=2,
+        )
+    )
     print(f"wrote {args.out}")
 
 

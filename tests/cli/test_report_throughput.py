@@ -62,27 +62,34 @@ def _seed_bundle(
     """
     bundle_dir = traces_root / cve_id
     bundle_dir.mkdir(parents=True)
-    _write_json(bundle_dir / "bundle.json", {
-        "schema_version": "1.0.0",
-        "cve_id": cve_id,
-        "bundle_id": bundle_id,
-        "kind": kind,
-        "kind_reason": kind_reason,
-    })
+    _write_json(
+        bundle_dir / "bundle.json",
+        {
+            "schema_version": "1.0.0",
+            "cve_id": cve_id,
+            "bundle_id": bundle_id,
+            "kind": kind,
+            "kind_reason": kind_reason,
+        },
+    )
     roles: list[dict[str, Any]] = []
     if invocations is None:
-        invocations = [
-            {
-                "role": "patcher",
-                "started_at": "2026-05-01T00:00:00Z",
-                "ended_at": "2026-05-01T00:00:22Z",
-                "model": {
-                    "family": patcher_family or "model-attested",
-                    "model_id": "claude-opus-4-7",
-                    "version": "1",
-                },
-            }
-        ] if patcher_family else []
+        invocations = (
+            [
+                {
+                    "role": "patcher",
+                    "started_at": "2026-05-01T00:00:00Z",
+                    "ended_at": "2026-05-01T00:00:22Z",
+                    "model": {
+                        "family": patcher_family or "model-attested",
+                        "model_id": "claude-opus-4-7",
+                        "version": "1",
+                    },
+                }
+            ]
+            if patcher_family
+            else []
+        )
     # Group invocations into roles.
     by_role: dict[str, list[dict[str, Any]]] = {}
     for inv in invocations:
@@ -109,10 +116,13 @@ def _seed_bundle(
             "effect: the handler proceeds without the capability check\n"
         )
     if reproducer_refusal:
-        _write_json(bundle_dir / "reproducer-refusal.json", {
-            "schema_version": "1.0.0",
-            "reason": "sandbox-incompatible",
-        })
+        _write_json(
+            bundle_dir / "reproducer-refusal.json",
+            {
+                "schema_version": "1.0.0",
+                "reason": "sandbox-incompatible",
+            },
+        )
     if patcher_invocation is not None:
         _write_json(bundle_dir / "patcher-invocation.json", patcher_invocation)
     return bundle_dir
@@ -149,22 +159,25 @@ def test_load_scout_runs_missing_file_returns_zeros(tmp_path: Path) -> None:
 
 def test_load_scout_runs_aggregates_actions_and_verdicts(tmp_path: Path) -> None:
     runs_path = tmp_path / "scout-runs.jsonl"
-    _seed_scout_runs(runs_path, [
-        {
-            "run_at": "2026-05-01T00:00:00Z",
-            "discovered": 10,
-            "processed": 10,
-            "actions": {"written": 6, "skipped-irrelevant": 4},
-            "resolver_verdicts": {"eligible": 1, "ineligible-no-fix-available": 5},
-        },
-        {
-            "run_at": "2026-05-02T00:00:00Z",
-            "discovered": 5,
-            "processed": 4,
-            "actions": {"written": 3, "skipped-irrelevant": 1},
-            "resolver_verdicts": {"ineligible-no-fix-available": 3},
-        },
-    ])
+    _seed_scout_runs(
+        runs_path,
+        [
+            {
+                "run_at": "2026-05-01T00:00:00Z",
+                "discovered": 10,
+                "processed": 10,
+                "actions": {"written": 6, "skipped-irrelevant": 4},
+                "resolver_verdicts": {"eligible": 1, "ineligible-no-fix-available": 5},
+            },
+            {
+                "run_at": "2026-05-02T00:00:00Z",
+                "discovered": 5,
+                "processed": 4,
+                "actions": {"written": 3, "skipped-irrelevant": 1},
+                "resolver_verdicts": {"ineligible-no-fix-available": 3},
+            },
+        ],
+    )
     s = report.load_scout_runs(runs_path)
     assert s.runs == 2
     assert s.earliest_run_at == "2026-05-01T00:00:00Z"
@@ -219,22 +232,32 @@ def test_scan_bundles_skips_dir_without_bundle_or_replay(tmp_path: Path) -> None
 
 def test_scan_bundles_computes_per_role_wall_time(tmp_path: Path) -> None:
     traces = tmp_path / "traces"
-    _seed_bundle(traces, "CVE-2025-67899", invocations=[
-        {
-            "role": "patcher",
-            "started_at": "2026-05-01T00:00:00Z",
-            "ended_at": "2026-05-01T00:00:22Z",
-            "model": {"family": "model-attested", "model_id": "claude-opus-4-7",
-                      "version": "1"},
-        },
-        {
-            "role": "reviewer",
-            "started_at": "2026-05-01T00:01:00Z",
-            "ended_at": "2026-05-01T00:01:08Z",
-            "model": {"family": "model-attested", "model_id": "claude-sonnet-4-6",
-                      "version": "1"},
-        },
-    ])
+    _seed_bundle(
+        traces,
+        "CVE-2025-67899",
+        invocations=[
+            {
+                "role": "patcher",
+                "started_at": "2026-05-01T00:00:00Z",
+                "ended_at": "2026-05-01T00:00:22Z",
+                "model": {
+                    "family": "model-attested",
+                    "model_id": "claude-opus-4-7",
+                    "version": "1",
+                },
+            },
+            {
+                "role": "reviewer",
+                "started_at": "2026-05-01T00:01:00Z",
+                "ended_at": "2026-05-01T00:01:08Z",
+                "model": {
+                    "family": "model-attested",
+                    "model_id": "claude-sonnet-4-6",
+                    "version": "1",
+                },
+            },
+        ],
+    )
     bundles = report.scan_bundles(traces)
     assert len(bundles) == 1
     b = bundles[0]
@@ -249,14 +272,18 @@ def test_scan_bundles_wall_time_unknown_when_timestamps_missing(tmp_path: Path) 
     None so downstream consumers can distinguish 'we don't know' from
     'we measured zero'."""
     traces = tmp_path / "traces"
-    _seed_bundle(traces, "CVE-2025-67899", invocations=[
-        {
-            "role": "patcher",
-            "started_at": "2026-05-01T00:00:00Z",
-            # no ended_at
-            "model": {"family": "model-attested", "model_id": "x", "version": "1"},
-        },
-    ])
+    _seed_bundle(
+        traces,
+        "CVE-2025-67899",
+        invocations=[
+            {
+                "role": "patcher",
+                "started_at": "2026-05-01T00:00:00Z",
+                # no ended_at
+                "model": {"family": "model-attested", "model_id": "x", "version": "1"},
+            },
+        ],
+    )
     b = report.scan_bundles(traces)[0]
     assert b.per_role["patcher"].duration_seconds is None
     assert b.total_wall_time_seconds is None
@@ -280,7 +307,8 @@ def test_scan_bundles_reads_patcher_invocation_when_present(tmp_path: Path) -> N
     lifts the usage block verbatim — no estimation."""
     traces = tmp_path / "traces"
     _seed_bundle(
-        traces, "CVE-2025-67899",
+        traces,
+        "CVE-2025-67899",
         patcher_invocation={
             "schema_version": "1.0.0",
             "invocation_id": "deadbeef",
@@ -308,27 +336,34 @@ def test_scan_bundles_reads_all_three_role_sidecars(tmp_path: Path) -> None:
     so per-role cost rollup works."""
     traces = tmp_path / "traces"
     bundle_dir = _seed_bundle(
-        traces, "CVE-2025-67899",
+        traces,
+        "CVE-2025-67899",
         patcher_invocation={
             "usage": {"input_tokens": 4321, "output_tokens": 765},
             "budget": {"actual_cost_usd": 0.087},
             "model_id": "claude-opus-4-7",
         },
     )
-    _write_json(bundle_dir / "reviewer-invocation.json", {
-        "schema_version": "1.0.0",
-        "role": "reviewer",
-        "model_id": "claude-sonnet-4-6",
-        "usage": {"input_tokens": 2100, "output_tokens": 380},
-        "budget": {"actual_cost_usd": 0.012},
-    })
-    _write_json(bundle_dir / "reproducer-invocation.json", {
-        "schema_version": "1.0.0",
-        "role": "reproducer",
-        "model_id": "claude-sonnet-4-5-20250929",
-        "usage": {"input_tokens": 1500, "output_tokens": 200},
-        "budget": {"actual_cost_usd": 0.0075},
-    })
+    _write_json(
+        bundle_dir / "reviewer-invocation.json",
+        {
+            "schema_version": "1.0.0",
+            "role": "reviewer",
+            "model_id": "claude-sonnet-4-6",
+            "usage": {"input_tokens": 2100, "output_tokens": 380},
+            "budget": {"actual_cost_usd": 0.012},
+        },
+    )
+    _write_json(
+        bundle_dir / "reproducer-invocation.json",
+        {
+            "schema_version": "1.0.0",
+            "role": "reproducer",
+            "model_id": "claude-sonnet-4-5-20250929",
+            "usage": {"input_tokens": 1500, "output_tokens": 200},
+            "budget": {"actual_cost_usd": 0.0075},
+        },
+    )
     b = report.scan_bundles(traces)[0]
     assert set(b.role_usage.keys()) == {"patcher", "reviewer", "reproducer"}
     assert b.role_usage["reviewer"]["model_id"] == "claude-sonnet-4-6"
@@ -343,18 +378,21 @@ def test_scan_bundles_sidecar_reads_cache_token_fields(tmp_path: Path) -> None:
     in the lifted usage block."""
     traces = tmp_path / "traces"
     bundle_dir = _seed_bundle(traces, "CVE-2025-67899")
-    _write_json(bundle_dir / "patcher-invocation.json", {
-        "schema_version": "1.0.0",
-        "role": "patcher",
-        "model_id": "claude-opus-4-7",
-        "usage": {
-            "input_tokens": 6,
-            "output_tokens": 1310,
-            "cache_creation_input_tokens": 8000,
-            "cache_read_input_tokens": 0,
+    _write_json(
+        bundle_dir / "patcher-invocation.json",
+        {
+            "schema_version": "1.0.0",
+            "role": "patcher",
+            "model_id": "claude-opus-4-7",
+            "usage": {
+                "input_tokens": 6,
+                "output_tokens": 1310,
+                "cache_creation_input_tokens": 8000,
+                "cache_read_input_tokens": 0,
+            },
+            "budget": {"actual_cost_usd": 0.2484},
         },
-        "budget": {"actual_cost_usd": 0.2484},
-    })
+    )
     b = report.scan_bundles(traces)[0]
     assert "patcher" in b.role_usage
     # The reader's flat shape is unchanged for backwards-compat with
@@ -371,13 +409,16 @@ def test_scan_bundles_sidecar_with_null_usage_still_lifted(tmp_path: Path) -> No
     'role didn't run'."""
     traces = tmp_path / "traces"
     bundle_dir = _seed_bundle(traces, "CVE-2025-67899")
-    _write_json(bundle_dir / "reviewer-invocation.json", {
-        "schema_version": "1.0.0",
-        "role": "reviewer",
-        "model_id": "claude-sonnet-4-6",
-        "usage": {"input_tokens": None, "output_tokens": None},
-        "budget": {"actual_cost_usd": None},
-    })
+    _write_json(
+        bundle_dir / "reviewer-invocation.json",
+        {
+            "schema_version": "1.0.0",
+            "role": "reviewer",
+            "model_id": "claude-sonnet-4-6",
+            "usage": {"input_tokens": None, "output_tokens": None},
+            "budget": {"actual_cost_usd": None},
+        },
+    )
     b = report.scan_bundles(traces)[0]
     assert "reviewer" in b.role_usage
     assert b.role_usage["reviewer"]["input_tokens"] is None
@@ -391,15 +432,18 @@ def test_scan_bundles_sidecar_reads_retry_fields(tmp_path: Path) -> None:
     per-role-usage rows can see the retry-driven extra billed call."""
     traces = tmp_path / "traces"
     bundle_dir = _seed_bundle(traces, "CVE-2025-67899")
-    _write_json(bundle_dir / "reviewer-invocation.json", {
-        "schema_version": "1.0.0",
-        "role": "reviewer",
-        "model_id": "claude-sonnet-4-6",
-        "usage": {"input_tokens": 2100, "output_tokens": 380, "attempts": 2},
-        "budget": {"actual_cost_usd": 0.02},
-        "retry_count": 1,
-        "first_attempt_conformant": False,
-    })
+    _write_json(
+        bundle_dir / "reviewer-invocation.json",
+        {
+            "schema_version": "1.0.0",
+            "role": "reviewer",
+            "model_id": "claude-sonnet-4-6",
+            "usage": {"input_tokens": 2100, "output_tokens": 380, "attempts": 2},
+            "budget": {"actual_cost_usd": 0.02},
+            "retry_count": 1,
+            "first_attempt_conformant": False,
+        },
+    )
     b = report.scan_bundles(traces)[0]
     assert b.role_usage["reviewer"]["attempts"] == 2
     assert b.role_usage["reviewer"]["retry_count"] == 1
@@ -415,7 +459,8 @@ def test_scan_bundles_sidecar_without_retry_fields_defaults_cleanly(
     None for the absent fields rather than raising."""
     traces = tmp_path / "traces"
     _seed_bundle(
-        traces, "CVE-2025-67899",
+        traces,
+        "CVE-2025-67899",
         patcher_invocation={
             "model_id": "claude-opus-4-7",
             "usage": {"input_tokens": 4321, "output_tokens": 765, "attempts": 1},
@@ -439,16 +484,25 @@ def test_build_report_separates_observed_from_unobserved(tmp_path: Path) -> None
     traces = tmp_path / "traces"
     _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge")
     _seed_bundle(
-        traces, "CVE-2025-67899",
+        traces,
+        "CVE-2025-67899",
         kind="human-review-required",
         kind_reason="major-version-jump-requires-review",
         reproducer_refusal=True,
     )
     runs_path = tmp_path / "data" / "scout-runs.jsonl"
-    _seed_scout_runs(runs_path, [
-        {"run_at": "2026-05-01T00:00:00Z", "discovered": 1, "processed": 1,
-         "actions": {"written": 1}, "resolver_verdicts": {"eligible": 1}},
-    ])
+    _seed_scout_runs(
+        runs_path,
+        [
+            {
+                "run_at": "2026-05-01T00:00:00Z",
+                "discovered": 1,
+                "processed": 1,
+                "actions": {"written": 1},
+                "resolver_verdicts": {"eligible": 1},
+            },
+        ],
+    )
 
     scout = report.load_scout_runs(runs_path)
     bundles = report.scan_bundles(traces)
@@ -461,7 +515,8 @@ def test_build_report_separates_observed_from_unobserved(tmp_path: Path) -> None
 
     # Derived: kind + reproducer + patcher-family distributions.
     assert r.derived["bundle_kind_distribution"] == {
-        "auto-merge": 1, "human-review-required": 1,
+        "auto-merge": 1,
+        "human-review-required": 1,
     }
     assert r.derived["reproducer_status_distribution"]["refusal"] == 1
     assert r.derived["reproducer_status_distribution"]["absent"] == 1
@@ -493,11 +548,16 @@ def test_reproducer_status_distribution_counts_stub_harness_separately(
     traces = tmp_path / "traces"
     _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge", reproducer_nix=True)
     _seed_bundle(
-        traces, "CVE-2026-86090", kind="auto-merge",
-        reproducer_nix=True, reproducer_log_harness=True,
+        traces,
+        "CVE-2026-86090",
+        kind="auto-merge",
+        reproducer_nix=True,
+        reproducer_log_harness=True,
     )
     _seed_bundle(
-        traces, "CVE-2025-67899", kind="human-review-required",
+        traces,
+        "CVE-2025-67899",
+        kind="human-review-required",
         reproducer_refusal=True,
     )
     scout = report.load_scout_runs(tmp_path / "data" / "scout-runs.jsonl")
@@ -517,7 +577,8 @@ def test_build_report_observes_role_usage_when_present(tmp_path: Path) -> None:
     unobserved to observed. One row per (bundle, role) sidecar pair."""
     traces = tmp_path / "traces"
     bundle_dir = _seed_bundle(
-        traces, "CVE-2025-67899",
+        traces,
+        "CVE-2025-67899",
         kind="human-review-required",
         patcher_invocation={
             "model_id": "claude-opus-4-7",
@@ -525,13 +586,18 @@ def test_build_report_observes_role_usage_when_present(tmp_path: Path) -> None:
             "budget": {"actual_cost_usd": 0.087},
         },
     )
-    _write_json(bundle_dir / "reviewer-invocation.json", {
-        "model_id": "claude-sonnet-4-6",
-        "usage": {"input_tokens": 2100, "output_tokens": 380},
-        "budget": {"actual_cost_usd": 0.012},
-    })
+    _write_json(
+        bundle_dir / "reviewer-invocation.json",
+        {
+            "model_id": "claude-sonnet-4-6",
+            "usage": {"input_tokens": 2100, "output_tokens": 380},
+            "budget": {"actual_cost_usd": 0.012},
+        },
+    )
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
-    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    r = report.build_report(
+        scout, report.scan_bundles(traces), provenance=_provenance(tmp_path)
+    )
     assert len(r.observed["role_usage"]) == 2
     rows = {(u["cve_id"], u["role"]): u for u in r.observed["role_usage"]}
     assert rows[("CVE-2025-67899", "patcher")]["actual_cost_usd"] == 0.087
@@ -555,23 +621,32 @@ def test_build_report_cost_per_merge_ready_counts_auto_merge_with_patcher(
     (mbedtls) and count too. Human-review never counts regardless
     of how many sidecars are present."""
     traces = tmp_path / "traces"
-    inv = {"usage": {"input_tokens": 100, "output_tokens": 50},
-           "budget": {"actual_cost_usd": 0.01}, "model_id": "claude-opus-4-7"}
-    inv_b = {"usage": {"input_tokens": 50, "output_tokens": 25},
-             "budget": {"actual_cost_usd": 0.003}, "model_id": "claude-sonnet-4-6"}
+    inv = {
+        "usage": {"input_tokens": 100, "output_tokens": 50},
+        "budget": {"actual_cost_usd": 0.01},
+        "model_id": "claude-opus-4-7",
+    }
+    inv_b = {
+        "usage": {"input_tokens": 50, "output_tokens": 25},
+        "budget": {"actual_cost_usd": 0.003},
+        "model_id": "claude-sonnet-4-6",
+    }
     # Auto-merge with only Patcher: counts.
-    _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge",
-                 patcher_invocation=inv)
+    _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge", patcher_invocation=inv)
     # Auto-merge with Patcher + Reviewer: counts; total is patcher + reviewer.
-    bundle_b = _seed_bundle(traces, "CVE-2024-49195", kind="auto-merge",
-                            patcher_invocation=inv)
+    bundle_b = _seed_bundle(
+        traces, "CVE-2024-49195", kind="auto-merge", patcher_invocation=inv
+    )
     _write_json(bundle_b / "reviewer-invocation.json", inv_b)
     # Human-review with all roles: never counts.
-    bundle_c = _seed_bundle(traces, "CVE-2025-67899", kind="human-review-required",
-                            patcher_invocation=inv)
+    bundle_c = _seed_bundle(
+        traces, "CVE-2025-67899", kind="human-review-required", patcher_invocation=inv
+    )
     _write_json(bundle_c / "reviewer-invocation.json", inv_b)
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
-    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    r = report.build_report(
+        scout, report.scan_bundles(traces), provenance=_provenance(tmp_path)
+    )
     cpb = r.derived["cost_per_merge_ready_bundle"]
     assert cpb["data_points"] == 2
     assert cpb["total_usd"] == pytest.approx(0.01 + 0.01 + 0.003, rel=1e-9)
@@ -589,10 +664,16 @@ def test_build_report_cost_per_merge_ready_no_patcher_no_data_point(
     deterministic-no-model bundles like libtiff) doesn't contribute
     to cost-per-merge-ready: there's no Patcher cost to attribute."""
     traces = tmp_path / "traces"
-    _seed_bundle(traces, "CVE-2024-13978", kind="auto-merge",
-                 patcher_family="deterministic-no-model")
+    _seed_bundle(
+        traces,
+        "CVE-2024-13978",
+        kind="auto-merge",
+        patcher_family="deterministic-no-model",
+    )
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
-    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    r = report.build_report(
+        scout, report.scan_bundles(traces), provenance=_provenance(tmp_path)
+    )
     assert r.derived["cost_per_merge_ready_bundle"]["data_points"] == 0
 
 
@@ -604,22 +685,28 @@ def test_build_report_retry_summary_counts_reviewer_retry(tmp_path: Path) -> Non
     attempt."""
     traces = tmp_path / "traces"
     bundle_dir = _seed_bundle(
-        traces, "CVE-2025-67899",
+        traces,
+        "CVE-2025-67899",
         patcher_invocation={
             "model_id": "claude-opus-4-7",
             "usage": {"input_tokens": 100, "output_tokens": 50, "attempts": 1},
             "budget": {"actual_cost_usd": 0.01},
         },
     )
-    _write_json(bundle_dir / "reviewer-invocation.json", {
-        "model_id": "claude-sonnet-4-6",
-        "usage": {"input_tokens": 2100, "output_tokens": 380, "attempts": 2},
-        "budget": {"actual_cost_usd": 0.02},
-        "retry_count": 1,
-        "first_attempt_conformant": False,
-    })
+    _write_json(
+        bundle_dir / "reviewer-invocation.json",
+        {
+            "model_id": "claude-sonnet-4-6",
+            "usage": {"input_tokens": 2100, "output_tokens": 380, "attempts": 2},
+            "budget": {"actual_cost_usd": 0.02},
+            "retry_count": 1,
+            "first_attempt_conformant": False,
+        },
+    )
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
-    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    r = report.build_report(
+        scout, report.scan_bundles(traces), provenance=_provenance(tmp_path)
+    )
 
     rows = {u["role"]: u for u in r.observed["role_usage"]}
     assert rows["reviewer"]["attempts"] == 2
@@ -633,7 +720,9 @@ def test_build_report_retry_summary_counts_reviewer_retry(tmp_path: Path) -> Non
     # A reviewer retry is NOT sampling overhead.
     assert retry["roles_with_sampling"] == 0
     assert retry["total_sampling_extra_calls"] == 0
-    assert retry["total_model_call_attempts"] == 3  # patcher attempts=1 + reviewer attempts=2
+    assert (
+        retry["total_model_call_attempts"] == 3
+    )  # patcher attempts=1 + reviewer attempts=2
     assert retry["reviewer_first_attempt_nonconformant"] == 1
     assert retry["reviewer_first_attempt_conformant"] == 0
 
@@ -646,7 +735,8 @@ def test_build_report_attributes_reproducer_attempts_to_sampling_not_retry(
     draws to sampling so the two cost drivers stay distinguishable."""
     traces = tmp_path / "traces"
     bundle_dir = _seed_bundle(
-        traces, "CVE-2025-70001",
+        traces,
+        "CVE-2025-70001",
         patcher_invocation={
             "model_id": "claude-opus-4-7",
             "usage": {"input_tokens": 100, "output_tokens": 50, "attempts": 1},
@@ -654,22 +744,27 @@ def test_build_report_attributes_reproducer_attempts_to_sampling_not_retry(
         },
     )
     # Sampled reproducer: K=4 draws billed into one sidecar (attempts=4).
-    _write_json(bundle_dir / "reproducer-invocation.json", {
-        "model_id": "claude-sonnet-4-5-20250929",
-        "usage": {"input_tokens": 4000, "output_tokens": 900, "attempts": 4},
-        "budget": {"actual_cost_usd": 0.05},
-    })
+    _write_json(
+        bundle_dir / "reproducer-invocation.json",
+        {
+            "model_id": "claude-sonnet-4-5-20250929",
+            "usage": {"input_tokens": 4000, "output_tokens": 900, "attempts": 4},
+            "budget": {"actual_cost_usd": 0.05},
+        },
+    )
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
-    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    r = report.build_report(
+        scout, report.scan_bundles(traces), provenance=_provenance(tmp_path)
+    )
 
     retry = r.derived["retry_summary"]
     assert retry["roles_with_sampling"] == 1
-    assert retry["total_sampling_extra_calls"] == 3   # 4 draws - 1
+    assert retry["total_sampling_extra_calls"] == 3  # 4 draws - 1
     # No reviewer retry present.
     assert retry["roles_with_retry"] == 0
     assert retry["total_retry_extra_calls"] == 0
-    assert retry["total_extra_calls"] == 3            # all from sampling
-    assert retry["total_model_call_attempts"] == 5    # patcher 1 + reproducer 4
+    assert retry["total_extra_calls"] == 3  # all from sampling
+    assert retry["total_model_call_attempts"] == 5  # patcher 1 + reproducer 4
 
 
 def test_build_report_retry_summary_zero_for_sidecars_without_retry_fields(
@@ -680,7 +775,8 @@ def test_build_report_retry_summary_zero_for_sidecars_without_retry_fields(
     the seed corpus, which predates bounded Reviewer auto-retry."""
     traces = tmp_path / "traces"
     _seed_bundle(
-        traces, "CVE-2025-67899",
+        traces,
+        "CVE-2025-67899",
         patcher_invocation={
             "model_id": "claude-opus-4-7",
             "usage": {"input_tokens": 100, "output_tokens": 50, "attempts": 1},
@@ -688,7 +784,9 @@ def test_build_report_retry_summary_zero_for_sidecars_without_retry_fields(
         },
     )
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
-    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    r = report.build_report(
+        scout, report.scan_bundles(traces), provenance=_provenance(tmp_path)
+    )
     retry = r.derived["retry_summary"]
     assert retry["roles_with_retry"] == 0
     assert retry["total_extra_calls"] == 0
@@ -718,7 +816,9 @@ def test_render_markdown_keeps_three_sections(tmp_path: Path) -> None:
     traces = tmp_path / "traces"
     _seed_bundle(traces, "CVE-2025-67899", reproducer_refusal=True)
     scout = report.load_scout_runs(tmp_path / "missing.jsonl")
-    r = report.build_report(scout, report.scan_bundles(traces), provenance=_provenance(tmp_path))
+    r = report.build_report(
+        scout, report.scan_bundles(traces), provenance=_provenance(tmp_path)
+    )
     md = report.render_markdown(r)
     assert "## Observed" in md
     assert "## Derived" in md
@@ -734,11 +834,20 @@ def test_render_markdown_keeps_three_sections(tmp_path: Path) -> None:
 def test_parse_scout_runs_ignores_unknown_main_sha_field() -> None:
     # the cron writer added main_sha (schema 1.1.0); the roll-up must ignore
     # unknown fields, not choke on them.
-    text = json.dumps({
-        "schema_version": "1.1.0", "run_at": "2026-07-20T00:00:00Z",
-        "main_sha": "f8c81895e342", "discovered": 3, "processed": 2,
-        "actions": {"written": 2}, "resolver_verdicts": {"confirmed": 1},
-    }) + "\n"
+    text = (
+        json.dumps(
+            {
+                "schema_version": "1.1.0",
+                "run_at": "2026-07-20T00:00:00Z",
+                "main_sha": "f8c81895e342",
+                "discovered": 3,
+                "processed": 2,
+                "actions": {"written": 2},
+                "resolver_verdicts": {"confirmed": 1},
+            }
+        )
+        + "\n"
+    )
     s = report.parse_scout_runs(text)
     assert s.runs == 1
     assert s.discovered_total == 3
@@ -756,7 +865,7 @@ def test_resolve_scout_runs_prefers_telemetry_ref(tmp_path: Path) -> None:
         summary, source = report._resolve_scout_runs(args, repo_root=tmp_path)
     # remote-tracking ref tried first (freshest after `git fetch origin`).
     assert m.call_args_list[0].args[1] == "origin/scout-telemetry"
-    assert summary.discovered_total == 7            # live, not the stale 99
+    assert summary.discovered_total == 7  # live, not the stale 99
     assert source == "origin/scout-telemetry:data/scout-runs.jsonl (as of last fetch)"
 
 
@@ -768,7 +877,9 @@ def test_resolve_scout_runs_tries_remote_tracking_candidate(tmp_path: Path) -> N
     def _fake(_repo: Path, ref: str) -> str | None:
         return live if ref == "origin/scout-telemetry" else None
 
-    args = argparse.Namespace(scout_runs=tmp_path / "wt.jsonl", scout_runs_ref="scout-telemetry")
+    args = argparse.Namespace(
+        scout_runs=tmp_path / "wt.jsonl", scout_runs_ref="scout-telemetry"
+    )
     with patch.object(report, "_read_scout_runs_ref", side_effect=_fake):
         summary, source = report._resolve_scout_runs(args, repo_root=tmp_path)
     assert summary.discovered_total == 5
@@ -792,22 +903,28 @@ def test_resolve_scout_runs_empty_ref_reads_working_tree(tmp_path: Path) -> None
     _seed_scout_runs(wt, [{"run_at": "2026-01-01T00:00:00Z", "discovered": 1}])
     args = argparse.Namespace(scout_runs=wt, scout_runs_ref="")
     # no git call when ref is empty.
-    with patch.object(report, "_read_scout_runs_ref",
-                      side_effect=AssertionError("must not touch git")):
+    with patch.object(
+        report, "_read_scout_runs_ref", side_effect=AssertionError("must not touch git")
+    ):
         summary, source = report._resolve_scout_runs(args, repo_root=tmp_path)
     assert summary.discovered_total == 1
     assert "working tree" in source
 
 
-def test_run_writes_md_and_json_pair(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_run_writes_md_and_json_pair(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     """The CLI contract: --out-dir gets a {.md, .json} pair, stdout
     gets the chosen format, exit 0."""
     traces = tmp_path / "traces"
     _seed_bundle(traces, "CVE-2025-67899")
     runs_path = tmp_path / "data" / "scout-runs.jsonl"
-    _seed_scout_runs(runs_path, [
-        {"run_at": "2026-05-01T00:00:00Z", "discovered": 1, "processed": 1},
-    ])
+    _seed_scout_runs(
+        runs_path,
+        [
+            {"run_at": "2026-05-01T00:00:00Z", "discovered": 1, "processed": 1},
+        ],
+    )
     out_dir = tmp_path / "reports"
     args = argparse.Namespace(
         traces_root=traces,
@@ -828,12 +945,19 @@ def test_run_writes_md_and_json_pair(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 # ─── _cost_by_kind: per-kind cost breakdown ──────────────────────────────────
 
+
 def _bundle(kind: str | None, role_usage: dict[str, Any]) -> report.BundleSummary:
     """Minimal BundleSummary — _cost_by_kind reads only kind + role_usage."""
     return report.BundleSummary(
-        cve_id="CVE-0000-0000", bundle_id=None, kind=kind, kind_reason=None,
-        per_role={}, total_wall_time_seconds=None, has_reproducer_nix=False,
-        has_reproducer_refusal=False, patcher_provenance="absent",
+        cve_id="CVE-0000-0000",
+        bundle_id=None,
+        kind=kind,
+        kind_reason=None,
+        per_role={},
+        total_wall_time_seconds=None,
+        has_reproducer_nix=False,
+        has_reproducer_refusal=False,
+        patcher_provenance="absent",
         role_usage=role_usage,
     )
 
@@ -876,10 +1000,15 @@ def test_cost_by_kind_excludes_bundle_without_patcher_cost() -> None:
 
 
 def test_cost_by_kind_sums_all_roles_when_patcher_present() -> None:
-    bundles = [_bundle("auto-merge", {
-        "patcher": {"actual_cost_usd": 0.20},
-        "reviewer": {"actual_cost_usd": 0.05},
-    })]
+    bundles = [
+        _bundle(
+            "auto-merge",
+            {
+                "patcher": {"actual_cost_usd": 0.20},
+                "reviewer": {"actual_cost_usd": 0.05},
+            },
+        )
+    ]
     out = report._cost_by_kind(bundles)
     assert out["kinds"]["auto-merge"]["total_usd"] == 0.25
 

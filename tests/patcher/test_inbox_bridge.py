@@ -51,13 +51,15 @@ def _seed_inbox(
     finding = finding or {
         "schema_version": "1.0.0",
         "cve_id": cve_id,
-        "affected": [{
-            "attr_path": "radare2",
-            "drv_path": "/nix/store/aaa-radare2.drv",
-            "pname": "radare2",
-            "version": "6.1.2",
-            "confidence": "high",
-        }],
+        "affected": [
+            {
+                "attr_path": "radare2",
+                "drv_path": "/nix/store/aaa-radare2.drv",
+                "pname": "radare2",
+                "version": "6.1.2",
+                "confidence": "high",
+            }
+        ],
         "mapping": {"method": "cpe-exact", "mapping_notes": "test"},
         "published_at": "2026-04-30T00:00:00Z",
         "references": [],
@@ -81,16 +83,20 @@ def _seed_inbox(
     }
     (entry / "finding.json").write_text(json.dumps(finding))
     (entry / "upstream-ref.json").write_text(json.dumps(upstream_ref))
-    (entry / "steward-decision.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": cve_id,
-        "decided_at": "2026-04-30T00:00:00Z",
-        "state": state,
-        "reason_codes": ["eligible-high-confidence"],
-        "evaluator": "opa-rego/data.trace.steward.route",
-        "policy_sha256": "0" * 64,
-        "inputs_summary": {"finding_status": "finding"},
-    }))
+    (entry / "steward-decision.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": cve_id,
+                "decided_at": "2026-04-30T00:00:00Z",
+                "state": state,
+                "reason_codes": ["eligible-high-confidence"],
+                "evaluator": "opa-rego/data.trace.steward.route",
+                "policy_sha256": "0" * 64,
+                "inputs_summary": {"finding_status": "finding"},
+            }
+        )
+    )
     return entry
 
 
@@ -108,17 +114,24 @@ def test_assembles_complete_inputs_for_auto_merge_entry(tmp_path: Path) -> None:
     graph = CannedCartographerGraph([_RADARE2])
 
     out = assemble_inputs_from_inbox(
-        entry, nixpkgs_root=nixpkgs, graph=graph, nixpkgs_rev="abc123",
+        entry,
+        nixpkgs_root=nixpkgs,
+        graph=graph,
+        nixpkgs_rev="abc123",
     )
 
     assert set(out.inputs.keys()) >= {
-        "finding", "upstream_ref", "impact", "maintainers",
-        "package_source", "package_source_path",
+        "finding",
+        "upstream_ref",
+        "impact",
+        "maintainers",
+        "package_source",
+        "package_source_path",
     }
     assert out.inputs["upstream_ref"]["target_version"] == "6.1.4"
     assert out.inputs["impact"]["affected_attr_paths"] == ["radare2"]
     assert "lassulus" in json.dumps(out.inputs["maintainers"])
-    assert "version = \"6.1.2\"" in out.inputs["package_source"]
+    assert 'version = "6.1.2"' in out.inputs["package_source"]
     assert out.inputs["package_source_path"] == "pkgs/by-name/ra/radare2/package.nix"
     assert out.steward_state == "auto-merge-eligible"
 
@@ -129,7 +142,10 @@ def test_refuses_non_auto_merge_state(tmp_path: Path) -> None:
     nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
     with pytest.raises(BridgeRefused, match="human-review-required"):
         assemble_inputs_from_inbox(
-            entry, nixpkgs_root=nixpkgs, graph=graph, nixpkgs_rev="abc123",
+            entry,
+            nixpkgs_root=nixpkgs,
+            graph=graph,
+            nixpkgs_rev="abc123",
         )
 
 
@@ -140,7 +156,10 @@ def test_refuses_when_steward_decision_missing(tmp_path: Path) -> None:
     nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
     with pytest.raises(InboxBundleNotReady, match="steward-decision.json"):
         assemble_inputs_from_inbox(
-            entry, nixpkgs_root=nixpkgs, graph=graph, nixpkgs_rev="abc123",
+            entry,
+            nixpkgs_root=nixpkgs,
+            graph=graph,
+            nixpkgs_rev="abc123",
         )
 
 
@@ -151,7 +170,10 @@ def test_refuses_when_finding_missing(tmp_path: Path) -> None:
     nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
     with pytest.raises(InboxBundleNotReady, match="finding.json"):
         assemble_inputs_from_inbox(
-            entry, nixpkgs_root=nixpkgs, graph=graph, nixpkgs_rev="abc123",
+            entry,
+            nixpkgs_root=nixpkgs,
+            graph=graph,
+            nixpkgs_rev="abc123",
         )
 
 
@@ -165,7 +187,10 @@ def test_refuses_when_package_source_unresolvable(tmp_path: Path) -> None:
     graph = CannedCartographerGraph([_RADARE2])
     with pytest.raises(InboxBundleNotReady, match="package source"):
         assemble_inputs_from_inbox(
-            entry, nixpkgs_root=nixpkgs, graph=graph, nixpkgs_rev="abc",
+            entry,
+            nixpkgs_root=nixpkgs,
+            graph=graph,
+            nixpkgs_rev="abc",
         )
 
 
@@ -177,7 +202,10 @@ def test_writes_assembled_inputs_to_disk_when_dest_provided(tmp_path: Path) -> N
     nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
     graph = CannedCartographerGraph([_RADARE2])
     assemble_inputs_from_inbox(
-        entry, nixpkgs_root=nixpkgs, graph=graph, nixpkgs_rev="abc",
+        entry,
+        nixpkgs_root=nixpkgs,
+        graph=graph,
+        nixpkgs_rev="abc",
         write_to_inbox=True,
     )
     impact = json.loads((entry / "impact.json").read_text())
@@ -191,7 +219,10 @@ def test_does_not_write_when_dest_omitted(tmp_path: Path) -> None:
     nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
     graph = CannedCartographerGraph([_RADARE2])
     assemble_inputs_from_inbox(
-        entry, nixpkgs_root=nixpkgs, graph=graph, nixpkgs_rev="abc",
+        entry,
+        nixpkgs_root=nixpkgs,
+        graph=graph,
+        nixpkgs_rev="abc",
     )
     assert not (entry / "impact.json").exists()
     assert not (entry / "maintainers.json").exists()

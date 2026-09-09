@@ -25,24 +25,34 @@ from agents.builder.protocol import (
 
 def test_build_outcome_succeeded_when_exit_zero_and_not_timeout() -> None:
     o = BuildOutcome(
-        exit_code=0, drv_path="/nix/store/x.drv", out_path="/nix/store/x",
-        stdout_stderr="", elapsed_seconds=1.0,
+        exit_code=0,
+        drv_path="/nix/store/x.drv",
+        out_path="/nix/store/x",
+        stdout_stderr="",
+        elapsed_seconds=1.0,
     )
     assert o.succeeded is True
 
 
 def test_build_outcome_succeeded_false_on_nonzero_exit() -> None:
     o = BuildOutcome(
-        exit_code=1, drv_path=None, out_path=None,
-        stdout_stderr="failure", elapsed_seconds=0.5,
+        exit_code=1,
+        drv_path=None,
+        out_path=None,
+        stdout_stderr="failure",
+        elapsed_seconds=0.5,
     )
     assert o.succeeded is False
 
 
 def test_build_outcome_succeeded_false_on_timeout_even_with_zero_exit() -> None:
     o = BuildOutcome(
-        exit_code=0, drv_path=None, out_path=None,
-        stdout_stderr="", elapsed_seconds=999.0, timed_out=True,
+        exit_code=0,
+        drv_path=None,
+        out_path=None,
+        stdout_stderr="",
+        elapsed_seconds=999.0,
+        timed_out=True,
     )
     assert o.succeeded is False
 
@@ -52,8 +62,11 @@ def test_build_outcome_succeeded_false_on_timeout_even_with_zero_exit() -> None:
 
 def test_fake_single_response_returns_same_outcome_each_time() -> None:
     canned = BuildOutcome(
-        exit_code=0, drv_path="/nix/store/x.drv", out_path="/nix/store/x",
-        stdout_stderr="ok", elapsed_seconds=1.0,
+        exit_code=0,
+        drv_path="/nix/store/x.drv",
+        out_path="/nix/store/x",
+        stdout_stderr="ok",
+        elapsed_seconds=1.0,
     )
     runner = FakeBuildRunner(response=canned)
     a = runner.run(attr="foo", cwd=Path("/tmp"))
@@ -66,10 +79,20 @@ def test_fake_single_response_returns_same_outcome_each_time() -> None:
 
 
 def test_fake_per_call_queue_consumes_in_order() -> None:
-    o1 = BuildOutcome(exit_code=0, drv_path=None, out_path=None,
-                      stdout_stderr="first", elapsed_seconds=1.0)
-    o2 = BuildOutcome(exit_code=1, drv_path=None, out_path=None,
-                      stdout_stderr="second", elapsed_seconds=2.0)
+    o1 = BuildOutcome(
+        exit_code=0,
+        drv_path=None,
+        out_path=None,
+        stdout_stderr="first",
+        elapsed_seconds=1.0,
+    )
+    o2 = BuildOutcome(
+        exit_code=1,
+        drv_path=None,
+        out_path=None,
+        stdout_stderr="second",
+        elapsed_seconds=2.0,
+    )
     runner = FakeBuildRunner(responses=[o1, o2])
     r1 = runner.run(attr="a", cwd=Path("/tmp"))
     r2 = runner.run(attr="b", cwd=Path("/tmp"))
@@ -78,8 +101,9 @@ def test_fake_per_call_queue_consumes_in_order() -> None:
 
 
 def test_fake_queue_exhausted_raises() -> None:
-    o = BuildOutcome(exit_code=0, drv_path=None, out_path=None,
-                     stdout_stderr="", elapsed_seconds=0.0)
+    o = BuildOutcome(
+        exit_code=0, drv_path=None, out_path=None, stdout_stderr="", elapsed_seconds=0.0
+    )
     runner = FakeBuildRunner(responses=[o])
     runner.run(attr="x", cwd=Path("/tmp"))
     with pytest.raises(IndexError, match="queue exhausted"):
@@ -106,8 +130,9 @@ def test_fake_run_requires_exactly_one_of_expression_or_attr() -> None:
 
 def test_fake_records_full_call_args() -> None:
     runner = FakeBuildRunner(response=BuildOutcome(0, None, None, "", 0.0))
-    runner.run(nix_expression="let x = 1; in x", cwd=Path("/some/dir"),
-               timeout_seconds=42)
+    runner.run(
+        nix_expression="let x = 1; in x", cwd=Path("/some/dir"), timeout_seconds=42
+    )
     assert len(runner.calls) == 1
     c = runner.calls[0]
     assert c["nix_expression"] == "let x = 1; in x"

@@ -66,7 +66,8 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
     # the tag from PROMOTING a would-be hard-`ineligible` (e.g. downgrade-only)
     # CVE into a human-approvable state.
     backport_candidates = [
-        c for c in candidates
+        c
+        for c in candidates
         if _is_source_backport_signal(c) and c.get("version") == current_version
     ]
     if backport_candidates:
@@ -95,7 +96,8 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
             f" The harvest could not derive a fixed release version "
             f"(requires_review_reason={review_reason!r}); the human must confirm "
             f"the backport is the COMPLETE fix, not merely one necessary commit."
-            if review_reason else ""
+            if review_reason
+            else ""
         )
         return _eligible_requires_human_review(
             cve_id=cve_id,
@@ -117,7 +119,8 @@ def resolve(input_doc: dict[str, Any]) -> dict[str, Any]:
         )
 
     upgrade_candidates = [
-        c for c in candidates
+        c
+        for c in candidates
         if _is_upgrade_or_unparseable(current_version, c["version"])
     ]
     if not upgrade_candidates:
@@ -306,7 +309,9 @@ def _parse_semver(v: str) -> tuple[int, int, int]:
     return parsed
 
 
-def _classify_tier(current: str, chosen: dict[str, Any], input_doc: dict[str, Any]) -> str:
+def _classify_tier(
+    current: str, chosen: dict[str, Any], input_doc: dict[str, Any]
+) -> str:
     # Tolerant by design: never raises. When either side is not semver-shaped the
     # resolver has ALREADY committed to human review (the unparseable-version
     # guard dominates before any auto-merge path), so the tier here is only a
@@ -333,7 +338,9 @@ def _semver_distance(cur: str, tgt: str) -> tuple[int, int, int] | None:
     return (t[0] - c[0], t[1] - c[1], t[2] - c[2])
 
 
-def _pick_smallest_upgrade(current: str, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+def _pick_smallest_upgrade(
+    current: str, candidates: list[dict[str, Any]]
+) -> dict[str, Any]:
     # Rank in three tiers so precedence matches how much a candidate is worth:
     #   0. a STRICT semver upgrade (distance > 0)  — the real fix, smallest wins;
     #   1. an UNKNOWABLE-ordering candidate (current or target not semver-shaped)
@@ -353,7 +360,9 @@ def _pick_smallest_upgrade(current: str, candidates: list[dict[str, Any]]) -> di
     return min(enumerate(candidates), key=_key)[1]
 
 
-_PRE_RELEASE_RE = re.compile(r"[-+](?:rc|alpha|beta|dev|pre|preview|nightly|snapshot|m\d|a\d|b\d)", re.IGNORECASE)
+_PRE_RELEASE_RE = re.compile(
+    r"[-+](?:rc|alpha|beta|dev|pre|preview|nightly|snapshot|m\d|a\d|b\d)", re.IGNORECASE
+)
 
 
 def _is_pre_release(version: str) -> bool:

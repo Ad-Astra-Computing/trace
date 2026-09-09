@@ -125,7 +125,11 @@ def _build_summary(response: dict[str, Any]) -> str:
     parts: list[str] = []
     if isinstance(summary, str) and summary.strip():
         parts.append(summary.strip())
-    if isinstance(description, str) and description.strip() and description.strip() != summary.strip():
+    if (
+        isinstance(description, str)
+        and description.strip()
+        and description.strip() != summary.strip()
+    ):
         parts.append(description.strip())
     text = ". ".join(parts)
     if len(text) > SUMMARY_MAX:

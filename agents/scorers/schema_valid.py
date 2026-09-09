@@ -62,8 +62,11 @@ class SchemaValidScorer:
         # Patch path
         if {"patch.diff", "patch-rationale.md"} - out_paths:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=(
                     "patch invocation missing required output files; "
                     f"declared outputs = {sorted(out_paths)}"
@@ -78,8 +81,11 @@ class SchemaValidScorer:
         pkg_path = bundle_dir / "package.nix"
         if not diff_path.is_file() or not rat_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="patch.diff or patch-rationale.md not on disk",
             )
         diff = diff_path.read_text()
@@ -121,8 +127,11 @@ class SchemaValidScorer:
                     "order; git-apply-check was skipped"
                 )
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=1.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=1.0,
                 notes=note,
                 details=details,
             )
@@ -135,8 +144,11 @@ class SchemaValidScorer:
         if apply_ok is False:
             failed.append(f"git apply --check: {apply_reason}")
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=0.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=0.0,
             notes="; ".join(failed) or "schema-valid checks failed",
             details=details,
         )
@@ -145,41 +157,58 @@ class SchemaValidScorer:
         ref_path = bundle_dir / "refusal.json"
         if not ref_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="refusal.json declared in invocation but not on disk",
             )
         try:
             body = json.loads(ref_path.read_text())
         except json.JSONDecodeError as exc:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=f"refusal.json is not valid JSON: {exc}",
             )
         if not isinstance(body, dict):
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="refusal.json must be a JSON object",
             )
         missing = [k for k in ("rule", "reason") if k not in body]
         if missing:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=f"refusal.json missing required keys: {missing}",
                 details={"missing_keys": missing},
             )
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=1.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=1.0,
             notes="refusal.json has rule and reason",
             details={"rule": body["rule"], "reason_len": len(str(body["reason"]))},
         )
 
 
-def _git_apply_check(diff_path: Path, package_nix_path: Path) -> tuple[bool | None, str]:
+def _git_apply_check(
+    diff_path: Path, package_nix_path: Path
+) -> tuple[bool | None, str]:
     """Run `git apply --check` against a tmp index that holds package.nix.
 
     Returns:
@@ -201,31 +230,47 @@ def _git_apply_check(diff_path: Path, package_nix_path: Path) -> tuple[bool | No
         # (CI runners often have none, and pytest's tmp_path may shadow
         # GIT_*_NAME/EMAIL env vars under sandboxing).
         committer_args = [
-            "-c", "user.name=trace",
-            "-c", "user.email=trace@invalid",
-            "-c", "init.defaultBranch=main",
-            "-c", "commit.gpgsign=false",
+            "-c",
+            "user.name=trace",
+            "-c",
+            "user.email=trace@invalid",
+            "-c",
+            "init.defaultBranch=main",
+            "-c",
+            "commit.gpgsign=false",
         ]
         try:
             subprocess.run(
                 ["git", *committer_args, "init", "-q"],
-                cwd=tmpdir, check=True,
-                capture_output=True, text=True, timeout=30,
+                cwd=tmpdir,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             shutil.copyfile(package_nix_path, tmpdir / "package.nix")
             subprocess.run(
                 ["git", *committer_args, "add", "package.nix"],
-                cwd=tmpdir, check=True,
-                capture_output=True, text=True, timeout=30,
+                cwd=tmpdir,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             subprocess.run(
                 ["git", *committer_args, "commit", "-q", "-m", "init"],
-                cwd=tmpdir, check=True,
-                capture_output=True, text=True, timeout=30,
+                cwd=tmpdir,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
         except subprocess.CalledProcessError as exc:
             err = (exc.stderr or "").strip() or (exc.stdout or "").strip()
-            return None, f"skipped: git setup failed (exit {exc.returncode}): {err[:300]}"
+            return (
+                None,
+                f"skipped: git setup failed (exit {exc.returncode}): {err[:300]}",
+            )
         except subprocess.SubprocessError as exc:
             return None, f"skipped: git setup failed: {exc}"
 
@@ -233,8 +278,11 @@ def _git_apply_check(diff_path: Path, package_nix_path: Path) -> tuple[bool | No
         # would be resolved against tmpdir and fail with "can't open patch".
         result = subprocess.run(
             ["git", *committer_args, "apply", "--check", str(diff_path.resolve())],
-            cwd=tmpdir, check=False,
-            capture_output=True, text=True, timeout=30,
+            cwd=tmpdir,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode == 0:
             return True, "ok: applies cleanly"

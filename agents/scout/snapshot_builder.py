@@ -87,13 +87,19 @@ def build_snapshot(
         if not isinstance(version, str):
             version = ""
         drv_path_raw = info.get("drvPath")
-        drv_path = drv_path_raw if isinstance(drv_path_raw, str) and drv_path_raw else f"attr:{attr_path}"
-        records.append(GraphMatch(
-            attr_path=attr_path,
-            drv_path=drv_path,
-            pname=pname_raw.lower(),
-            version=version,
-        ))
+        drv_path = (
+            drv_path_raw
+            if isinstance(drv_path_raw, str) and drv_path_raw
+            else f"attr:{attr_path}"
+        )
+        records.append(
+            GraphMatch(
+                attr_path=attr_path,
+                drv_path=drv_path,
+                pname=pname_raw.lower(),
+                version=version,
+            )
+        )
     return records
 
 
@@ -121,18 +127,22 @@ def snapshot_from_json(text: str) -> list[GraphMatch]:
         raise ValueError("snapshot must be a JSON array")
     out: list[GraphMatch] = []
     for entry in raw:
-        out.append(GraphMatch(
-            attr_path=entry["attr_path"],
-            drv_path=entry["drv_path"],
-            pname=entry["pname"],
-            version=entry["version"],
-            cpes=tuple(entry.get("cpes") or ()),
-            purls=tuple(entry.get("purls") or ()),
-            src_url=entry.get("src_url"),
-            src_hash=entry.get("src_hash"),
-        ))
+        out.append(
+            GraphMatch(
+                attr_path=entry["attr_path"],
+                drv_path=entry["drv_path"],
+                pname=entry["pname"],
+                version=entry["version"],
+                cpes=tuple(entry.get("cpes") or ()),
+                purls=tuple(entry.get("purls") or ()),
+                src_url=entry.get("src_url"),
+                src_hash=entry.get("src_hash"),
+            )
+        )
     return out
 
 
-def _default_runner(cmd: list[str], *, timeout: int) -> subprocess.CompletedProcess[bytes]:
+def _default_runner(
+    cmd: list[str], *, timeout: int
+) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(cmd, capture_output=True, timeout=timeout, check=False)

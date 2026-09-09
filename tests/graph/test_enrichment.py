@@ -62,7 +62,10 @@ def extract_prereqs() -> tuple[str, str] | None:
     rev = lock["nodes"]["nixpkgs"]["locked"]["rev"]
     archive = subprocess.run(
         ["nix", "flake", "archive", "--json"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     store = json.loads(archive.stdout)["inputs"]["nixpkgs"]["path"]
     return rev, store
@@ -98,7 +101,9 @@ def test_manifest_requires_confidence_and_source(enrichment_validator):
             }
         ],
     }
-    assert _errors(enrichment_validator, bad), "schema should require source + confidence"
+    assert _errors(enrichment_validator, bad), (
+        "schema should require source + confidence"
+    )
 
 
 def test_snapshot_with_enrichment_validates(snapshot_validator):
@@ -133,22 +138,36 @@ def test_snapshot_with_enrichment_validates(snapshot_validator):
 # ─── cargo-gated smoke ──────────────────────────────────────────────────────
 
 
-def _run_extract(rev: str, store: str, attrs: list[str], enrichment: Path | None = None) -> dict:
+def _run_extract(
+    rev: str, store: str, attrs: list[str], enrichment: Path | None = None
+) -> dict:
     cmd = [
-        "cargo", "run", "--quiet", "--manifest-path", str(GRAPH_MANIFEST),
-        "--", "extract",
-        "--rev", rev,
-        "--nixpkgs", store,
-        "--attrs", ",".join(attrs),
+        "cargo",
+        "run",
+        "--quiet",
+        "--manifest-path",
+        str(GRAPH_MANIFEST),
+        "--",
+        "extract",
+        "--rev",
+        rev,
+        "--nixpkgs",
+        store,
+        "--attrs",
+        ",".join(attrs),
     ]
     if enrichment is not None:
         cmd.extend(["--enrichment", str(enrichment)])
-    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+    proc = subprocess.run(
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    )
     assert proc.returncode == 0, f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
     return json.loads(proc.stdout)
 
 
-def test_extract_without_enrichment_has_no_audit_block(extract_prereqs, snapshot_validator):
+def test_extract_without_enrichment_has_no_audit_block(
+    extract_prereqs, snapshot_validator
+):
     rev, store = extract_prereqs
     snap = _run_extract(rev, store, ["hello"], enrichment=None)
     assert not _errors(snapshot_validator, snap)
@@ -189,7 +208,9 @@ def test_extract_with_enrichment_leaves_unmatched_attrs_alone(extract_prereqs):
     # cowsay is not in the seed manifest → unchanged (empty)
     assert by_attr["cowsay"]["purls"] == []
     # Audit only lists the attrs that actually got enriched.
-    attrs_applied = {m["attr_path"] for m in snap["enrichment"]["purl_mappings_applied"]}
+    attrs_applied = {
+        m["attr_path"] for m in snap["enrichment"]["purl_mappings_applied"]
+    }
     assert attrs_applied == {"hello"}
 
 
@@ -207,19 +228,21 @@ def test_live_enriched_graph_produces_purl_exact_finding(extract_prereqs):
     hello_version = snap["nodes"][0]["version"]
     expected_purl = f"pkg:gnu/hello@{hello_version}"
 
-    graph = CannedGraphLookup([
-        GraphMatch(
-            attr_path=n["attr_path"],
-            drv_path=n["drv_path"],
-            pname=n["pname"],
-            version=n["version"],
-            cpes=tuple(n.get("cpes") or ()),
-            purls=tuple(n.get("purls") or ()),
-            src_url=n.get("src_url"),
-            src_hash=n.get("src_hash"),
-        )
-        for n in snap["nodes"]
-    ])
+    graph = CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path=n["attr_path"],
+                drv_path=n["drv_path"],
+                pname=n["pname"],
+                version=n["version"],
+                cpes=tuple(n.get("cpes") or ()),
+                purls=tuple(n.get("purls") or ()),
+                src_url=n.get("src_url"),
+                src_hash=n.get("src_hash"),
+            )
+            for n in snap["nodes"]
+        ]
+    )
 
     # Advisory that hits the enriched PURL directly — purl-exact path.
     advisory = {

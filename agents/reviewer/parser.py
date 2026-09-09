@@ -147,7 +147,9 @@ class ReviewerParseResult:
             "reasoning": self.reasoning,
             "findings": [f.to_schema_dict() for f in self.findings],
             "cited_evidence": list(self.cited_evidence),
-            "cross_family_attestation": self.cross_family.to_schema_dict() if self.cross_family else None,
+            "cross_family_attestation": self.cross_family.to_schema_dict()
+            if self.cross_family
+            else None,
         }
         if self.patch_comparison_raw is not None:
             d["patch_comparison"] = self.patch_comparison_raw
@@ -241,7 +243,7 @@ def _parse_review(text: str) -> ReviewerParseResult:
             "review output malformed: expected '=== BEGIN review.md === "
             "... === END review.md ===' in that order"
         )
-    after = stripped[match.end():].strip()
+    after = stripped[match.end() :].strip()
     if after:
         raise ReviewerOutputMalformed(
             "content after '=== END review.md ===' is forbidden; "
@@ -309,9 +311,7 @@ VALID_EQUIVALENCE_VALUES: frozenset[str] = frozenset(
 # a substring: `non-equivalence: equivalent` does NOT declare equivalence. Allow
 # only an optional list-marker + whitespace prefix (the v10 contract writes the
 # line as a `- equivalence: <value>` bullet).
-_EQUIVALENCE_FIELD_RE = re.compile(
-    r"^\s*(?:[-*]\s+)?equivalence:\s*(?P<value>\S+)?"
-)
+_EQUIVALENCE_FIELD_RE = re.compile(r"^\s*(?:[-*]\s+)?equivalence:\s*(?P<value>\S+)?")
 
 # Markdown emphasis / code markers a model may wrap the value in. Stripped
 # symmetrically so `**not-equivalent**` or `` `equivalent` `` still declares a
@@ -327,11 +327,7 @@ def _strip_md_emphasis(token: str) -> str:
     while changed:
         changed = False
         for marker in _MD_EMPHASIS_MARKERS:
-            if (
-                t.startswith(marker)
-                and t.endswith(marker)
-                and len(t) > 2 * len(marker)
-            ):
+            if t.startswith(marker) and t.endswith(marker) and len(t) > 2 * len(marker):
                 t = t[len(marker) : -len(marker)].strip()
                 changed = True
                 break
@@ -448,7 +444,7 @@ def _parse_findings(section_body: str, verdict: str) -> list[Finding]:
             raise ReviewerOutputMalformed(
                 f"finding line must start with 'severity:'; got {line!r}"
             )
-        rest = line[len("severity:"):].strip()
+        rest = line[len("severity:") :].strip()
         # Split on em-dash with surrounding whitespace.
         parts = re.split(r"\s+—\s+", rest, maxsplit=2)
         if len(parts) < 3:
@@ -497,14 +493,20 @@ def _parse_cross_family(section_body: str) -> CrossFamilyAttestation:
         line = raw.strip()
         if not line:
             continue
-        m = re.match(r"^(reviewer_family|patcher_family_observed|rule_honored)\s*:\s*(.+)$", line)
+        m = re.match(
+            r"^(reviewer_family|patcher_family_observed|rule_honored)\s*:\s*(.+)$", line
+        )
         if not m:
             raise ReviewerOutputMalformed(
                 "## Cross-family attestation: unexpected line "
                 f"(expected reviewer_family / patcher_family_observed / rule_honored): {raw!r}"
             )
         fields[m.group(1)] = m.group(2).strip()
-    missing = [k for k in ("reviewer_family", "patcher_family_observed", "rule_honored") if k not in fields]
+    missing = [
+        k
+        for k in ("reviewer_family", "patcher_family_observed", "rule_honored")
+        if k not in fields
+    ]
     if missing:
         raise ReviewerOutputMalformed(
             f"## Cross-family attestation: missing keys: {missing}"
@@ -539,7 +541,7 @@ def _parse_refusal(text: str) -> ReviewerParseResult:
         raise ReviewerOutputMalformed(
             "refusal output malformed: expected '=== BEGIN refusal === ... === END refusal ==='"
         )
-    after = stripped[match.end():].strip()
+    after = stripped[match.end() :].strip()
     if after:
         raise ReviewerOutputMalformed(
             f"content after '=== END refusal ===' is forbidden; found {len(after)} chars of trailing prose"
@@ -551,7 +553,9 @@ def _parse_refusal(text: str) -> ReviewerParseResult:
         )
     rule_match = _RULE_LINE_RE.match(body_lines[0])
     if not rule_match:
-        raise ReviewerOutputMalformed("refusal body's first line must be 'rule: <integer>'")
+        raise ReviewerOutputMalformed(
+            "refusal body's first line must be 'rule: <integer>'"
+        )
     rule = int(rule_match.group(1))
     if rule < _REVIEWER_REFUSAL_RULE_MIN or rule > _REVIEWER_REFUSAL_RULE_MAX:
         raise ReviewerOutputMalformed(
@@ -560,7 +564,9 @@ def _parse_refusal(text: str) -> ReviewerParseResult:
         )
     reason_match = _REASON_LINE_RE.match(body_lines[1])
     if not reason_match:
-        raise ReviewerOutputMalformed("refusal body's second line must be 'reason: <one-line reason>'")
+        raise ReviewerOutputMalformed(
+            "refusal body's second line must be 'reason: <one-line reason>'"
+        )
     return ReviewerParseResult(
         kind="refusal",
         refusal_rule=rule,

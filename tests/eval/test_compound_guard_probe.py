@@ -94,9 +94,12 @@ def _run_build(out: Path) -> int:
     saved_argv = sys.argv
     sys.argv = [
         "build_compound_probe.py",
-        "--probes", str(PROBE_ROOT),
-        "--prompt", str(ROOT / "prompts" / "reviewer.v9.md"),
-        "--out", str(out),
+        "--probes",
+        str(PROBE_ROOT),
+        "--prompt",
+        str(ROOT / "prompts" / "reviewer.v9.md"),
+        "--out",
+        str(out),
     ]
     try:
         return bcp.main()
@@ -125,8 +128,12 @@ def test_jq_and_libarchive_are_leaked_not_fresh():
     held-out measurement it's meant to provide. This test pins the leak so a
     future README/corpus edit that makes it stale gets caught."""
     frozen = _frozen_families()
-    assert "jq" in frozen, "jq no longer in frozen corpus-v2 -- README claim may now be correct"
-    assert "libarchive" in frozen, "libarchive no longer in frozen corpus-v2 -- README claim may now be correct"
+    assert "jq" in frozen, (
+        "jq no longer in frozen corpus-v2 -- README claim may now be correct"
+    )
+    assert "libarchive" in frozen, (
+        "libarchive no longer in frozen corpus-v2 -- README claim may now be correct"
+    )
 
 
 def test_probe_bundles_carry_probe_marker():
@@ -154,7 +161,9 @@ def test_build_compound_probe_rows_well_formed(tmp_path):
     assert rows, "build_compound_probe produced zero rows"
     positives = [r for r in rows if r["label"] == "positive"]
     negatives = [r for r in rows if r["label"] == "negative"]
-    assert len(positives) >= len(PROBE_FAMILIES), "expected >=1 paired clean positive per family"
+    assert len(positives) >= len(PROBE_FAMILIES), (
+        "expected >=1 paired clean positive per family"
+    )
     assert len(negatives) >= 3, "expected multiple compound-guard negatives"
 
     families = {r["provenance"]["split_family"] for r in rows}
@@ -181,12 +190,19 @@ def test_build_compound_probe_rows_well_formed(tmp_path):
 
     # (bundle_id, mutation_type) must be unique across all rows, or
     # eval/score_gate_pilot.py's responses dict silently drops collisions.
-    keys = [(r["provenance"]["bundle_id"], r["provenance"].get("mutation_type") or "") for r in rows]
-    assert len(keys) == len(set(keys)), f"duplicate (bundle_id, mutation_type) keys: {keys}"
+    keys = [
+        (r["provenance"]["bundle_id"], r["provenance"].get("mutation_type") or "")
+        for r in rows
+    ]
+    assert len(keys) == len(set(keys)), (
+        f"duplicate (bundle_id, mutation_type) keys: {keys}"
+    )
 
     for r in rows:
         assert r["split"] == "canary"
         assert r["eligibility_for_training"] is False
         assert r["provenance"]["probe"] is True
         roles = [m["role"] for m in r["messages"]]
-        assert roles == ["system", "user"], "gate-pilot rows must have no assistant turn"
+        assert roles == ["system", "user"], (
+            "gate-pilot rows must have no assistant turn"
+        )

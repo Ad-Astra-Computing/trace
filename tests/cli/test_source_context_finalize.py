@@ -21,8 +21,14 @@ from tests.schema.validate import REPO_ROOT, load_schemas, validators
 
 # A clean source-backport bundle whose resolver docs finalize without warnings.
 _ZLIB = REPO_ROOT / "traces" / "example" / "CVE-2022-37434--zlib-backport"
-_DOCS = ("finding.json", "impact.json", "maintainers.json", "upstream-ref.json",
-         "package.nix", "upstream-fix.patch")
+_DOCS = (
+    "finding.json",
+    "impact.json",
+    "maintainers.json",
+    "upstream-ref.json",
+    "package.nix",
+    "upstream-fix.patch",
+)
 
 
 def _seed(tmp_path: Path) -> Path:
@@ -42,8 +48,11 @@ def _write_source_context(bd: Path, rel: str, content: str) -> None:
 
 
 def _finalize(bd: Path):
-    return finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                           created_at="2026-07-27T00:00:00Z")
+    return finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-07-27T00:00:00Z",
+    )
 
 
 def _validate_bundle_json(bd: Path) -> list[str]:
@@ -54,6 +63,7 @@ def _validate_bundle_json(bd: Path) -> list[str]:
 
 
 # ── 1.1.0 path ────────────────────────────────────────────────────────────────
+
 
 def test_source_context_bumps_to_1_1_0(tmp_path):
     bd = _seed(tmp_path)
@@ -88,6 +98,7 @@ def test_source_context_manifest_sorted(tmp_path):
 
 # ── grandfathering: no source-context → stays 1.0.0 ─────────────────────────────
 
+
 def test_no_source_context_stays_1_0_0(tmp_path):
     bd = _seed(tmp_path)
     _finalize(bd)
@@ -99,6 +110,7 @@ def test_no_source_context_stays_1_0_0(tmp_path):
 
 
 # ── patch-normalization.json is optional-when-present ──────────────────────
+
 
 def test_patch_normalization_absent_not_manifested(tmp_path):
     """A bundle that was never sourceRoot-normalized must NOT get a placeholder
@@ -115,18 +127,21 @@ def test_patch_normalization_absent_not_manifested(tmp_path):
 
 def test_patch_normalization_present_manifested_and_signed(tmp_path):
     bd = _seed(tmp_path)
-    (bd / "patch-normalization.json").write_text('{"schema": "trace/patch-normalization/1.0"}\n')
+    (bd / "patch-normalization.json").write_text(
+        '{"schema": "trace/patch-normalization/1.0"}\n'
+    )
     _finalize(bd)
     b = json.loads((bd / "bundle.json").read_text())
     entry = b["files"]["patch-normalization.json"]
     assert entry["producer_role"] == "patch-normalizer"
     assert entry["replay_critical"] is True
-    assert entry["sha256"] != "0" * 64          # a real hash, not a placeholder
+    assert entry["sha256"] != "0" * 64  # a real hash, not a placeholder
     signed = {sf["path"] for sf in b["signed_manifest"]["signed_files"]}
     assert "patch-normalization.json" in signed
 
 
 # ── patch-context-normalization.json is optional-when-present ───────────────
+
 
 def test_patch_context_normalization_absent_not_manifested(tmp_path):
     bd = _seed(tmp_path)
@@ -144,7 +159,8 @@ def test_patch_context_normalization_present_manifested_and_signed(tmp_path):
     without breaking the signature."""
     bd = _seed(tmp_path)
     (bd / "patch-context-normalization.json").write_text(
-        '{"schema": "trace/patch-context-normalization/1.0"}\n')
+        '{"schema": "trace/patch-context-normalization/1.0"}\n'
+    )
     _finalize(bd)
     b = json.loads((bd / "bundle.json").read_text())
     entry = b["files"]["patch-context-normalization.json"]
@@ -156,6 +172,7 @@ def test_patch_context_normalization_present_manifested_and_signed(tmp_path):
 
 
 # ── reproducer-sampling.json is optional-when-present ──────────────────────
+
 
 def test_reproducer_sampling_absent_not_manifested(tmp_path):
     """A bundle whose reproducer was authored single-shot must NOT get a
@@ -189,6 +206,7 @@ def test_reproducer_sampling_present_manifested_and_signed(tmp_path):
 
 
 # ── guards ──────────────────────────────────────────────────────────────────
+
 
 def test_source_context_on_non_source_backport_rejected(tmp_path):
     """source-context on a version-bump upstream-ref is a contract violation."""

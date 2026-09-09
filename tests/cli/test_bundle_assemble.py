@@ -46,7 +46,9 @@ def _resolver_input(tmp_path: Path, **overrides) -> Path:
                 "tag": "v3.6.8",
                 "release_url": "https://github.com/traefik/traefik/releases/tag/v3.6.8",
                 "changelog_url": "https://github.com/traefik/traefik/blob/v3.6.8/CHANGELOG.md",
-                "advisory_urls": ["https://github.com/traefik/traefik/security/advisories/GHSA-89p3-4642-cr2w"],
+                "advisory_urls": [
+                    "https://github.com/traefik/traefik/security/advisories/GHSA-89p3-4642-cr2w"
+                ],
                 "upstream_fix_commits": [
                     {
                         "repo_url": "https://github.com/traefik/traefik",
@@ -77,18 +79,18 @@ def _package_nix(tmp_path: Path, body: str | None = None) -> Path:
     p = tmp_path / "package.nix"
     if body is None:
         body = (
-            '{ lib, fetchzip, buildGo124Module }:\n'
-            'buildGo124Module (finalAttrs: {\n'
+            "{ lib, fetchzip, buildGo124Module }:\n"
+            "buildGo124Module (finalAttrs: {\n"
             '  pname = "traefik";\n'
             '  version = "3.6.7";\n'
-            '  src = fetchzip {\n'
+            "  src = fetchzip {\n"
             '    url = "https://github.com/traefik/traefik/releases/download/v${finalAttrs.version}/traefik-v${finalAttrs.version}.src.tar.gz";\n'
             '    hash = "sha256-tfCVNfY2qqhTBv6nhHqcoZ5GP7xoCBJNBkEfoMFH5vI=";\n'
-            '    stripRoot = false;\n'
-            '  };\n'
+            "    stripRoot = false;\n"
+            "  };\n"
             '  vendorHash = "sha256-B6H188VR9A4SSyMDh95Z3KqhtyWTo81f0ORxdXeCZu0=";\n'
-            '  proxyVendor = true;\n'
-            '})\n'
+            "  proxyVendor = true;\n"
+            "})\n"
         )
     p.write_text(body)
     return p
@@ -100,13 +102,19 @@ def _fake_url_prefetcher(table: dict):
         if key not in table:
             return ("fetch-error-other", f"unmocked url={url!r}", None)
         return table[key]
+
     return fn
 
 
 def _fake_gmv_runner_ok(value: str):
     def runner(expression: str, request: GoModVendorRequest):
-        return ("ok", value, "fake-nix-build 1.0",
-                "nix-build --no-out-link -A goModules ...")
+        return (
+            "ok",
+            value,
+            "fake-nix-build 1.0",
+            "nix-build --no-out-link -A goModules ...",
+        )
+
     return runner
 
 
@@ -122,12 +130,18 @@ def test_assemble_writes_full_set_of_artifacts(tmp_path: Path) -> None:
         resolver_input_path=ri,
         package_nix_path=pkg,
         out_dir=out,
-        prefetch_url_fn=_fake_url_prefetcher({
-            ("https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz", "sha256"): (
-                "ok", "sha256-Pr3F3tCH3dSrcValueShap3dRightForJSONsch3ma=",
-                "fake-nix-prefetch-url 2.33.3",
-            ),
-        }),
+        prefetch_url_fn=_fake_url_prefetcher(
+            {
+                (
+                    "https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz",
+                    "sha256",
+                ): (
+                    "ok",
+                    "sha256-Pr3F3tCH3dSrcValueShap3dRightForJSONsch3ma=",
+                    "fake-nix-prefetch-url 2.33.3",
+                ),
+            }
+        ),
     )
     assert isinstance(result, AssembleResult)
     assert result.eligibility_verdict == "eligible"
@@ -165,12 +179,18 @@ def test_assemble_copies_optional_artifacts_when_supplied(tmp_path: Path) -> Non
         finding_path=finding,
         impact_path=impact,
         maintainers_path=maintainers,
-        prefetch_url_fn=_fake_url_prefetcher({
-            ("https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz", "sha256"): (
-                "ok", "sha256-Pr3F3tCH3dSrcValueShap3dRightForJSONsch3ma=",
-                "fake-nix-prefetch-url 2.33.3",
-            ),
-        }),
+        prefetch_url_fn=_fake_url_prefetcher(
+            {
+                (
+                    "https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz",
+                    "sha256",
+                ): (
+                    "ok",
+                    "sha256-Pr3F3tCH3dSrcValueShap3dRightForJSONsch3ma=",
+                    "fake-nix-prefetch-url 2.33.3",
+                ),
+            }
+        ),
     )
     assert (out / "finding.json").read_text() == '{"schema_version": "1.0.0"}'
     assert (out / "impact.json").read_text() == '{"schema_version": "1.0.0"}'
@@ -185,19 +205,27 @@ def test_written_upstream_ref_validates_against_schema(tmp_path: Path) -> None:
         resolver_input_path=ri,
         package_nix_path=pkg,
         out_dir=out,
-        prefetch_url_fn=_fake_url_prefetcher({
-            ("https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz", "sha256"): (
-                "ok", "sha256-Pr3F3tCH3dSrcValueShap3dRightForJSONsch3ma=",
-                "fake-nix-prefetch-url 2.33.3",
-            ),
-        }),
+        prefetch_url_fn=_fake_url_prefetcher(
+            {
+                (
+                    "https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz",
+                    "sha256",
+                ): (
+                    "ok",
+                    "sha256-Pr3F3tCH3dSrcValueShap3dRightForJSONsch3ma=",
+                    "fake-nix-prefetch-url 2.33.3",
+                ),
+            }
+        ),
     )
 
     schema = json.loads((REPO_ROOT / "policy" / "upstream-ref-schema.json").read_text())
     upstream_ref = json.loads((out / "upstream-ref.json").read_text())
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(upstream_ref)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(upstream_ref)
+    ]
     assert not errors, errors
 
     # Every prefetch_hashes[] entry has prefetch_kind populated.
@@ -211,15 +239,21 @@ def test_assemble_runs_go_mod_vendor_when_flag_enabled(tmp_path: Path) -> None:
     out = tmp_path / "out"
 
     fake_url_calls: list[str] = []
+
     def url_fn(url: str, algorithm: str):
         fake_url_calls.append(url)
         return ("ok", "sha256-Pr3F3tCH3dSrcVal=", "fake 1.0")
 
     fake_gmv_calls: list[str] = []
+
     def gmv_runner(expression: str, request: GoModVendorRequest):
         fake_gmv_calls.append(request.attr_path)
-        return ("ok", "sha256-V3nd0rValueFromFakeGmvRunner=", "fake-nix-build 1.0",
-                "nix-build --no-out-link -A goModules ...")
+        return (
+            "ok",
+            "sha256-V3nd0rValueFromFakeGmvRunner=",
+            "fake-nix-build 1.0",
+            "nix-build --no-out-link -A goModules ...",
+        )
 
     result = assemble_bundle(
         resolver_input_path=ri,
@@ -253,9 +287,12 @@ def test_assemble_records_gmv_failure_as_prefetch_failure(tmp_path: Path) -> Non
     out = tmp_path / "out"
 
     def gmv_runner(expression: str, request: GoModVendorRequest):
-        return ("err", "nix-build: build timed out after 1800s",
-                "fake-nix-build 1.0",
-                "nix-build --no-out-link -A goModules ...")
+        return (
+            "err",
+            "nix-build: build timed out after 1800s",
+            "fake-nix-build 1.0",
+            "nix-build --no-out-link -A goModules ...",
+        )
 
     result = assemble_bundle(
         resolver_input_path=ri,
@@ -263,11 +300,18 @@ def test_assemble_records_gmv_failure_as_prefetch_failure(tmp_path: Path) -> Non
         out_dir=out,
         run_go_mod_vendor=True,
         attr_path="traefik",
-        prefetch_url_fn=_fake_url_prefetcher({
-            ("https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz", "sha256"): (
-                "ok", "sha256-Pr3F3tCH3dSrcVal=", "fake 1.0",
-            ),
-        }),
+        prefetch_url_fn=_fake_url_prefetcher(
+            {
+                (
+                    "https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz",
+                    "sha256",
+                ): (
+                    "ok",
+                    "sha256-Pr3F3tCH3dSrcVal=",
+                    "fake 1.0",
+                ),
+            }
+        ),
         go_mod_vendor_runner=gmv_runner,
     )
     assert "vendorHash" not in result.prefetch_hashes_grounded
@@ -286,7 +330,9 @@ def test_assemble_records_gmv_failure_as_prefetch_failure(tmp_path: Path) -> Non
     assert "timed out" in pf["detail"]
 
 
-def test_ineligible_verdict_writes_upstream_ref_and_skips_prefetch(tmp_path: Path) -> None:
+def test_ineligible_verdict_writes_upstream_ref_and_skips_prefetch(
+    tmp_path: Path,
+) -> None:
     """Resolver returns an ineligible verdict (no candidates) → assemble
     must still write upstream-ref.json + package.nix + resolver-input.json,
     but no prefetch_hashes / prefetch_skips."""
@@ -294,7 +340,9 @@ def test_ineligible_verdict_writes_upstream_ref_and_skips_prefetch(tmp_path: Pat
     pkg = _package_nix(tmp_path)
     out = tmp_path / "out"
     result = assemble_bundle(
-        resolver_input_path=ri, package_nix_path=pkg, out_dir=out,
+        resolver_input_path=ri,
+        package_nix_path=pkg,
+        out_dir=out,
     )
     assert result.eligibility_verdict == "ineligible-no-fix-available"
     assert result.target_version is None
@@ -310,12 +358,21 @@ def test_human_summary_contains_load_bearing_fields(tmp_path: Path) -> None:
     pkg = _package_nix(tmp_path)
     out = tmp_path / "out"
     result = assemble_bundle(
-        resolver_input_path=ri, package_nix_path=pkg, out_dir=out,
-        prefetch_url_fn=_fake_url_prefetcher({
-            ("https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz", "sha256"): (
-                "ok", "sha256-Pr3F3tCH3dSrcVal=", "fake 1.0",
-            ),
-        }),
+        resolver_input_path=ri,
+        package_nix_path=pkg,
+        out_dir=out,
+        prefetch_url_fn=_fake_url_prefetcher(
+            {
+                (
+                    "https://github.com/traefik/traefik/releases/download/v3.6.8/traefik-v3.6.8.src.tar.gz",
+                    "sha256",
+                ): (
+                    "ok",
+                    "sha256-Pr3F3tCH3dSrcVal=",
+                    "fake 1.0",
+                ),
+            }
+        ),
     )
     summary = emit_human_summary(result)
     assert "eligible" in summary
@@ -338,13 +395,20 @@ def test_assemble_via_cli_entrypoint(tmp_path: Path, capsys) -> None:
 
     # Ensure the ineligible path works without network calls.
     ri_ineligible = _resolver_input(tmp_path / "ineligible", candidate_refs=[])
-    rc = cli_main([
-        "bundle", "assemble",
-        "--input", str(ri_ineligible),
-        "--package", str(pkg),
-        "--out", str(out / "ineligible"),
-        "--format", "json",
-    ])
+    rc = cli_main(
+        [
+            "bundle",
+            "assemble",
+            "--input",
+            str(ri_ineligible),
+            "--package",
+            str(pkg),
+            "--out",
+            str(out / "ineligible"),
+            "--format",
+            "json",
+        ]
+    )
     assert rc == 0
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -358,49 +422,68 @@ def test_assemble_via_cli_entrypoint(tmp_path: Path, capsys) -> None:
 
 def _assembled_bundle(tmp_path: Path) -> tuple[Path, Path]:
     """Run assemble against the bind exemplar fixture and return (out_dir, ri_path)."""
-    ri = _resolver_input(tmp_path, **{
-        "cve_id": "CVE-2025-13878",
-        "current_version": "9.20.17",
-        "attr_path": "bind",
-        "candidate_refs": [{
-            "version": "9.20.18",
-            "tag": "v9.20.18",
-            "release_url": "https://downloads.isc.org/isc/bind9/9.20.18/notes",
-            "changelog_url": "https://downloads.isc.org/isc/bind9/9.20.18/changelog",
-            "advisory_urls": ["https://kb.isc.org/docs/cve-2025-13878"],
-            "upstream_fix_commits": [{
-                "repo_url": "https://gitlab.isc.org/isc-projects/bind9",
-                "commit_sha": "0d2e0d8fac7533145533c4e9942322c229a422c3",
-            }],
-            "delta": {
-                "transitive_package_changes": 0,
-                "new_direct_deps": [],
-                "removed_direct_deps": [],
-                "crosses_large_delta_threshold": False,
-                "threshold_policy": "v0-default",
-            },
-            "tier_hint": "security-patch-release",
-        }],
-    })
-    pkg = _package_nix(tmp_path, body=(
-        '{ stdenv, fetchurl }:\n'
-        'stdenv.mkDerivation (finalAttrs: {\n'
-        '  pname = "bind";\n'
-        '  version = "9.20.17";\n'
-        '  src = fetchurl {\n'
-        '    url = "https://downloads.isc.org/isc/bind9/${finalAttrs.version}/bind-${finalAttrs.version}.tar.xz";\n'
-        '    hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
-        '  };\n'
-        '})\n'
-    ))
+    ri = _resolver_input(
+        tmp_path,
+        **{
+            "cve_id": "CVE-2025-13878",
+            "current_version": "9.20.17",
+            "attr_path": "bind",
+            "candidate_refs": [
+                {
+                    "version": "9.20.18",
+                    "tag": "v9.20.18",
+                    "release_url": "https://downloads.isc.org/isc/bind9/9.20.18/notes",
+                    "changelog_url": "https://downloads.isc.org/isc/bind9/9.20.18/changelog",
+                    "advisory_urls": ["https://kb.isc.org/docs/cve-2025-13878"],
+                    "upstream_fix_commits": [
+                        {
+                            "repo_url": "https://gitlab.isc.org/isc-projects/bind9",
+                            "commit_sha": "0d2e0d8fac7533145533c4e9942322c229a422c3",
+                        }
+                    ],
+                    "delta": {
+                        "transitive_package_changes": 0,
+                        "new_direct_deps": [],
+                        "removed_direct_deps": [],
+                        "crosses_large_delta_threshold": False,
+                        "threshold_policy": "v0-default",
+                    },
+                    "tier_hint": "security-patch-release",
+                }
+            ],
+        },
+    )
+    pkg = _package_nix(
+        tmp_path,
+        body=(
+            "{ stdenv, fetchurl }:\n"
+            "stdenv.mkDerivation (finalAttrs: {\n"
+            '  pname = "bind";\n'
+            '  version = "9.20.17";\n'
+            "  src = fetchurl {\n"
+            '    url = "https://downloads.isc.org/isc/bind9/${finalAttrs.version}/bind-${finalAttrs.version}.tar.xz";\n'
+            '    hash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n'
+            "  };\n"
+            "})\n"
+        ),
+    )
     out = tmp_path / "out"
     assemble_bundle(
-        resolver_input_path=ri, package_nix_path=pkg, out_dir=out,
-        prefetch_url_fn=_fake_url_prefetcher({
-            ("https://downloads.isc.org/isc/bind9/9.20.18/bind-9.20.18.tar.xz", "sha256"): (
-                "ok", "sha256-FakeBindRunForFinalizeTestShap3dRightForJSON=", "fake 1.0",
-            ),
-        }),
+        resolver_input_path=ri,
+        package_nix_path=pkg,
+        out_dir=out,
+        prefetch_url_fn=_fake_url_prefetcher(
+            {
+                (
+                    "https://downloads.isc.org/isc/bind9/9.20.18/bind-9.20.18.tar.xz",
+                    "sha256",
+                ): (
+                    "ok",
+                    "sha256-FakeBindRunForFinalizeTestShap3dRightForJSON=",
+                    "fake 1.0",
+                ),
+            }
+        ),
     )
     return out, ri
 
@@ -435,6 +518,7 @@ def test_finalize_uses_real_upstream_ref_sha(tmp_path: Path) -> None:
     """The bundle.json sha for upstream-ref.json must match the on-disk
     file's actual sha256, not a placeholder."""
     import hashlib
+
     bundle_dir, _ = _assembled_bundle(tmp_path)
     finalize_bundle(bundle_dir=bundle_dir)
 
@@ -451,8 +535,10 @@ def test_finalize_validates_against_bundle_schema(tmp_path: Path) -> None:
     bundle_json = json.loads((bundle_dir / "bundle.json").read_text())
     schema = json.loads((REPO_ROOT / "policy" / "bundle-schema.json").read_text())
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(bundle_json)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(bundle_json)
+    ]
     assert not errors, errors
 
 
@@ -462,8 +548,10 @@ def test_finalize_replay_validates_against_replay_schema(tmp_path: Path) -> None
     replay_json = json.loads((bundle_dir / "replay.json").read_text())
     schema = json.loads((REPO_ROOT / "policy" / "replay-schema.json").read_text())
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(replay_json)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(replay_json)
+    ]
     assert not errors, errors
 
 
@@ -471,10 +559,12 @@ def test_finalize_bundle_id_is_deterministic(tmp_path: Path) -> None:
     """Same (cve_id, nixpkgs_rev, created_at) -> same bundle_id."""
     bundle_dir, _ = _assembled_bundle(tmp_path)
     fixed_ts = "2026-04-27T20:00:00Z"
-    r1 = finalize_bundle(bundle_dir=bundle_dir, created_at=fixed_ts,
-                         nixpkgs_rev="0" * 40)
-    r2 = finalize_bundle(bundle_dir=bundle_dir, created_at=fixed_ts,
-                         nixpkgs_rev="0" * 40)
+    r1 = finalize_bundle(
+        bundle_dir=bundle_dir, created_at=fixed_ts, nixpkgs_rev="0" * 40
+    )
+    r2 = finalize_bundle(
+        bundle_dir=bundle_dir, created_at=fixed_ts, nixpkgs_rev="0" * 40
+    )
     assert r1.bundle_id == r2.bundle_id
 
 
@@ -494,11 +584,17 @@ def test_finalize_preserves_assemble_resolver_invocation(tmp_path: Path) -> None
 def test_finalize_via_cli_entrypoint(tmp_path: Path, capsys) -> None:
     bundle_dir, _ = _assembled_bundle(tmp_path)
     from tools.trace_cli.cli import main as cli_main
-    rc = cli_main([
-        "bundle", "finalize",
-        "--bundle-dir", str(bundle_dir),
-        "--format", "json",
-    ])
+
+    rc = cli_main(
+        [
+            "bundle",
+            "finalize",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--format",
+            "json",
+        ]
+    )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["cve_id"] == "CVE-2025-13878"
@@ -508,10 +604,15 @@ def test_finalize_via_cli_entrypoint(tmp_path: Path, capsys) -> None:
 
 def test_finalize_missing_bundle_dir_returns_invalid(tmp_path: Path, capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
-    rc = cli_main([
-        "bundle", "finalize",
-        "--bundle-dir", str(tmp_path / "does-not-exist"),
-    ])
+
+    rc = cli_main(
+        [
+            "bundle",
+            "finalize",
+            "--bundle-dir",
+            str(tmp_path / "does-not-exist"),
+        ]
+    )
     assert rc != 0
     assert "does not exist" in capsys.readouterr().err
 
@@ -534,15 +635,17 @@ def test_finalize_derives_blast_radius_kind_reason_from_impact(tmp_path: Path) -
         "reverse_closure_sample": ["x"],
         "critical_downstreams": [],
         "exceeds_threshold": True,
-        "per_attr": [{
-            "attr_path": "bind",
-            "drv_path": "/nix/store/00000000000000000000000000000003-bind-9.20.17.drv",
-            "reverse_closure_count": 8742,
-            "reverse_closure_bucket": ">5000",
-            "reverse_closure_sample": ["x"],
-            "critical_downstreams": [],
-            "exceeds_threshold": True,
-        }],
+        "per_attr": [
+            {
+                "attr_path": "bind",
+                "drv_path": "/nix/store/00000000000000000000000000000003-bind-9.20.17.drv",
+                "reverse_closure_count": 8742,
+                "reverse_closure_bucket": ">5000",
+                "reverse_closure_sample": ["x"],
+                "critical_downstreams": [],
+                "exceeds_threshold": True,
+            }
+        ],
         "replay_critical": True,
     }
     (bundle_dir / "impact.json").write_text(json.dumps(impact, indent=2))
@@ -571,15 +674,17 @@ def test_finalize_blast_radius_overrides_human_review_trigger(tmp_path: Path) ->
         "reverse_closure_sample": ["x"],
         "critical_downstreams": [],
         "exceeds_threshold": True,
-        "per_attr": [{
-            "attr_path": "bind",
-            "drv_path": "/nix/store/00000000000000000000000000000003-bind-9.20.17.drv",
-            "reverse_closure_count": 8742,
-            "reverse_closure_bucket": ">5000",
-            "reverse_closure_sample": ["x"],
-            "critical_downstreams": [],
-            "exceeds_threshold": True,
-        }],
+        "per_attr": [
+            {
+                "attr_path": "bind",
+                "drv_path": "/nix/store/00000000000000000000000000000003-bind-9.20.17.drv",
+                "reverse_closure_count": 8742,
+                "reverse_closure_bucket": ">5000",
+                "reverse_closure_sample": ["x"],
+                "critical_downstreams": [],
+                "exceeds_threshold": True,
+            }
+        ],
         "replay_critical": True,
     }
     (bundle_dir / "impact.json").write_text(json.dumps(impact, indent=2))
@@ -740,7 +845,9 @@ def _probe(bundle_dir: Path, *, discriminates: bool, bind: bool = True) -> None:
     (bundle_dir / "probe.json").write_text(json.dumps(record))
 
 
-def test_finalize_refuses_reviewer_attested_over_a_refuted_fixture(tmp_path: Path) -> None:
+def test_finalize_refuses_reviewer_attested_over_a_refuted_fixture(
+    tmp_path: Path,
+) -> None:
     """A refuted fixture is not a refusal, and must not be relabelled as one.
 
     `reviewer-attested` drops reproducer.nix and reproducer-log.txt from the

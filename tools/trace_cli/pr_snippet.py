@@ -48,7 +48,7 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "bundle_dir",
         type=Path,
         help="path to the bundle directory (must contain bundle.json with "
-             "signed_manifest.rekor_log_index populated)",
+        "signed_manifest.rekor_log_index populated)",
     )
     p.add_argument(
         "--format",
@@ -61,8 +61,7 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
 def run(args: argparse.Namespace) -> int:
     bundle_path = args.bundle_dir / "bundle.json"
     if not bundle_path.is_file():
-        print(f"error: bundle.json not found under {args.bundle_dir}",
-              file=sys.stderr)
+        print(f"error: bundle.json not found under {args.bundle_dir}", file=sys.stderr)
         return 65
 
     bundle = json.loads(bundle_path.read_text())

@@ -38,7 +38,9 @@ FIXTURE_CVE_2024_3094 = FIXTURES / "vulnpatch-CVE-2024-3094.json"
 
 @pytest.fixture(scope="module")
 def source_validator() -> Draft202012Validator:
-    schema = json.loads((REPO_ROOT / "policy" / "vulnpatch-cve-source-schema.json").read_text())
+    schema = json.loads(
+        (REPO_ROOT / "policy" / "vulnpatch-cve-source-schema.json").read_text()
+    )
     return Draft202012Validator(schema)
 
 
@@ -89,7 +91,9 @@ def normalized() -> dict:
     )
 
 
-def test_normalized_validates_against_scout_input_schema(scout_input_validator, normalized):
+def test_normalized_validates_against_scout_input_schema(
+    scout_input_validator, normalized
+):
     errs = _errors(scout_input_validator, normalized)
     assert not errs, f"normalized output failed scout-input schema: {errs}"
 
@@ -122,7 +126,18 @@ def test_normalized_references_deduped_and_tagged(normalized):
     refs = normalized.get("references", [])
     urls = [r["url"] for r in refs]
     assert len(urls) == len(set(urls))
-    assert all(r["kind"] in {"advisory", "upstream-commit", "release-notes", "blog", "bug-tracker", "other"} for r in refs)
+    assert all(
+        r["kind"]
+        in {
+            "advisory",
+            "upstream-commit",
+            "release-notes",
+            "blog",
+            "bug-tracker",
+            "other",
+        }
+        for r in refs
+    )
     # Real fixture has Red Hat bugzilla reference tagged issue-tracking.
     bugzilla = [r for r in refs if "bugzilla.redhat.com" in r["url"]]
     assert bugzilla, "expected Red Hat bugzilla reference in fixture"
@@ -177,6 +192,7 @@ def test_normalizer_does_not_mutate_input():
     raw_bytes = FIXTURE_CVE_2024_3094.read_bytes()
     response_before = json.loads(raw_bytes)
     import copy
+
     clone = copy.deepcopy(response_before)
     normalize_vulnpatch(
         response_before,
@@ -205,15 +221,17 @@ def test_feeding_output_through_scout_produces_finding(normalized):
 
     # A graph that knows one of the Red Hat CPEs from the fixture, pinned in
     # the 2.3 form the normalizer emits.
-    graph = CannedGraphLookup([
-        GraphMatch(
-            attr_path="redhat-enterprise-linux-8",
-            drv_path="/nix/store/00000000000000000000000000000001-rhel-8.drv",
-            pname="rhel",
-            version="8",
-            cpes=("cpe:2.3:o:redhat:enterprise_linux:8:*:*:*:*:*:*:*",),
-        )
-    ])
+    graph = CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path="redhat-enterprise-linux-8",
+                drv_path="/nix/store/00000000000000000000000000000001-rhel-8.drv",
+                pname="rhel",
+                version="8",
+                cpes=("cpe:2.3:o:redhat:enterprise_linux:8:*:*:*:*:*:*:*",),
+            )
+        ]
+    )
     result = scan(normalized, graph)
     assert result["status"] == "finding"
     finding = result["finding"]
@@ -230,7 +248,11 @@ def test_normalizer_rejects_response_with_no_payload():
     response = {
         "success": True,
         "data": {"cve_id": "CVE-2026-0001", "sources": {}},
-        "integrity": {"sources": {}, "primaryHash": "0" * 64, "fetchedAt": "2026-04-23T00:00:00Z"},
+        "integrity": {
+            "sources": {},
+            "primaryHash": "0" * 64,
+            "fetchedAt": "2026-04-23T00:00:00Z",
+        },
         "sourceUrl": "https://example.invalid",
         "timestamp": "2026-04-23T00:00:00Z",
     }

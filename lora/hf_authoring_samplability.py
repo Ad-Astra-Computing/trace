@@ -32,6 +32,7 @@ production prompt (unlike the retired inference-injection arm).
 
 Env: ADAPTER_REPO, DATASET_REPO (canaries), SWEEP_K (8).
 """
+
 import json
 import os
 import re
@@ -41,7 +42,9 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-ADAPTER_REPO = os.environ.get("ADAPTER_REPO", "adastracomputing/authoring-lora-v10-clean")
+ADAPTER_REPO = os.environ.get(
+    "ADAPTER_REPO", "adastracomputing/authoring-lora-v10-clean"
+)
 DATASET_REPO = os.environ.get("DATASET_REPO", "adastracomputing/authoring-lora-data-v6")
 BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
 MODEL_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
@@ -55,7 +58,10 @@ TARGETS = ["CVE-2026-42250", "CVE-2026-48526"]
 
 def load_canaries(dataset_repo):
     from huggingface_hub import hf_hub_download
-    path = hf_hub_download(repo_id=dataset_repo, filename="authoring.canary.jsonl", repo_type="dataset")
+
+    path = hf_hub_download(
+        repo_id=dataset_repo, filename="authoring.canary.jsonl", repo_type="dataset"
+    )
     out = {}
     for line in Path(path).read_text().splitlines():
         if not line.strip():
@@ -75,11 +81,19 @@ def _prompt_ids(tok, system, user, forced_prefix=""):
 
 def main():
     canaries = load_canaries(DATASET_REPO)
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                             bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+    bnb = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
     tok = AutoTokenizer.from_pretrained(BASE_MODEL_ID, revision=MODEL_REVISION)
-    base = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, revision=MODEL_REVISION,
-                                                quantization_config=bnb, device_map="auto")
+    base = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL_ID,
+        revision=MODEL_REVISION,
+        quantization_config=bnb,
+        device_map="auto",
+    )
     model = PeftModel.from_pretrained(base, ADAPTER_REPO)
     model.eval()
 
@@ -97,13 +111,26 @@ def main():
         for temp in TEMPS:
             ins = _prompt_ids(tok, system, user).to(model.device)
             with torch.no_grad():
-                out = model.generate(**ins, max_new_tokens=MAX_NEW_TOKENS, do_sample=True,
-                                     temperature=temp, top_p=0.95, num_return_sequences=SWEEP_K)
+                out = model.generate(
+                    **ins,
+                    max_new_tokens=MAX_NEW_TOKENS,
+                    do_sample=True,
+                    temperature=temp,
+                    top_p=0.95,
+                    num_return_sequences=SWEEP_K,
+                )
             plen = ins["input_ids"].shape[1]
             for s in range(SWEEP_K):
                 g = tok.decode(out[s][plen:], skip_special_tokens=True).strip()
-                rows.append({"cve_id": cve, "probe": "temp_sweep", "temp": temp,
-                             "sample": s, "generated": g})
+                rows.append(
+                    {
+                        "cve_id": cve,
+                        "probe": "temp_sweep",
+                        "temp": temp,
+                        "sample": s,
+                        "generated": g,
+                    }
+                )
             print(f"  {cve} temp {temp}: {SWEEP_K} done", flush=True)
 
         # 2. prefix-forced decode (feed reference truncated at each cut, complete greedily)
@@ -113,21 +140,37 @@ def main():
             forced = "".join(ref_lines[:n])
             ins = _prompt_ids(tok, system, user, forced_prefix=forced).to(model.device)
             with torch.no_grad():
-                out = model.generate(**ins, max_new_tokens=MAX_NEW_TOKENS, do_sample=False)
+                out = model.generate(
+                    **ins, max_new_tokens=MAX_NEW_TOKENS, do_sample=False
+                )
             plen = ins["input_ids"].shape[1]
             cont = tok.decode(out[0][plen:], skip_special_tokens=True).strip()
-            rows.append({"cve_id": cve, "probe": "prefix_force", "cut": cut,
-                         "forced": forced, "generated": cont,
-                         "reconstructed": forced + cont})
+            rows.append(
+                {
+                    "cve_id": cve,
+                    "probe": "prefix_force",
+                    "cut": cut,
+                    "forced": forced,
+                    "generated": cont,
+                    "reconstructed": forced + cont,
+                }
+            )
             print(f"  {cve} prefix-force cut {cut}: done", flush=True)
 
     out_path = Path("/tmp/samplability-responses.jsonl")
     out_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     from huggingface_hub import HfApi
-    HfApi().upload_file(path_or_fileobj=str(out_path),
-                        path_in_repo="samplability-responses.jsonl",
-                        repo_id=ADAPTER_REPO, repo_type="model")
-    print(f"Uploaded {len(rows)} probe rows to {ADAPTER_REPO}/samplability-responses.jsonl", flush=True)
+
+    HfApi().upload_file(
+        path_or_fileobj=str(out_path),
+        path_in_repo="samplability-responses.jsonl",
+        repo_id=ADAPTER_REPO,
+        repo_type="model",
+    )
+    print(
+        f"Uploaded {len(rows)} probe rows to {ADAPTER_REPO}/samplability-responses.jsonl",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ Score offline: python3 lora/score_canaries_graded.py <canary.jsonl> <greedy>.jso
 
 Env: ADAPTER_REPO, DATASET_REPO (canaries), PASSK (16), TEMP (0.9), TOP_P (0.95).
 """
+
 import json
 import os
 import re
@@ -33,7 +34,9 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-ADAPTER_REPO = os.environ.get("ADAPTER_REPO", "adastracomputing/authoring-lora-dpo-guard-clip")
+ADAPTER_REPO = os.environ.get(
+    "ADAPTER_REPO", "adastracomputing/authoring-lora-dpo-guard-clip"
+)
 DATASET_REPO = os.environ.get("DATASET_REPO", "adastracomputing/authoring-lora-data-v6")
 BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
 MODEL_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
@@ -48,7 +51,10 @@ CVE_ORDER = ["CVE-2022-37434", "CVE-2026-42250", "CVE-2024-47081", "CVE-2026-485
 
 def load_canaries(dataset_repo: str) -> dict:
     from huggingface_hub import hf_hub_download
-    path = hf_hub_download(repo_id=dataset_repo, filename="authoring.canary.jsonl", repo_type="dataset")
+
+    path = hf_hub_download(
+        repo_id=dataset_repo, filename="authoring.canary.jsonl", repo_type="dataset"
+    )
     out = {}
     for line in Path(path).read_text().splitlines():
         if not line.strip():
@@ -79,11 +85,19 @@ def gen(model, tok, system, user, *, sample, k=1):
 
 def main():
     canaries = load_canaries(DATASET_REPO)
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                             bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+    bnb = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
     tok = AutoTokenizer.from_pretrained(BASE_MODEL_ID, revision=MODEL_REVISION)
-    base = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, revision=MODEL_REVISION,
-                                                quantization_config=bnb, device_map="auto")
+    base = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL_ID,
+        revision=MODEL_REVISION,
+        quantization_config=bnb,
+        device_map="auto",
+    )
     print(f"=== Attaching adapter ({ADAPTER_REPO}) ===", flush=True)
     model = PeftModel.from_pretrained(base, ADAPTER_REPO)
     model.eval()
@@ -100,23 +114,33 @@ def main():
         # steers the edit SHAPE toward a condition-fold and away from a guard-clip.
         # Base64 to keep the multi-line instruction out of shell-escaping.
         import base64
+
         suffix_b64 = os.environ.get("USER_SUFFIX_B64", "")
         if suffix_b64:
             user = user + "\n\n" + base64.b64decode(suffix_b64).decode()
         g = gen(model, tok, system, user, sample=False)[0]
         greedy.append({"cve_id": cve, "variant": "greedy", "generated": g})
         for s, gg in enumerate(gen(model, tok, system, user, sample=True, k=K)):
-            passk.append({"cve_id": cve, "variant": "original", "sample": s, "generated": gg})
+            passk.append(
+                {"cve_id": cve, "variant": "original", "sample": s, "generated": gg}
+            )
         print(f"  {cve}: greedy + pass@{K} done", flush=True)
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     tag = os.environ.get("OUTPUT_TAG", "")  # e.g. "lr-" to not clobber the baseline run
-    for fn, rows in [(f"{tag}canary-greedy-responses.jsonl", greedy),
-                     (f"{tag}canary-passk-responses.jsonl", passk)]:
+    for fn, rows in [
+        (f"{tag}canary-greedy-responses.jsonl", greedy),
+        (f"{tag}canary-passk-responses.jsonl", passk),
+    ]:
         Path(f"/tmp/{fn}").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-        api.upload_file(path_or_fileobj=f"/tmp/{fn}", path_in_repo=fn,
-                        repo_id=ADAPTER_REPO, repo_type="model")
+        api.upload_file(
+            path_or_fileobj=f"/tmp/{fn}",
+            path_in_repo=fn,
+            repo_id=ADAPTER_REPO,
+            repo_type="model",
+        )
         print(f"Uploaded {ADAPTER_REPO}/{fn}", flush=True)
 
 

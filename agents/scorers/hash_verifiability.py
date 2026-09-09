@@ -69,14 +69,16 @@ HASH_ATTR_NAMES: tuple[str, ...] = (
 
 # Forbidden symbol references — these are nixpkgs `lib` placeholders the
 # Patcher must not emit per rule 8.
-FORBIDDEN_SYMBOLS: frozenset[str] = frozenset({
-    "lib.fakeHash",
-    "lib.fakeSha256",
-    "lib.fakeSha512",
-    "pkgs.lib.fakeHash",
-    "pkgs.lib.fakeSha256",
-    "pkgs.lib.fakeSha512",
-})
+FORBIDDEN_SYMBOLS: frozenset[str] = frozenset(
+    {
+        "lib.fakeHash",
+        "lib.fakeSha256",
+        "lib.fakeSha512",
+        "pkgs.lib.fakeHash",
+        "pkgs.lib.fakeSha256",
+        "pkgs.lib.fakeSha512",
+    }
+)
 
 # Regex catching the SRI-form fake-hash family. `lib.fakeHash` literally
 # expands to "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", and any
@@ -95,7 +97,9 @@ _HEX_FAKE_RE = re.compile(r'^"?(0{64}|0{128})"?$')
 #   sha256 = "0000...";
 #   hash = lib.fakeHash;
 _HASH_ASSIGN_RE = re.compile(
-    r"^\s*(?P<name>" + "|".join(re.escape(n) for n in HASH_ATTR_NAMES) + r")\s*=\s*(?P<value>[^;]+?);",
+    r"^\s*(?P<name>"
+    + "|".join(re.escape(n) for n in HASH_ATTR_NAMES)
+    + r")\s*=\s*(?P<value>[^;]+?);",
     re.MULTILINE,
 )
 
@@ -125,30 +129,42 @@ class HashVerifiabilityScorer:
         ref_path = bundle_dir / "refusal.json"
         if not ref_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="refusal recorded in invocation but refusal.json not on disk",
             )
         try:
             ref = json.loads(ref_path.read_text())
         except json.JSONDecodeError as exc:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes=f"refusal.json is not valid JSON: {exc}",
             )
         rule = ref.get("rule")
         if rule == 8:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=1.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=1.0,
                 notes="refusal under rule 8 (ungrounded hashes) — "
-                      "contract-correct outcome",
+                "contract-correct outcome",
                 details={"refusal_kind": "rule-8"},
             )
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=1.0,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=1.0,
             notes=(
                 f"refusal under rule {rule!r}; no hashes were emitted, "
                 f"so hash-verifiability is trivially satisfied"
@@ -160,8 +176,11 @@ class HashVerifiabilityScorer:
         diff_path = bundle_dir / "patch.diff"
         if not diff_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="patch.diff not on disk",
             )
         diff_text = diff_path.read_text()
@@ -264,21 +283,26 @@ class HashVerifiabilityScorer:
         violations: list[dict[str, Any]] = []
         for entry in introduced:
             if entry["verdict"] not in grounded_verdicts:
-                violations.append({
-                    "kind": entry["verdict"],
-                    "attr": entry["attr"],
-                    "value": entry["value"],
-                })
+                violations.append(
+                    {
+                        "kind": entry["verdict"],
+                        "attr": entry["attr"],
+                        "value": entry["value"],
+                    }
+                )
         for attr in omitted_attrs:
             violations.append({"kind": "silent-omission", "attr": attr, "value": None})
 
         required_count = len(introduced) + len(omitted_attrs)
         if required_count == 0:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=1.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=1.0,
                 notes="patch touches no hashes and bumps no version; "
-                      "hash-verifiability is vacuously satisfied",
+                "hash-verifiability is vacuously satisfied",
                 details={"introduced": [], "omitted_attrs": [], "violations": []},
             )
 
@@ -299,8 +323,11 @@ class HashVerifiabilityScorer:
             )
 
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=score,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=score,
             notes=note,
             details={
                 "version_bumped": version_bumped,

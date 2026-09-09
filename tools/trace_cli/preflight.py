@@ -83,14 +83,14 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "bundle_dir",
         type=Path,
         help="bundle directory to preflight (must contain upstream-fix.patch "
-             "unless --patch is given)",
+        "unless --patch is given)",
     )
     p.add_argument(
         "--source-tree",
         type=Path,
         default=None,
         help="pre-unpacked source root to dry-run against; skips the nix unpack "
-             "(use when you already have the source, or in offline environments)",
+        "(use when you already have the source, or in offline environments)",
     )
     p.add_argument(
         "--patch",
@@ -105,8 +105,8 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="patch -p<N> strip count. Default: resolved from the pinned "
-             "package's patchFlags on the nix path (nixpkgs default 1), or 1 "
-             "when --source-tree is used. Pass to override.",
+        "package's patchFlags on the nix path (nixpkgs default 1), or 1 "
+        "when --source-tree is used. Pass to override.",
     )
     p.add_argument(
         "--patch-flags",
@@ -114,22 +114,22 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         default=None,
         metavar="FLAGS",
         help="(--patch-diff with --source-tree) the package's full patchFlags "
-             "as one whitespace-separated string; use the `=` form so argparse "
-             "accepts dashes, e.g. --patch-flags=-p0 or --patch-flags='-p1 -d "
-             "sub'. Supersedes --strip. Ignored on the nix-unpack path "
-             "(evaluated patchFlags win).",
+        "as one whitespace-separated string; use the `=` form so argparse "
+        "accepts dashes, e.g. --patch-flags=-p0 or --patch-flags='-p1 -d "
+        "sub'. Supersedes --strip. Ignored on the nix-unpack path "
+        "(evaluated patchFlags win).",
     )
     p.add_argument(
         "--patch-diff",
         action="store_true",
         help="validate the MODEL's patch.diff nested source patch (not "
-             "upstream-fix.patch) against the derivation's EFFECTIVE "
-             "sourceRoot. Catches a path-strip / subdir-sourceRoot mismatch "
-             "(e.g. krb5's sourceRoot=\"krb5-${version}/src\") that the "
-             "raw-tree upstream-fix check cannot see, since the model's "
-             "patch may use different path prefixes than upstream-fix.patch. "
-             "Ignores --patch/discover_source_patches; reads <bundle>/patch.diff. "
-             "Writes an auditable verdict to <bundle>/patch-diff-preflight.json.",
+        "upstream-fix.patch) against the derivation's EFFECTIVE "
+        "sourceRoot. Catches a path-strip / subdir-sourceRoot mismatch "
+        '(e.g. krb5\'s sourceRoot="krb5-${version}/src") that the '
+        "raw-tree upstream-fix check cannot see, since the model's "
+        "patch may use different path prefixes than upstream-fix.patch. "
+        "Ignores --patch/discover_source_patches; reads <bundle>/patch.diff. "
+        "Writes an auditable verdict to <bundle>/patch-diff-preflight.json.",
     )
     p.add_argument(
         "--format",
@@ -199,7 +199,8 @@ def apply_patch(
             *patch_flags,
             "--force",  # batch mode: never prompt, never fall back to interactive
             "--no-backup-if-mismatch",
-            "-i", str(patch_path.resolve()),  # abs: cwd is the source tree
+            "-i",
+            str(patch_path.resolve()),  # abs: cwd is the source tree
         ],
         cwd=str(tree),
         capture_output=True,
@@ -219,8 +220,7 @@ def apply_patch(
         listing = ", ".join(f"{p} -> {t}" for p, t in sorted(introduced.items()))
         return False, (
             "refused: patch introduced symlink(s) escaping the work tree "
-            f"(path-traversal write primitive): {listing}"
-            + (f"\n{out}" if out else "")
+            f"(path-traversal write primitive): {listing}" + (f"\n{out}" if out else "")
         )
     return True, out
 
@@ -288,8 +288,9 @@ def _make_writable_copy(src: Path, dst: Path) -> None:
 def run(args: argparse.Namespace, repo_root: Path) -> int:
     bundle_dir: Path = args.bundle_dir.resolve()
     if not bundle_dir.is_dir():
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                           f"bundle dir not found: {bundle_dir}")
+        return _emit_error(
+            args.format, EXIT_NOT_FOUND, f"bundle dir not found: {bundle_dir}"
+        )
 
     if getattr(args, "patch_diff", False):
         return _run_patch_diff(args, bundle_dir)
@@ -306,19 +307,25 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         if args.source_tree is not None:
             source_tree = args.source_tree.resolve()
             if not source_tree.is_dir():
-                return _emit_error(args.format, EXIT_NOT_FOUND,
-                                   f"--source-tree not a directory: {source_tree}")
+                return _emit_error(
+                    args.format,
+                    EXIT_NOT_FOUND,
+                    f"--source-tree not a directory: {source_tree}",
+                )
             source_origin = "supplied"
             patch_flags = [f"-p{args.strip}"] if args.strip is not None else ["-p1"]
         else:
             try:
                 source_tree, resolved_flags = pinned_source.unpack_pinned_source(
-                    bundle_dir, tmp_root)
+                    bundle_dir, tmp_root
+                )
             except RuntimeError as exc:
                 return _emit_error(args.format, EXIT_UNPACK_FAILED, str(exc))
             source_origin = "nix-src"
             # An explicit --strip overrides the resolved patchFlags strip level.
-            patch_flags = [f"-p{args.strip}"] if args.strip is not None else resolved_flags
+            patch_flags = (
+                [f"-p{args.strip}"] if args.strip is not None else resolved_flags
+            )
 
         # Apply cumulatively against a throwaway writable copy so patch N+1 sees
         # patch N's result (nix patchPhase semantics) and the real source is
@@ -332,19 +339,23 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         all_ok = True
         for patch_path in patches:
             if not all_ok:
-                results.append({
-                    "patch": str(patch_path),
-                    "applies": None,
-                    "output": "skipped: a prior patch in the series failed to apply",
-                })
+                results.append(
+                    {
+                        "patch": str(patch_path),
+                        "applies": None,
+                        "output": "skipped: a prior patch in the series failed to apply",
+                    }
+                )
                 continue
             ok, output = apply_patch(work, patch_path, patch_flags)
             all_ok = all_ok and ok
-            results.append({
-                "patch": str(patch_path),
-                "applies": ok,
-                "output": output,
-            })
+            results.append(
+                {
+                    "patch": str(patch_path),
+                    "applies": ok,
+                    "output": output,
+                }
+            )
     finally:
         if tmp_ctx is not None:
             tmp_ctx.cleanup()
@@ -361,7 +372,9 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
 
 
 def check_patch_diff_effective_root(
-    bundle_dir: Path, source_tree: Path | None = None, strip: int | None = None,
+    bundle_dir: Path,
+    source_tree: Path | None = None,
+    strip: int | None = None,
     patch_flags: list[str] | None = None,
 ) -> dict[str, Any]:
     """Pure check: does ``bundle_dir``'s `patch.diff` nested/flat source patch
@@ -394,7 +407,8 @@ def check_patch_diff_effective_root(
             f"with Patcher output already on disk."
         )
     inner_text, nested_names = nested_patch.extract_nested_source_patch(
-        patch_diff_path.read_text())
+        patch_diff_path.read_text()
+    )
 
     with tempfile.TemporaryDirectory(prefix="trace-preflight-patchdiff-") as tmp:
         tmp_root = Path(tmp)
@@ -403,7 +417,9 @@ def check_patch_diff_effective_root(
         if source_tree is not None:
             effective_root = source_tree.resolve()
             if not effective_root.is_dir():
-                raise FileNotFoundError(f"--source-tree not a directory: {effective_root}")
+                raise FileNotFoundError(
+                    f"--source-tree not a directory: {effective_root}"
+                )
             source_root_mode = "supplied"
             if patch_flags is not None:
                 patch_flags = list(patch_flags)
@@ -412,7 +428,9 @@ def check_patch_diff_effective_root(
             else:
                 patch_flags = ["-p1"]
         else:
-            eff = pinned_source.unpack_pinned_source_with_effective_root(bundle_dir, tmp_root)
+            eff = pinned_source.unpack_pinned_source_with_effective_root(
+                bundle_dir, tmp_root
+            )
             # patchPhase applies the package's own `patches` list BEFORE the
             # model patch. A pristine-pkg.src dry-run does not reflect those, so
             # if any exist (resolved for the build platform) the gate cannot
@@ -472,8 +490,11 @@ def _run_patch_diff(args: argparse.Namespace, bundle_dir: Path) -> int:
     patch_flags = _pf.split() if isinstance(_pf, str) else _pf
     try:
         result = check_patch_diff_effective_root(
-            bundle_dir, source_tree=args.source_tree, strip=args.strip,
-            patch_flags=patch_flags)
+            bundle_dir,
+            source_tree=args.source_tree,
+            strip=args.strip,
+            patch_flags=patch_flags,
+        )
     except FileNotFoundError as exc:
         return _emit_error(args.format, EXIT_NOT_FOUND, str(exc))
     except nested_patch.NestedPatchError as exc:
@@ -482,7 +503,8 @@ def _run_patch_diff(args: argparse.Namespace, bundle_dir: Path) -> int:
         return _emit_error(args.format, EXIT_UNPACK_FAILED, str(exc))
 
     (bundle_dir / "patch-diff-preflight.json").write_text(
-        json.dumps(result, indent=2) + "\n")
+        json.dumps(result, indent=2) + "\n"
+    )
 
     ok = result["ok"]
     if args.format == "json":
@@ -492,9 +514,13 @@ def _run_patch_diff(args: argparse.Namespace, bundle_dir: Path) -> int:
         header = "PATCH-DIFF PREFLIGHT OK" if ok else "PATCH-DIFF PREFLIGHT FAILED"
         print(header)
         print(f"  bundle:           {result['bundle_dir']}")
-        print(f"  nested patch(es): {', '.join(result['nested_patch_files']) or '(flat diff)'}")
-        print(f"  source root mode: {result['source_root_mode']}"
-              + (f" ({result['source_root']!r})" if result['source_root'] else ""))
+        print(
+            f"  nested patch(es): {', '.join(result['nested_patch_files']) or '(flat diff)'}"
+        )
+        print(
+            f"  source root mode: {result['source_root_mode']}"
+            + (f" ({result['source_root']!r})" if result["source_root"] else "")
+        )
         print(f"  effective root:   {result['effective_root']}")
         print(f"  flags:            {' '.join(result['patch_flags'])}")
         if not ok:
@@ -523,7 +549,8 @@ def _emit_result(fmt: str, **kwargs: Any) -> int:
     all_ok: bool = kwargs["all_ok"]
     payload = {
         "ok": all_ok,
-        "bundle_dir": kwargs["bundle_dir"] if isinstance(kwargs["bundle_dir"], str)
+        "bundle_dir": kwargs["bundle_dir"]
+        if isinstance(kwargs["bundle_dir"], str)
         else str(kwargs["bundle_dir"]),
         "source_tree": kwargs["source_tree"],
         "source_origin": kwargs["source_origin"],
@@ -556,7 +583,8 @@ def _emit_result(fmt: str, **kwargs: Any) -> int:
             if failed and classes <= {"already-applied", "mixed"}:
                 extra = (
                     " Some hunks also failed outright, so read the output before retiring."
-                    if "mixed" in classes else ""
+                    if "mixed" in classes
+                    else ""
                 )
                 print(
                     "  -> the pinned source already contains this fix, so it is not "

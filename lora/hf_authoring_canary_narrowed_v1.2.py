@@ -43,6 +43,7 @@ Usage (see lora/submit_hf_gen_canaries_v1.2.sh style / the submit wrapper):
   hf jobs uv run --flavor a100-large --namespace odoom --timeout 1h --detach \\
     --secrets HF_TOKEN lora/hf_authoring_canary_narrowed_v1.2.py
 """
+
 import base64
 import json
 import os
@@ -54,7 +55,9 @@ import torch
 # Optional: override the canary's system turn (e.g. score an adapter trained with a
 # different system prompt, like the search/replace variant). Base64 to survive env.
 _SYS_OVERRIDE_B64 = os.environ.get("SYSTEM_OVERRIDE_B64")
-SYSTEM_OVERRIDE = base64.b64decode(_SYS_OVERRIDE_B64).decode() if _SYS_OVERRIDE_B64 else None
+SYSTEM_OVERRIDE = (
+    base64.b64decode(_SYS_OVERRIDE_B64).decode() if _SYS_OVERRIDE_B64 else None
+)
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -95,17 +98,25 @@ def rebuild(head: str, lang: str, code: str, tail: str) -> str:
 def narrow_zlib(user: str):
     head, lang, code, tail = split_window(user)
     lines = code.split("\n")
-    for expect in ["        case EXLEN:", "            else if (state->head != Z_NULL)",
-                   "                state->head->extra = Z_NULL;", "        case EXTRA:",
-                   "                        len = state->head->extra_len - state->length;"]:
+    for expect in [
+        "        case EXLEN:",
+        "            else if (state->head != Z_NULL)",
+        "                state->head->extra = Z_NULL;",
+        "        case EXTRA:",
+        "                        len = state->head->extra_len - state->length;",
+    ]:
         if expect not in lines:
             raise AssertionError(f"zlib canary drift: missing {expect!r}")
     label = "        case EXTRA:"
     idx = lines.index(label)
     narrowed = "\n".join(lines[idx:])
     assert "case EXLEN:" not in narrowed, "zlib narrowed still has EXLEN"
-    assert "state->head->extra = Z_NULL;" not in narrowed, "zlib narrowed kept distractor"
-    assert "len = state->head->extra_len - state->length;" in narrowed, "zlib fix site missing"
+    assert "state->head->extra = Z_NULL;" not in narrowed, (
+        "zlib narrowed kept distractor"
+    )
+    assert "len = state->head->extra_len - state->length;" in narrowed, (
+        "zlib fix site missing"
+    )
     assert narrowed.count("{") == narrowed.count("}"), "zlib narrowed brace imbalance"
     removed = "\n".join(lines[:idx])
     return rebuild(head, lang, narrowed, tail), removed
@@ -120,9 +131,15 @@ def narrow_bzip2(user: str):
     dist_test = "\t     (bEnd[currBlock] - bStart[currBlock]) >= 130) {"
     lead_start = "         if (bitsRead > 49) {"
     end_anchor = "         bStart[currBlock] = bitsRead;"
-    for expect in [guard, dist_open, dist_test, lead_start, end_anchor,
-                   "            tooManyBlocks(BZ_MAX_HANDLED_BLOCKS);",
-                   "         currBlock++;"]:
+    for expect in [
+        guard,
+        dist_open,
+        dist_test,
+        lead_start,
+        end_anchor,
+        "            tooManyBlocks(BZ_MAX_HANDLED_BLOCKS);",
+        "         currBlock++;",
+    ]:
         if expect not in lines:
             raise AssertionError(f"bzip2 canary drift: missing {expect!r}")
     # Excise the whole `if (currBlock > 0 && ... >= 130) { ... }` distractor block.
@@ -131,20 +148,24 @@ def narrow_bzip2(user: str):
     rbctr = lines.index("            rbCtr++;")
     d_close = rbctr + 1
     if lines[d_close].strip() != "}":
-        raise AssertionError("bzip2 canary drift: distractor close brace not where expected")
+        raise AssertionError(
+            "bzip2 canary drift: distractor close brace not where expected"
+        )
     # Keep: lead-in (bEnd computation) up to just before distractor, then guard region onward.
     lead_idx = lines.index(lead_start)
     end_idx = lines.index(end_anchor)
-    kept = lines[lead_idx:d_start] + lines[d_close + 1:end_idx + 1]
+    kept = lines[lead_idx:d_start] + lines[d_close + 1 : end_idx + 1]
     narrowed = "\n".join(kept)
     assert ">= 130) {" not in narrowed, "bzip2 distractor >=130 still present"
     assert "block %d runs from" not in narrowed, "bzip2 fprintf distractor present"
     assert guard.strip() in narrowed, "bzip2 fix guard missing"
     assert "currBlock++;" in narrowed, "bzip2 currBlock++ missing"
     assert narrowed.count("{") == narrowed.count("}"), "bzip2 narrowed brace imbalance"
-    removed = "\n".join(lines[:lead_idx]) + \
-        "\n... [removed `>= 130` fprintf block-runs distractor] ...\n" + \
-        "\n".join(lines[end_idx + 1:])
+    removed = (
+        "\n".join(lines[:lead_idx])
+        + "\n... [removed `>= 130` fprintf block-runs distractor] ...\n"
+        + "\n".join(lines[end_idx + 1 :])
+    )
     return rebuild(head, lang, narrowed, tail), removed
 
 
@@ -155,22 +176,31 @@ def narrow_requests(user: str):
     start_anchor = "        if netrc_path is None:"
     fix_anchor = "        host = ri.netloc.split(splitstr)[0]"
     auth_anchor = "            _netrc = netrc(netrc_path).authenticators(host)"
-    for expect in [start_anchor, "        ri = urlparse(url)", '        splitstr = b":"',
-                   fix_anchor, auth_anchor]:
+    for expect in [
+        start_anchor,
+        "        ri = urlparse(url)",
+        '        splitstr = b":"',
+        fix_anchor,
+        auth_anchor,
+    ]:
         if expect not in lines:
             raise AssertionError(f"requests canary drift: missing {expect!r}")
     sidx = lines.index(start_anchor)
     aidx = lines.index(auth_anchor)
     # keep through the `if _netrc:` line for a balanced-looking tail.
-    kept = lines[sidx:aidx + 2]
+    kept = lines[sidx : aidx + 2]
     narrowed = "\n".join(kept)
     assert fix_anchor in narrowed, "requests fix site missing"
     assert 'splitstr = b":"' in narrowed, "requests splitstr missing"
     assert "netrc_locations" not in narrowed, "requests earlier loop distractor present"
-    assert "os.path.expanduser" not in narrowed, "requests expanduser distractor present"
-    removed = "\n".join(lines[:sidx]) + \
-        "\n... [removed earlier get_netrc_auth body: netrc_locations loop] ...\n" + \
-        "\n".join(lines[aidx + 2:])
+    assert "os.path.expanduser" not in narrowed, (
+        "requests expanduser distractor present"
+    )
+    removed = (
+        "\n".join(lines[:sidx])
+        + "\n... [removed earlier get_netrc_auth body: netrc_locations loop] ...\n"
+        + "\n".join(lines[aidx + 2 :])
+    )
     return rebuild(head, lang, narrowed, tail), removed
 
 
@@ -180,21 +210,26 @@ def narrow_pyjwt(user: str):
     lines = code.split("\n")
     start_anchor = "    def prepare_key(self, key: str | bytes) -> bytes:"
     end_anchor = "        return key_bytes"
-    for expect in [start_anchor, "        key_bytes = force_bytes(key)",
-                   "        if is_pem_format(key_bytes) or is_ssh_key(key_bytes):",
-                   end_anchor]:
+    for expect in [
+        start_anchor,
+        "        key_bytes = force_bytes(key)",
+        "        if is_pem_format(key_bytes) or is_ssh_key(key_bytes):",
+        end_anchor,
+    ]:
         if expect not in lines:
             raise AssertionError(f"pyjwt canary drift: missing {expect!r}")
     sidx = lines.index(start_anchor)
     eidx = lines.index(end_anchor)
-    kept = lines[sidx:eidx + 1]
+    kept = lines[sidx : eidx + 1]
     narrowed = "\n".join(kept)
     assert "key_bytes = force_bytes(key)" in narrowed, "pyjwt fix site missing"
     assert "to_jwk" not in narrowed, "pyjwt to_jwk distractor present"
     assert "class HMACAlgorithm" not in narrowed, "pyjwt class header present"
-    removed = "\n".join(lines[:sidx]) + \
-        "\n... [removed class header + SHA ClassVars + to_jwk overloads] ...\n" + \
-        "\n".join(lines[eidx + 1:])
+    removed = (
+        "\n".join(lines[:sidx])
+        + "\n... [removed class header + SHA ClassVars + to_jwk overloads] ...\n"
+        + "\n".join(lines[eidx + 1 :])
+    )
     return rebuild(head, lang, narrowed, tail), removed
 
 
@@ -208,6 +243,7 @@ TRANSFORMS = {
 
 def load_records(dataset_repo: str) -> dict:
     from huggingface_hub import hf_hub_download
+
     path = hf_hub_download(
         repo_id=dataset_repo,
         filename="authoring.canary.jsonl",
@@ -241,7 +277,7 @@ def generate(model, tokenizer, system: str, user: str) -> str:
             top_p=None,
             pad_token_id=tokenizer.eos_token_id,
         )
-    generated_ids = out[0][inputs["input_ids"].shape[1]:]
+    generated_ids = out[0][inputs["input_ids"].shape[1] :]
     return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
 
@@ -312,6 +348,7 @@ def main():
     print(f"\nResponses written to {out_path}", flush=True)
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.upload_file(
         path_or_fileobj=str(out_path),

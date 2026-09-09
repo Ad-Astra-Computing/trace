@@ -29,10 +29,16 @@ class QueueAdapter:
         self.model_id = model_id
         self._responses = list(responses)
 
-    def invoke(self, *, system_prompt: str, user_content: str, sampling: dict[str, Any]) -> ModelResponse:
+    def invoke(
+        self, *, system_prompt: str, user_content: str, sampling: dict[str, Any]
+    ) -> ModelResponse:
         return ModelResponse(
-            text=self._responses.pop(0), model_id=self.model_id,
-            input_tokens=None, output_tokens=None, stop_reason="end_turn", extras={},
+            text=self._responses.pop(0),
+            model_id=self.model_id,
+            input_tokens=None,
+            output_tokens=None,
+            stop_reason="end_turn",
+            extras={},
         )
 
 
@@ -40,7 +46,9 @@ class QueueProbe:
     def __init__(self, verdicts: list[Any]):
         self._verdicts = list(verdicts)
 
-    def __call__(self, probe_dir: Path, nix_b: bytes, log_b: bytes, json_b: bytes) -> ProbeVerdict:
+    def __call__(
+        self, probe_dir: Path, nix_b: bytes, log_b: bytes, json_b: bytes
+    ) -> ProbeVerdict:
         v = self._verdicts.pop(0)
         if isinstance(v, Exception):
             raise v
@@ -54,10 +62,15 @@ _NODISC = ProbeVerdict(True, False, True, "u=present; p=NOT present")
 def _seed_bundle(tmp_path: Path) -> Path:
     b = tmp_path / "bundle"
     b.mkdir()
-    (b / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-2026-99999", "summary": "oob read",
-        "affected": [{"attr_path": "demo"}],
-    }))
+    (b / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-2026-99999",
+                "summary": "oob read",
+                "affected": [{"attr_path": "demo"}],
+            }
+        )
+    )
     (b / "upstream-ref.json").write_text(json.dumps({"cve_id": "CVE-2026-99999"}))
     (b / "impact.json").write_text(json.dumps({"rebuild_count": 1}))
     (b / "maintainers.json").write_text(json.dumps({"maintainers": []}))
@@ -71,18 +84,37 @@ def _seed_bundle(tmp_path: Path) -> Path:
 def _finalize_replay(bundle: Path) -> None:
     """Write a minimal finalized replay.json (Opus Patcher) so the production
     path clears _validate_finalized_bundle and reaches the checkout check."""
-    (bundle / "replay.json").write_text(json.dumps({
-        "roles": [{"role": "patcher", "invocations": [
-            {"model": {"model_id": "claude-opus-4-7", "family": "anthropic-opus"}}
-        ]}]
-    }))
+    (bundle / "replay.json").write_text(
+        json.dumps(
+            {
+                "roles": [
+                    {
+                        "role": "patcher",
+                        "invocations": [
+                            {
+                                "model": {
+                                    "model_id": "claude-opus-4-7",
+                                    "family": "anthropic-opus",
+                                }
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    )
 
 
 def _args(bundle: Path, **over: Any) -> argparse.Namespace:
     base = dict(
-        bundle=bundle, model="claude-sonnet-4-5-20250929", k=2,
-        nixpkgs_checkout=None, probe_root=None, exhaustive=False,
-        builder_timeout_seconds=1800, overwrite=False,
+        bundle=bundle,
+        model="claude-sonnet-4-5-20250929",
+        k=2,
+        nixpkgs_checkout=None,
+        probe_root=None,
+        exhaustive=False,
+        builder_timeout_seconds=1800,
+        overwrite=False,
     )
     base.update(over)
     return argparse.Namespace(**base)
@@ -98,18 +130,26 @@ def _sampling_result(winner: int | None) -> SamplingResult:
     )
     wf = None
     if winner is not None:
-        wf = {"reproducer.nix": b"nix\n", "reproducer-log.txt": b"log\n",
-              "passthru-tests.json": b"[]\n"}
-    return SamplingResult(k=2, winner_index=winner, draws=draws,
-                          winning_files=wf, temperatures=(0.2, 0.9))
+        wf = {
+            "reproducer.nix": b"nix\n",
+            "reproducer-log.txt": b"log\n",
+            "passthru-tests.json": b"[]\n",
+        }
+    return SamplingResult(
+        k=2, winner_index=winner, draws=draws, winning_files=wf, temperatures=(0.2, 0.9)
+    )
 
 
 def test_provenance_records_winner_and_all_draws() -> None:
     prov = rs.build_sampling_provenance(
-        _sampling_result(1), model_id="claude-sonnet-4-5-20250929",
-        prompt_path="prompts/reproducer.v21.md", prompt_sha256="deadbeef",
-        tool_version="0.7.0", generated_at="2026-08-25T00:00:00Z",
-        verifier="local-screen", exhaustive=False,
+        _sampling_result(1),
+        model_id="claude-sonnet-4-5-20250929",
+        prompt_path="prompts/reproducer.v21.md",
+        prompt_sha256="deadbeef",
+        tool_version="0.7.0",
+        generated_at="2026-08-25T00:00:00Z",
+        verifier="local-screen",
+        exhaustive=False,
     )
     assert prov["schema_version"] == rs.SAMPLING_SIDECAR_SCHEMA_VERSION
     assert prov["model_id"] == "claude-sonnet-4-5-20250929"
@@ -125,9 +165,14 @@ def test_provenance_records_winner_and_all_draws() -> None:
 
 def test_provenance_null_winner_when_none_discriminate() -> None:
     prov = rs.build_sampling_provenance(
-        _sampling_result(None), model_id="m", prompt_path="p",
-        prompt_sha256="x", tool_version="v", generated_at="t",
-        verifier="local-screen", exhaustive=True,
+        _sampling_result(None),
+        model_id="m",
+        prompt_path="p",
+        prompt_sha256="x",
+        tool_version="v",
+        generated_at="t",
+        verifier="local-screen",
+        exhaustive=True,
     )
     assert prov["winner"] is None
     assert prov["exhaustive"] is True
@@ -140,7 +185,10 @@ def test_commit_winner_writes_three_files(tmp_path: Path) -> None:
     b = _seed_bundle(tmp_path)
     outputs = rs.commit_winner(b, _sampling_result(1))
     assert {o["path"] for o in outputs} == {
-        "reproducer.nix", "reproducer-log.txt", "passthru-tests.json"}
+        "reproducer.nix",
+        "reproducer-log.txt",
+        "passthru-tests.json",
+    }
     assert (b / "reproducer.nix").read_bytes() == b"nix\n"
     assert (b / "passthru-tests.json").read_bytes() == b"[]\n"
 
@@ -169,10 +217,14 @@ def test_commit_winner_raises_without_winner(tmp_path: Path) -> None:
 
 def test_run_commits_winner_and_writes_sidecar(tmp_path: Path) -> None:
     b = _seed_bundle(tmp_path)
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
     probe = QueueProbe([_NODISC, _DISC])
     code = rs.run(
-        _args(b), _adapter_factory=lambda m: adapter, _probe_fn=probe,
+        _args(b),
+        _adapter_factory=lambda m: adapter,
+        _probe_fn=probe,
     )
     assert code == rs.EXIT_OK
     assert (b / "reproducer.nix").is_file()
@@ -184,7 +236,9 @@ def test_run_commits_winner_and_writes_sidecar(tmp_path: Path) -> None:
 
 def test_run_no_winner_routes_human_review(tmp_path: Path) -> None:
     b = _seed_bundle(tmp_path)
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
     probe = QueueProbe([_NODISC, _NODISC])
     code = rs.run(_args(b), _adapter_factory=lambda m: adapter, _probe_fn=probe)
     assert code == rs.EXIT_NO_WINNER
@@ -229,9 +283,13 @@ def test_run_quarantines_stale_reproducer_on_no_winner(tmp_path: Path) -> None:
     (b / "reproducer.nix").write_text("stale\n")
     (b / "reproducer-log.txt").write_text("stale-log\n")
     (b / "passthru-tests.json").write_text("[]\n")
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
     probe = QueueProbe([_NODISC, _NODISC])
-    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=probe)
+    code = rs.run(
+        _args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=probe
+    )
     assert code == rs.EXIT_NO_WINNER
     # Stale outputs moved out of the canonical path so cert cannot consume them.
     assert not (b / "reproducer.nix").is_file()
@@ -246,12 +304,16 @@ def test_run_all_probe_error_is_infra_not_no_winner(tmp_path: Path) -> None:
     # (not quarantined), and it is not reported as a genuine no-winner sweep.
     b = _seed_bundle(tmp_path)
     (b / "reproducer.nix").write_text("existing\n")
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
 
     def boom(*a: Any) -> ProbeVerdict:
         raise RuntimeError("nix daemon unavailable")
 
-    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=boom)
+    code = rs.run(
+        _args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=boom
+    )
     assert code == rs.EXIT_PROBE_INFRA
     assert (b / "reproducer.nix").read_text() == "existing\n"  # preserved
     assert not (b / ".reproducer-sampling-quarantine").exists()
@@ -270,12 +332,16 @@ def test_run_mixed_unevaluated_is_infra_not_quarantine(tmp_path: Path) -> None:
     # though not every draw is a probe-error.
     b = _seed_bundle(tmp_path)
     (b / "reproducer.nix").write_text("existing\n")
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", ["garbage no markers\n", _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", ["garbage no markers\n", _repro_output()]
+    )
 
     def boom(*a: Any) -> ProbeVerdict:
         raise RuntimeError("store corruption")
 
-    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=boom)
+    code = rs.run(
+        _args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=boom
+    )
     assert code == rs.EXIT_PROBE_INFRA
     assert (b / "reproducer.nix").read_text() == "existing\n"
     assert not (b / ".reproducer-sampling-quarantine").exists()
@@ -287,9 +353,13 @@ def test_run_evaluated_plus_probe_error_is_infra_not_quarantine(tmp_path: Path) 
     # quarantine the existing reproducer — treat as infra and preserve.
     b = _seed_bundle(tmp_path)
     (b / "reproducer.nix").write_text("existing\n")
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
     probe = QueueProbe([_NODISC, RuntimeError("store hiccup")])
-    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=probe)
+    code = rs.run(
+        _args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=probe
+    )
     assert code == rs.EXIT_PROBE_INFRA
     assert (b / "reproducer.nix").read_text() == "existing\n"  # preserved
     assert not (b / ".reproducer-sampling-quarantine").exists()
@@ -303,8 +373,11 @@ def test_run_all_malformed_is_no_winner_but_preserves(tmp_path: Path) -> None:
     (b / "reproducer.nix").write_text("existing\n")
     adapter = QueueAdapter("claude-sonnet-4-5-20250929", ["junk\n", "more junk\n"])
     # Probe should never be called (both draws malformed).
-    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: adapter,
-                  _probe_fn=lambda *a: _DISC)
+    code = rs.run(
+        _args(b, overwrite=True),
+        _adapter_factory=lambda m: adapter,
+        _probe_fn=lambda *a: _DISC,
+    )
     assert code == rs.EXIT_NO_WINNER
     assert (b / "reproducer.nix").read_text() == "existing\n"
     assert not (b / ".reproducer-sampling-quarantine").exists()
@@ -317,7 +390,9 @@ def test_run_fresh_all_malformed_writes_canonical_sidecar(tmp_path: Path) -> Non
     # prior provenance to protect, so the null-winner record IS canonical.
     b = _seed_bundle(tmp_path)
     adapter = QueueAdapter("claude-sonnet-4-5-20250929", ["junk\n", "more junk\n"])
-    code = rs.run(_args(b), _adapter_factory=lambda m: adapter, _probe_fn=lambda *a: _DISC)
+    code = rs.run(
+        _args(b), _adapter_factory=lambda m: adapter, _probe_fn=lambda *a: _DISC
+    )
     assert code == rs.EXIT_NO_WINNER
     sidecar = json.loads((b / "reproducer-sampling.json").read_text())
     assert sidecar["winner"] is None
@@ -329,15 +404,22 @@ def test_run_infra_preserves_prior_canonical_sidecar(tmp_path: Path) -> None:
     b = _seed_bundle(tmp_path)
     (b / "reproducer.nix").write_text("existing\n")
     (b / "reproducer-sampling.json").write_text('{"winner": {"draw_index": 7}}\n')
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
 
     def boom(*a: Any) -> ProbeVerdict:
         raise RuntimeError("store down")
 
-    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=boom)
+    code = rs.run(
+        _args(b, overwrite=True), _adapter_factory=lambda m: adapter, _probe_fn=boom
+    )
     assert code == rs.EXIT_PROBE_INFRA
     # The canonical sidecar still describes the reproducer on disk, untouched.
-    assert json.loads((b / "reproducer-sampling.json").read_text())["winner"]["draw_index"] == 7
+    assert (
+        json.loads((b / "reproducer-sampling.json").read_text())["winner"]["draw_index"]
+        == 7
+    )
 
 
 def test_validate_finalized_bundle_requires_replay(tmp_path: Path) -> None:
@@ -368,12 +450,21 @@ def test_validate_finalized_bundle_rejects_edited_input(tmp_path: Path) -> None:
     wrong = "a" * 64
     real = hashlib.sha256((b / "finding.json").read_bytes()).hexdigest()
     assert wrong != real
-    (b / "bundle.json").write_text(json.dumps({
-        "bundle_id": "x",
-        "files": {"finding.json": {
-            "sha256": wrong, "bytes": 1,
-            "producer_role": "scout", "replay_critical": True}},
-    }))
+    (b / "bundle.json").write_text(
+        json.dumps(
+            {
+                "bundle_id": "x",
+                "files": {
+                    "finding.json": {
+                        "sha256": wrong,
+                        "bytes": 1,
+                        "producer_role": "scout",
+                        "replay_critical": True,
+                    }
+                },
+            }
+        )
+    )
     assert "edited after finalize" in rs._validate_finalized_bundle(b)
 
 
@@ -383,12 +474,21 @@ def test_validate_finalized_bundle_accepts_matching_input_hash(tmp_path: Path) -
     b = _seed_bundle(tmp_path)
     _finalize_replay(b)
     real = hashlib.sha256((b / "finding.json").read_bytes()).hexdigest()
-    (b / "bundle.json").write_text(json.dumps({
-        "bundle_id": "x",
-        "files": {"finding.json": {
-            "sha256": real, "bytes": 1,
-            "producer_role": "scout", "replay_critical": True}},
-    }))
+    (b / "bundle.json").write_text(
+        json.dumps(
+            {
+                "bundle_id": "x",
+                "files": {
+                    "finding.json": {
+                        "sha256": real,
+                        "bytes": 1,
+                        "producer_role": "scout",
+                        "replay_critical": True,
+                    }
+                },
+            }
+        )
+    )
     assert rs._validate_finalized_bundle(b) is None
 
 
@@ -399,11 +499,17 @@ def test_run_all_model_error_is_infra_preserves(tmp_path: Path) -> None:
     (b / "reproducer.nix").write_text("existing\n")
 
     class DeadAdapter:
-        def __init__(self, mid): self.model_id = mid
-        def invoke(self, **kw): raise ConnectionError("API unreachable")
+        def __init__(self, mid):
+            self.model_id = mid
 
-    code = rs.run(_args(b, overwrite=True), _adapter_factory=lambda m: DeadAdapter(m),
-                  _probe_fn=lambda *a: _DISC)
+        def invoke(self, **kw):
+            raise ConnectionError("API unreachable")
+
+    code = rs.run(
+        _args(b, overwrite=True),
+        _adapter_factory=lambda m: DeadAdapter(m),
+        _probe_fn=lambda *a: _DISC,
+    )
     assert code == rs.EXIT_PROBE_INFRA
     assert (b / "reproducer.nix").read_text() == "existing\n"
     assert not (b / ".reproducer-sampling-quarantine").exists()
@@ -413,8 +519,11 @@ def test_run_rejects_temperature_ignoring_model(tmp_path: Path) -> None:
     # pass@K on a model whose adapter drops temperature would draw K identical
     # candidates; reject before any spend.
     b = _seed_bundle(tmp_path)
-    code = rs.run(_args(b, model="claude-opus-4-8"),
-                  _adapter_factory=lambda m: None, _probe_fn=lambda *a: _DISC)
+    code = rs.run(
+        _args(b, model="claude-opus-4-8"),
+        _adapter_factory=lambda m: None,
+        _probe_fn=lambda *a: _DISC,
+    )
     assert code == rs.EXIT_USAGE
 
 
@@ -435,16 +544,23 @@ class TokenedQueueAdapter:
     """Like QueueAdapter but reports token usage, so full-sweep billing is
     observable in the cost sidecar."""
 
-    def __init__(self, model_id: str, responses: list[str], *, in_tok: int, out_tok: int):
+    def __init__(
+        self, model_id: str, responses: list[str], *, in_tok: int, out_tok: int
+    ):
         self.model_id = model_id
         self._responses = list(responses)
         self._in, self._out = in_tok, out_tok
 
-    def invoke(self, *, system_prompt: str, user_content: str, sampling: dict[str, Any]) -> ModelResponse:
+    def invoke(
+        self, *, system_prompt: str, user_content: str, sampling: dict[str, Any]
+    ) -> ModelResponse:
         return ModelResponse(
-            text=self._responses.pop(0), model_id=self.model_id,
-            input_tokens=self._in, output_tokens=self._out,
-            stop_reason="end_turn", extras={"adapter": "anthropic"},
+            text=self._responses.pop(0),
+            model_id=self.model_id,
+            input_tokens=self._in,
+            output_tokens=self._out,
+            stop_reason="end_turn",
+            extras={"adapter": "anthropic"},
         )
 
 
@@ -454,7 +570,9 @@ def test_run_records_replay_invocation_on_winner(tmp_path: Path) -> None:
     winner's sampling temperature and the committed reproducer.nix sha."""
     b = _seed_bundle(tmp_path)
     _finalize_replay(b)  # patcher anchor present -> recording fires
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
     probe = QueueProbe([_NODISC, _DISC])  # winner = draw 1
 
     code = rs.run(_args(b), _adapter_factory=lambda m: adapter, _probe_fn=probe)
@@ -470,8 +588,11 @@ def test_run_records_replay_invocation_on_winner(tmp_path: Path) -> None:
     # Winner is draw 1; the k=2 schedule is [0.2, 0.9].
     assert inv["model"]["sampling"]["temperature"] == 0.9
     # The invocation's reproducer.nix output sha is the committed file's sha.
-    committed_sha = next(o["sha256"] for o in inv["outputs"] if o["path"] == "reproducer.nix")
+    committed_sha = next(
+        o["sha256"] for o in inv["outputs"] if o["path"] == "reproducer.nix"
+    )
     from tools.trace_cli.execute import sha256_hex
+
     assert committed_sha == sha256_hex((b / "reproducer.nix").read_bytes())
     # Cost sidecar written too.
     assert (b / "reproducer-invocation.json").is_file()
@@ -483,8 +604,10 @@ def test_run_bills_full_sweep_not_just_winner(tmp_path: Path) -> None:
     b = _seed_bundle(tmp_path)
     _finalize_replay(b)
     adapter = TokenedQueueAdapter(
-        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()],
-        in_tok=5, out_tok=7,
+        "claude-sonnet-4-5-20250929",
+        [_repro_output(), _repro_output()],
+        in_tok=5,
+        out_tok=7,
     )
     probe = QueueProbe([_NODISC, _DISC])  # both draws billed, winner = draw 1
 
@@ -492,16 +615,18 @@ def test_run_bills_full_sweep_not_just_winner(tmp_path: Path) -> None:
     assert code == rs.EXIT_OK
 
     sidecar = json.loads((b / "reproducer-invocation.json").read_text())
-    assert sidecar["usage"]["attempts"] == 2          # both draws
-    assert sidecar["usage"]["input_tokens"] == 10     # 5 + 5
-    assert sidecar["usage"]["output_tokens"] == 14    # 7 + 7
+    assert sidecar["usage"]["attempts"] == 2  # both draws
+    assert sidecar["usage"]["input_tokens"] == 10  # 5 + 5
+    assert sidecar["usage"]["output_tokens"] == 14  # 7 + 7
 
 
 def test_run_winner_without_replay_skips_invocation(tmp_path: Path) -> None:
     """On an un-finalized bundle (no replay.json) the winner still commits, but
     invocation recording no-ops rather than crashing."""
     b = _seed_bundle(tmp_path)  # NO _finalize_replay
-    adapter = QueueAdapter("claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()])
+    adapter = QueueAdapter(
+        "claude-sonnet-4-5-20250929", [_repro_output(), _repro_output()]
+    )
     probe = QueueProbe([_NODISC, _DISC])
 
     code = rs.run(_args(b), _adapter_factory=lambda m: adapter, _probe_fn=probe)
@@ -523,8 +648,18 @@ def _git_checkout(tmp_path: Path, *, rev_file_content: str = "pristine\n") -> Pa
     for a in (
         ["git", "-C", str(co), "init", "-q"],
         ["git", "-C", str(co), "add", "."],
-        ["git", "-C", str(co), "-c", "user.email=t@t", "-c", "user.name=t",
-         "commit", "-qm", "init"],
+        [
+            "git",
+            "-C",
+            str(co),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "init",
+        ],
     ):
         subprocess.run(a, check=True, capture_output=True)
     return co
@@ -533,15 +668,17 @@ def _git_checkout(tmp_path: Path, *, rev_file_content: str = "pristine\n") -> Pa
 def _head_sha(co: Path) -> str:
     import subprocess
 
-    return subprocess.run(["git", "-C", str(co), "rev-parse", "HEAD"],
-                          capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        ["git", "-C", str(co), "rev-parse", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
 
 
 def test_validate_checkout_accepts_clean_matching(tmp_path: Path) -> None:
     b = _seed_bundle(tmp_path)
     co = _git_checkout(tmp_path)
-    (b / "bundle.json").write_text(json.dumps({
-        "bundle_id": "x", "nixpkgs_rev": _head_sha(co)}))
+    (b / "bundle.json").write_text(
+        json.dumps({"bundle_id": "x", "nixpkgs_rev": _head_sha(co)})
+    )
     assert rs._validate_checkout(co, b) is None
 
 
@@ -578,11 +715,28 @@ def test_validate_checkout_skips_rev_when_bundle_has_none(tmp_path: Path) -> Non
 def test_run_enforces_cross_family_rule(tmp_path: Path) -> None:
     b = _seed_bundle(tmp_path)
     # Record a Sonnet Patcher in replay.json; a Sonnet Reproducer must be refused.
-    (b / "replay.json").write_text(json.dumps({
-        "roles": [{"role": "patcher", "invocations": [
-            {"model": {"model_id": "claude-sonnet-4-5-20250929", "family": "anthropic-sonnet"}}
-        ]}]
-    }))
-    code = rs.run(_args(b, model="claude-sonnet-4-5-20250929"),
-                  _adapter_factory=lambda m: None, _probe_fn=lambda *a: _DISC)
+    (b / "replay.json").write_text(
+        json.dumps(
+            {
+                "roles": [
+                    {
+                        "role": "patcher",
+                        "invocations": [
+                            {
+                                "model": {
+                                    "model_id": "claude-sonnet-4-5-20250929",
+                                    "family": "anthropic-sonnet",
+                                }
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    code = rs.run(
+        _args(b, model="claude-sonnet-4-5-20250929"),
+        _adapter_factory=lambda m: None,
+        _probe_fn=lambda *a: _DISC,
+    )
     assert code == rs.EXIT_USAGE

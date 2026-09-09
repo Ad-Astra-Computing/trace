@@ -100,11 +100,17 @@ def _parse_day(s: str) -> datetime:
     try:
         dt = datetime.fromisoformat(s)
     except ValueError as e:
-        raise SystemExit(f"error: --since/--until must be ISO date/datetime, got {s!r}: {e}")
+        raise SystemExit(
+            f"error: --since/--until must be ISO date/datetime, got {s!r}: {e}"
+        )
     # Promise a UTC instant: a naive input is read as UTC, an offset-aware one is
     # converted to UTC. The NVD walk formats wall-clock without the offset, so an
     # un-normalized +02:00 input would query the wrong interval (codex 2026-07-20).
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    return (
+        dt.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None
+        else dt.astimezone(timezone.utc)
+    )
 
 
 def _range(dates: list[str]) -> list[str | None]:
@@ -144,7 +150,9 @@ def compute_comparison(
         overlap_in_nvd_window=len(vp_ids & nvd_set),
         vulnpatch_outside_nvd_window=len(outside),
         vulnpatch_prejoined_nixpkgs=sum(1 for e in entries if e.nixpkgs_attribute),
-        vulnpatch_open_no_pr=sum(1 for e in entries if e.status == "open" and not e.has_pr),
+        vulnpatch_open_no_pr=sum(
+            1 for e in entries if e.status == "open" and not e.has_pr
+        ),
         vulnpatch_fixed_version_present=sum(1 for e in entries if e.has_fixed_version),
         vulnpatch_snapshot_capped=snapshot.capped,
         vulnpatch_published_range=_range([e.published_at for e in entries]),
@@ -153,7 +161,9 @@ def compute_comparison(
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Compare NVD vs vulnpatch /nix/cves discovery yield (dry-run).")
+    ap = argparse.ArgumentParser(
+        description="Compare NVD vs vulnpatch /nix/cves discovery yield (dry-run)."
+    )
     ap.add_argument("--since", required=True, help="window start, ISO date (UTC)")
     ap.add_argument("--until", required=True, help="window end, ISO date (UTC)")
     ap.add_argument("--out", help="write JSON report here (default: stdout only)")
@@ -165,19 +175,28 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"error: --since ({since}) must be before --until ({until})")
 
     api_key = os.environ.get("NVD_API_KEY") or None
-    print(f"walking NVD {since.date()}..{until.date()} (anon={api_key is None})…", file=sys.stderr)
+    print(
+        f"walking NVD {since.date()}..{until.date()} (anon={api_key is None})…",
+        file=sys.stderr,
+    )
     nvd_ids = list_recent_cves(since, until, api_key=api_key)
     print(f"  NVD: {len(nvd_ids)} CVE ids", file=sys.stderr)
 
     print("fetching vulnpatch /nix/cves snapshot…", file=sys.stderr)
     snapshot = list_nixpkgs_cves()
-    print(f"  vulnpatch: {len(snapshot.entries)} entries (capped={snapshot.capped})", file=sys.stderr)
+    print(
+        f"  vulnpatch: {len(snapshot.entries)} entries (capped={snapshot.capped})",
+        file=sys.stderr,
+    )
 
     result = compute_comparison(nvd_ids, snapshot, since, until)
     report = result.to_dict()
     if result.vulnpatch_snapshot_capped:
-        print("  NOTE: vulnpatch snapshot is capped at ~100; older open nixpkgs "
-              "entries may exist beyond it.", file=sys.stderr)
+        print(
+            "  NOTE: vulnpatch snapshot is capped at ~100; older open nixpkgs "
+            "entries may exist beyond it.",
+            file=sys.stderr,
+        )
 
     text = json.dumps(report, indent=2)
     if args.out:

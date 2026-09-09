@@ -120,7 +120,11 @@ def _resolve_source_key(path: str, source_context: dict[str, str]) -> str | None
     stripped = _strip_ab_prefix(path)
     candidates = []
     for key in source_context:
-        if stripped == key or stripped.endswith("/" + key) or key.endswith("/" + stripped):
+        if (
+            stripped == key
+            or stripped.endswith("/" + key)
+            or key.endswith("/" + stripped)
+        ):
             candidates.append(key)
     if len(candidates) > 1:
         raise HunkNormalizationError(
@@ -134,7 +138,9 @@ def _fmt_side(start: int, count: int) -> str:
     return f"{start}" if count == 1 else f"{start},{count}"
 
 
-def _unique_old_start(source_lines: list[str], old_side: list[str], file_label: str) -> int:
+def _unique_old_start(
+    source_lines: list[str], old_side: list[str], file_label: str
+) -> int:
     """Return the 1-based start line where ``old_side`` matches ``source_lines`` exactly once.
 
     No fuzz, no whitespace tolerance. Zero matches or more than one match is an
@@ -187,7 +193,9 @@ def _normalize_unified_diff_lines(
         if line.startswith("+++ "):
             path = line[4:]
             key = _resolve_source_key(path, source_context)
-            cur_source_lines = source_context[key].split("\n") if key is not None else None
+            cur_source_lines = (
+                source_context[key].split("\n") if key is not None else None
+            )
             cur_label = _strip_ab_prefix(path)
             running_delta = 0
             out.append(line)
@@ -388,7 +396,9 @@ def normalize_backport_patch(
             content = section[c_start:c_end]
             tail = section[c_end:]  # trailing empty lines, preserved verbatim
             inner = [ln[1:] for ln in content]
-            inner_norm, inner_rewrites = _normalize_unified_diff_lines(inner, source_context)
+            inner_norm, inner_rewrites = _normalize_unified_diff_lines(
+                inner, source_context
+            )
             rewrites.extend(inner_rewrites)
             re_embedded = ["+" + ln for ln in inner_norm]
             # The .patch file this section adds — used to label an outer rewrite.
@@ -405,7 +415,9 @@ def normalize_backport_patch(
                 if hl.startswith("@@ ") and _HUNK_HEADER_RE.match(hl):
                     m = _HUNK_HEADER_RE.match(hl)
                     assert m is not None
-                    recomputed = f"@@ -0,0 +1,{len(re_embedded)} @@{m.group('trailing')}"
+                    recomputed = (
+                        f"@@ -0,0 +1,{len(re_embedded)} @@{m.group('trailing')}"
+                    )
                     if recomputed != hl:
                         rewrites.append(
                             {"file": patch_label, "from": hl, "to": recomputed}
@@ -416,7 +428,9 @@ def normalize_backport_patch(
             result_lines.extend(re_embedded)
             result_lines.extend(tail)
         else:
-            sec_norm, sec_rewrites = _normalize_unified_diff_lines(section, source_context)
+            sec_norm, sec_rewrites = _normalize_unified_diff_lines(
+                section, source_context
+            )
             rewrites.extend(sec_rewrites)
             result_lines.extend(sec_norm)
 
@@ -484,7 +498,9 @@ _GIT_METADATA_PREFIXES = (
 )
 
 
-def _parse_flat_hunks(diff_lines: list[str]) -> list[tuple[str | None, list[str], list[str]]]:
+def _parse_flat_hunks(
+    diff_lines: list[str],
+) -> list[tuple[str | None, list[str], list[str]]]:
     """Parse a flat unified diff into ``(target_path, old_side, new_side)`` per hunk.
 
     ``old_side`` = context+deletion content (no prefix); ``new_side`` =
@@ -571,7 +587,9 @@ def _split_source_lines(text: str) -> tuple[list[str], bool]:
     return lines, had_newline
 
 
-def _apply_canonical_single_file(source_lines: list[str], ud_lines: list[str]) -> list[str]:
+def _apply_canonical_single_file(
+    source_lines: list[str], ud_lines: list[str]
+) -> list[str]:
     """Apply a single-file difflib unified diff to ``source_lines`` at fuzz 0.
 
     A minimal, strict applier used only to VERIFY the canonical diff reproduces the
@@ -596,19 +614,25 @@ def _apply_canonical_single_file(source_lines: list[str], ud_lines: list[str]) -
             out.append(source_lines[src_idx])
             src_idx += 1
         i += 1
-        while i < n and _HUNK_HEADER_RE.match(ud_lines[i]) is None and not ud_lines[
-            i
-        ].startswith(("--- ", "+++ ")):
+        while (
+            i < n
+            and _HUNK_HEADER_RE.match(ud_lines[i]) is None
+            and not ud_lines[i].startswith(("--- ", "+++ "))
+        ):
             bl = ud_lines[i]
             tag = bl[:1]
             if tag == " ":
                 if src_idx >= len(source_lines) or source_lines[src_idx] != bl[1:]:
-                    raise HunkNormalizationError("canonical self-apply: context mismatch")
+                    raise HunkNormalizationError(
+                        "canonical self-apply: context mismatch"
+                    )
                 out.append(bl[1:])
                 src_idx += 1
             elif tag == "-":
                 if src_idx >= len(source_lines) or source_lines[src_idx] != bl[1:]:
-                    raise HunkNormalizationError("canonical self-apply: deletion mismatch")
+                    raise HunkNormalizationError(
+                        "canonical self-apply: deletion mismatch"
+                    )
                 src_idx += 1
             elif tag == "+":
                 out.append(bl[1:])
@@ -685,7 +709,9 @@ def _compile_canonical_diff(
             # the same source line) overlap. The postimage is identical either way —
             # the stripped context is byte-equal source that is simply copied.
             p = 0
-            while p < len(old_side) and p < len(new_side) and old_side[p] == new_side[p]:
+            while (
+                p < len(old_side) and p < len(new_side) and old_side[p] == new_side[p]
+            ):
                 p += 1
             s = 0
             while (
@@ -819,7 +845,9 @@ def canonicalize_backport_patch(
             blocks.append(list(section))  # preamble
             continue
 
-        bounds = _embedded_patch_bounds(section) if _is_new_file_section(section) else None
+        bounds = (
+            _embedded_patch_bounds(section) if _is_new_file_section(section) else None
+        )
         if bounds is not None:
             c_start, c_end = bounds
             header = section[:c_start]
@@ -827,11 +855,17 @@ def canonicalize_backport_patch(
             tail = section[c_end:]  # trailing empties, verbatim
             inner = [ln[1:] for ln in content]
             first_diff = next(
-                (k for k, l in enumerate(inner) if l.startswith(("--- ", "diff --git "))),
+                (
+                    k
+                    for k, l in enumerate(inner)
+                    if l.startswith(("--- ", "diff --git "))
+                ),
                 len(inner),
             )
             preamble = inner[:first_diff]  # model prose header, inert to patch
-            canonical_inner, recs = _compile_canonical_diff(inner[first_diff:], source_context)
+            canonical_inner, recs = _compile_canonical_diff(
+                inner[first_diff:], source_context
+            )
             records.extend(recs)
             new_inner = preamble + canonical_inner
             re_embedded = ["+" + ln for ln in new_inner]

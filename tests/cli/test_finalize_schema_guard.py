@@ -24,9 +24,16 @@ from tools.trace_cli.bundle import (
 
 # A committed, schema-valid human-review bundle whose upstream-ref carries a
 # manual-pinned prefetch_hashes entry (prefetch_kind=fetchzip) — the clean base.
-_GOOD = Path(__file__).resolve().parents[2] / "traces" / "example" / "CVE-2024-8176--expat"
-_DOCS = ("finding.json", "impact.json", "maintainers.json", "upstream-ref.json",
-         "package.nix")
+_GOOD = (
+    Path(__file__).resolve().parents[2] / "traces" / "example" / "CVE-2024-8176--expat"
+)
+_DOCS = (
+    "finding.json",
+    "impact.json",
+    "maintainers.json",
+    "upstream-ref.json",
+    "package.nix",
+)
 
 
 def _seed(tmp_path: Path) -> Path:
@@ -47,6 +54,7 @@ def _edit(bd: Path, name: str, mutate) -> None:
 
 # ── the pure validator ──────────────────────────────────────────────────────
 
+
 def test_clean_bundle_validates(tmp_path):
     bd = _seed(tmp_path)
     assert _validate_bundle_docs(bd) == []
@@ -54,18 +62,28 @@ def test_clean_bundle_validates(tmp_path):
 
 def test_bad_prefetch_kind_is_flagged(tmp_path):
     bd = _seed(tmp_path)
-    _edit(bd, "upstream-ref.json",
-          lambda d: d["prefetch_hashes"][0].__setitem__("prefetch_kind", "fetchurl"))
+    _edit(
+        bd,
+        "upstream-ref.json",
+        lambda d: d["prefetch_hashes"][0].__setitem__("prefetch_kind", "fetchurl"),
+    )
     errs = _validate_bundle_docs(bd)
     assert any("prefetch_kind" in e for e in errs), errs
 
 
 def test_extra_prefetch_field_is_flagged(tmp_path):
     bd = _seed(tmp_path)
-    _edit(bd, "upstream-ref.json",
-          lambda d: d["prefetch_hashes"][0].update({"nixpkgs_commit": "abc123", "note": "x"}))
+    _edit(
+        bd,
+        "upstream-ref.json",
+        lambda d: d["prefetch_hashes"][0].update(
+            {"nixpkgs_commit": "abc123", "note": "x"}
+        ),
+    )
     errs = _validate_bundle_docs(bd)
-    assert any("nixpkgs_commit" in e or "Additional properties" in e for e in errs), errs
+    assert any("nixpkgs_commit" in e or "Additional properties" in e for e in errs), (
+        errs
+    )
 
 
 def test_malformed_impact_is_flagged(tmp_path):
@@ -77,21 +95,31 @@ def test_malformed_impact_is_flagged(tmp_path):
 
 # ── finalize refuses ────────────────────────────────────────────────────────
 
+
 def test_finalize_succeeds_on_clean_bundle(tmp_path):
     bd = _seed(tmp_path)
-    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                          created_at="2026-06-14T00:00:00Z")
+    res = finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-06-14T00:00:00Z",
+    )
     assert (bd / "bundle.json").is_file()
     assert res.bundle_id
 
 
 def test_finalize_refuses_bad_prefetch_kind(tmp_path):
     bd = _seed(tmp_path)
-    _edit(bd, "upstream-ref.json",
-          lambda d: d["prefetch_hashes"][0].__setitem__("prefetch_kind", "fetchurl"))
+    _edit(
+        bd,
+        "upstream-ref.json",
+        lambda d: d["prefetch_hashes"][0].__setitem__("prefetch_kind", "fetchurl"),
+    )
     with pytest.raises(BundleSchemaError) as exc:
-        finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                        created_at="2026-06-14T00:00:00Z")
+        finalize_bundle(
+            bundle_dir=bd,
+            bundle_kind="human-review-required",
+            created_at="2026-06-14T00:00:00Z",
+        )
     assert "prefetch_kind" in str(exc.value)
     # guardrail fired BEFORE writing bundle.json
     assert not (bd / "bundle.json").is_file()
@@ -99,15 +127,24 @@ def test_finalize_refuses_bad_prefetch_kind(tmp_path):
 
 def test_finalize_refuses_extra_prefetch_field(tmp_path):
     bd = _seed(tmp_path)
-    _edit(bd, "upstream-ref.json",
-          lambda d: d["prefetch_hashes"][0].update({"nixpkgs_commit": "abc", "note": "n"}))
+    _edit(
+        bd,
+        "upstream-ref.json",
+        lambda d: d["prefetch_hashes"][0].update(
+            {"nixpkgs_commit": "abc", "note": "n"}
+        ),
+    )
     with pytest.raises(BundleSchemaError):
-        finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                        created_at="2026-06-14T00:00:00Z")
+        finalize_bundle(
+            bundle_dir=bd,
+            bundle_kind="human-review-required",
+            created_at="2026-06-14T00:00:00Z",
+        )
     assert not (bd / "bundle.json").is_file()
 
 
 # ── placeholder nixpkgs_rev guardrail (codex 2026-06-15) ─────────────────────
+
 
 def test_finalize_warns_on_placeholder_rev_for_real_cve(tmp_path, capsys):
     """A real-CVE bundle whose impact.json carries an EXPLICIT all-zero nixpkgs_rev
@@ -115,10 +152,14 @@ def test_finalize_warns_on_placeholder_rev_for_real_cve(tmp_path, capsys):
     readiness gate excludes it. finalize must warn loudly so the defect is caught at
     bootstrap, not at CI. (This is how the salvage-backport bundles were placeholdered.)"""
     import json
+
     bd = _seed(tmp_path)
     _edit(bd, "impact.json", lambda d: d.__setitem__("nixpkgs_rev", "0" * 40))
-    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                    created_at="2026-06-14T00:00:00Z")
+    finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-06-14T00:00:00Z",
+    )
     err = capsys.readouterr().err
     assert "nixpkgs_rev is a placeholder/invalid value" in err
     assert "CVE-2024-8176" in err
@@ -130,31 +171,48 @@ def test_finalize_warns_on_placeholder_rev_for_real_cve(tmp_path, capsys):
 def test_finalize_no_warning_when_rev_present(tmp_path, capsys):
     """The clean path (impact.json carries a real rev) emits no placeholder warning."""
     bd = _seed(tmp_path)
-    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                    created_at="2026-06-14T00:00:00Z")
+    finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-06-14T00:00:00Z",
+    )
     assert "all-zero placeholder" not in capsys.readouterr().err
 
 
 # ── kind_reason mapping + replay-drift refresh (codex review 2026-06-15) ──────
 
+
 def test_ambiguous_changelog_maps_to_its_own_kind_reason(tmp_path):
     """human_review_trigger=ambiguous-changelog must NOT fall back to the
     major-version-jump kind_reason (which polluted routing/training metadata)."""
     bd = _seed(tmp_path)
-    _edit(bd, "upstream-ref.json", lambda d: d.setdefault("eligibility", {}).update(
-        {"verdict": "eligible-requires-human-review",
-         "verdict_reason": "multi-release span; ambiguous changelog needs human sign-off",
-         "human_review_trigger": "ambiguous-changelog"}))
+    _edit(
+        bd,
+        "upstream-ref.json",
+        lambda d: d.setdefault("eligibility", {}).update(
+            {
+                "verdict": "eligible-requires-human-review",
+                "verdict_reason": "multi-release span; ambiguous changelog needs human sign-off",
+                "human_review_trigger": "ambiguous-changelog",
+            }
+        ),
+    )
+
     # blast-radius takes precedence over the trigger; force it off so the
     # ambiguous-changelog mapping is the one under test.
     def _blast_off(d):
         d["exceeds_threshold"] = False
         for pa in d.get("per_attr", []):
             pa["exceeds_threshold"] = False
+
     _edit(bd, "impact.json", _blast_off)
-    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                          created_at="2026-06-14T00:00:00Z")
+    res = finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-06-14T00:00:00Z",
+    )
     import json
+
     b = json.loads((bd / "bundle.json").read_text())
     assert b["kind_reason"] == "ambiguous-changelog-requires-review"
 
@@ -164,18 +222,33 @@ def test_refinalize_after_pin_keeps_resolver_transcript_consistent(tmp_path):
     invocation's recorded output sha must match the on-disk upstream-ref.json
     (no replay drift)."""
     import json
+
     bd = _seed(tmp_path)
-    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                    created_at="2026-06-14T00:00:00Z")
+    finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-06-14T00:00:00Z",
+    )
     # operator pins a different prefetch value, then re-finalizes
-    _edit(bd, "upstream-ref.json",
-          lambda d: d["prefetch_hashes"][0].__setitem__(
-              "value", "sha256-AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555FFs="))
-    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                    created_at="2026-06-14T00:00:00Z")
+    _edit(
+        bd,
+        "upstream-ref.json",
+        lambda d: d["prefetch_hashes"][0].__setitem__(
+            "value", "sha256-AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555FFs="
+        ),
+    )
+    finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-06-14T00:00:00Z",
+    )
     b = json.loads((bd / "bundle.json").read_text())
     r = json.loads((bd / "replay.json").read_text())
     file_sha = b["files"]["upstream-ref.json"]["sha256"]
     res_role = next(x for x in r["roles"] if x["role"] == "upstream-ref-resolver")
-    out = next(o for o in res_role["invocations"][0]["outputs"] if o["path"] == "upstream-ref.json")
+    out = next(
+        o
+        for o in res_role["invocations"][0]["outputs"]
+        if o["path"] == "upstream-ref.json"
+    )
     assert out["sha256"] == file_sha

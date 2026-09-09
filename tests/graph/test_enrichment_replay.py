@@ -41,6 +41,7 @@ def manifest_sha256() -> str:
 @pytest.fixture(scope="session")
 def opa_required() -> bool:
     import os
+
     if shutil.which("opa") is None:
         if os.environ.get("TRACE_REQUIRE_OPA") == "1":
             pytest.fail("TRACE_REQUIRE_OPA=1 but opa not on PATH")
@@ -53,7 +54,9 @@ def _sha(body: bytes) -> str:
 
 
 def _canonical(obj: Any) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def _finding() -> dict:
@@ -84,7 +87,7 @@ def _upstream_ref_ineligible() -> dict:
         "current_version": "2.12.3",
         "eligibility": {
             "verdict": "ineligible-no-fix-available",
-            "verdict_reason": "fixture — advisory-only path, pinning enrichment provenance test"
+            "verdict_reason": "fixture — advisory-only path, pinning enrichment provenance test",
         },
         "replay_critical": True,
     }
@@ -105,7 +108,9 @@ def _graph_json(manifest_sha: str) -> dict:
             }
         ],
         "enrichment": {
-            "sources": [{"path": "graph/enrichment/purls.json", "sha256": manifest_sha}],
+            "sources": [
+                {"path": "graph/enrichment/purls.json", "sha256": manifest_sha}
+            ],
             "purl_mappings_applied": [
                 {
                     "attr_path": "hello",
@@ -194,43 +199,96 @@ def _build_bundle(tmp: Path, manifest_sha: str) -> tuple[dict, dict, list[dict]]
         "policy_version": "0" * 64,
         "bundle_schema_version": "1" * 64,
         "files": {
-            "bundle.json":       {"sha256": "a" * 64, "bytes": 1, "producer_role": "steward",               "replay_critical": True},
-            "finding.json":      {"sha256": f_sha,    "bytes": len(finding_bytes), "producer_role": "scout",                 "replay_critical": True},
-            "impact.json":       {"sha256": "d" * 64, "bytes": 1, "producer_role": "cartographer",          "replay_critical": True},
-            "maintainers.json":  {"sha256": "e" * 64, "bytes": 1, "producer_role": "cartographer",          "replay_critical": True},
-            "upstream-ref.json": {"sha256": u_sha,    "bytes": 1, "producer_role": "upstream-ref-resolver", "replay_critical": True},
-            "replay.json":       {"sha256": "f" * 64, "bytes": 1, "producer_role": "steward",               "replay_critical": True},
-            "provenance.jsonl":  {"sha256": "0" * 64, "bytes": 1, "producer_role": "steward",               "replay_critical": False},
-            "bundle.sig":        {"sha256": "9" * 64, "bytes": 1, "producer_role": "steward",               "replay_critical": False},
+            "bundle.json": {
+                "sha256": "a" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": True,
+            },
+            "finding.json": {
+                "sha256": f_sha,
+                "bytes": len(finding_bytes),
+                "producer_role": "scout",
+                "replay_critical": True,
+            },
+            "impact.json": {
+                "sha256": "d" * 64,
+                "bytes": 1,
+                "producer_role": "cartographer",
+                "replay_critical": True,
+            },
+            "maintainers.json": {
+                "sha256": "e" * 64,
+                "bytes": 1,
+                "producer_role": "cartographer",
+                "replay_critical": True,
+            },
+            "upstream-ref.json": {
+                "sha256": u_sha,
+                "bytes": 1,
+                "producer_role": "upstream-ref-resolver",
+                "replay_critical": True,
+            },
+            "replay.json": {
+                "sha256": "f" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": True,
+            },
+            "provenance.jsonl": {
+                "sha256": "0" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": False,
+            },
+            "bundle.sig": {
+                "sha256": "9" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": False,
+            },
         },
         "signed_manifest": {
             "algorithm": "sigstore-cosign-v1",
             "signer": "fixture@example.invalid",
             "signed_files": [
-                {"path": "bundle.json",       "sha256": "a" * 64},
-                {"path": "finding.json",      "sha256": f_sha},
-                {"path": "impact.json",       "sha256": "d" * 64},
-                {"path": "maintainers.json",  "sha256": "e" * 64},
+                {"path": "bundle.json", "sha256": "a" * 64},
+                {"path": "finding.json", "sha256": f_sha},
+                {"path": "impact.json", "sha256": "d" * 64},
+                {"path": "maintainers.json", "sha256": "e" * 64},
                 {"path": "upstream-ref.json", "sha256": u_sha},
-                {"path": "replay.json",       "sha256": "f" * 64},
+                {"path": "replay.json", "sha256": "f" * 64},
             ],
         },
     }
 
     provenance_lines = [
-        {"ts": "2026-04-23T00:00:00Z", "seq": 0, "role": "cartographer", "action_type": "role_enter"},
+        {
+            "ts": "2026-04-23T00:00:00Z",
+            "seq": 0,
+            "role": "cartographer",
+            "action_type": "role_enter",
+        },
         {
             "ts": "2026-04-23T00:00:01Z",
             "seq": 1,
             "role": "cartographer",
             "action_type": "model_invocation",
             "invocation_id": invocation_id,
-            "model": {"family": "deterministic-no-model", "model_id": "cartographer-deterministic"},
+            "model": {
+                "family": "deterministic-no-model",
+                "model_id": "cartographer-deterministic",
+            },
             "prompt_sha256": "7" * 64,
             "input_sha256s": [f_sha, g_sha, m_sha],
             "output_sha256s": ["d" * 64, "e" * 64],
         },
-        {"ts": "2026-04-23T00:00:01Z", "seq": 2, "role": "cartographer", "action_type": "role_exit"},
+        {
+            "ts": "2026-04-23T00:00:01Z",
+            "seq": 2,
+            "role": "cartographer",
+            "action_type": "role_exit",
+        },
     ]
 
     return bundle, replay, provenance_lines
@@ -251,11 +309,18 @@ def _opa_input(bundle: dict, replay: dict, provenance: list[dict]) -> dict:
 def _run_opa(input_doc: dict) -> dict:
     proc = subprocess.run(
         [
-            "opa", "eval", "--format=json", "--data", str(STEWARD_REGO),
-            "--stdin-input", "data.trace.steward",
+            "opa",
+            "eval",
+            "--format=json",
+            "--data",
+            str(STEWARD_REGO),
+            "--stdin-input",
+            "data.trace.steward",
         ],
         input=json.dumps(input_doc),
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return json.loads(proc.stdout)["result"][0]["expressions"][0]["value"]
 
@@ -263,20 +328,28 @@ def _run_opa(input_doc: dict) -> dict:
 # ─── tests ──────────────────────────────────────────────────────────────────
 
 
-def test_enrichment_manifest_hash_flows_through_replay(tmp_path, manifest_sha256, opa_required):
+def test_enrichment_manifest_hash_flows_through_replay(
+    tmp_path, manifest_sha256, opa_required
+):
     bundle, replay, prov = _build_bundle(tmp_path, manifest_sha256)
     # Every input-sha256 in provenance has a matching input in replay — rule-5 allows.
     decision = _run_opa(_opa_input(bundle, replay, prov))
-    assert decision["allow"] is True, f"Steward denied cleanly-provenanced bundle: {decision['deny']}"
+    assert decision["allow"] is True, (
+        f"Steward denied cleanly-provenanced bundle: {decision['deny']}"
+    )
 
     # Sanity: the manifest path is really listed as an input.
-    invocation_inputs = [i["path"] for i in replay["roles"][0]["invocations"][0]["inputs"]]
+    invocation_inputs = [
+        i["path"] for i in replay["roles"][0]["invocations"][0]["inputs"]
+    ]
     assert "graph/enrichment/purls.json" in invocation_inputs
     input_shas = [i["sha256"] for i in replay["roles"][0]["invocations"][0]["inputs"]]
     assert manifest_sha256 in input_shas
 
 
-def test_manifest_hash_tampering_is_caught_by_steward(tmp_path, manifest_sha256, opa_required):
+def test_manifest_hash_tampering_is_caught_by_steward(
+    tmp_path, manifest_sha256, opa_required
+):
     bundle, replay, prov = _build_bundle(tmp_path, manifest_sha256)
 
     # Corrupt the manifest sha in replay.json's inputs — but leave the
@@ -290,7 +363,9 @@ def test_manifest_hash_tampering_is_caught_by_steward(tmp_path, manifest_sha256,
             break
 
     decision = _run_opa(_opa_input(bundle, replay, prov))
-    assert decision["allow"] is False, "Steward must reject a bundle whose recorded enrichment hash diverges from provenance"
+    assert decision["allow"] is False, (
+        "Steward must reject a bundle whose recorded enrichment hash diverges from provenance"
+    )
     rule_ids = {d["rule_id"] for d in decision["deny"]}
     assert "rule-5-provenance-replay-must-agree" in rule_ids, (
         f"expected rule-5 to fire; got rules {rule_ids}"

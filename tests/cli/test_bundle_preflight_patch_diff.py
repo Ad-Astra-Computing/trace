@@ -33,14 +33,26 @@ def _diff_text(tmp: Path, tag: str, label: str, before: str, after: str) -> str:
     a.write_text(before)
     b.write_text(after)
     proc = subprocess.run(
-        ["diff", "-u", "--label", f"a/{label}", "--label", f"b/{label}", str(a), str(b)],
-        capture_output=True, text=True,
+        [
+            "diff",
+            "-u",
+            "--label",
+            f"a/{label}",
+            "--label",
+            f"b/{label}",
+            str(a),
+            str(b),
+        ],
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 1, proc.stderr
     return proc.stdout
 
 
-def _wrap_as_added_patch_file(inner_diff_text: str, patch_filename: str = "CVE-9999.patch") -> str:
+def _wrap_as_added_patch_file(
+    inner_diff_text: str, patch_filename: str = "CVE-9999.patch"
+) -> str:
     """Wrap an inner unified diff as the git "new file" addition shape the
     Patcher emits for a nested `CVE-*.patch` (see nested_patch.py docstring)."""
     lines = inner_diff_text.splitlines()
@@ -66,13 +78,18 @@ def _effective_root(tmp: Path, rel_file: str, content: str) -> Path:
 
 def _args(**kw: object) -> argparse.Namespace:
     base: dict[str, object] = dict(
-        source_tree=None, patches=None, strip=None, format="json", patch_diff=True,
+        source_tree=None,
+        patches=None,
+        strip=None,
+        format="json",
+        patch_diff=True,
     )
     base.update(kw)
     return argparse.Namespace(**base)
 
 
 # ─── the krb5 shape ─────────────────────────────────────────────────────────
+
 
 def test_patch_diff_fails_closed_on_subdir_sourceroot_mismatch(
     tmp_path: Path, capsys: pytest.CaptureFixture
@@ -82,10 +99,14 @@ def test_patch_diff_fails_closed_on_subdir_sourceroot_mismatch(
     carries tarball-root paths (`src/lib/gssapi/spnego/negoex_util.c`) — one
     component too many. Must fail closed, not silently "succeed" against the
     wrong directory."""
-    root = _effective_root(
-        tmp_path, "lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE)
+    root = _effective_root(tmp_path, "lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE)
     inner = _diff_text(
-        tmp_path, "wrong", "src/lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE, _SRC_AFTER)
+        tmp_path,
+        "wrong",
+        "src/lib/gssapi/spnego/negoex_util.c",
+        _SRC_BEFORE,
+        _SRC_AFTER,
+    )
     bd = tmp_path / "bundle"
     bd.mkdir()
     (bd / "patch.diff").write_text(_wrap_as_added_patch_file(inner))
@@ -106,10 +127,10 @@ def test_patch_diff_passes_with_sourceroot_relative_paths(
 ) -> None:
     """Same effective root, but the nested patch uses the CORRECT
     sourceRoot-relative paths (no `src/` prefix) — must pass."""
-    root = _effective_root(
-        tmp_path, "lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE)
+    root = _effective_root(tmp_path, "lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE)
     inner = _diff_text(
-        tmp_path, "right", "lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE, _SRC_AFTER)
+        tmp_path, "right", "lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE, _SRC_AFTER
+    )
     bd = tmp_path / "bundle"
     bd.mkdir()
     (bd / "patch.diff").write_text(_wrap_as_added_patch_file(inner))
@@ -124,13 +145,15 @@ def test_patch_diff_passes_with_sourceroot_relative_paths(
 
 # ─── error paths ────────────────────────────────────────────────────────────
 
+
 def test_patch_diff_missing_file_not_found(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     bd = tmp_path / "bundle"
     bd.mkdir()
     rc = preflight.run(
-        _args(bundle_dir=bd, source_tree=tmp_path / "root"), repo_root=tmp_path)
+        _args(bundle_dir=bd, source_tree=tmp_path / "root"), repo_root=tmp_path
+    )
     assert rc == preflight.EXIT_NOT_FOUND
 
 
@@ -158,7 +181,8 @@ def test_patch_diff_malformed_extract_failed(
         "--- a/package.nix\n+++ b/package.nix\n@@ -1,1 +1,1 @@\n-a\n+b\n"
     )
     rc = preflight.run(
-        _args(bundle_dir=bd, source_tree=tmp_path / "root"), repo_root=tmp_path)
+        _args(bundle_dir=bd, source_tree=tmp_path / "root"), repo_root=tmp_path
+    )
     assert rc == preflight.EXIT_EXTRACT_FAILED
 
 
@@ -171,7 +195,8 @@ def test_default_flow_unaffected_when_patch_diff_flag_absent(
     bd = tmp_path / "bundle"
     bd.mkdir()
     (bd / "upstream-fix.patch").write_text(
-        _diff_text(tmp_path, "u", "foo.c", _SRC_BEFORE, _SRC_AFTER))
+        _diff_text(tmp_path, "u", "foo.c", _SRC_BEFORE, _SRC_AFTER)
+    )
     root = _effective_root(tmp_path, "foo.c", _SRC_BEFORE)
     ns = argparse.Namespace(
         bundle_dir=bd, source_tree=root, patches=None, strip=1, format="json"
@@ -193,9 +218,10 @@ def test_source_tree_honors_patch_flags_override(tmp_path: Path) -> None:
 
     ok_default = preflight.check_patch_diff_effective_root(bd, source_tree=root)
     ok_p0 = preflight.check_patch_diff_effective_root(
-        bd, source_tree=root, patch_flags=["-p0"])
+        bd, source_tree=root, patch_flags=["-p0"]
+    )
 
-    assert ok_default["applies"] is True           # a/foo.c strips to foo.c at -p1
+    assert ok_default["applies"] is True  # a/foo.c strips to foo.c at -p1
     assert ok_default["patch_flags"] == ["-p1"]
-    assert ok_p0["applies"] is False               # -p0 keeps a/foo.c, not in tree
+    assert ok_p0["applies"] is False  # -p0 keeps a/foo.c, not in tree
     assert ok_p0["patch_flags"] == ["-p0"]

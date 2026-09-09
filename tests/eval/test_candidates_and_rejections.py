@@ -76,8 +76,8 @@ def test_every_candidate_line_validates(candidate_validator):
         for e in candidate_validator.iter_errors(doc):
             path = "/".join(str(p) for p in e.absolute_path)
             errors.append(f"line {lineno}: {path}: {e.message}")
-    assert not errors, (
-        "eval/candidates.jsonl has invalid lines:\n  " + "\n  ".join(errors)
+    assert not errors, "eval/candidates.jsonl has invalid lines:\n  " + "\n  ".join(
+        errors
     )
 
 
@@ -87,8 +87,8 @@ def test_every_rejection_line_validates(rejection_validator):
         for e in rejection_validator.iter_errors(doc):
             path = "/".join(str(p) for p in e.absolute_path)
             errors.append(f"line {lineno}: {path}: {e.message}")
-    assert not errors, (
-        "eval/rejection-log.jsonl has invalid lines:\n  " + "\n  ".join(errors)
+    assert not errors, "eval/rejection-log.jsonl has invalid lines:\n  " + "\n  ".join(
+        errors
     )
 
 
@@ -101,9 +101,8 @@ def test_candidates_have_no_duplicate_cve_ids():
             dupes.append((cve, seen[cve], lineno))
         else:
             seen[cve] = lineno
-    assert not dupes, (
-        "duplicate cve_ids in candidates.jsonl: "
-        + ", ".join(f"{c} (lines {a}, {b})" for c, a, b in dupes)
+    assert not dupes, "duplicate cve_ids in candidates.jsonl: " + ", ".join(
+        f"{c} (lines {a}, {b})" for c, a, b in dupes
     )
 
 
@@ -130,6 +129,4 @@ def test_rejected_cves_are_not_in_the_corpus(frozen_required):
     selected = {e["cve_id"] for e in corpus["entries"] if not e.get("is_example")}
     rejected = {doc["cve_id"] for _, doc in _iter_lines(REJECTIONS_PATH)}
     conflict = selected & rejected
-    assert not conflict, (
-        f"cve_ids both rejected and selected: {sorted(conflict)}"
-    )
+    assert not conflict, f"cve_ids both rejected and selected: {sorted(conflict)}"

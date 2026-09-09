@@ -61,12 +61,19 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
                                                    bypass the executor)
     """
     required = {
-        "finding", "upstream_ref", "impact", "maintainers",
-        "package_source", "patch_diff", "patch_rationale_md",
+        "finding",
+        "upstream_ref",
+        "impact",
+        "maintainers",
+        "package_source",
+        "patch_diff",
+        "patch_rationale_md",
     }
     missing = required - set(inputs)
     if missing:
-        raise ValueError(f"assemble_user_content: missing input keys: {sorted(missing)}")
+        raise ValueError(
+            f"assemble_user_content: missing input keys: {sorted(missing)}"
+        )
 
     import json as _json
 
@@ -83,19 +90,13 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
     # values, which is the v1 behavior.
     mac = inputs.get("model_attestation_context")
     if isinstance(mac, dict) and mac:
-        parts.append("# Model attestation context (executor-supplied; load-bearing — copy verbatim)")
         parts.append(
-            f"reviewer_model_id: {mac.get('reviewer_model_id', '<unknown>')}"
+            "# Model attestation context (executor-supplied; load-bearing — copy verbatim)"
         )
-        parts.append(
-            f"reviewer_family: {mac.get('reviewer_family', '<unknown>')}"
-        )
-        parts.append(
-            f"patcher_model_id: {mac.get('patcher_model_id', '<unknown>')}"
-        )
-        parts.append(
-            f"patcher_family: {mac.get('patcher_family', '<unknown>')}"
-        )
+        parts.append(f"reviewer_model_id: {mac.get('reviewer_model_id', '<unknown>')}")
+        parts.append(f"reviewer_family: {mac.get('reviewer_family', '<unknown>')}")
+        parts.append(f"patcher_model_id: {mac.get('patcher_model_id', '<unknown>')}")
+        parts.append(f"patcher_family: {mac.get('patcher_family', '<unknown>')}")
         parts.append(
             "cross_family_rule_honored_expected: "
             + ("true" if mac.get("cross_family_rule_honored_expected") else "false")
@@ -125,28 +126,30 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
         parts.append("")
 
     pkg_path = inputs.get("package_source_path", "<package.nix>")
-    parts.extend([
-        "# finding.json",
-        j(inputs["finding"]),
-        "",
-        "# upstream-ref.json",
-        j(inputs["upstream_ref"]),
-        "",
-        "# impact.json",
-        j(inputs["impact"]),
-        "",
-        "# maintainers.json",
-        j(inputs["maintainers"]),
-        "",
-        f"# {pkg_path} (original; pre-patch)",
-        inputs["package_source"],
-        "",
-        "# patch.diff (Patcher's emitted unified diff)",
-        inputs["patch_diff"],
-        "",
-        "# patch-rationale.md (Patcher's emitted rationale)",
-        inputs["patch_rationale_md"],
-    ])
+    parts.extend(
+        [
+            "# finding.json",
+            j(inputs["finding"]),
+            "",
+            "# upstream-ref.json",
+            j(inputs["upstream_ref"]),
+            "",
+            "# impact.json",
+            j(inputs["impact"]),
+            "",
+            "# maintainers.json",
+            j(inputs["maintainers"]),
+            "",
+            f"# {pkg_path} (original; pre-patch)",
+            inputs["package_source"],
+            "",
+            "# patch.diff (Patcher's emitted unified diff)",
+            inputs["patch_diff"],
+            "",
+            "# patch-rationale.md (Patcher's emitted rationale)",
+            inputs["patch_rationale_md"],
+        ]
+    )
 
     # Source-backport: supply the resolver's upstream fix diff as ground truth.
     # The Patcher authored an in-tree backport (a new .patch file + a package.nix
@@ -154,14 +157,18 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
     # AUTHORED patch content faithfully transcribes THIS upstream fix (do not
     # check against any remembered/assumed version of the fix), and that the
     # package.nix edit only adds the patch (no version/hash/build changes).
-    if inputs.get("patch_strategy") == "source-backport" and inputs.get("upstream_fix_patch"):
-        parts.extend([
-            "",
-            "# upstream-fix.patch (resolver-supplied GROUND TRUTH — the upstream fix commit diff)",
-            "# Verify the authored patch.diff transcribes THIS diff faithfully. Do not",
-            "# compare against any fix you recall from training; this file is authoritative.",
-            inputs["upstream_fix_patch"],
-        ])
+    if inputs.get("patch_strategy") == "source-backport" and inputs.get(
+        "upstream_fix_patch"
+    ):
+        parts.extend(
+            [
+                "",
+                "# upstream-fix.patch (resolver-supplied GROUND TRUTH — the upstream fix commit diff)",
+                "# Verify the authored patch.diff transcribes THIS diff faithfully. Do not",
+                "# compare against any fix you recall from training; this file is authoritative.",
+                inputs["upstream_fix_patch"],
+            ]
+        )
 
     # v10 adaptation lane: the pinned PRE-PATCH source of the files the authored
     # patch touches. This is the actual code the adaptation is applied to — the

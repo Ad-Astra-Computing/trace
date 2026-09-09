@@ -27,6 +27,7 @@ Usage:
   python3 eval/expand_screen.py --out eval/expand-screen-report.json         # blind+judge
   python3 eval/expand_screen.py --behavioral --nixpkgs <checkout> CVE-2026-42250--bzip2-backport
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,10 +39,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from eval.author_blind_eval import eval_bundle, _api
 from eval.score_authoring_pilot import (
-    score_behavioral, _reproducer_kind, _make_build_fn, _clean_generated)
+    score_behavioral,
+    _reproducer_kind,
+    _make_build_fn,
+    _clean_generated,
+)
 
 
-def judge_differs(cve: str, authored_diff: str, upstream_fix: str, *, api_fn=_api) -> dict:
+def judge_differs(
+    cve: str, authored_diff: str, upstream_fix: str, *, api_fn=_api
+) -> dict:
     """LLM judge for a candidate that DIFFERS from upstream: does it close EVERY
     path the upstream fix closes (the libxmp-partial trap), or is it a subtly
     incomplete / wrong fix? Returns GOLD | PARTIAL | WRONG."""
@@ -54,7 +61,8 @@ def judge_differs(cve: str, authored_diff: str, upstream_fix: str, *, api_fn=_ap
         "(fixes some but leaves a gap, or a different mechanism that misses a path), or "
         "WRONG (does not actually fix the vulnerability). Then one sentence of reason.\n\n"
         f"# CVE\n{cve}\n\n# REFERENCE (upstream fix)\n```diff\n{upstream_fix}\n```\n\n"
-        f"# CANDIDATE\n```diff\n{authored_diff}\n```\n")
+        f"# CANDIDATE\n```diff\n{authored_diff}\n```\n"
+    )
     resp = api_fn(prompt)
     first = (resp.strip().splitlines() or [""])[0].strip().upper()
     verdict = next((v for v in ("GOLD", "PARTIAL", "WRONG") if v in first), "UNCLEAR")
@@ -73,14 +81,14 @@ def _disposition(verdict: str, behavioral: dict, judge: dict | None) -> str:
     if bstatus == "ran" and bpass is False:
         return "task-viable-candidate-wrong"
     if verdict == "exact":
-        return "viable-exact"                       # candidate reproduced upstream's change
+        return "viable-exact"  # candidate reproduced upstream's change
     # verdict == differs:
     if bstatus == "ran" and bpass is True:
         if judge and judge["judge"] == "GOLD":
             return "viable-gold"
         if judge and judge["judge"] == "WRONG":
-            return "behavioral-pass-judge-wrong"    # passed a narrow reproducer but judge rejects
-        return "needs-review"                       # partial / unjudged
+            return "behavioral-pass-judge-wrong"  # passed a narrow reproducer but judge rejects
+        return "needs-review"  # partial / unjudged
     # not behaviorally gated (proxy reproducer, or no --behavioral):
     if judge and judge["judge"] == "GOLD":
         return "viable-judge-only"
@@ -95,13 +103,23 @@ def _bundle_record(bundle_dir: Path) -> dict:
     return {"provenance": {"cve_id": f["cve_id"], "bundle_id": b.get("bundle_id")}}
 
 
-def screen_bundle(bundle_dir: Path, *, traces_root: Path,
-                  build_fn=None, judge_api=_api, author_fn=eval_bundle) -> dict:
+def screen_bundle(
+    bundle_dir: Path,
+    *,
+    traces_root: Path,
+    build_fn=None,
+    judge_api=_api,
+    author_fn=eval_bundle,
+) -> dict:
     blind = author_fn(bundle_dir)
     cve = blind.get("cve")
     if blind.get("status") == "skip":
-        return {"cve": cve, "verdict": "skip", "reason": blind.get("reason"),
-                "disposition": "unscreenable-no-source"}
+        return {
+            "cve": cve,
+            "verdict": "skip",
+            "reason": blind.get("reason"),
+            "disposition": "unscreenable-no-source",
+        }
     # Normalize the candidate to the diff BODY before the behavioral gate: a model
     # often wraps the diff in a ```diff fence or a preface, which `_changed_lines`
     # tolerates but `_rewrite_embedded_patch` would embed verbatim, failing the
@@ -112,38 +130,66 @@ def screen_bundle(bundle_dir: Path, *, traces_root: Path,
     # Tier 2 behavioral gate — real reproducers only.
     kind = _reproducer_kind(bundle_dir)
     if build_fn is not None and kind != "text-inspection-proxy":
-        bv = score_behavioral(authored, _bundle_record(bundle_dir),
-                              traces_root=traces_root, build_fn=build_fn)
-        behavioral = {"status": bv.get("behavioral_status"), "pass": bv.get("behavioral_pass")}
+        bv = score_behavioral(
+            authored,
+            _bundle_record(bundle_dir),
+            traces_root=traces_root,
+            build_fn=build_fn,
+        )
+        behavioral = {
+            "status": bv.get("behavioral_status"),
+            "pass": bv.get("behavioral_pass"),
+        }
     else:
-        behavioral = {"status": "not-gated",
-                      "reason": ("proxy reproducer" if kind == "text-inspection-proxy"
-                                 else "no --behavioral build_fn")}
+        behavioral = {
+            "status": "not-gated",
+            "reason": (
+                "proxy reproducer"
+                if kind == "text-inspection-proxy"
+                else "no --behavioral build_fn"
+            ),
+        }
 
     judge = None
     # Judge the "differs" cases unless behavioral already rejected the candidate.
-    if verdict == "differs" and not (behavioral.get("status") == "ran" and behavioral.get("pass") is False):
+    if verdict == "differs" and not (
+        behavioral.get("status") == "ran" and behavioral.get("pass") is False
+    ):
         upstream = (bundle_dir / "upstream-fix.patch").read_text()
         judge = judge_differs(cve, authored, upstream, api_fn=judge_api)
 
-    return {"cve": cve, "verdict": verdict, "src_origin": blind.get("src_origin"),
-            "reproducer_kind": kind, "behavioral": behavioral, "judge": judge,
-            "disposition": _disposition(verdict, behavioral, judge)}
+    return {
+        "cve": cve,
+        "verdict": verdict,
+        "src_origin": blind.get("src_origin"),
+        "reproducer_kind": kind,
+        "behavioral": behavioral,
+        "judge": judge,
+        "disposition": _disposition(verdict, behavioral, judge),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("bundles", nargs="*", help="bundle dirs (default: all *-backport)")
     ap.add_argument("--traces-root", type=Path, default=Path("traces/example"))
-    ap.add_argument("--behavioral", action="store_true",
-                    help="run the Tier 2 behavioral gate (needs --nixpkgs; real reproducers only)")
-    ap.add_argument("--nixpkgs", type=Path, default=None, help="nixpkgs checkout for --behavioral")
+    ap.add_argument(
+        "--behavioral",
+        action="store_true",
+        help="run the Tier 2 behavioral gate (needs --nixpkgs; real reproducers only)",
+    )
+    ap.add_argument(
+        "--nixpkgs", type=Path, default=None, help="nixpkgs checkout for --behavioral"
+    )
     ap.add_argument("--build-timeout", type=int, default=900)
     ap.add_argument("--out", type=Path, default=Path("eval/expand-screen-report.json"))
     args = ap.parse_args(argv)
 
-    bundles = [Path(p) for p in args.bundles] or sorted(args.traces_root.glob("*-backport"))
+    bundles = [Path(p) for p in args.bundles] or sorted(
+        args.traces_root.glob("*-backport")
+    )
     build_fn = None
     if args.behavioral:
         if args.nixpkgs is None:
@@ -160,16 +206,22 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001 — screening harness, report don't crash
             r = {"cve": bd.name, "disposition": "error", "reason": str(exc)[:160]}
         results.append(r)
-        print(f"  {str(r.get('cve')):<18} {r.get('verdict','-'):<10} "
-              f"behav={r.get('behavioral',{}).get('status','-'):<10} "
-              f"judge={(r.get('judge') or {}).get('judge','-'):<8} -> {r['disposition']}")
+        print(
+            f"  {str(r.get('cve')):<18} {r.get('verdict', '-'):<10} "
+            f"behav={r.get('behavioral', {}).get('status', '-'):<10} "
+            f"judge={(r.get('judge') or {}).get('judge', '-'):<8} -> {r['disposition']}"
+        )
 
     counts: dict[str, int] = {}
     for r in results:
         counts[r["disposition"]] = counts.get(r["disposition"], 0) + 1
-    report = {"scope": "authoring-expansion-screen", "n": len(results),
-              "dispositions": counts, "results": results,
-              "guardrail": "screening only; training label stays the curated upstream-fix.patch"}
+    report = {
+        "scope": "authoring-expansion-screen",
+        "n": len(results),
+        "dispositions": counts,
+        "results": results,
+        "guardrail": "screening only; training label stays the curated upstream-fix.patch",
+    }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
     print(f"\n{counts}  -> {args.out}")

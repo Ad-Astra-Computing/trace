@@ -33,14 +33,26 @@ def _diff_text(tmp: Path, tag: str, label: str, before: str, after: str) -> str:
     a.write_text(before)
     b.write_text(after)
     proc = subprocess.run(
-        ["diff", "-u", "--label", f"a/{label}", "--label", f"b/{label}", str(a), str(b)],
-        capture_output=True, text=True,
+        [
+            "diff",
+            "-u",
+            "--label",
+            f"a/{label}",
+            "--label",
+            f"b/{label}",
+            str(a),
+            str(b),
+        ],
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 1, proc.stderr
     return proc.stdout
 
 
-def _wrap_as_added_patch_file(inner_diff_text: str, patch_filename: str = "CVE-9999.patch") -> str:
+def _wrap_as_added_patch_file(
+    inner_diff_text: str, patch_filename: str = "CVE-9999.patch"
+) -> str:
     lines = inner_diff_text.splitlines()
     n = len(lines)
     body = "\n".join("+" + line for line in lines)
@@ -69,7 +81,13 @@ def test_patch_flags_cli_accepts_dash_prefixed_value() -> None:
     subs = parser.add_subparsers()
     norm.add_parser(subs)
     args = parser.parse_args(
-        ["normalize-sourceroot", "bundle", "--source-tree", "tree", "--patch-flags=-p0 -d sub"]
+        [
+            "normalize-sourceroot",
+            "bundle",
+            "--source-tree",
+            "tree",
+            "--patch-flags=-p0 -d sub",
+        ]
     )
     assert args.patch_flags == "-p0 -d sub"
     assert args.patch_flags.split() == ["-p0", "-d", "sub"]
@@ -94,7 +112,9 @@ def _make_flat_bundle_with_wrong_prefix(tmp_path: Path) -> tuple[Path, Path]:
     return bd, root
 
 
-def test_apply_normalizes_flat_shape(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_apply_normalizes_flat_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     """The advertised flat-diff fallback must actually rewrite + attest (guards
     against a regression where the flat write-back called a removed helper)."""
     bd, root = _make_flat_bundle_with_wrong_prefix(tmp_path)
@@ -106,13 +126,18 @@ def test_apply_normalizes_flat_shape(tmp_path: Path, capsys: pytest.CaptureFixtu
     rewritten = (bd / "patch.diff").read_text()
     assert "a/src/lib/foo.c" not in rewritten
     assert "a/lib/foo.c" in rewritten
-    assert "patches = [ ./x.patch ];" in rewritten   # package.nix section preserved
+    assert "patches = [ ./x.patch ];" in rewritten  # package.nix section preserved
 
 
-def _args(bundle_dir: Path, source_tree: Path, apply: bool = False, **kw: object) -> argparse.Namespace:
+def _args(
+    bundle_dir: Path, source_tree: Path, apply: bool = False, **kw: object
+) -> argparse.Namespace:
     base: dict[str, object] = dict(
-        bundle_dir=bundle_dir, source_tree=source_tree,
-        strip_max=norm.DEFAULT_MAX_EXTRA_STRIP, apply=apply, format="json",
+        bundle_dir=bundle_dir,
+        source_tree=source_tree,
+        strip_max=norm.DEFAULT_MAX_EXTRA_STRIP,
+        apply=apply,
+        format="json",
     )
     base.update(kw)
     return argparse.Namespace(**base)
@@ -124,7 +149,12 @@ def _make_bundle_with_wrong_prefix(tmp_path: Path) -> tuple[Path, Path]:
     `src/` component. Returns (bundle_dir, effective_root)."""
     root = _effective_root(tmp_path, "lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE)
     inner = _diff_text(
-        tmp_path, "wrong", "src/lib/gssapi/spnego/negoex_util.c", _SRC_BEFORE, _SRC_AFTER)
+        tmp_path,
+        "wrong",
+        "src/lib/gssapi/spnego/negoex_util.c",
+        _SRC_BEFORE,
+        _SRC_AFTER,
+    )
     bd = tmp_path / "bundle"
     bd.mkdir()
     (bd / "patch.diff").write_text(_wrap_as_added_patch_file(inner))
@@ -132,6 +162,7 @@ def _make_bundle_with_wrong_prefix(tmp_path: Path) -> tuple[Path, Path]:
 
 
 # ─── (a) fails closed without --apply ──────────────────────────────────────
+
 
 def test_no_apply_fails_closed_on_mismatch(
     tmp_path: Path, capsys: pytest.CaptureFixture
@@ -152,6 +183,7 @@ def test_no_apply_fails_closed_on_mismatch(
 
 
 # ─── (b) --apply normalizes + valid attestation ────────────────────────────
+
 
 def test_apply_normalizes_and_emits_valid_attestation(
     tmp_path: Path, capsys: pytest.CaptureFixture
@@ -189,6 +221,7 @@ def test_apply_normalizes_and_emits_valid_attestation(
 
     # the guard now passes against the rewritten patch.diff.
     from tools.trace_cli import preflight
+
     gate = preflight.check_patch_diff_effective_root(bd, source_tree=root)
     assert gate["ok"] is True
 
@@ -201,6 +234,7 @@ def test_apply_body_identity_proof_survives_reextraction(tmp_path: Path) -> None
     raw_text = (bd / "patch.diff").read_text()
 
     from tools.trace_cli import nested_patch
+
     raw_inner, _ = nested_patch.extract_nested_source_patch(raw_text)
     normalized_inner = norm.rewrite_patch_paths(raw_inner, 1)
 
@@ -213,6 +247,7 @@ def test_apply_body_identity_proof_survives_reextraction(tmp_path: Path) -> None
 
 
 # ─── (c) ambiguous strip -> fail closed ────────────────────────────────────
+
 
 def test_ambiguous_strip_fails_closed(
     tmp_path: Path, capsys: pytest.CaptureFixture
@@ -244,6 +279,7 @@ def test_ambiguous_strip_fails_closed(
 
 # ─── (d) already-applying patch -> pass, no normalization ─────────────────
 
+
 def test_already_applying_patch_passes_without_normalizing(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
@@ -273,7 +309,10 @@ def test_already_applying_patch_passes_without_normalizing(
 
 # ─── error paths ────────────────────────────────────────────────────────────
 
-def test_missing_patch_diff_not_found(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+
+def test_missing_patch_diff_not_found(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     bd = tmp_path / "bundle"
     bd.mkdir()
     root = tmp_path / "root"
@@ -283,6 +322,7 @@ def test_missing_patch_diff_not_found(tmp_path: Path, capsys: pytest.CaptureFixt
 
 
 # ─── pure-logic unit tests ──────────────────────────────────────────────────
+
 
 def test_rewrite_patch_paths_identity_at_zero() -> None:
     text = "diff --git a/src/foo.c b/src/foo.c\n--- a/src/foo.c\n+++ b/src/foo.c\n"
@@ -309,7 +349,7 @@ _HEADER_LOOKALIKE_PATCH = (
     "+++ b/src/doc.txt\n"
     "@@ -1,2 +1,3 @@\n"
     " line one\n"
-    "+++ b/injected.c\n"      # ADDED source content that looks like a +++ header
+    "+++ b/injected.c\n"  # ADDED source content that looks like a +++ header
     " line two\n"
 )
 
@@ -329,24 +369,26 @@ def test_rewrite_leaves_header_lookalike_content_untouched() -> None:
     # The real header strips src/ ; the content lookalike is preserved verbatim.
     assert "--- a/doc.txt" in out
     assert "+++ b/doc.txt" in out
-    assert "+++ b/injected.c" in out          # NOT rewritten to +++ b/... stripped
+    assert "+++ b/injected.c" in out  # NOT rewritten to +++ b/... stripped
 
 
 def test_strip_path_headers_keeps_hunk_content_lookalike() -> None:
     body = norm.strip_path_headers(_HEADER_LOOKALIKE_PATCH)
-    assert "+++ b/injected.c" in body          # content stays in the body
-    assert "--- a/src/doc.txt" not in body     # real header removed
+    assert "+++ b/injected.c" in body  # content stays in the body
+    assert "--- a/src/doc.txt" not in body  # real header removed
     assert "+++ b/src/doc.txt" not in body
 
 
-def test_identity_proof_catches_content_change_in_header_lookalike(tmp_path: Path) -> None:
+def test_identity_proof_catches_content_change_in_header_lookalike(
+    tmp_path: Path,
+) -> None:
     """The soundness gate: two patches identical except for a hunk-content line
     that looks like a header must NOT attest as a path-only change."""
     raw = (
         "--- a/src/doc.txt\n+++ b/src/doc.txt\n@@ -1,2 +1,3 @@\n"
         " line one\n+++ b/injected.c\n line two\n"
     )
-    tampered = (            # only the header-lookalike content line differs
+    tampered = (  # only the header-lookalike content line differs
         "--- a/doc.txt\n+++ b/doc.txt\n@@ -1,2 +1,3 @@\n"
         " line one\n+++ b/DIFFERENT.c\n line two\n"
     )
@@ -434,13 +476,19 @@ def test_strip_search_uses_supplied_patch_flags(tmp_path: Path) -> None:
     src.mkdir()
     (src / "foo.c").write_text("old\n")
     git_patch = "--- a/foo.c\n+++ b/foo.c\n@@ -1,1 +1,1 @@\n-old\n+new\n"
-    strip_p1, _ = norm.find_unique_normalizing_strip(src, git_patch, 3, patch_flags=["-p1"])
-    strip_p0, _ = norm.find_unique_normalizing_strip(src, git_patch, 3, patch_flags=["-p0"])
-    assert strip_p1 == 0    # default nixpkgs strip: applies as-authored
+    strip_p1, _ = norm.find_unique_normalizing_strip(
+        src, git_patch, 3, patch_flags=["-p1"]
+    )
+    strip_p0, _ = norm.find_unique_normalizing_strip(
+        src, git_patch, 3, patch_flags=["-p0"]
+    )
+    assert strip_p1 == 0  # default nixpkgs strip: applies as-authored
     assert strip_p0 is None  # -p0 keeps `a/foo.c`, which is not in the tree
 
 
-def test_strip_search_empty_flags_not_defaulted_to_p1(tmp_path: Path, monkeypatch) -> None:
+def test_strip_search_empty_flags_not_defaulted_to_p1(
+    tmp_path: Path, monkeypatch
+) -> None:
     """An explicitly empty patchFlags list is a valid value and must reach
     `patch` verbatim (just `--fuzz=0`, no injected -p1) — only None means 'use
     the -p1 default'. Capture the flags handed to apply_patch to prove it."""
@@ -456,7 +504,7 @@ def test_strip_search_empty_flags_not_defaulted_to_p1(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(norm.preflight, "apply_patch", fake_apply)
     norm.find_unique_normalizing_strip(src, patch, 0, patch_flags=[])
-    assert seen == [["--fuzz=0"]]              # empty flags honored, no -p1
+    assert seen == [["--fuzz=0"]]  # empty flags honored, no -p1
     seen.clear()
     norm.find_unique_normalizing_strip(src, patch, 0, patch_flags=None)
-    assert seen == [["-p1", "--fuzz=0"]]       # None → nixpkgs default
+    assert seen == [["-p1", "--fuzz=0"]]  # None → nixpkgs default

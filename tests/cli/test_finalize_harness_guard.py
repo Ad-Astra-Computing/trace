@@ -16,9 +16,16 @@ import pytest
 
 from tools.trace_cli.bundle import BundleSchemaError, finalize_bundle
 
-_GOOD = Path(__file__).resolve().parents[2] / "traces" / "example" / "CVE-2024-8176--expat"
-_DOCS = ("finding.json", "impact.json", "maintainers.json", "upstream-ref.json",
-         "package.nix")
+_GOOD = (
+    Path(__file__).resolve().parents[2] / "traces" / "example" / "CVE-2024-8176--expat"
+)
+_DOCS = (
+    "finding.json",
+    "impact.json",
+    "maintainers.json",
+    "upstream-ref.json",
+    "package.nix",
+)
 
 
 def _seed(tmp_path: Path) -> Path:
@@ -70,8 +77,11 @@ def test_clean_harness_declaration_passes(tmp_path: Path) -> None:
     bd = _seed(tmp_path)
     (bd / "patch.diff").write_text(_NESTED_PATCH_DIFF)
     (bd / "reproducer-log.txt").write_text(_harness_log())
-    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                          created_at="2026-09-07T00:00:00Z")
+    res = finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-09-07T00:00:00Z",
+    )
     assert (bd / "bundle.json").is_file()
     assert res.bundle_id
 
@@ -84,8 +94,11 @@ def test_nested_source_patch_counts_as_touched(tmp_path: Path) -> None:
     (bd / "reproducer-log.txt").write_text(
         _harness_log(target_files="scripts/lua/rest/v2/delete/endpoints.lua")
     )
-    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                    created_at="2026-09-07T00:00:00Z")
+    finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-09-07T00:00:00Z",
+    )
     assert (bd / "bundle.json").is_file()
 
 
@@ -96,8 +109,11 @@ def test_target_not_touched_by_either_patch_refuses(tmp_path: Path) -> None:
         _harness_log(target_files="scripts/lua/rest/v2/delete/recipients.lua")
     )
     with pytest.raises(BundleSchemaError, match="recipients.lua"):
-        finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                        created_at="2026-09-07T00:00:00Z")
+        finalize_bundle(
+            bundle_dir=bd,
+            bundle_kind="human-review-required",
+            created_at="2026-09-07T00:00:00Z",
+        )
     assert not (bd / "bundle.json").is_file()
 
 
@@ -113,22 +129,29 @@ def test_stubbed_name_equal_to_target_basename_passes(tmp_path: Path) -> None:
             stubbed="ntop, endpoints, auth",
         )
     )
-    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                          created_at="2026-09-07T00:00:00Z")
+    res = finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-09-07T00:00:00Z",
+    )
     assert res.bundle_id
 
 
-def test_stubbed_name_equal_to_untargeted_touched_basename_refuses(tmp_path: Path) -> None:
+def test_stubbed_name_equal_to_untargeted_touched_basename_refuses(
+    tmp_path: Path,
+) -> None:
     """A touched file the harness does not load may not be stubbed away."""
     bd = _seed(tmp_path)
-    (bd / "patch.diff").write_text(_NESTED_PATCH_DIFF.replace(
-        "+-old\n",
-        "+-old\n"
-        "+--- a/scripts/lua/modules/pools/pools_rest_utils.lua\n"
-        "++++ b/scripts/lua/modules/pools/pools_rest_utils.lua\n"
-        "+@@ -1,1 +1,1 @@\n"
-        "+-old\n",
-    ))
+    (bd / "patch.diff").write_text(
+        _NESTED_PATCH_DIFF.replace(
+            "+-old\n",
+            "+-old\n"
+            "+--- a/scripts/lua/modules/pools/pools_rest_utils.lua\n"
+            "++++ b/scripts/lua/modules/pools/pools_rest_utils.lua\n"
+            "+@@ -1,1 +1,1 @@\n"
+            "+-old\n",
+        )
+    )
     (bd / "reproducer-log.txt").write_text(
         _harness_log(
             target_files="scripts/lua/rest/v2/delete/endpoints.lua",
@@ -136,12 +159,17 @@ def test_stubbed_name_equal_to_untargeted_touched_basename_refuses(tmp_path: Pat
         )
     )
     with pytest.raises(BundleSchemaError, match="pools_rest_utils"):
-        finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                        created_at="2026-09-07T00:00:00Z")
+        finalize_bundle(
+            bundle_dir=bd,
+            bundle_kind="human-review-required",
+            created_at="2026-09-07T00:00:00Z",
+        )
     assert not (bd / "bundle.json").is_file()
 
 
-def test_stubbed_name_equal_to_basename_without_extension_refuses(tmp_path: Path) -> None:
+def test_stubbed_name_equal_to_basename_without_extension_refuses(
+    tmp_path: Path,
+) -> None:
     """stubbed 'package' matches touched pkgs/by-name/xy/xy/package.nix's stem."""
     bd = _seed(tmp_path)
     (bd / "patch.diff").write_text(_NESTED_PATCH_DIFF)
@@ -152,8 +180,11 @@ def test_stubbed_name_equal_to_basename_without_extension_refuses(tmp_path: Path
         )
     )
     with pytest.raises(BundleSchemaError, match="package"):
-        finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                        created_at="2026-09-07T00:00:00Z")
+        finalize_bundle(
+            bundle_dir=bd,
+            bundle_kind="human-review-required",
+            created_at="2026-09-07T00:00:00Z",
+        )
     assert not (bd / "bundle.json").is_file()
 
 
@@ -169,16 +200,22 @@ def test_log_without_harness_section_unaffected(tmp_path: Path) -> None:
         "SIGNAL_PATCHED: rejected-malformed-input-as-expected\n"
         "EXIT: 0\n"
     )
-    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                          created_at="2026-09-07T00:00:00Z")
+    res = finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-09-07T00:00:00Z",
+    )
     assert (bd / "bundle.json").is_file()
     assert res.bundle_id
 
 
 def test_no_reproducer_log_unaffected(tmp_path: Path) -> None:
     bd = _seed(tmp_path)
-    res = finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                          created_at="2026-09-07T00:00:00Z")
+    res = finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-09-07T00:00:00Z",
+    )
     assert (bd / "bundle.json").is_file()
     assert res.bundle_id
 
@@ -203,5 +240,8 @@ def test_malformed_harness_section_refuses(tmp_path: Path) -> None:
         "effect: the handler proceeds without the capability check\n"
     )
     with pytest.raises(BundleSchemaError, match="does not parse"):
-        finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                        created_at="2026-09-07T00:00:00Z")
+        finalize_bundle(
+            bundle_dir=bd,
+            bundle_kind="human-review-required",
+            created_at="2026-09-07T00:00:00Z",
+        )

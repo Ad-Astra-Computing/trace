@@ -19,6 +19,7 @@ v0.5 vs v0.4:
   - Output file: authoring-lora-v0.5-responses.jsonl
   - 85 train rows (NLTK + python-jose detect-and-reject added)
 """
+
 import json
 import os
 import tempfile
@@ -29,12 +30,12 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 import torch
 
-HF_TOKEN       = os.environ["HF_TOKEN"]
-BASE_MODEL_ID  = "Qwen/Qwen2.5-Coder-14B-Instruct"
-BASE_REVISION  = "aedcc2d42b622764e023cf882b6652e646b95671"
-ADAPTER_REPO   = "adastracomputing/authoring-lora-v0.5"
-CANARY_REPO    = "adastracomputing/authoring-lora-data"
-CANARY_PATH    = "authoring-canary.jsonl"
+HF_TOKEN = os.environ["HF_TOKEN"]
+BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
+BASE_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
+ADAPTER_REPO = "adastracomputing/authoring-lora-v0.5"
+CANARY_REPO = "adastracomputing/authoring-lora-data"
+CANARY_PATH = "authoring-canary.jsonl"
 RESPONSES_REPO = "adastracomputing/authoring-lora-canary-responses"
 MAX_NEW_TOKENS = 4096
 
@@ -45,7 +46,9 @@ canary_file = hf_hub_download(
     repo_type="dataset",
     token=HF_TOKEN,
 )
-records = [json.loads(l) for l in Path(canary_file).read_text().splitlines() if l.strip()]
+records = [
+    json.loads(l) for l in Path(canary_file).read_text().splitlines() if l.strip()
+]
 print(f"  {len(records)} canary records loaded")
 for r in records:
     print(f"  - {r['provenance']['cve_id']}")
@@ -84,10 +87,9 @@ for rec in records:
     cve = rec["provenance"]["cve_id"]
     msgs = rec["messages"]
     system = next(m["content"] for m in msgs if m["role"] == "system")
-    user   = next(m["content"] for m in msgs if m["role"] == "user")
+    user = next(m["content"] for m in msgs if m["role"] == "user")
 
-    chat = [{"role": "system", "content": system},
-            {"role": "user",   "content": user}]
+    chat = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     prompt = tokenizer.apply_chat_template(
         chat, tokenize=False, add_generation_prompt=True
     )
@@ -100,7 +102,7 @@ for rec in records:
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
-    generated_ids = out[0][inputs["input_ids"].shape[1]:]
+    generated_ids = out[0][inputs["input_ids"].shape[1] :]
     text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
     responses.append({"cve_id": cve, "generated": text})
@@ -108,7 +110,9 @@ for rec in records:
 
 api = HfApi(token=HF_TOKEN)
 try:
-    api.create_repo(repo_id=RESPONSES_REPO, repo_type="dataset", private=True, exist_ok=True)
+    api.create_repo(
+        repo_id=RESPONSES_REPO, repo_type="dataset", private=True, exist_ok=True
+    )
 except Exception as e:
     print(f"  (repo create: {e})")
 

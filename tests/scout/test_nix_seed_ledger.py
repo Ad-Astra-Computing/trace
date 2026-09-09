@@ -24,8 +24,12 @@ _NOW = datetime(2026, 7, 21, 12, 0, 0, tzinfo=timezone.utc)
 
 def _fp(**over) -> str:
     base = dict(
-        status="open", fixed_version=None, updated_at=None,
-        has_pr=False, has_open_pr=False, has_merged_pr=False,
+        status="open",
+        fixed_version=None,
+        updated_at=None,
+        has_pr=False,
+        has_open_pr=False,
+        has_merged_pr=False,
     )
     base.update(over)
     return fingerprint_fields(**base)
@@ -75,10 +79,20 @@ def test_aggregate_moves_when_any_record_changes():
 def test_read_write_round_trip(tmp_path: Path):
     path = tmp_path / "nix-seed-seen.jsonl"
     entries = [
-        LedgerEntry("CVE-2026-1001", "2026-07-01T00:00:00Z",
-                    "2026-07-01T00:00:00Z", "written", "u:x"),
-        LedgerEntry("CVE-2026-1002", "2026-07-02T00:00:00Z",
-                    "2026-07-02T00:00:00Z", "skipped-irrelevant", "h:abc"),
+        LedgerEntry(
+            "CVE-2026-1001",
+            "2026-07-01T00:00:00Z",
+            "2026-07-01T00:00:00Z",
+            "written",
+            "u:x",
+        ),
+        LedgerEntry(
+            "CVE-2026-1002",
+            "2026-07-02T00:00:00Z",
+            "2026-07-02T00:00:00Z",
+            "skipped-irrelevant",
+            "h:abc",
+        ),
     ]
     write_ledger(path, entries)
     got = read_ledger(path)
@@ -103,20 +117,23 @@ def test_should_emit_never_seen():
 
 
 def test_should_emit_retryable_outcome_re_emits():
-    e = LedgerEntry("c", "2026-07-21T00:00:00Z", "2026-07-21T00:00:00Z",
-                    "fetch-failed", "u:x")
+    e = LedgerEntry(
+        "c", "2026-07-21T00:00:00Z", "2026-07-21T00:00:00Z", "fetch-failed", "u:x"
+    )
     assert should_emit(e, current_fingerprint="u:x", now=_NOW) is True
 
 
 def test_should_emit_terminal_same_fp_within_ttl_skips():
-    e = LedgerEntry("c", "2026-07-20T00:00:00Z", "2026-07-20T00:00:00Z",
-                    "skipped-irrelevant", "u:x")
+    e = LedgerEntry(
+        "c", "2026-07-20T00:00:00Z", "2026-07-20T00:00:00Z", "skipped-irrelevant", "u:x"
+    )
     assert should_emit(e, current_fingerprint="u:x", now=_NOW) is False
 
 
 def test_should_emit_fingerprint_change_re_emits():
-    e = LedgerEntry("c", "2026-07-20T00:00:00Z", "2026-07-20T00:00:00Z",
-                    "written", "u:old")
+    e = LedgerEntry(
+        "c", "2026-07-20T00:00:00Z", "2026-07-20T00:00:00Z", "written", "u:old"
+    )
     assert should_emit(e, current_fingerprint="u:new", now=_NOW) is True
 
 
@@ -178,10 +195,14 @@ def test_update_written_with_process_error_stays_re_emittable():
     out = update_ledger(
         existing={},
         emitted_fingerprints={"CVE-2026-1001": "u:x"},
-        run_summary=[{
-            "cve_id": "CVE-2026-1001", "action": "written",
-            "finding_status": "error", "process_error": "process exception: boom",
-        }],
+        run_summary=[
+            {
+                "cve_id": "CVE-2026-1001",
+                "action": "written",
+                "finding_status": "error",
+                "process_error": "process exception: boom",
+            }
+        ],
         run_at="2026-07-21T12:00:00Z",
     )
     e = out["CVE-2026-1001"]
@@ -193,10 +214,13 @@ def test_update_written_with_steward_error_stays_re_emittable():
     out = update_ledger(
         existing={},
         emitted_fingerprints={"CVE-2026-1001": "u:x"},
-        run_summary=[{
-            "cve_id": "CVE-2026-1001", "action": "written",
-            "steward_error": "opa-unavailable: no binary",
-        }],
+        run_summary=[
+            {
+                "cve_id": "CVE-2026-1001",
+                "action": "written",
+                "steward_error": "opa-unavailable: no binary",
+            }
+        ],
         run_at="2026-07-21T12:00:00Z",
     )
     e = out["CVE-2026-1001"]
@@ -208,16 +232,23 @@ def test_update_clean_written_over_prior_error_becomes_terminal():
     # A prior errored entry that now completes cleanly must go terminal.
     existing = {
         "CVE-2026-1001": LedgerEntry(
-            "CVE-2026-1001", "2026-07-20T00:00:00Z", "2026-07-20T00:00:00Z",
-            "error", "u:x")
+            "CVE-2026-1001",
+            "2026-07-20T00:00:00Z",
+            "2026-07-20T00:00:00Z",
+            "error",
+            "u:x",
+        )
     }
     out = update_ledger(
         existing=existing,
         emitted_fingerprints={"CVE-2026-1001": "u:x"},
-        run_summary=[{
-            "cve_id": "CVE-2026-1001", "action": "written",
-            "finding_status": "finding",
-        }],
+        run_summary=[
+            {
+                "cve_id": "CVE-2026-1001",
+                "action": "written",
+                "finding_status": "finding",
+            }
+        ],
         run_at="2026-07-21T12:00:00Z",
     )
     e = out["CVE-2026-1001"]
@@ -229,8 +260,12 @@ def test_update_clean_written_over_prior_error_becomes_terminal():
 def test_update_preserves_first_seen_on_refresh():
     existing = {
         "CVE-2026-1001": LedgerEntry(
-            "CVE-2026-1001", "2026-06-01T00:00:00Z", "2026-06-01T00:00:00Z",
-            "skipped-irrelevant", "u:old")
+            "CVE-2026-1001",
+            "2026-06-01T00:00:00Z",
+            "2026-06-01T00:00:00Z",
+            "skipped-irrelevant",
+            "u:old",
+        )
     }
     out = update_ledger(
         existing=existing,

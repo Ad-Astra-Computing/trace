@@ -69,8 +69,7 @@ def fetch_jobs(namespace: str, token: str) -> list[dict]:
         try:
             batch, url = _get(url, token)
         except (urllib.error.URLError, json.JSONDecodeError) as e:
-            raise WalkIncomplete(
-                f"page walk failed after {len(jobs)} jobs: {e}") from e
+            raise WalkIncomplete(f"page walk failed after {len(jobs)} jobs: {e}") from e
         if not isinstance(batch, list):
             raise WalkIncomplete(f"unexpected response reading {url}")
         if not batch:
@@ -158,7 +157,9 @@ def build(jobs: list[dict]) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--namespace", default="odoom", help="HF namespace that owns the jobs")
+    ap.add_argument(
+        "--namespace", default="odoom", help="HF namespace that owns the jobs"
+    )
     ap.add_argument("--out", required=True, help="path to write the JSON report")
     args = ap.parse_args()
 

@@ -10,6 +10,7 @@ honest-positive corpus, so it can only remove false-accepts, never add false-rej
 Usage: python3 eval/score_reviewer_composite.py <gate_pilot_responses.jsonl>
 Maps each fold example back to its bundle dir to run the lint.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,8 +47,7 @@ def _bundle_dir(rec: dict) -> Path | None:
     if not cve:
         return None
     if rec.get("label") == "negative":
-        cands = [d for d in (ROOT / "traces" / "negatives").glob("*/")
-                 if cve in d.name]
+        cands = [d for d in (ROOT / "traces" / "negatives").glob("*/") if cve in d.name]
         exact = [d for d in cands if _neg_mutation_type(d) == rec.get("mutation_type")]
         if exact:
             return exact[0]
@@ -86,15 +86,22 @@ def main(path: str) -> None:
             fr += 1
 
         if lint_hits and lora == "accept" and expected == "reject":
-            lint_saves.append((r["cve_id"], r.get("mutation_type"),
-                               [v.code for v in lint_hits]))
+            lint_saves.append(
+                (r["cve_id"], r.get("mutation_type"), [v.code for v in lint_hits])
+            )
 
     print(f"n={n}")
-    print(f"\nLoRA alone     : substance {lora_correct/n:.3f} ({lora_correct}/{n}), "
-          f"false-accept {lora_fa}")
-    print(f"LoRA + lint    : substance {comp_correct/n:.3f} ({comp_correct}/{n}), "
-          f"false-accept {comp_fa}, false-reject {fr}")
-    print(f"\nlint saves (false-accepts the deterministic gate caught): {len(lint_saves)}")
+    print(
+        f"\nLoRA alone     : substance {lora_correct / n:.3f} ({lora_correct}/{n}), "
+        f"false-accept {lora_fa}"
+    )
+    print(
+        f"LoRA + lint    : substance {comp_correct / n:.3f} ({comp_correct}/{n}), "
+        f"false-accept {comp_fa}, false-reject {fr}"
+    )
+    print(
+        f"\nlint saves (false-accepts the deterministic gate caught): {len(lint_saves)}"
+    )
     for cve, mt, codes in lint_saves:
         print(f"  {cve:16} {mt:34} -> {codes}")
     if unmapped:
@@ -103,5 +110,6 @@ def main(path: str) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(__doc__); raise SystemExit(2)
+        print(__doc__)
+        raise SystemExit(2)
     main(sys.argv[1])

@@ -128,9 +128,7 @@ CVE_ID_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
 
 # Canonical `git format-patch` first line, e.g.
 # "From e47e56d226519635768e6aab2f38f0ab037c09e5 Mon Sep 17 00:00:00 2001"
-FORMAT_PATCH_RE = re.compile(
-    r"^From ([0-9a-fA-F]{40}) Mon Sep 17 00:00:00 2001\s*$"
-)
+FORMAT_PATCH_RE = re.compile(r"^From ([0-9a-fA-F]{40}) Mon Sep 17 00:00:00 2001\s*$")
 
 # `version = "..."` as written in a package.nix / default.nix.
 VERSION_RE = re.compile(r'\bversion\s*=\s*"([^"]+)"')
@@ -231,11 +229,7 @@ def find_cve_patches(nixpkgs_dir: Path) -> list[Path]:
     pkgs_root = nixpkgs_dir / "pkgs"
     if not pkgs_root.is_dir():
         raise SystemExit(f"error: no pkgs/ dir under nixpkgs root: {pkgs_root}")
-    matches = [
-        p
-        for p in pkgs_root.rglob("*.patch")
-        if CVE_ID_RE.search(p.name)
-    ]
+    matches = [p for p in pkgs_root.rglob("*.patch") if CVE_ID_RE.search(p.name)]
     return sorted(matches)
 
 
@@ -271,11 +265,7 @@ def derive_package_name(patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path) ->
     parent directory name.
     """
     rel_parts = patch_path.relative_to(nixpkgs_dir).parts
-    if (
-        len(rel_parts) >= 4
-        and rel_parts[0] == "pkgs"
-        and rel_parts[1] == "by-name"
-    ):
+    if len(rel_parts) >= 4 and rel_parts[0] == "pkgs" and rel_parts[1] == "by-name":
         return rel_parts[3]
 
     anchor = find_anchor_dir(patch_path, pkgs_root)
@@ -435,8 +425,17 @@ def classify(is_format_patch: bool, adaptation_signals: list[str], n_hunks: int)
 # Lines that are diff STRUCTURE, not payload: file headers, hunk headers, index
 # lines, format-patch metadata, and the format-patch signature separator.
 _NONPAYLOAD_PREFIXES = (
-    "+++", "---", "diff ", "index ", "@@", "Index:", "# ",
-    "From ", "Date:", "Subject:", "From:",
+    "+++",
+    "---",
+    "diff ",
+    "index ",
+    "@@",
+    "Index:",
+    "# ",
+    "From ",
+    "Date:",
+    "Subject:",
+    "From:",
 )
 
 
@@ -537,9 +536,7 @@ def rank_score(
     signal_bonus = 40.0 * min(len(adaptation_signals), 3)
     single_file_bonus = 10.0 if n_files == 1 else 0.0
     size_penalty = (
-        1.0 * n_hunks
-        + 1.5 * max(n_files - 1, 0)
-        + 0.03 * (added_lines + removed_lines)
+        1.0 * n_hunks + 1.5 * max(n_files - 1, 0) + 0.03 * (added_lines + removed_lines)
     )
     # An unwired (orphaned) patch has no derivation applying it, so no
     # pinned base to adjudicate against — it cannot be an oracle. Sink it
@@ -558,7 +555,9 @@ def rank_score(
 # ─── harvest ────────────────────────────────────────────────────────────────
 
 
-def build_candidate(patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path) -> dict[str, Any]:
+def build_candidate(
+    patch_path: Path, nixpkgs_dir: Path, pkgs_root: Path
+) -> dict[str, Any]:
     raw = patch_path.read_bytes()
     parsed = parse_patch(raw)
     classification = classify(
@@ -656,10 +655,7 @@ def find_cve_patches_history(repo: Path, ref: str) -> list[dict[str, str]]:
             path = path.strip()
             if path and CVE_ID_RE.search(Path(path).name):
                 first[path] = (commit, date)  # oldest add wins (newest-first walk)
-    return [
-        {"path": p, "commit": c, "date": d}
-        for p, (c, d) in sorted(first.items())
-    ]
+    return [{"path": p, "commit": c, "date": d} for p, (c, d) in sorted(first.items())]
 
 
 def _pinned_version_at(repo: Path, commit: str, pkg_dir: str) -> str | None:
@@ -729,7 +725,9 @@ def build_candidate_from_history(
     }
 
 
-def harvest_history(repo: Path, ref: str, limit: int | None = None) -> list[dict[str, Any]]:
+def harvest_history(
+    repo: Path, ref: str, limit: int | None = None
+) -> list[dict[str, Any]]:
     # Match on BASENAME, not full path. A history entry records the path at
     # FIRST ADD, and nixpkgs relocates packages constantly (the by-name
     # migration moved thousands), so full-path equality reports live=False for
@@ -767,16 +765,16 @@ def harvest(nixpkgs_dir: Path, limit: int | None = None) -> list[dict[str, Any]]
     returned list but does not affect ranking."""
     pkgs_root = nixpkgs_dir / "pkgs"
     patch_paths = find_cve_patches(nixpkgs_dir)
-    candidates = [
-        build_candidate(p, nixpkgs_dir, pkgs_root) for p in patch_paths
-    ]
+    candidates = [build_candidate(p, nixpkgs_dir, pkgs_root) for p in patch_paths]
     candidates.sort(key=_sort_key)
     if limit is not None:
         candidates = candidates[:limit]
     return candidates
 
 
-def build_header(nixpkgs_dir: Path, all_candidates: list[dict[str, Any]]) -> dict[str, Any]:
+def build_header(
+    nixpkgs_dir: Path, all_candidates: list[dict[str, Any]]
+) -> dict[str, Any]:
     counts: dict[str, int] = {}
     for c in all_candidates:
         counts[c["classification"]] = counts.get(c["classification"], 0) + 1
@@ -954,7 +952,9 @@ def main(argv: list[str]) -> int:
         all_candidates.sort(key=_sort_key)
 
     header = build_header(nixpkgs_dir, all_candidates)
-    candidates = all_candidates[: args.limit] if args.limit is not None else all_candidates
+    candidates = (
+        all_candidates[: args.limit] if args.limit is not None else all_candidates
+    )
 
     jsonl_path, md_path = write_manifest(args.out, header, candidates)
 
@@ -969,7 +969,9 @@ def main(argv: list[str]) -> int:
     print(f"wrote: {md_path}")
     print()
     print(f"top {min(10, len(candidates))} candidates:")
-    print(f"{'rank':>4}  {'score':>7}  {'cve_ids':<28}  {'pkg':<16}  {'class':<17}  {'f/h':<5}  {'+/-':<10}  path")
+    print(
+        f"{'rank':>4}  {'score':>7}  {'cve_ids':<28}  {'pkg':<16}  {'class':<17}  {'f/h':<5}  {'+/-':<10}  path"
+    )
     for i, c in enumerate(candidates[:10], start=1):
         fh = f"{c['n_files']}/{c['n_hunks']}"
         pm = f"+{c['added_lines']}/-{c['removed_lines']}"

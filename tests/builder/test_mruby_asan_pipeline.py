@@ -38,8 +38,7 @@ from tools.trace_cli.execute import execute
 
 
 SEED_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "traces" / "example" / "CVE-2025-7207--mruby"
+    Path(__file__).resolve().parents[2] / "traces" / "example" / "CVE-2025-7207--mruby"
 )
 
 
@@ -97,39 +96,55 @@ def _scaffold_mruby_bundle(tmp_path: Path) -> Path:
     ):
         shutil.copy(SEED_DIR / name, bundle / name)
     (bundle / "repro").mkdir()
-    shutil.copy(SEED_DIR / "repro" / "mruby_crash.txt", bundle / "repro" / "mruby_crash.txt")
+    shutil.copy(
+        SEED_DIR / "repro" / "mruby_crash.txt", bundle / "repro" / "mruby_crash.txt"
+    )
 
     # Minimal package.nix stand-in (Builder's patch-apply phase is
     # exercised separately; we run with nixpkgs_checkout=None +
     # apply_patch=False to focus on the reproducer-phase signal flow).
-    (bundle / "package.nix").write_text("# placeholder; nixpkgs supplies the real one\n")
+    (bundle / "package.nix").write_text(
+        "# placeholder; nixpkgs supplies the real one\n"
+    )
 
-    (bundle / "bundle.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": bundle_id,
-        "cve_id": cve,
-        "nixpkgs_rev": nixpkgs_rev,
-        "kind": "human-review-required",
-    }))
-    (bundle / "finding.json").write_text(json.dumps({
-        "cve_id": cve,
-        "affected": [{"attr_path": "mruby", "version": "3.3.0"}],
-    }))
-    (bundle / "replay.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": bundle_id,
-        "cve_id": cve,
-        "nixpkgs_rev": nixpkgs_rev,
-        "policy_version": "0" * 64,
-        "bundle_schema_sha256": "1" * 64,
-        "routing_config_sha256": "2" * 64,
-        "tool_manifest": {
-            "flake_lock_sha256": "3" * 64,
-            "tools": [{"name": "python", "version": "3.13"}],
-        },
-        "cross_family_rule_honored": True,
-        "roles": [],
-    }))
+    (bundle / "bundle.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": bundle_id,
+                "cve_id": cve,
+                "nixpkgs_rev": nixpkgs_rev,
+                "kind": "human-review-required",
+            }
+        )
+    )
+    (bundle / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": cve,
+                "affected": [{"attr_path": "mruby", "version": "3.3.0"}],
+            }
+        )
+    )
+    (bundle / "replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": bundle_id,
+                "cve_id": cve,
+                "nixpkgs_rev": nixpkgs_rev,
+                "policy_version": "0" * 64,
+                "bundle_schema_sha256": "1" * 64,
+                "routing_config_sha256": "2" * 64,
+                "tool_manifest": {
+                    "flake_lock_sha256": "3" * 64,
+                    "tools": [{"name": "python", "version": "3.13"}],
+                },
+                "cross_family_rule_honored": True,
+                "roles": [],
+            }
+        )
+    )
     return bundle
 
 
@@ -149,25 +164,31 @@ def test_mruby_asan_pipeline_scores_1_0_unpatched_fails_and_patched_passes(
     captured: dict[str, FakeBuildRunner] = {}
 
     def factory() -> FakeBuildRunner:
-        runner = FakeBuildRunner(responses=[
-            BuildOutcome(
-                exit_code=1, drv_path=None,
-                out_path=None,
-                stdout_stderr=_UNPATCHED_ASAN_STDERR,
-                elapsed_seconds=12.5,
-            ),
-            BuildOutcome(
-                exit_code=0, drv_path=None,
-                out_path="/nix/store/x-mruby-patched-build",
-                stdout_stderr="patched-build ok\n", elapsed_seconds=1.0,
-            ),
-            BuildOutcome(
-                exit_code=0, drv_path=None,
-                out_path="/nix/store/x-mruby-patched-test",
-                stdout_stderr=_PATCHED_STDERR,
-                elapsed_seconds=11.8,
-            ),
-        ])
+        runner = FakeBuildRunner(
+            responses=[
+                BuildOutcome(
+                    exit_code=1,
+                    drv_path=None,
+                    out_path=None,
+                    stdout_stderr=_UNPATCHED_ASAN_STDERR,
+                    elapsed_seconds=12.5,
+                ),
+                BuildOutcome(
+                    exit_code=0,
+                    drv_path=None,
+                    out_path="/nix/store/x-mruby-patched-build",
+                    stdout_stderr="patched-build ok\n",
+                    elapsed_seconds=1.0,
+                ),
+                BuildOutcome(
+                    exit_code=0,
+                    drv_path=None,
+                    out_path="/nix/store/x-mruby-patched-test",
+                    stdout_stderr=_PATCHED_STDERR,
+                    elapsed_seconds=11.8,
+                ),
+            ]
+        )
         captured["runner"] = runner
         return runner
 
@@ -190,7 +211,7 @@ def test_mruby_asan_pipeline_scores_1_0_unpatched_fails_and_patched_passes(
     # patched-build sanity check is intentionally NOT instrumented
     # (per BUILDER_V1.md §2.6, only the reproducer-run phases get the flag).
     assert calls[0]["instrumentation"] == "asan"  # unpatched reproducer
-    assert calls[1]["instrumentation"] is None    # patched-build sanity
+    assert calls[1]["instrumentation"] is None  # patched-build sanity
     assert calls[2]["instrumentation"] == "asan"  # patched reproducer
 
     # ── build.json carries the realistic stdout/stderr. ─────────────────
@@ -211,7 +232,8 @@ def test_mruby_asan_pipeline_scores_1_0_unpatched_fails_and_patched_passes(
     }
 
     unpatched_score = ReproUnpatchedFailsScorer().score(
-        bundle_dir=bundle, invocation=repro_invocation,
+        bundle_dir=bundle,
+        invocation=repro_invocation,
     )
     assert unpatched_score.applies is True
     assert unpatched_score.score == 1.0, (
@@ -221,7 +243,8 @@ def test_mruby_asan_pipeline_scores_1_0_unpatched_fails_and_patched_passes(
     )
 
     patched_score = ReproPatchedPassesScorer().score(
-        bundle_dir=bundle, invocation=repro_invocation,
+        bundle_dir=bundle,
+        invocation=repro_invocation,
     )
     assert patched_score.applies is True
     assert patched_score.score == 1.0, (
@@ -243,21 +266,27 @@ def test_mruby_asan_pipeline_unpatched_signal_absent_drops_to_zero(
 
     def factory() -> FakeBuildRunner:
         # Order under F7: unpatched, patched-build, patched.
-        return FakeBuildRunner(responses=[
-            # Unpatched ran but no ASAN diagnostic — e.g. instrumentation
-            # didn't take effect.
-            BuildOutcome(
-                exit_code=0, drv_path=None, out_path="/nix/store/x",
-                stdout_stderr="some unrelated mruby output, no ASAN\n",
-                elapsed_seconds=10.0,
-            ),
-            BuildOutcome(0, None, "/nix/store/x", "ok\n", 1.0),
-            BuildOutcome(
-                exit_code=0, drv_path=None, out_path="/nix/store/x",
-                stdout_stderr=_PATCHED_STDERR,
-                elapsed_seconds=10.0,
-            ),
-        ])
+        return FakeBuildRunner(
+            responses=[
+                # Unpatched ran but no ASAN diagnostic; e.g. instrumentation
+                # didn't take effect.
+                BuildOutcome(
+                    exit_code=0,
+                    drv_path=None,
+                    out_path="/nix/store/x",
+                    stdout_stderr="some unrelated mruby output, no ASAN\n",
+                    elapsed_seconds=10.0,
+                ),
+                BuildOutcome(0, None, "/nix/store/x", "ok\n", 1.0),
+                BuildOutcome(
+                    exit_code=0,
+                    drv_path=None,
+                    out_path="/nix/store/x",
+                    stdout_stderr=_PATCHED_STDERR,
+                    elapsed_seconds=10.0,
+                ),
+            ]
+        )
 
     execute(
         role="builder",
@@ -276,7 +305,8 @@ def test_mruby_asan_pipeline_unpatched_signal_absent_drops_to_zero(
         ],
     }
     unpatched_score = ReproUnpatchedFailsScorer().score(
-        bundle_dir=bundle, invocation=repro_invocation,
+        bundle_dir=bundle,
+        invocation=repro_invocation,
     )
     assert unpatched_score.score == 0.0
     assert "NOT present" in unpatched_score.notes

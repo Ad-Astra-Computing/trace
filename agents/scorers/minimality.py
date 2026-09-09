@@ -42,16 +42,22 @@ class MinimalityScorer:
         out_paths = {o["path"] for o in invocation.get("outputs") or []}
         if "refusal.json" in out_paths:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=False, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=False,
+                score=None,
                 notes="refusal: minimality is not applicable",
             )
 
         diff_path = bundle_dir / "patch.diff"
         if not diff_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=False, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=False,
+                score=0.0,
                 notes="patch.diff not on disk",
             )
         diff = diff_path.read_text()
@@ -68,8 +74,11 @@ class MinimalityScorer:
         score = max(0.0, min(1.0, score))
 
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=False, score=score,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=False,
+            score=score,
             notes=(
                 f"v0 self-measure: hunk_count={hunk_count}, "
                 f"changed_lines={changed}. Historical-fix-similarity ratio "

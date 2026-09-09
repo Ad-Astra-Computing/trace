@@ -65,7 +65,7 @@ class ScorerRunReport:
     scorers_in_denominator: list[str]
     scorers_excluded: list[dict[str, str]]
     prompt_sha: str | None = None  # extracted from invocation.prompt.sha256
-    model_id: str | None = None    # extracted from invocation.model.model_id
+    model_id: str | None = None  # extracted from invocation.model.model_id
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {

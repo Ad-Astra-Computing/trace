@@ -90,7 +90,9 @@ def regen(bundle_dir: Path) -> dict:
         "files": canon.files,
     }
 
-    att_bytes = json.dumps(attestation, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    att_bytes = (
+        json.dumps(attestation, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    )
     (bundle_dir / "patch-applicability.json").write_bytes(att_bytes)
 
     return attestation

@@ -53,8 +53,8 @@ def _valid_patch_response() -> str:
         "--- a/package.nix\n"
         "+++ b/package.nix\n"
         "@@ -1 +1 @@\n"
-        "-version = \"1.4.7\";\n"
-        "+version = \"1.4.8\";\n"
+        '-version = "1.4.7";\n'
+        '+version = "1.4.8";\n'
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + RATIONALE
@@ -81,17 +81,25 @@ def _build_dispatchable_bundle(
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
 
-    (bundle_dir / "bundle.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": "0000000000000001",
-        "cve_id": "CVE-0000-0001",
-        "nixpkgs_rev": "0" * 40,
-        "kind": kind,
-    }))
-    (bundle_dir / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "affected": [{"attr_path": "libexample", "version": "1.4.7"}],
-    }))
+    (bundle_dir / "bundle.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": "0000000000000001",
+                "cve_id": "CVE-0000-0001",
+                "nixpkgs_rev": "0" * 40,
+                "kind": kind,
+            }
+        )
+    )
+    (bundle_dir / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "affected": [{"attr_path": "libexample", "version": "1.4.7"}],
+            }
+        )
+    )
     upstream_ref = {
         "cve_id": "CVE-0000-0001",
         "current_version": "1.4.7",
@@ -102,15 +110,23 @@ def _build_dispatchable_bundle(
     if verdict.startswith("ineligible-"):
         upstream_ref["eligibility"]["verdict_reason"] = "test fixture"
     (bundle_dir / "upstream-ref.json").write_text(json.dumps(upstream_ref))
-    (bundle_dir / "impact.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "reverse_closure_count": 42,
-        "exceeds_threshold": False,
-    }))
-    (bundle_dir / "maintainers.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "attr_paths": {"libexample": {"maintainers": [{"github": "alice"}]}},
-    }))
+    (bundle_dir / "impact.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "reverse_closure_count": 42,
+                "exceeds_threshold": False,
+            }
+        )
+    )
+    (bundle_dir / "maintainers.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "attr_paths": {"libexample": {"maintainers": [{"github": "alice"}]}},
+            }
+        )
+    )
     (bundle_dir / "package.nix").write_text('version = "1.4.7";\n')
 
     # Minimal replay.json so the patcher replay-metadata writer has a file
@@ -145,7 +161,10 @@ def _build_dispatchable_bundle(
                             "version": "1.0.0",
                             "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
                         },
-                        "prompt": {"path": "prompts/upstream-ref-resolver.v1.md", "sha256": "7" * 64},
+                        "prompt": {
+                            "path": "prompts/upstream-ref-resolver.v1.md",
+                            "sha256": "7" * 64,
+                        },
                         "inputs": [{"path": "finding.json", "sha256": "6" * 64}],
                         "outputs": [{"path": "upstream-ref.json", "sha256": "8" * 64}],
                         "rng_seed": None,
@@ -166,8 +185,10 @@ def _fresh_invocation() -> dict:
 
 def _factory(response_text: str):
     """Return an adapter_factory that builds a FakeAdapter with the given text."""
+
     def _make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, response_text)
+
     return _make
 
 
@@ -278,10 +299,12 @@ def test_patcher_writer_guarantees_trailing_newline(tmp_path):
     )
     diff_bytes = (bundle_dir / "patch.diff").read_bytes()
     rat_bytes = (bundle_dir / "patch-rationale.md").read_bytes()
-    assert diff_bytes.endswith(b"\n"), \
+    assert diff_bytes.endswith(b"\n"), (
         f"patch.diff must end with \\n; last 10 bytes: {diff_bytes[-10:]!r}"
-    assert rat_bytes.endswith(b"\n"), \
+    )
+    assert rat_bytes.endswith(b"\n"), (
         f"patch-rationale.md must end with \\n; last 10 bytes: {rat_bytes[-10:]!r}"
+    )
 
 
 # ─── happy path: model refusal writes refusal.json (not patch) ─────────────
@@ -439,11 +462,17 @@ def test_cli_rejects_patcher_without_model(tmp_path, capsys):
     # Need a minimal replay.json so the CLI's bundle-loader is happy.
     (bundle_dir / "replay.json").write_text(json.dumps({"roles": []}))
 
-    rc = main([
-        "replay", str(bundle_dir),
-        "--execute", "--role", "patcher",
-        "--traces-root", str(tmp_path),
-    ])
+    rc = main(
+        [
+            "replay",
+            str(bundle_dir),
+            "--execute",
+            "--role",
+            "patcher",
+            "--traces-root",
+            str(tmp_path),
+        ]
+    )
     assert rc != 0
     err = capsys.readouterr().err
     assert "requires --model" in err

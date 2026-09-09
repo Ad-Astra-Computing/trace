@@ -24,6 +24,7 @@ then loads:
 All examples are formatted WITHOUT the assistant turn (gate pilot
 sends system+user to the model and scores the model's output).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,24 +38,41 @@ sys.path.insert(0, str(ROOT))
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--export", required=True, type=Path,
-                    help="export dir (contains reviewer.jsonl + manifest.json)")
-    ap.add_argument("--manifest", required=True, type=Path,
-                    help="split manifest JSON")
-    ap.add_argument("--negatives", default=ROOT / "traces" / "negatives", type=Path,
-                    help="negatives root dir")
-    ap.add_argument("--traces", default=ROOT / "traces" / "example", type=Path,
-                    help="traces/example root")
-    ap.add_argument("--prompt", default=ROOT / "prompts" / "reviewer.v5.md", type=Path,
-                    help="reviewer prompt path")
-    ap.add_argument("--out", required=True, type=Path,
-                    help="output gate-pilot.jsonl path")
+    ap.add_argument(
+        "--export",
+        required=True,
+        type=Path,
+        help="export dir (contains reviewer.jsonl + manifest.json)",
+    )
+    ap.add_argument("--manifest", required=True, type=Path, help="split manifest JSON")
+    ap.add_argument(
+        "--negatives",
+        default=ROOT / "traces" / "negatives",
+        type=Path,
+        help="negatives root dir",
+    )
+    ap.add_argument(
+        "--traces",
+        default=ROOT / "traces" / "example",
+        type=Path,
+        help="traces/example root",
+    )
+    ap.add_argument(
+        "--prompt",
+        default=ROOT / "prompts" / "reviewer.v5.md",
+        type=Path,
+        help="reviewer prompt path",
+    )
+    ap.add_argument(
+        "--out", required=True, type=Path, help="output gate-pilot.jsonl path"
+    )
     args = ap.parse_args()
 
     # Load split manifest — find canary families
     manifest = json.loads(args.manifest.read_text())
     canary_families = {
-        fam for fam, info in manifest.get("overrides", {}).items()
+        fam
+        for fam, info in manifest.get("overrides", {}).items()
         if (info if isinstance(info, str) else info.get("split")) == "canary"
     }
     if not canary_families:
@@ -64,7 +82,8 @@ def main() -> int:
 
     # Load the full training JSONL to get test examples and canary context
     export_rows = [
-        json.loads(l) for l in (args.export / "reviewer.jsonl").read_text().splitlines()
+        json.loads(l)
+        for l in (args.export / "reviewer.jsonl").read_text().splitlines()
         if l.strip()
     ]
     test_rows = [r for r in export_rows if r["split"] == "test"]
@@ -128,8 +147,10 @@ def main() -> int:
         r_gp = _strip_assistant(r)
         pilot_rows.append(r_gp)
 
-    print(f"\nGate pilot: {len(canary_positives)} canary+, "
-          f"{len(canary_mutations)} canary-, {len(test_rows)} test = {len(pilot_rows)} total")
+    print(
+        f"\nGate pilot: {len(canary_positives)} canary+, "
+        f"{len(canary_mutations)} canary-, {len(test_rows)} test = {len(pilot_rows)} total"
+    )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w") as fh:
@@ -142,13 +163,15 @@ def main() -> int:
 def _strip_assistant(ex: dict) -> dict:
     """Return a copy of the example with the assistant turn removed."""
     import copy
+
     r = copy.deepcopy(ex)
     r["messages"] = [m for m in r["messages"] if m["role"] != "assistant"]
     return r
 
 
-def _assemble_canary_mutation(neg_dir: Path, system_prompt: str,
-                               split_overrides: dict, mut: dict) -> dict | None:
+def _assemble_canary_mutation(
+    neg_dir: Path, system_prompt: str, split_overrides: dict, mut: dict
+) -> dict | None:
     """Assemble a gate-pilot row for a canary mutation that has no review.md."""
     try:
         from tools.trace_cli.export import (  # type: ignore
@@ -166,7 +189,7 @@ def _assemble_canary_mutation(neg_dir: Path, system_prompt: str,
     except Exception:
         return None
 
-    affected = (finding.get("affected") or [{}])
+    affected = finding.get("affected") or [{}]
     attr = (affected[0].get("attr_path") or "").strip() if affected else ""
     cve_id = finding.get("cve_id", "")
 

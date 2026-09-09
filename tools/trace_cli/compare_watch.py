@@ -8,6 +8,7 @@ call is injected so the logic is testable without one.
 
 See docs/specs/upstream-comparison-watcher.md.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,10 +30,16 @@ def parse_fork_branch(name: str) -> tuple[str, str, str] | None:
     return (m.group(1), m.group(2), m.group(3)) if m else None
 
 
-def classify_change(files: list[dict], *, fix_shas: list[str], current_version: str) -> dict:
+def classify_change(
+    files: list[dict], *, fix_shas: list[str], current_version: str
+) -> dict:
     """Which of the three recognised shapes a merged nixpkgs change took."""
-    patch_files = [f["filename"] for f in files if _PATCH_FILE_RE.search(f.get("filename", ""))
-                   and f.get("status") in (None, "added", "modified")]
+    patch_files = [
+        f["filename"]
+        for f in files
+        if _PATCH_FILE_RE.search(f.get("filename", ""))
+        and f.get("status") in (None, "added", "modified")
+    ]
     if patch_files:
         return {"shape": "patch-file", "patch_files": patch_files}
     joined = "\n".join(f.get("patch") or "" for f in files)
@@ -46,7 +53,11 @@ def classify_change(files: list[dict], *, fix_shas: list[str], current_version: 
         else:
             added = ver
     if added and added != (removed or current_version):
-        return {"shape": "upstream-bumped", "fixed_version": added, "previous_version": removed or current_version}
+        return {
+            "shape": "upstream-bumped",
+            "fixed_version": added,
+            "previous_version": removed or current_version,
+        }
     return {"shape": "other"}
 
 
@@ -70,8 +81,14 @@ def _score_both_ways(authored: str, upstream: str) -> dict:
     s = score(authored, upstream)
     a_rm, a_add = parse_change_lines(authored)
     u_rm, u_add = parse_change_lines(upstream)
+
     def recall(ref, got):
-        return 1.0 if not ref else round(sum(1 for x in ref if x in set(got)) / len(ref), 4)
+        return (
+            1.0
+            if not ref
+            else round(sum(1 for x in ref if x in set(got)) / len(ref), 4)
+        )
+
     s["payload_removed_recall"] = recall(a_rm, u_rm)
     s["payload_added_recall"] = recall(a_add, u_add)
     return s
@@ -116,21 +133,35 @@ def change_touches_package(change: dict, bundle_dir: Path) -> bool | None:
             if len(seg) < 3:
                 continue
             for tok in tokens:
-                if seg == tok or (min(len(seg), len(tok)) >= 4
-                                  and (seg.startswith(tok) or tok.startswith(seg))):
+                if seg == tok or (
+                    min(len(seg), len(tok)) >= 4
+                    and (seg.startswith(tok) or tok.startswith(seg))
+                ):
                     return True
     return False
 
 
-def compare_bundle(bundle_dir: Path, change: dict, *, fetch_file: Callable[[int, str], str]) -> dict:
+def compare_bundle(
+    bundle_dir: Path, change: dict, *, fetch_file: Callable[[int, str], str]
+) -> dict:
     """Score the bundle against one merged nixpkgs change and write comparison.json."""
     from eval.pr_accuracy import score
 
-    ref = json.loads((bundle_dir / "upstream-ref.json").read_text()) if (bundle_dir / "upstream-ref.json").is_file() else {}
-    finding = json.loads((bundle_dir / "finding.json").read_text()) if (bundle_dir / "finding.json").is_file() else {}
+    ref = (
+        json.loads((bundle_dir / "upstream-ref.json").read_text())
+        if (bundle_dir / "upstream-ref.json").is_file()
+        else {}
+    )
+    finding = (
+        json.loads((bundle_dir / "finding.json").read_text())
+        if (bundle_dir / "finding.json").is_file()
+        else {}
+    )
     fix_shas = [c.get("commit_sha", "") for c in ref.get("upstream_fix_commits") or []]
     current = ((finding.get("affected") or [{}])[0]).get("version", "")
-    shape = classify_change(change.get("files") or [], fix_shas=fix_shas, current_version=current)
+    shape = classify_change(
+        change.get("files") or [], fix_shas=fix_shas, current_version=current
+    )
 
     result = {
         "schema_version": "1.0.0",
@@ -156,7 +187,9 @@ def compare_bundle(bundle_dir: Path, change: dict, *, fetch_file: Callable[[int,
                     best = (key, path, s)
         if best is None:
             result["scores"] = None
-            result["note"] = "no authored inner patch to score, or every nixpkgs patch file was empty"
+            result["note"] = (
+                "no authored inner patch to score, or every nixpkgs patch file was empty"
+            )
         else:
             result["matched_patch_file"] = best[1]
             result["scores"] = best[2]
@@ -173,11 +206,13 @@ def _comment_text(result: dict) -> str:
     if shape == "patch-file":
         s = result.get("scores") or {}
         if s:
-            body = (f"It is an in-tree patch, the same shape as this PR. "
-                    f"{s['payload_added_recall']:.0%} of this payload's added lines and "
-                    f"{s['payload_removed_recall']:.0%} of its removed lines appear in the nixpkgs patch; "
-                    f"in the other direction this payload covers {s['added_recall']:.0%} of theirs"
-                    + (", an exact match." if s.get("exact") else "."))
+            body = (
+                f"It is an in-tree patch, the same shape as this PR. "
+                f"{s['payload_added_recall']:.0%} of this payload's added lines and "
+                f"{s['payload_removed_recall']:.0%} of its removed lines appear in the nixpkgs patch; "
+                f"in the other direction this payload covers {s['added_recall']:.0%} of theirs"
+                + (", an exact match." if s.get("exact") else ".")
+            )
             if result.get("patch_files_in_pr", 1) > 1:
                 body += f" The nixpkgs PR carried {result['patch_files_in_pr']} patch files; the comparison is against {result['matched_patch_file'].rsplit('/', 1)[-1]}."
         else:
@@ -185,8 +220,10 @@ def _comment_text(result: dict) -> str:
     elif shape == "same-fix-commit":
         body = f"It adopts the same upstream fix commit this PR backports ({result['commit_sha'][:12]}), so the two agree on the fix and differ only in packaging."
     elif shape == "upstream-bumped":
-        body = (f"It is a version bump to {result['fixed_version']}. This PR patched {result.get('previous_version') or 'the packaged version'} in place "
-                "instead; both remove the flaw, by different routes.")
+        body = (
+            f"It is a version bump to {result['fixed_version']}. This PR patched {result.get('previous_version') or 'the packaged version'} in place "
+            "instead; both remove the flaw, by different routes."
+        )
     else:
         body = "Its shape was not one the comparison recognises; a person should read both."
     return head + " " + body + " Recorded in the bundle's comparison.json."
@@ -282,7 +319,11 @@ def watch(
             states[key] = "check-failed"
             continue
         if pr is not None:
-            text = f"Draft comment for fork PR #{pr['number']}. Post only with the operator's explicit approval.\n\n" + _comment_text(result) + "\n"
+            text = (
+                f"Draft comment for fork PR #{pr['number']}. Post only with the operator's explicit approval.\n\n"
+                + _comment_text(result)
+                + "\n"
+            )
             (bundle_dir / "comparison-comment.md").write_text(text)
             if post:
                 comment(pr["number"], _comment_text(result))
@@ -310,7 +351,11 @@ def live_lane_bundles(bundles_root: Path) -> list[Path]:
             continue
         ref = d / "upstream-ref.json"
         try:
-            strategy = json.loads(ref.read_text()).get("eligibility", {}).get("patch_strategy") if ref.is_file() else None
+            strategy = (
+                json.loads(ref.read_text()).get("eligibility", {}).get("patch_strategy")
+                if ref.is_file()
+                else None
+            )
         except json.JSONDecodeError:
             strategy = None
         if strategy == "source-backport":
@@ -329,7 +374,9 @@ def report(bundles_root: Path) -> dict:
             waiting += 1
             continue
         data = json.loads(c.read_text())
-        landed[data.get("shape", "other")] = landed.get(data.get("shape", "other"), 0) + 1
+        landed[data.get("shape", "other")] = (
+            landed.get(data.get("shape", "other"), 0) + 1
+        )
         if (data.get("scores") or {}).get("exact"):
             exact += 1
     return {"waiting": waiting, "landed": landed, "exact_matches": exact}
@@ -345,11 +392,16 @@ def _gh_json(args: list[str]):
     return json.loads(proc.stdout or "null")
 
 
-_SEARCH_INTERVAL = 2.2  # seconds; GitHub's search API allows 30 authenticated requests a minute
+_SEARCH_INTERVAL = (
+    2.2  # seconds; GitHub's search API allows 30 authenticated requests a minute
+)
 _last_search = 0.0
 
 
-def _search_throttle(now: Callable[[], float] = time.monotonic, pause: Callable[[float], None] = time.sleep) -> None:
+def _search_throttle(
+    now: Callable[[], float] = time.monotonic,
+    pause: Callable[[float], None] = time.sleep,
+) -> None:
     """Space out search requests. A corpus pass asks once per CVE, which is more
     than the search API's per-minute budget if the requests go out back to back."""
     global _last_search
@@ -361,8 +413,20 @@ def _search_throttle(now: Callable[[], float] = time.monotonic, pause: Callable[
 
 def gh_find_merged_nixpkgs_pr(cve_id: str) -> int | None:
     _search_throttle()
-    data = _gh_json(["search", "prs", "--repo", "NixOS/nixpkgs", cve_id, "--merged",
-                     "--json", "number,closedAt", "--limit", "5"])
+    data = _gh_json(
+        [
+            "search",
+            "prs",
+            "--repo",
+            "NixOS/nixpkgs",
+            cve_id,
+            "--merged",
+            "--json",
+            "number,closedAt",
+            "--limit",
+            "5",
+        ]
+    )
     if not data:
         return None
     data.sort(key=lambda d: d.get("closedAt") or "")
@@ -375,8 +439,12 @@ def _gh_api_json(path: str):
 
 def _gh_raw(path: str) -> str:
     """Raw file contents at a contents-API path; empty when absent."""
-    proc = subprocess.run(["gh", "api", path, "-H", "Accept: application/vnd.github.raw"],
-                          capture_output=True, text=True, timeout=120)
+    proc = subprocess.run(
+        ["gh", "api", path, "-H", "Accept: application/vnd.github.raw"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     if proc.returncode == 0:
         return proc.stdout
     if "404" in proc.stderr or "Not Found" in proc.stderr:
@@ -384,7 +452,9 @@ def _gh_raw(path: str) -> str:
     raise RuntimeError(f"fetching {path}: {proc.stderr.strip()[:200]}")
 
 
-_TREE_PATH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*(/[A-Za-z0-9][A-Za-z0-9._+-]*)*$")
+_TREE_PATH_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._+-]*(/[A-Za-z0-9][A-Za-z0-9._+-]*)*$"
+)
 
 
 def _tree_path_ok(path: str) -> bool:
@@ -398,7 +468,11 @@ def package_files(bundle_dir: Path) -> list[str]:
     by-name layout of the resolver's attr when no cert has run."""
     build = bundle_dir / "build.json"
     if build.is_file():
-        files = ((json.loads(build.read_text()).get("patch_apply") or {}).get("files_changed")) or []
+        files = (
+            (json.loads(build.read_text()).get("patch_apply") or {}).get(
+                "files_changed"
+            )
+        ) or []
         if files:
             return [str(f) for f in files if _tree_path_ok(str(f))]
     ri = bundle_dir / "resolver-input.json"
@@ -440,15 +514,24 @@ def find_landed_in_tree(
         hit = any(cve_id in n for n in names)
         if not hit:
             for f in files:
-                if f.startswith(d + "/") and f.endswith(".nix") and f.rsplit("/", 1)[1] in names:
+                if (
+                    f.startswith(d + "/")
+                    and f.endswith(".nix")
+                    and f.rsplit("/", 1)[1] in names
+                ):
                     if cve_id in gh_raw(f"repos/NixOS/nixpkgs/contents/{f}?ref=master"):
                         hit = True
                         break
         if not hit:
             continue
-        commits = gh_json(f"repos/NixOS/nixpkgs/commits?path={d}&sha=master&per_page=30") or []
+        commits = (
+            gh_json(f"repos/NixOS/nixpkgs/commits?path={d}&sha=master&per_page=30")
+            or []
+        )
         for c in commits:
-            if not isinstance(c, dict) or cve_id not in ((c.get("commit") or {}).get("message") or ""):
+            if not isinstance(c, dict) or cve_id not in (
+                (c.get("commit") or {}).get("message") or ""
+            ):
                 continue
             sha = str(c.get("sha") or "")
             if not re.fullmatch(r"[0-9a-f]{40}", sha):
@@ -457,7 +540,9 @@ def find_landed_in_tree(
             merged = [p for p in pulls if isinstance(p, dict) and p.get("merged_at")]
             if merged:
                 return int(merged[0]["number"])
-        print(f"{cve_id}: in tree under {d} but no commit names it; waiting for the next pass")
+        print(
+            f"{cve_id}: in tree under {d} but no commit names it; waiting for the next pass"
+        )
     return None
 
 
@@ -469,25 +554,40 @@ def gh_fetch_change(number: int) -> dict | None:
 
 def gh_fetch_file(number: int, path: str) -> str:
     pr = _gh_json(["api", f"repos/NixOS/nixpkgs/pulls/{number}"])
-    sha = (pr.get("merge_commit_sha") or pr.get("head", {}).get("sha") or "")
-    return _gh_raw(f"repos/NixOS/nixpkgs/contents/{path}?ref={sha}")  # empty when absent at that commit
+    sha = pr.get("merge_commit_sha") or pr.get("head", {}).get("sha") or ""
+    return _gh_raw(
+        f"repos/NixOS/nixpkgs/contents/{path}?ref={sha}"
+    )  # empty when absent at that commit
 
 
 def gh_comment(fork_repo: str) -> Callable[[int, str], None]:
     def _post(number: int, body: str) -> None:
-        subprocess.run(["gh", "pr", "comment", str(number), "--repo", fork_repo, "--body", body],
-                       check=True, capture_output=True, text=True, timeout=120)
+        subprocess.run(
+            ["gh", "pr", "comment", str(number), "--repo", fork_repo, "--body", body],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
     return _post
 
 
 def add_parser(subs: argparse._SubParsersAction) -> None:
-    w = subs.add_parser("watch", help="compare live-lane bundles against what nixpkgs landed")
+    w = subs.add_parser(
+        "watch", help="compare live-lane bundles against what nixpkgs landed"
+    )
     w.add_argument("--fork", default="Ad-Astra-Computing/nixpkgs")
     w.add_argument("--bundles-root", type=Path, default=Path("traces/example"))
-    w.add_argument("--dry-run", action="store_true", help="compare and record, but post no comment")
-    w.add_argument("--post", action="store_true",
-                   help="post the drafted comment on the fork PR. Public posting needs the operator's "
-                        "explicit approval for this run; without --post the draft stays beside the bundle")
+    w.add_argument(
+        "--dry-run", action="store_true", help="compare and record, but post no comment"
+    )
+    w.add_argument(
+        "--post",
+        action="store_true",
+        help="post the drafted comment on the fork PR. Public posting needs the operator's "
+        "explicit approval for this run; without --post the draft stays beside the bundle",
+    )
     r = subs.add_parser("report", help="waiting versus landed across live-lane bundles")
     r.add_argument("--bundles-root", type=Path, default=Path("traces/example"))
 
@@ -496,13 +596,35 @@ def run(args: argparse.Namespace) -> int:
     if args.compare_cmd == "report":
         print(json.dumps(report(args.bundles_root), indent=2))
         return 0
-    prs = _gh_json(["pr", "list", "--repo", args.fork, "--state", "open", "--limit", "200",
-                    "--json", "number,headRefName"])
-    poster = (lambda n, b: print(f"[dry-run] would comment on #{n}: {b}")) if args.dry_run else gh_comment(args.fork)
-    states = watch(fork_prs=prs or [], bundles_root=args.bundles_root,
-                   find_merged_nixpkgs_pr=gh_find_merged_nixpkgs_pr, find_landed_in_tree=find_landed_in_tree,
-                   fetch_change=gh_fetch_change, fetch_file=gh_fetch_file, comment=poster,
-                   post=bool(args.post and not args.dry_run))
+    prs = _gh_json(
+        [
+            "pr",
+            "list",
+            "--repo",
+            args.fork,
+            "--state",
+            "open",
+            "--limit",
+            "200",
+            "--json",
+            "number,headRefName",
+        ]
+    )
+    poster = (
+        (lambda n, b: print(f"[dry-run] would comment on #{n}: {b}"))
+        if args.dry_run
+        else gh_comment(args.fork)
+    )
+    states = watch(
+        fork_prs=prs or [],
+        bundles_root=args.bundles_root,
+        find_merged_nixpkgs_pr=gh_find_merged_nixpkgs_pr,
+        find_landed_in_tree=find_landed_in_tree,
+        fetch_change=gh_fetch_change,
+        fetch_file=gh_fetch_file,
+        comment=poster,
+        post=bool(args.post and not args.dry_run),
+    )
     for cve, state in sorted(states.items()):
         print(f"{cve}: {state}")
     if any(v == "check-failed" for v in states.values()):

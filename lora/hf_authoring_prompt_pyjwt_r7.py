@@ -18,6 +18,7 @@ the recursive-self-call failure is fixable at the prompt level alone.
 Uploads response to adastracomputing/authoring-lora-v0.7 as
 prompt-r7-pyjwt-response.jsonl.
 """
+
 import json
 import os
 from pathlib import Path
@@ -56,6 +57,7 @@ SYSTEM_PROMPT_R7 = (
 
 def load_pyjwt_canary(dataset_repo: str) -> dict:
     from huggingface_hub import hf_hub_download
+
     path = hf_hub_download(
         repo_id=dataset_repo,
         filename="authoring.canary.jsonl",
@@ -85,7 +87,7 @@ def generate(model, tokenizer, messages: list[dict]) -> str:
             top_p=None,
             pad_token_id=tokenizer.eos_token_id,
         )
-    generated_ids = out[0][inputs["input_ids"].shape[1]:]
+    generated_ids = out[0][inputs["input_ids"].shape[1] :]
     return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
 
@@ -111,7 +113,10 @@ def main():
         bnb_4bit_use_double_quant=True,
     )
 
-    print(f"\nLoading base model {BASE_MODEL_ID} @ {MODEL_REVISION} (NO adapter)", flush=True)
+    print(
+        f"\nLoading base model {BASE_MODEL_ID} @ {MODEL_REVISION} (NO adapter)",
+        flush=True,
+    )
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, revision=MODEL_REVISION)
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -139,6 +144,7 @@ def main():
     print(f"\nResponse written to {out_path}", flush=True)
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.upload_file(
         path_or_fileobj=str(out_path),

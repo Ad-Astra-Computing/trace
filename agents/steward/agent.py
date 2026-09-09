@@ -105,9 +105,9 @@ def _summarize(
     mapping_failure: dict[str, Any] | None,
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {
-        "finding_status": "finding" if finding else (
-            "mapping-failure" if mapping_failure else "absent"
-        ),
+        "finding_status": "finding"
+        if finding
+        else ("mapping-failure" if mapping_failure else "absent"),
         "resolver_verdict": None,
         "resolver_trigger": None,
         "confidence_high_only": None,
@@ -136,7 +136,8 @@ def _run_opa(opa_input: dict[str, Any]) -> dict[str, Any]:
             "opa",
             "eval",
             "--format=json",
-            "--data", str(_POLICY_FILE),
+            "--data",
+            str(_POLICY_FILE),
             "--stdin-input",
             _OPA_QUERY,
         ],

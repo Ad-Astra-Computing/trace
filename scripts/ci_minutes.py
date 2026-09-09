@@ -61,8 +61,9 @@ def fetch_runs() -> list[dict]:
         if not batch:
             break
         for run in batch:
-            started, updated = _parse(run.get("run_started_at")), _parse(
-                run.get("updated_at")
+            started, updated = (
+                _parse(run.get("run_started_at")),
+                _parse(run.get("updated_at")),
             )
             created = _parse(run.get("created_at"))
             runs.append(
@@ -152,9 +153,7 @@ def build(runs: list[dict]) -> dict:
         "estimated_billable_minutes": round(minutes),
         "estimated_gross_usd": round(minutes * LINUX_RATE_PER_MINUTE, 2),
         "estimated_overage_usd": overage,
-        "by_workflow_minutes": {
-            k: round(v / 60) for k, v in by_workflow.most_common()
-        },
+        "by_workflow_minutes": {k: round(v / 60) for k, v in by_workflow.most_common()},
         "by_month_minutes": {k: round(by_month[k] / 60) for k in sorted(by_month)},
         "by_month_workflow_minutes": {
             f"{month}/{workflow}": {

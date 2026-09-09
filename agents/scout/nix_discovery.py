@@ -106,7 +106,9 @@ def list_nixpkgs_cves(*, http: HttpFn | None = None) -> NixCvesSnapshot:
     if status == 404:
         raise FeedNotFound("vulnpatch /nix/cves endpoint returned 404")
     if status != 200:
-        raise FeedDecodeError(f"vulnpatch /nix/cves returned unexpected status {status}")
+        raise FeedDecodeError(
+            f"vulnpatch /nix/cves returned unexpected status {status}"
+        )
 
     try:
         payload = json.loads(body)
@@ -157,7 +159,9 @@ def _parse_entry(item: dict[str, Any]) -> NixpkgsCve:
                 f"{item.get('nixpkgsId')!r}"
             )
     raw_ids = item.get("cveIds")
-    cve_ids = [c for c in raw_ids if isinstance(c, str)] if isinstance(raw_ids, list) else []
+    cve_ids = (
+        [c for c in raw_ids if isinstance(c, str)] if isinstance(raw_ids, list) else []
+    )
     return NixpkgsCve(
         nixpkgs_id=item["nixpkgsId"],
         cve_id=item["cveId"],

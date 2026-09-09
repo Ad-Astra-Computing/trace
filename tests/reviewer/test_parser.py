@@ -108,8 +108,10 @@ def test_parsed_review_validates_against_schema() -> None:
     r = parse_reviewer_output(_reject_review())
     schema = json.loads(SCHEMA_PATH.read_text())
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(r.to_schema_dict())]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(r.to_schema_dict())
+    ]
     assert not errors, errors
 
 
@@ -176,7 +178,9 @@ def test_rejects_missing_required_heading() -> None:
         "rule_honored: true\n",
         "",
     )
-    with pytest.raises(ReviewerOutputMalformed, match="missing required level-2 headings"):
+    with pytest.raises(
+        ReviewerOutputMalformed, match="missing required level-2 headings"
+    ):
         parse_reviewer_output(raw)
 
 
@@ -202,7 +206,9 @@ def test_rejects_accept_with_blocking_finding() -> None:
         "## Findings\n(none)\n",
         "## Findings\n- severity: blocking — sneaky issue — patch.diff:hunk=1\n",
     )
-    with pytest.raises(ReviewerOutputMalformed, match="must trigger reject or escalate"):
+    with pytest.raises(
+        ReviewerOutputMalformed, match="must trigger reject or escalate"
+    ):
         parse_reviewer_output(raw)
 
 
@@ -234,20 +240,13 @@ def test_rejects_invalid_rule_honored_value() -> None:
 
 
 def test_rejects_refusal_rule_out_of_range() -> None:
-    raw = (
-        "=== BEGIN refusal ===\n"
-        "rule: 99\n"
-        "reason: off-scale\n"
-        "=== END refusal ==="
-    )
+    raw = "=== BEGIN refusal ===\nrule: 99\nreason: off-scale\n=== END refusal ==="
     with pytest.raises(ReviewerOutputMalformed, match=r"\[1, 5\]"):
         parse_reviewer_output(raw)
 
 
 def test_rejects_level_1_heading_in_review() -> None:
-    raw = _accept_review().replace(
-        "## Verdict\n", "# Big Heading\n## Verdict\n"
-    )
+    raw = _accept_review().replace("## Verdict\n", "# Big Heading\n## Verdict\n")
     with pytest.raises(ReviewerOutputMalformed, match="level-1 heading"):
         parse_reviewer_output(raw)
 
@@ -307,7 +306,10 @@ def test_parse_equivalence_verdict_strips_bold_emphasis() -> None:
 
 def test_parse_equivalence_verdict_strips_code_and_italic() -> None:
     assert parse_equivalence_verdict("- equivalence: `equivalent` — x") == "equivalent"
-    assert parse_equivalence_verdict("- equivalence: *indeterminate* — y") == "indeterminate"
+    assert (
+        parse_equivalence_verdict("- equivalence: *indeterminate* — y")
+        == "indeterminate"
+    )
 
 
 def test_parse_equivalence_verdict_returns_none_for_none() -> None:
@@ -319,10 +321,7 @@ def test_parse_equivalence_verdict_returns_none_for_empty_string() -> None:
 
 
 def test_parse_equivalence_verdict_returns_none_when_no_equivalence_line() -> None:
-    section = (
-        "- unsafe operation: unchecked multiply\n"
-        "- behavior preserved: yes\n"
-    )
+    section = "- unsafe operation: unchecked multiply\n- behavior preserved: yes\n"
     assert parse_equivalence_verdict(section) is None
 
 

@@ -154,39 +154,119 @@ def _minimal_auto_merge_bundle() -> dict:
         "policy_version": "0" * 64,
         "bundle_schema_version": "1" * 64,
         "files": {
-            "bundle.json":             {"sha256": "a" * 64, "bytes": 1, "producer_role": "steward",      "replay_critical": True},
-            "finding.json":            {"sha256": "b" * 64, "bytes": 1, "producer_role": "scout",        "replay_critical": True},
-            "impact.json":             {"sha256": "c" * 64, "bytes": 1, "producer_role": "cartographer", "replay_critical": True},
-            "maintainers.json":        {"sha256": "d" * 64, "bytes": 1, "producer_role": "cartographer", "replay_critical": True},
-            "upstream-ref.json":       {"sha256": "e" * 64, "bytes": 1, "producer_role": "upstream-ref-resolver", "replay_critical": True},
-            "patch.diff":              {"sha256": "f" * 64, "bytes": 1, "producer_role": "patcher",      "replay_critical": True},
-            "patch-rationale.md":      {"sha256": "1" * 64, "bytes": 1, "producer_role": "patcher",      "replay_critical": True},
-            "passthru-tests.json":     {"sha256": "2" * 64, "bytes": 1, "producer_role": "reproducer",   "replay_critical": True},
-            "reproducer.nix":          {"sha256": "3" * 64, "bytes": 1, "producer_role": "reproducer",   "replay_critical": True},
-            "reproducer-log.txt":      {"sha256": "4" * 64, "bytes": 1, "producer_role": "reproducer",   "replay_critical": False},
-            "build.json":              {"sha256": "5" * 64, "bytes": 1, "producer_role": "builder",      "replay_critical": False},
-            "review.md":               {"sha256": "6" * 64, "bytes": 1, "producer_role": "reviewer",     "replay_critical": True},
-            "sbom-delta.json":         {"sha256": "7" * 64, "bytes": 1, "producer_role": "upstream-ref-resolver", "replay_critical": True},
-            "replay.json":             {"sha256": "8" * 64, "bytes": 1, "producer_role": "steward",      "replay_critical": True},
-            "provenance.jsonl":        {"sha256": "9" * 64, "bytes": 1, "producer_role": "steward",      "replay_critical": False},
-            "bundle.sig":              {"sha256": "0" * 63 + "a", "bytes": 1, "producer_role": "steward", "replay_critical": False},
+            "bundle.json": {
+                "sha256": "a" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": True,
+            },
+            "finding.json": {
+                "sha256": "b" * 64,
+                "bytes": 1,
+                "producer_role": "scout",
+                "replay_critical": True,
+            },
+            "impact.json": {
+                "sha256": "c" * 64,
+                "bytes": 1,
+                "producer_role": "cartographer",
+                "replay_critical": True,
+            },
+            "maintainers.json": {
+                "sha256": "d" * 64,
+                "bytes": 1,
+                "producer_role": "cartographer",
+                "replay_critical": True,
+            },
+            "upstream-ref.json": {
+                "sha256": "e" * 64,
+                "bytes": 1,
+                "producer_role": "upstream-ref-resolver",
+                "replay_critical": True,
+            },
+            "patch.diff": {
+                "sha256": "f" * 64,
+                "bytes": 1,
+                "producer_role": "patcher",
+                "replay_critical": True,
+            },
+            "patch-rationale.md": {
+                "sha256": "1" * 64,
+                "bytes": 1,
+                "producer_role": "patcher",
+                "replay_critical": True,
+            },
+            "passthru-tests.json": {
+                "sha256": "2" * 64,
+                "bytes": 1,
+                "producer_role": "reproducer",
+                "replay_critical": True,
+            },
+            "reproducer.nix": {
+                "sha256": "3" * 64,
+                "bytes": 1,
+                "producer_role": "reproducer",
+                "replay_critical": True,
+            },
+            "reproducer-log.txt": {
+                "sha256": "4" * 64,
+                "bytes": 1,
+                "producer_role": "reproducer",
+                "replay_critical": False,
+            },
+            "build.json": {
+                "sha256": "5" * 64,
+                "bytes": 1,
+                "producer_role": "builder",
+                "replay_critical": False,
+            },
+            "review.md": {
+                "sha256": "6" * 64,
+                "bytes": 1,
+                "producer_role": "reviewer",
+                "replay_critical": True,
+            },
+            "sbom-delta.json": {
+                "sha256": "7" * 64,
+                "bytes": 1,
+                "producer_role": "upstream-ref-resolver",
+                "replay_critical": True,
+            },
+            "replay.json": {
+                "sha256": "8" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": True,
+            },
+            "provenance.jsonl": {
+                "sha256": "9" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": False,
+            },
+            "bundle.sig": {
+                "sha256": "0" * 63 + "a",
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": False,
+            },
         },
         "signed_manifest": {
             "algorithm": "sigstore-cosign-v1",
             "signer": "https://github.com/Ad-Astra-Computing/trace/.github/workflows/steward.yml@refs/heads/main",
             "signed_files": [
-                {"path": "bundle.json",        "sha256": "a" * 64},
-                {"path": "finding.json",       "sha256": "b" * 64},
-                {"path": "impact.json",        "sha256": "c" * 64},
-                {"path": "maintainers.json",   "sha256": "d" * 64},
-                {"path": "upstream-ref.json",  "sha256": "e" * 64},
-                {"path": "patch.diff",         "sha256": "f" * 64},
+                {"path": "bundle.json", "sha256": "a" * 64},
+                {"path": "finding.json", "sha256": "b" * 64},
+                {"path": "impact.json", "sha256": "c" * 64},
+                {"path": "maintainers.json", "sha256": "d" * 64},
+                {"path": "upstream-ref.json", "sha256": "e" * 64},
+                {"path": "patch.diff", "sha256": "f" * 64},
                 {"path": "patch-rationale.md", "sha256": "1" * 64},
-                {"path": "passthru-tests.json","sha256": "2" * 64},
-                {"path": "reproducer.nix",     "sha256": "3" * 64},
-                {"path": "review.md",          "sha256": "6" * 64},
-                {"path": "sbom-delta.json",    "sha256": "7" * 64},
-                {"path": "replay.json",        "sha256": "8" * 64},
+                {"path": "passthru-tests.json", "sha256": "2" * 64},
+                {"path": "reproducer.nix", "sha256": "3" * 64},
+                {"path": "review.md", "sha256": "6" * 64},
+                {"path": "sbom-delta.json", "sha256": "7" * 64},
+                {"path": "replay.json", "sha256": "8" * 64},
             ],
         },
     }
@@ -203,7 +283,8 @@ def test_signed_manifest_accepts_v1_optional_sigstore_fields() -> None:
     bundle["signed_manifest"]["rekor_log_index"] = 142857309
     bundle["signed_manifest"]["rekor_uuid"] = "24296fb24b8ad77a" + "0" * 16
     errors = sorted(
-        _bundle_validator().iter_errors(bundle), key=lambda e: e.path,
+        _bundle_validator().iter_errors(bundle),
+        key=lambda e: e.path,
     )
     assert not errors, [e.message for e in errors]
 
@@ -212,7 +293,9 @@ def test_signed_manifest_rekor_uuid_format_enforced() -> None:
     bundle = _minimal_auto_merge_bundle()
     bundle["signed_manifest"]["rekor_uuid"] = "not-hex-content"
     errs = list(_bundle_validator().iter_errors(bundle))
-    assert any("rekor_uuid" in str(e.absolute_path) or "pattern" in e.message for e in errs)
+    assert any(
+        "rekor_uuid" in str(e.absolute_path) or "pattern" in e.message for e in errs
+    )
 
 
 def test_signed_manifest_rekor_log_index_must_be_non_negative_integer() -> None:

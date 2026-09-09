@@ -50,11 +50,12 @@ def test_ensure_ends_on_content_trims_trailing_blank_and_restamps():
     plain = bp.to_plain_unified(_GIT_DIFF, strip_level=1)
     out = bp.ensure_ends_on_content(plain)
     body = out.rstrip("\n").splitlines()
-    assert body[-1].strip() != ""               # ends on a content line
+    assert body[-1].strip() != ""  # ends on a content line
     # original U3 had 3+change+3 ctx incl. a trailing blank; after trim the
     # hunk header count must match the body (no desync).
     hunk = next(l for l in body if l.startswith("@@"))
     import re
+
     m = re.match(r"@@ -\d+,(\d+) \+\d+,(\d+) @@", hunk)
     old_c = sum(1 for l in body if l[:1] in (" ", "-") and not l.startswith("---"))
     new_c = sum(1 for l in body if l[:1] in (" ", "+") and not l.startswith("+++"))
@@ -70,15 +71,24 @@ def test_ends_on_content_never_trims_change_lines():
 
 # ── strip level from patchFlags ──────────────────────────────────────────────
 
-@pytest.mark.parametrize("flags,expected", [
-    (["-p0"], 0), (["-p1"], 1), ([], 1), (["-p2"], 2),
-    (["--strip=0"], 0), (["-l", "-p0"], 0),
-])
+
+@pytest.mark.parametrize(
+    "flags,expected",
+    [
+        (["-p0"], 0),
+        (["-p1"], 1),
+        ([], 1),
+        (["-p2"], 2),
+        (["--strip=0"], 0),
+        (["-l", "-p0"], 0),
+    ],
+)
 def test_strip_level_from_flags(flags, expected):
     assert bp.strip_level_from_flags(flags) == expected
 
 
 # ── commit-message preamble stripping ────────────────────────────────────────
+
 
 def test_extract_diff_strips_commit_message():
     show = "commit abc\nAuthor: x\n\n    msg body\n\ndiff --git a/x b/x\n--- a/x\n+++ b/x\n"
@@ -87,6 +97,7 @@ def test_extract_diff_strips_commit_message():
 
 
 # ── tag candidates ───────────────────────────────────────────────────────────
+
 
 def test_tag_candidates_covers_project_prefix_and_v():
     cands = bp._tag_candidates("1.0.8", "https://sourceware.org/git/bzip2.git")
@@ -101,50 +112,59 @@ def test_tag_candidates_dedup_for_v_prefixed():
 
 # ── non-source exclusion ─────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("path,excluded", [
-    ("src/loaders/prowizard/pha.c", False),
-    ("src/libproxychains.c", False),
-    ("bzip2recover.c", False),
-    ("docs/Changelog", True),
-    ("test-dev/data/f/fixture", True),
-    ("tests/test_foo.c", True),
-    ("ChangeLog", True),
-    ("README.md", True),
-    ("data/sample.bin", True),
-    (".github/workflows/ci.yml", True),
-    # top-level test-harness files (libxml2 CVE-2026-0989 shape)
-    ("runtest.c", True),
-    ("runtests.c", True),
-    ("run_test.c", True),
-    ("test_relaxng.c", True),      # test_ separator
-    ("HTMLparser_test.c", True),   # _test separator
-    # ...but real source whose name merely starts with/contains "test" stays
-    # source (a false exclusion would drop a real security fix).
-    ("latest.c", False),
-    ("contest.c", False),
-    ("testing.c", False),
-    ("testament.c", False),
-    ("testapi.c", False),          # no separator: kept as source (safe bias)
-    ("relaxng.c", False),
-    ("include/libxml/relaxng.h", False),
-])
+
+@pytest.mark.parametrize(
+    "path,excluded",
+    [
+        ("src/loaders/prowizard/pha.c", False),
+        ("src/libproxychains.c", False),
+        ("bzip2recover.c", False),
+        ("docs/Changelog", True),
+        ("test-dev/data/f/fixture", True),
+        ("tests/test_foo.c", True),
+        ("ChangeLog", True),
+        ("README.md", True),
+        ("data/sample.bin", True),
+        (".github/workflows/ci.yml", True),
+        # top-level test-harness files (libxml2 CVE-2026-0989 shape)
+        ("runtest.c", True),
+        ("runtests.c", True),
+        ("run_test.c", True),
+        ("test_relaxng.c", True),  # test_ separator
+        ("HTMLparser_test.c", True),  # _test separator
+        # ...but real source whose name merely starts with/contains "test" stays
+        # source (a false exclusion would drop a real security fix).
+        ("latest.c", False),
+        ("contest.c", False),
+        ("testing.c", False),
+        ("testament.c", False),
+        ("testapi.c", False),  # no separator: kept as source (safe bias)
+        ("relaxng.c", False),
+        ("include/libxml/relaxng.h", False),
+    ],
+)
 def test_non_source_exclusion(path, excluded):
     assert bool(bp._NON_SOURCE_RE.search(path)) == excluded
 
 
 # ── auto-scope with a mocked runner (numstat) ────────────────────────────────
 
+
 def _completed(stdout="", returncode=0, stderr=""):
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=stderr
+    )
 
 
 def test_auto_scope_excludes_binary_test_and_doc():
-    numstat = "\n".join([
-        "5\t0\tsrc/loaders/prowizard/pha.c",   # source: keep
-        "10\t2\tdocs/Changelog",                # doc: drop
-        "-\t-\ttest-dev/data/f/fixture",        # binary + test: drop
-        "3\t1\ttests/test_pha.c",               # test: drop
-    ])
+    numstat = "\n".join(
+        [
+            "5\t0\tsrc/loaders/prowizard/pha.c",  # source: keep
+            "10\t2\tdocs/Changelog",  # doc: drop
+            "-\t-\ttest-dev/data/f/fixture",  # binary + test: drop
+            "3\t1\ttests/test_pha.c",  # test: drop
+        ]
+    )
 
     def runner(cmd, cwd=None):
         return _completed(stdout=numstat)
@@ -155,8 +175,15 @@ def test_auto_scope_excludes_binary_test_and_doc():
 
 # ── retarget_fix: conflict → reject; clean → diff (mocked git) ────────────────
 
-def _mock_git_runner(*, apply_rc=0, diff_out="--- x\n+++ x\n", show_out="diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n"):
+
+def _mock_git_runner(
+    *,
+    apply_rc=0,
+    diff_out="--- x\n+++ x\n",
+    show_out="diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n",
+):
     """Simulate the git command sequence retarget_fix issues."""
+
     def runner(cmd, cwd=None):
         c = cmd[1] if len(cmd) > 1 and cmd[0] == "git" else ""
         if c == "--version":
@@ -170,25 +197,36 @@ def _mock_git_runner(*, apply_rc=0, diff_out="--- x\n+++ x\n", show_out="diff --
                 return _completed(stdout="5\t0\tx\n")
             return _completed(stdout=show_out)
         if c == "apply":
-            return _completed(returncode=apply_rc, stderr="conflict" if apply_rc else "")
+            return _completed(
+                returncode=apply_rc, stderr="conflict" if apply_rc else ""
+            )
         if c == "diff":
             return _completed(stdout=diff_out)
         return _completed()
+
     return runner
 
 
 def test_retarget_fix_conflict_rejects(tmp_path):
     with pytest.raises(bp.BackportReject):
         bp.retarget_fix(
-            repo_url="https://example.invalid/x", commit_sha="abc", version_tag="1.0",
-            paths=["x"], workdir=tmp_path, runner=_mock_git_runner(apply_rc=1),
+            repo_url="https://example.invalid/x",
+            commit_sha="abc",
+            version_tag="1.0",
+            paths=["x"],
+            workdir=tmp_path,
+            runner=_mock_git_runner(apply_rc=1),
         )
 
 
 def test_retarget_fix_clean_returns_diff(tmp_path):
     out = bp.retarget_fix(
-        repo_url="https://example.invalid/x", commit_sha="abc", version_tag="1.0",
-        paths=["x"], workdir=tmp_path, runner=_mock_git_runner(),
+        repo_url="https://example.invalid/x",
+        commit_sha="abc",
+        version_tag="1.0",
+        paths=["x"],
+        workdir=tmp_path,
+        runner=_mock_git_runner(),
     )
     assert out.startswith("--- x")
 
@@ -197,12 +235,17 @@ def test_retarget_fix_empty_diff_rejects(tmp_path):
     # fix already present at this version -> empty diff -> reject
     with pytest.raises(bp.BackportReject):
         bp.retarget_fix(
-            repo_url="https://example.invalid/x", commit_sha="abc", version_tag="1.0",
-            paths=["x"], workdir=tmp_path, runner=_mock_git_runner(diff_out="\n"),
+            repo_url="https://example.invalid/x",
+            commit_sha="abc",
+            version_tag="1.0",
+            paths=["x"],
+            workdir=tmp_path,
+            runner=_mock_git_runner(diff_out="\n"),
         )
 
 
 # ── integration (network + nix) ──────────────────────────────────────────────
+
 
 @pytest.mark.skipif(
     os.environ.get("TRACE_REAL_BACKPORT") != "1",
@@ -212,10 +255,12 @@ def test_integration_bzip2_skip_verify():
     repo_root = Path(__file__).resolve().parents[2]
     bundle = repo_root / "traces/example/CVE-2026-42250--bzip2-backport"
     patch = bp.produce_backport_patch(
-        bundle_dir=bundle, nixpkgs=repo_root.parent / "nixpkgs", skip_verify=True,
+        bundle_dir=bundle,
+        nixpkgs=repo_root.parent / "nixpkgs",
+        skip_verify=True,
     )
     assert "BZ_MAX_HANDLED_BLOCKS - 1" in patch
-    assert "diff --git" not in patch            # plain unified
+    assert "diff --git" not in patch  # plain unified
     assert patch.startswith("--- bzip2recover.c")  # bare paths for -p0
     assert patch.rstrip().splitlines()[-1].strip() != ""  # ends on content
 
@@ -233,39 +278,48 @@ def test_integration_graphite2_generalization(tmp_path):
     unified diff carrying the upstream bounds-check. WITH verify it must also
     apply to the 1.3.14 tarball (tag≈tarball)."""
     nixpkgs = Path(__file__).resolve().parents[2].parent / "nixpkgs"
-    rev = subprocess.run(["git", "-C", str(nixpkgs), "rev-parse", "HEAD"],
-                         capture_output=True, text=True).stdout.strip()
+    rev = subprocess.run(
+        ["git", "-C", str(nixpkgs), "rev-parse", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
     (tmp_path / "finding.json").write_text(
-        '{"affected":[{"attr_path":"graphite2","version":"1.3.14","pname":"graphite2"}]}')
+        '{"affected":[{"attr_path":"graphite2","version":"1.3.14","pname":"graphite2"}]}'
+    )
     (tmp_path / "bundle.json").write_text('{"nixpkgs_rev":"%s"}' % rev)
     (tmp_path / "upstream-ref.json").write_text(
         '{"cve_id":"CVE-2026-50593","current_version":"1.3.14","target_version":"1.3.14",'
         '"tag":"1.3.14","upstream_fix_commits":[{"repo_url":"https://github.com/silnrsi/graphite",'
         '"commit_sha":"ad78c6b7319909e1540c1b134e115ced03417866"}],'
         '"eligibility":{"verdict":"eligible-requires-human-review","verdict_reason":"backport",'
-        '"human_review_trigger":"source-backport-experimental","patch_strategy":"source-backport"}}')
-    patch = bp.produce_backport_patch(bundle_dir=tmp_path, nixpkgs=nixpkgs)  # WITH verify gate
-    assert "slot_offset_out_bounds" in patch          # the upstream bounds-check
-    assert "diff --git" not in patch                  # plain unified
-    assert "--- a/src/inc/opcodes.h" in patch         # -p1 + a/ b/ (default patchFlags)
+        '"human_review_trigger":"source-backport-experimental","patch_strategy":"source-backport"}}'
+    )
+    patch = bp.produce_backport_patch(
+        bundle_dir=tmp_path, nixpkgs=nixpkgs
+    )  # WITH verify gate
+    assert "slot_offset_out_bounds" in patch  # the upstream bounds-check
+    assert "diff --git" not in patch  # plain unified
+    assert "--- a/src/inc/opcodes.h" in patch  # -p1 + a/ b/ (default patchFlags)
     assert patch.rstrip().splitlines()[-1].strip() != ""
 
 
 # ── security: feed-sourced arg validation ────────────────────────────────────
 
-@pytest.mark.parametrize("url,ok", [
-    ("https://github.com/a/b.git", True),
-    ("http://example.com/x", True),
-    ("git://sourceware.org/git/bzip2.git", True),
-    ("ssh://git@host/repo", True),
-    ("git@github.com:a/b.git", True),
-    ("ext::sh -c 'id'", False),        # transport-helper RCE
-    ("fd::17", False),
-    ("file:///etc/passwd", False),
-    ("-oProxyCommand=evil", False),
-    ("transport::x", False),
-    ("", False),
-])
+
+@pytest.mark.parametrize(
+    "url,ok",
+    [
+        ("https://github.com/a/b.git", True),
+        ("http://example.com/x", True),
+        ("git://sourceware.org/git/bzip2.git", True),
+        ("ssh://git@host/repo", True),
+        ("git@github.com:a/b.git", True),
+        ("ext::sh -c 'id'", False),  # transport-helper RCE
+        ("fd::17", False),
+        ("file:///etc/passwd", False),
+        ("-oProxyCommand=evil", False),
+        ("transport::x", False),
+        ("", False),
+    ],
+)
 def test_validate_repo_url(url, ok):
     if ok:
         assert bp._validate_repo_url(url) == url
@@ -274,10 +328,19 @@ def test_validate_repo_url(url, ok):
             bp._validate_repo_url(url)
 
 
-@pytest.mark.parametrize("tag,ok", [
-    ("1.0.8", True), ("v4.17", True), ("libxmp-4.6.2", True), ("REL_1_2", True),
-    ("--upload-pack=evil", False), ("-x", False), ("a b", False), ("$(id)", False),
-])
+@pytest.mark.parametrize(
+    "tag,ok",
+    [
+        ("1.0.8", True),
+        ("v4.17", True),
+        ("libxmp-4.6.2", True),
+        ("REL_1_2", True),
+        ("--upload-pack=evil", False),
+        ("-x", False),
+        ("a b", False),
+        ("$(id)", False),
+    ],
+)
 def test_validate_tag(tag, ok):
     if ok:
         assert bp._validate_tag(tag) == tag
@@ -296,8 +359,12 @@ def test_safe_rev_regex_is_40_hex():
 def test_retarget_fix_refuses_ext_transport(tmp_path):
     with pytest.raises(bp.BackportError):
         bp.retarget_fix(
-            repo_url="ext::sh -c id", commit_sha="abc", version_tag="1.0",
-            paths=["x"], workdir=tmp_path, runner=_mock_git_runner(),
+            repo_url="ext::sh -c id",
+            commit_sha="abc",
+            version_tag="1.0",
+            paths=["x"],
+            workdir=tmp_path,
+            runner=_mock_git_runner(),
         )
 
 
@@ -320,21 +387,32 @@ def test_validate_tag_rejects_dotdot_traversal():
 
 # ── clone_url: cgit browse URL -> clone endpoint, validate-first ──────────────
 
-@pytest.mark.parametrize("browse,clone", [
-    ("https://git.savannah.gnu.org/cgit/coreutils.git",
-     "https://git.savannah.gnu.org/git/coreutils.git"),
-    ("https://git.savannah.gnu.org/cgit/gnulib.git",
-     "https://git.savannah.gnu.org/git/gnulib.git"),
-])
+
+@pytest.mark.parametrize(
+    "browse,clone",
+    [
+        (
+            "https://git.savannah.gnu.org/cgit/coreutils.git",
+            "https://git.savannah.gnu.org/git/coreutils.git",
+        ),
+        (
+            "https://git.savannah.gnu.org/cgit/gnulib.git",
+            "https://git.savannah.gnu.org/git/gnulib.git",
+        ),
+    ],
+)
 def test_clone_url_maps_savannah_cgit_browse(browse, clone):
     assert bp.clone_url(browse) == clone
 
 
-@pytest.mark.parametrize("url", [
-    "https://github.com/jqlang/jq",                 # github untouched
-    "https://git.busybox.net/busybox",              # cgit but already a clone endpoint
-    "https://git.savannah.gnu.org/git/coreutils.git",  # already normalized
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/jqlang/jq",  # github untouched
+        "https://git.busybox.net/busybox",  # cgit but already a clone endpoint
+        "https://git.savannah.gnu.org/git/coreutils.git",  # already normalized
+    ],
+)
 def test_clone_url_passthrough(url):
     assert bp.clone_url(url) == url
 
@@ -347,10 +425,12 @@ def test_clone_url_validates_first():
 
 # ── blobless_fetch_commit: tiered fetch with an injected git callable ─────────
 
+
 class _FakeGit:
     """Records git invocations and resolves `present_after` set of fetch verbs."""
+
     def __init__(self, want_ok: bool, present_after: set[str]):
-        self.want_ok = want_ok            # does the shallow sha-want succeed?
+        self.want_ok = want_ok  # does the shallow sha-want succeed?
         self.present_after = present_after  # which fetch makes sha resolvable
         self.fetched: set[str] = set()
         self.calls: list[tuple[str, ...]] = []
@@ -402,36 +482,51 @@ def test_blobless_fetch_rejects_option_injection_sha():
     # a feed-sourced sha that is git option syntax must never reach `git fetch`:
     # the hex-only guard returns False before any fetch runs (option-injection,
     # e.g. --upload-pack=<cmd> / --exec=<cmd>, can't smuggle through a bare arg).
-    for bad in ("--upload-pack=touch /tmp/x", "--exec=sh", "-deadbeef", "HEAD",
-                "a" * 6, "g" * 40, "abc def"):
+    for bad in (
+        "--upload-pack=touch /tmp/x",
+        "--exec=sh",
+        "-deadbeef",
+        "HEAD",
+        "a" * 6,
+        "g" * 40,
+        "abc def",
+    ):
         g = _FakeGit(want_ok=True, present_after={"want"})
         assert bp.blobless_fetch_commit(g, bad) is False
         assert not any(c[0] == "fetch" for c in g.calls)
 
 
 def test_assert_git_version_floor():
-    bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="git version 2.43.0"))
+    bp._assert_git_version(
+        lambda cmd, cwd=None: _completed(stdout="git version 2.43.0")
+    )
     with pytest.raises(bp.BackportError):
-        bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="git version 2.30.0"))
+        bp._assert_git_version(
+            lambda cmd, cwd=None: _completed(stdout="git version 2.30.0")
+        )
     with pytest.raises(bp.BackportError):
         bp._assert_git_version(lambda cmd, cwd=None: _completed(stdout="garbage"))
 
 
 # ── reproducer-oracle fixture extraction ─────────────────────────────────────
 
-@pytest.mark.parametrize("path,is_oracle", [
-    ("tests/fonts/underflow.ttf", True),
-    ("test-dev/data/f/prowizard_pha_invalid_ocpt", True),
-    ("tests/standards/underflow.json", True),
-    ("tests/fuzz-tests/crash/Bad cmap.fuzz", True),
-    ("regression/poc/crash.bin", True),
-    ("test_fuzzer_x.c", False),            # not under a fixture dir
-    ("src/loaders/pha.c", False),          # source, not oracle
-    ("tests/CMakeLists.txt", False),       # build wiring, not oracle
-    ("docs/Changelog", False),             # doc
-    ("tests/Makefile.am", False),          # build
-    ("tests/fonts/LICENSE", False),        # license, not oracle
-])
+
+@pytest.mark.parametrize(
+    "path,is_oracle",
+    [
+        ("tests/fonts/underflow.ttf", True),
+        ("test-dev/data/f/prowizard_pha_invalid_ocpt", True),
+        ("tests/standards/underflow.json", True),
+        ("tests/fuzz-tests/crash/Bad cmap.fuzz", True),
+        ("regression/poc/crash.bin", True),
+        ("test_fuzzer_x.c", False),  # not under a fixture dir
+        ("src/loaders/pha.c", False),  # source, not oracle
+        ("tests/CMakeLists.txt", False),  # build wiring, not oracle
+        ("docs/Changelog", False),  # doc
+        ("tests/Makefile.am", False),  # build
+        ("tests/fonts/LICENSE", False),  # license, not oracle
+    ],
+)
 def test_is_oracle_fixture(path, is_oracle):
     assert bp._is_oracle_fixture(path) == is_oracle
 
@@ -452,8 +547,11 @@ def test_extract_fixtures_caps_runaway(tmp_path):
 
     with pytest.raises(bp.BackportReject):
         bp.extract_fix_fixtures(
-            repo_url="https://example.invalid/x", commit_sha="abc",
-            out_dir=tmp_path / "out", workdir=tmp_path, runner=runner,
+            repo_url="https://example.invalid/x",
+            commit_sha="abc",
+            out_dir=tmp_path / "out",
+            workdir=tmp_path,
+            runner=runner,
         )
 
 
@@ -466,29 +564,37 @@ def test_integration_extract_oracle_fixtures(tmp_path):
     exact binary fixture used in its cert; graphite2's carries the malicious
     underflow.ttf. The tool must extract precisely those (a focused handful)."""
     lx = bp.extract_fix_fixtures(
-        repo_url="https://github.com/libxmp/libxmp", commit_sha="004a102c5a",
-        out_dir=tmp_path / "lx", workdir=tmp_path / "lxwork",
+        repo_url="https://github.com/libxmp/libxmp",
+        commit_sha="004a102c5a",
+        out_dir=tmp_path / "lx",
+        workdir=tmp_path / "lxwork",
     )
     assert any("prowizard_pha_invalid_ocpt" in f for f in lx)
     assert len(lx) <= bp._MAX_FIXTURES
     # the extracted binary fixture is non-empty bytes
-    assert (tmp_path / "lx" / "test-dev/data/f/prowizard_pha_invalid_ocpt").stat().st_size > 0
+    assert (
+        tmp_path / "lx" / "test-dev/data/f/prowizard_pha_invalid_ocpt"
+    ).stat().st_size > 0
 
     g2 = bp.extract_fix_fixtures(
         repo_url="https://github.com/silnrsi/graphite",
         commit_sha="ad78c6b7319909e1540c1b134e115ced03417866",
-        out_dir=tmp_path / "g2", workdir=tmp_path / "g2work",
+        out_dir=tmp_path / "g2",
+        workdir=tmp_path / "g2work",
     )
     assert any(f.endswith("underflow.ttf") for f in g2)
     assert (tmp_path / "g2" / "tests/fonts/underflow.ttf").stat().st_size > 1000
 
 
-@pytest.mark.parametrize("evil", [
-    "tests/../../../etc/cron.d/x",   # traversal
-    "tests/-rf",                      # leading-dash component (arg injection)
-    "tests/a\x00b",                   # NUL
-    "tests/a\nb.ttf",                 # control char
-])
+@pytest.mark.parametrize(
+    "evil",
+    [
+        "tests/../../../etc/cron.d/x",  # traversal
+        "tests/-rf",  # leading-dash component (arg injection)
+        "tests/a\x00b",  # NUL
+        "tests/a\nb.ttf",  # control char
+    ],
+)
 def test_safe_fixture_name_rejects_dangerous(evil):
     assert bp._safe_fixture_name(evil) is False
 
@@ -512,6 +618,7 @@ def _fixtures_runner(*, numstat, mode="100644 blob abc\tp", catsize="100"):
         if c == "cat-file":
             return _completed(stdout=catsize)
         return _completed()
+
     return runner
 
 
@@ -519,11 +626,15 @@ def test_extract_skips_symlink_mode(tmp_path, capsys):
     """A 120000 (symlink) blob must NOT be materialised — its content is a target
     path (escape primitive). Mode-filtered out (core.symlinks=false governs only
     checkout, not our manual blob write)."""
-    r = _fixtures_runner(numstat="5\t0\ttests/fonts/evil",
-                         mode="120000 blob deadbeef\ttests/fonts/evil")
+    r = _fixtures_runner(
+        numstat="5\t0\ttests/fonts/evil", mode="120000 blob deadbeef\ttests/fonts/evil"
+    )
     kept = bp.extract_fix_fixtures(
-        repo_url="https://example.invalid/x", commit_sha="abc",
-        out_dir=tmp_path / "out", workdir=tmp_path / "wk", runner=r,
+        repo_url="https://example.invalid/x",
+        commit_sha="abc",
+        out_dir=tmp_path / "out",
+        workdir=tmp_path / "wk",
+        runner=r,
     )
     assert kept == []
     assert "non-regular git mode 120000" in capsys.readouterr().out
@@ -533,24 +644,35 @@ def test_extract_skips_traversal_and_unsafe_names(tmp_path):
     """`..`/unsafe fixture paths are skipped (never written outside out_dir)."""
     r = _fixtures_runner(numstat="5\t0\ttests/../../escape")
     kept = bp.extract_fix_fixtures(
-        repo_url="https://example.invalid/x", commit_sha="abc",
-        out_dir=tmp_path / "out", workdir=tmp_path / "wk", runner=r,
+        repo_url="https://example.invalid/x",
+        commit_sha="abc",
+        out_dir=tmp_path / "out",
+        workdir=tmp_path / "wk",
+        runner=r,
     )
     assert kept == []
     assert not (tmp_path / "escape").exists()
 
 
 def test_extract_regular_blob_is_written(tmp_path):
-    r = _fixtures_runner(numstat="5\t0\ttests/fonts/ok.ttf",
-                         mode="100644 blob abc\ttests/fonts/ok.ttf")
+    r = _fixtures_runner(
+        numstat="5\t0\ttests/fonts/ok.ttf", mode="100644 blob abc\ttests/fonts/ok.ttf"
+    )
     # patch _extract_blob to avoid a real binary git call in the unit path
     import tools.trace_cli.backport_patch as _bp
+
     orig = _bp._extract_blob
-    _bp._extract_blob = lambda repo, sha, path, dest: (dest.parent.mkdir(parents=True, exist_ok=True), dest.write_bytes(b"x"))
+    _bp._extract_blob = lambda repo, sha, path, dest: (
+        dest.parent.mkdir(parents=True, exist_ok=True),
+        dest.write_bytes(b"x"),
+    )
     try:
         kept = bp.extract_fix_fixtures(
-            repo_url="https://example.invalid/x", commit_sha="abc",
-            out_dir=tmp_path / "out", workdir=tmp_path / "wk", runner=r,
+            repo_url="https://example.invalid/x",
+            commit_sha="abc",
+            out_dir=tmp_path / "out",
+            workdir=tmp_path / "wk",
+            runner=r,
         )
     finally:
         _bp._extract_blob = orig

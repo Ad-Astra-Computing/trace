@@ -26,14 +26,21 @@ def _live_report(name: str) -> Path:
 
 
 def _archived_report(name: str) -> Path:
-    return REPO_ROOT / "traces" / "example" / name / "_first-run-archive" / "review-scoring-report.json"
+    return (
+        REPO_ROOT
+        / "traces"
+        / "example"
+        / name
+        / "_first-run-archive"
+        / "review-scoring-report.json"
+    )
 
 
 def test_two_live_runs_aggregate_to_expected_rates() -> None:
     """The committed two reviewer scoring reports should aggregate to:
-       accept=1, reject=1; attestation_correct_rate=0.0;
-       evidence_cited_mean=1.0; disagreement_rate=0.5 (1 of 2 runs
-       contradicted Steward)."""
+    accept=1, reject=1; attestation_correct_rate=0.0;
+    evidence_cited_mean=1.0; disagreement_rate=0.5 (1 of 2 runs
+    contradicted Steward)."""
     reports = [
         _live_report("CVE-2026-25949--traefik"),
         _archived_report("CVE-2026-25949--traefik"),
@@ -85,26 +92,54 @@ def _synthetic_report(
     """Write a minimal review-scoring-report.json with the four-scorer
     canonical shape."""
     p = tmp_path / f"{name}.json"
-    p.write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "scope": "reviewer",
-        "bundle_dir": str(tmp_path),
-        "invocation_id": f"{name:0>8}-0000-4000-8000-000000000000"[-36:],
-        "model_id": "claude-sonnet-4-6",
-        "prompt_sha": "f" * 64,
-        "scored_at": "2026-04-27T00:00:00Z",
-        "scorers": [
-            {"scorer_name": "review-schema-valid", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False, "score": 1.0, "notes": "",
-             "details": {"verdict": verdict}},
-            {"scorer_name": "review-evidence-cited", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False, "score": evidence_score, "notes": ""},
-            {"scorer_name": "review-cross-family-attestation", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False, "score": attestation_score, "notes": ""},
-            {"scorer_name": "review-disagreement", "scorer_version": "1.0.0",
-             "applies": True, "advisory": True, "score": disagreement_score, "notes": ""},
-        ],
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "scope": "reviewer",
+                "bundle_dir": str(tmp_path),
+                "invocation_id": f"{name:0>8}-0000-4000-8000-000000000000"[-36:],
+                "model_id": "claude-sonnet-4-6",
+                "prompt_sha": "f" * 64,
+                "scored_at": "2026-04-27T00:00:00Z",
+                "scorers": [
+                    {
+                        "scorer_name": "review-schema-valid",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 1.0,
+                        "notes": "",
+                        "details": {"verdict": verdict},
+                    },
+                    {
+                        "scorer_name": "review-evidence-cited",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": evidence_score,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "review-cross-family-attestation",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": attestation_score,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "review-disagreement",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": True,
+                        "score": disagreement_score,
+                        "notes": "",
+                    },
+                ],
+            }
+        )
+    )
     return p
 
 
@@ -128,51 +163,94 @@ def test_attestation_correct_rate_partial(tmp_path: Path) -> None:
         _synthetic_report(tmp_path, name="r3", verdict="accept", attestation_score=0.0),
     ]
     result = aggregate_reviewer_reports(report_paths=reports, cohort="synthetic")
-    assert abs(result.attestation_correct_rate - 2/3) < 1e-9
+    assert abs(result.attestation_correct_rate - 2 / 3) < 1e-9
 
 
 def test_disagreement_rate_counts_non_aligned(tmp_path: Path) -> None:
     """Three runs, two aligned with Steward (1.0) and one not (0.5).
     aligned-fraction = 2/3, so disagreement_rate = 1/3."""
     reports = [
-        _synthetic_report(tmp_path, name="r1", verdict="accept", disagreement_score=1.0),
-        _synthetic_report(tmp_path, name="r2", verdict="accept", disagreement_score=1.0),
-        _synthetic_report(tmp_path, name="r3", verdict="escalate", disagreement_score=0.5),
+        _synthetic_report(
+            tmp_path, name="r1", verdict="accept", disagreement_score=1.0
+        ),
+        _synthetic_report(
+            tmp_path, name="r2", verdict="accept", disagreement_score=1.0
+        ),
+        _synthetic_report(
+            tmp_path, name="r3", verdict="escalate", disagreement_score=0.5
+        ),
     ]
     result = aggregate_reviewer_reports(report_paths=reports, cohort="synthetic")
-    assert abs(result.reviewer_steward_disagreement_rate - 1/3) < 1e-9
+    assert abs(result.reviewer_steward_disagreement_rate - 1 / 3) < 1e-9
 
 
 def _synthetic_report_with_adaptation_equivalence(
-    tmp_path: Path, *, name: str, verdict: str, adaptation_equivalence_score: float,
+    tmp_path: Path,
+    *,
+    name: str,
+    verdict: str,
+    adaptation_equivalence_score: float,
 ) -> Path:
     """Like `_synthetic_report` but also carries a
     `review-adaptation-equivalence` scorer entry, for testing
     `adaptation_equivalence_correct_rate`."""
     p = tmp_path / f"{name}.json"
-    p.write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "scope": "reviewer",
-        "bundle_dir": str(tmp_path),
-        "invocation_id": f"{name:0>8}-0000-4000-8000-000000000000"[-36:],
-        "model_id": "claude-sonnet-4-6",
-        "prompt_sha": "f" * 64,
-        "scored_at": "2026-07-27T00:00:00Z",
-        "scorers": [
-            {"scorer_name": "review-schema-valid", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False, "score": 1.0, "notes": "",
-             "details": {"verdict": verdict}},
-            {"scorer_name": "review-evidence-cited", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False, "score": 1.0, "notes": ""},
-            {"scorer_name": "review-cross-family-attestation", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False, "score": 1.0, "notes": ""},
-            {"scorer_name": "review-disagreement", "scorer_version": "1.0.0",
-             "applies": True, "advisory": True, "score": 1.0, "notes": ""},
-            {"scorer_name": "review-adaptation-equivalence", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False,
-             "score": adaptation_equivalence_score, "notes": ""},
-        ],
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "scope": "reviewer",
+                "bundle_dir": str(tmp_path),
+                "invocation_id": f"{name:0>8}-0000-4000-8000-000000000000"[-36:],
+                "model_id": "claude-sonnet-4-6",
+                "prompt_sha": "f" * 64,
+                "scored_at": "2026-07-27T00:00:00Z",
+                "scorers": [
+                    {
+                        "scorer_name": "review-schema-valid",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 1.0,
+                        "notes": "",
+                        "details": {"verdict": verdict},
+                    },
+                    {
+                        "scorer_name": "review-evidence-cited",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 1.0,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "review-cross-family-attestation",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 1.0,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "review-disagreement",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": True,
+                        "score": 1.0,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "review-adaptation-equivalence",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": adaptation_equivalence_score,
+                        "notes": "",
+                    },
+                ],
+            }
+        )
+    )
     return p
 
 
@@ -180,17 +258,22 @@ def test_adaptation_equivalence_correct_rate_partial(tmp_path: Path) -> None:
     """Two matches + one miss → 2/3."""
     reports = [
         _synthetic_report_with_adaptation_equivalence(
-            tmp_path, name="a1", verdict="accept", adaptation_equivalence_score=1.0),
+            tmp_path, name="a1", verdict="accept", adaptation_equivalence_score=1.0
+        ),
         _synthetic_report_with_adaptation_equivalence(
-            tmp_path, name="a2", verdict="accept", adaptation_equivalence_score=1.0),
+            tmp_path, name="a2", verdict="accept", adaptation_equivalence_score=1.0
+        ),
         _synthetic_report_with_adaptation_equivalence(
-            tmp_path, name="a3", verdict="reject", adaptation_equivalence_score=0.0),
+            tmp_path, name="a3", verdict="reject", adaptation_equivalence_score=0.0
+        ),
     ]
     result = aggregate_reviewer_reports(report_paths=reports, cohort="synthetic")
-    assert abs(result.adaptation_equivalence_correct_rate - 2/3) < 1e-9
+    assert abs(result.adaptation_equivalence_correct_rate - 2 / 3) < 1e-9
 
 
-def test_adaptation_equivalence_correct_rate_none_when_not_applicable(tmp_path: Path) -> None:
+def test_adaptation_equivalence_correct_rate_none_when_not_applicable(
+    tmp_path: Path,
+) -> None:
     """Reports with no `review-adaptation-equivalence` entry (the common
     case — most bundles are not in the adaptation lane) leave the rate
     as None rather than 0.0."""
@@ -206,22 +289,38 @@ def test_adaptation_equivalence_ignores_non_applying_entries(tmp_path: Path) -> 
     """A `review-adaptation-equivalence` entry with applies=False (e.g. the
     verbatim lane, or an unregistered CVE) contributes nothing to the rate."""
     p = tmp_path / "not-applicable.json"
-    p.write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "scope": "reviewer",
-        "bundle_dir": str(tmp_path),
-        "invocation_id": "00000000-0000-4000-8000-000000000000",
-        "model_id": "claude-sonnet-4-6",
-        "prompt_sha": "f" * 64,
-        "scored_at": "2026-07-27T00:00:00Z",
-        "scorers": [
-            {"scorer_name": "review-schema-valid", "scorer_version": "1.0.0",
-             "applies": True, "advisory": False, "score": 1.0, "notes": "",
-             "details": {"verdict": "accept"}},
-            {"scorer_name": "review-adaptation-equivalence", "scorer_version": "1.0.0",
-             "applies": False, "advisory": False, "score": None, "notes": "not adaptation lane"},
-        ],
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "scope": "reviewer",
+                "bundle_dir": str(tmp_path),
+                "invocation_id": "00000000-0000-4000-8000-000000000000",
+                "model_id": "claude-sonnet-4-6",
+                "prompt_sha": "f" * 64,
+                "scored_at": "2026-07-27T00:00:00Z",
+                "scorers": [
+                    {
+                        "scorer_name": "review-schema-valid",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 1.0,
+                        "notes": "",
+                        "details": {"verdict": "accept"},
+                    },
+                    {
+                        "scorer_name": "review-adaptation-equivalence",
+                        "scorer_version": "1.0.0",
+                        "applies": False,
+                        "advisory": False,
+                        "score": None,
+                        "notes": "not adaptation lane",
+                    },
+                ],
+            }
+        )
+    )
     result = aggregate_reviewer_reports(report_paths=[p], cohort="synthetic")
     assert result.adaptation_equivalence_correct_rate is None
 
@@ -271,12 +370,19 @@ def test_cli_review_rate_runs_against_live_reports(capsys) -> None:
         synthetic) cited only canonical bundle artifacts.
     """
     from tools.trace_cli.cli import main as cli_main
-    rc = cli_main([
-        "eval", "review-rate",
-        "--cohort", "real-single",
-        "--reports", str(REPO_ROOT / "traces" / "example" / "**" / "review-scoring-report.json"),
-        "--format", "json",
-    ])
+
+    rc = cli_main(
+        [
+            "eval",
+            "review-rate",
+            "--cohort",
+            "real-single",
+            "--reports",
+            str(REPO_ROOT / "traces" / "example" / "**" / "review-scoring-report.json"),
+            "--format",
+            "json",
+        ]
+    )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["cohort"] == "real-single"
@@ -299,11 +405,17 @@ def test_cli_review_rate_runs_against_live_reports(capsys) -> None:
 
 def test_cli_review_rate_empty_glob_returns_invalid(capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
-    rc = cli_main([
-        "eval", "review-rate",
-        "--cohort", "synthetic",
-        "--reports", "/nonexistent/path/*.json",
-    ])
+
+    rc = cli_main(
+        [
+            "eval",
+            "review-rate",
+            "--cohort",
+            "synthetic",
+            "--reports",
+            "/nonexistent/path/*.json",
+        ]
+    )
     assert rc != 0
     err = capsys.readouterr().err
     assert "no review-scoring-report.json files matched" in err
@@ -311,12 +423,18 @@ def test_cli_review_rate_empty_glob_returns_invalid(capsys) -> None:
 
 def test_cli_review_rate_unknown_cohort_label_marked(tmp_path: Path, capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
+
     p = _synthetic_report(tmp_path, name="r1", verdict="accept")
-    rc = cli_main([
-        "eval", "review-rate",
-        "--cohort", "experimental-cohort",
-        "--reports", str(p),
-    ])
+    rc = cli_main(
+        [
+            "eval",
+            "review-rate",
+            "--cohort",
+            "experimental-cohort",
+            "--reports",
+            str(p),
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out
     assert "free-form label" in out

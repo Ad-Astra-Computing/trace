@@ -8,6 +8,7 @@ cert will judge it, and it writes `probe.json` beside the bundle rather than
 
 See docs/specs/reproducer-probe-gate.md.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -53,14 +54,21 @@ _SECRET_RES = (
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"xox[baprs]-[A-Za-z0-9-]{20,}"),
     re.compile(r"(?im)^(\s*access-tokens\s*=\s*)\S+.*$"),
-    re.compile(r"(?i)\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?))=([^\s\"']+)"),
+    re.compile(
+        r"(?i)\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?))=([^\s\"']+)"
+    ),
 )
 
 
 def redact_secrets(text: str) -> str:
     for rx in _SECRET_RES:
         if rx.groups:
-            text = rx.sub(lambda m: f"{m.group(1)}{'' if m.group(1).rstrip().endswith('=') else '='}REDACTED", text)
+            text = rx.sub(
+                lambda m: (
+                    f"{m.group(1)}{'' if m.group(1).rstrip().endswith('=') else '='}REDACTED"
+                ),
+                text,
+            )
         else:
             text = rx.sub("REDACTED", text)
     return text
@@ -94,7 +102,9 @@ def _refuse_unless_probeable(bundle_dir: Path, nixpkgs_checkout: Path | None) ->
         if not (bundle_dir / name).is_file():
             raise ProbeRefused(f"{bundle_dir} has no {name}; run the Reproducer first")
     if (bundle_dir / "refusal.json").is_file():
-        raise ProbeRefused("bundle carries a Patcher refusal.json; there is no patch to probe")
+        raise ProbeRefused(
+            "bundle carries a Patcher refusal.json; there is no patch to probe"
+        )
     bj = bundle_dir / "bundle.json"
     if bj.is_file():
         try:
@@ -178,7 +188,11 @@ def probe_bundle(
     record = {
         "schema_version": PROBE_SCHEMA_VERSION,
         "probed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        **{key: _sha256(bundle_dir / name) for key, name in _BOUND.items() if (bundle_dir / name).is_file()},
+        **{
+            key: _sha256(bundle_dir / name)
+            for key, name in _BOUND.items()
+            if (bundle_dir / name).is_file()
+        },
         "nixpkgs_rev": _pinned_rev(bundle_dir),
         "discriminates": _honest(verdict, hygiene, override_reason),
         "signal_unpatched_present": verdict.signal_unpatched_present,
@@ -195,7 +209,9 @@ def probe_bundle(
     # the scorers found in the log, so it must fail the probe command itself and
     # not merely the later --check.
     return (
-        EXIT_OK if _honest(verdict, hygiene, override_reason) else EXIT_NO_DISCRIMINATION
+        EXIT_OK
+        if _honest(verdict, hygiene, override_reason)
+        else EXIT_NO_DISCRIMINATION
     ), record
 
 
@@ -217,7 +233,10 @@ def check_probe(bundle_dir: Path) -> tuple[bool, str]:
 
     build_record = bundle_dir / "probe-build.json"
     if not build_record.is_file():
-        return False, "probe-build.json is missing; the probe's build record must accompany probe.json"
+        return (
+            False,
+            "probe-build.json is missing; the probe's build record must accompany probe.json",
+        )
     if _sha256(build_record) != record.get("build_json_sha256"):
         return False, "probe-build.json does not match the hash recorded in probe.json"
 
@@ -241,12 +260,20 @@ def check_probe(bundle_dir: Path) -> tuple[bool, str]:
             shutil.copyfile(bundle_dir / name, ws / name)
         shutil.copyfile(build_record, ws / "build.json")
         invocation = {"outputs": [{"path": n} for n in _REQUIRED]}
-        unpatched = ReproUnpatchedFailsScorer().score(bundle_dir=ws, invocation=invocation)
+        unpatched = ReproUnpatchedFailsScorer().score(
+            bundle_dir=ws, invocation=invocation
+        )
         patched = ReproPatchedPassesScorer().score(bundle_dir=ws, invocation=invocation)
     if not (unpatched.applies and unpatched.score == 1.0):
-        return False, f"the recorded build does not show the unpatched signal: {unpatched.notes}"
+        return (
+            False,
+            f"the recorded build does not show the unpatched signal: {unpatched.notes}",
+        )
     if not (patched.applies and patched.score == 1.0):
-        return False, f"the recorded build does not show the patched signal: {patched.notes}"
+        return (
+            False,
+            f"the recorded build does not show the patched signal: {patched.notes}",
+        )
 
     # Both signals are present. That is not yet proof both arms ran: an absence
     # predicate fires over an output file the tool never wrote. Re-derive the
@@ -278,14 +305,25 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument("bundle_dir", type=Path)
-    p.add_argument("--nixpkgs-checkout", type=Path, default=None,
-                   help="clean git checkout at the bundle's pinned nixpkgs_rev")
+    p.add_argument(
+        "--nixpkgs-checkout",
+        type=Path,
+        default=None,
+        help="clean git checkout at the bundle's pinned nixpkgs_rev",
+    )
     p.add_argument("--timeout-seconds-per-build", type=int, default=1800)
-    p.add_argument("--allow-signal-marks", default=None, metavar="REASON",
-                   help="record why an arm's hygiene marks are a false positive here, "
-                        "and let the probe pass despite them")
-    p.add_argument("--check", action="store_true",
-                   help="gate form: exit 0 only if probe.json is green and matches the current fixture")
+    p.add_argument(
+        "--allow-signal-marks",
+        default=None,
+        metavar="REASON",
+        help="record why an arm's hygiene marks are a false positive here, "
+        "and let the probe pass despite them",
+    )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="gate form: exit 0 only if probe.json is green and matches the current fixture",
+    )
 
 
 def run(args: argparse.Namespace) -> int:
@@ -295,7 +333,9 @@ def run(args: argparse.Namespace) -> int:
         return EXIT_OK if ok else EXIT_REFUSED
 
     if args.nixpkgs_checkout is None:
-        print("error: --nixpkgs-checkout is required to build the arms (a clean checkout at the pinned rev)")
+        print(
+            "error: --nixpkgs-checkout is required to build the arms (a clean checkout at the pinned rev)"
+        )
         return EXIT_REFUSED
     from agents.builder import LocalNixBuildRunner
 
@@ -324,7 +364,8 @@ def run(args: argparse.Namespace) -> int:
     print(f"  patched signal:   {verdict['signal_patched_present']}")
     print(f"  detail:           {verdict['detail']}")
     if verdict.get("signal_hygiene_notes") and (
-        not verdict["signal_hygiene_ok"] or "advisory" in verdict["signal_hygiene_notes"]
+        not verdict["signal_hygiene_ok"]
+        or "advisory" in verdict["signal_hygiene_notes"]
     ):
         print(f"  hygiene:          {verdict['signal_hygiene_notes']}")
     print(f"  wrote:            {args.bundle_dir / 'probe.json'} and probe-build.json")

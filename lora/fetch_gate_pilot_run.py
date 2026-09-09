@@ -21,6 +21,7 @@ Then commit --out-dir alongside the corresponding scored report under
 data/reports/, following the existing `data/reports/*-responses.jsonl`
 convention (see docs/DECISIONS.md for prior examples).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -43,7 +44,9 @@ def default_manifest_path_for(responses_path: str) -> str:
     """run_manifest.json lives alongside responses.jsonl in the same repo dir
     (see lora/hf_gate_pilot_job.py's manifest_path_for, the same convention)."""
     parent = Path(responses_path).parent
-    return "run_manifest.json" if str(parent) == "." else str(parent / "run_manifest.json")
+    return (
+        "run_manifest.json" if str(parent) == "." else str(parent / "run_manifest.json")
+    )
 
 
 def fetch_run(
@@ -104,19 +107,36 @@ def fetch_run(
 def _hf_hub_download_fn(repo_id: str, path_in_repo: str, repo_type: str) -> Path:
     from huggingface_hub import hf_hub_download
 
-    return Path(hf_hub_download(repo_id=repo_id, filename=path_in_repo, repo_type=repo_type))
+    return Path(
+        hf_hub_download(repo_id=repo_id, filename=path_in_repo, repo_type=repo_type)
+    )
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--adapter-repo", required=True, help="e.g. adastracomputing/reviewer-lora-v1.10")
-    ap.add_argument("--responses-path", default="gate_pilot_responses/responses.jsonl",
-                     help="path in the adapter repo, as passed to RESPONSES_PATH at dispatch")
-    ap.add_argument("--manifest-path", default=None,
-                     help="defaults to run_manifest.json alongside --responses-path")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--adapter-repo",
+        required=True,
+        help="e.g. adastracomputing/reviewer-lora-v1.10",
+    )
+    ap.add_argument(
+        "--responses-path",
+        default="gate_pilot_responses/responses.jsonl",
+        help="path in the adapter repo, as passed to RESPONSES_PATH at dispatch",
+    )
+    ap.add_argument(
+        "--manifest-path",
+        default=None,
+        help="defaults to run_manifest.json alongside --responses-path",
+    )
     ap.add_argument("--out-dir", required=True, type=Path)
-    ap.add_argument("--no-verify", action="store_true",
-                     help="skip response_sha256 verification against the manifest")
+    ap.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="skip response_sha256 verification against the manifest",
+    )
     args = ap.parse_args()
 
     summary = fetch_run(

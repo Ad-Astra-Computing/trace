@@ -36,10 +36,10 @@ from typing import Callable
 
 @dataclass(frozen=True)
 class FetchzipRequest:
-    attr_path: str           # e.g. "uriparser"
-    target_version: str      # e.g. "1.0.0"
-    current_version: str     # e.g. "0.9.9"; needed to string-substitute
-                             # within the original src's tag/rev literal
+    attr_path: str  # e.g. "uriparser"
+    target_version: str  # e.g. "1.0.0"
+    current_version: str  # e.g. "0.9.9"; needed to string-substitute
+    # within the original src's tag/rev literal
     nixpkgs_rev: str | None = None
     timeout_seconds: int = 600  # tarball download + extract + hash
 
@@ -50,8 +50,8 @@ class FetchzipSuccess:
 
     name: str
     algorithm: str
-    value: str          # SRI-form, e.g. "sha256-..."
-    source: str         # always "fetchzip-src-extract" for this module
+    value: str  # SRI-form, e.g. "sha256-..."
+    source: str  # always "fetchzip-src-extract" for this module
     prefetch_kind: str  # always "fetchzip"
     tool: str
     tool_version: str
@@ -145,7 +145,7 @@ def prefetch_fetchzip(
     )
 
 
-_PREFETCH_NIXPKGS_CONFIG = '{ config.allowUnsupportedSystem = true; }'
+_PREFETCH_NIXPKGS_CONFIG = "{ config.allowUnsupportedSystem = true; }"
 """Nixpkgs config for the fetchzip-prefetch evaluator import.
 
 Scope: this module ONLY.
@@ -219,14 +219,11 @@ def _build_expression(request: FetchzipRequest) -> str:
     if request.nixpkgs_rev:
         parts.append(
             f"let pkgs = import (fetchTarball "
-            f"\"https://github.com/NixOS/nixpkgs/archive/{request.nixpkgs_rev}.tar.gz\") "
+            f'"https://github.com/NixOS/nixpkgs/archive/{request.nixpkgs_rev}.tar.gz") '
             f"{_PREFETCH_NIXPKGS_CONFIG}; in"
         )
     else:
-        parts.append(
-            f"let pkgs = import <nixpkgs> "
-            f"{_PREFETCH_NIXPKGS_CONFIG}; in"
-        )
+        parts.append(f"let pkgs = import <nixpkgs> {_PREFETCH_NIXPKGS_CONFIG}; in")
 
     # Re-invoke the fetcher via src.override so the new version's tag/rev
     # is actually templated into the URL. Function-form override receives
@@ -249,23 +246,27 @@ def _build_expression(request: FetchzipRequest) -> str:
 
 
 def _run_nix_build_src_fod(
-    expression: str, request: FetchzipRequest,
+    expression: str,
+    request: FetchzipRequest,
 ) -> CommandRunResult:
     """Default runner. Shell out to `nix-build`, expect FOD-hash failure
     on src, parse the error for the real hash."""
     if not shutil.which("nix-build"):
-        return ("err",
-                "nix-build not on PATH; fetchzip prefetch requires Nix",
-                "", "")
+        return ("err", "nix-build not on PATH; fetchzip prefetch requires Nix", "", "")
 
     tool_version = ""
     try:
         ver = subprocess.run(
             ["nix-build", "--version"],
-            check=False, capture_output=True, text=True, timeout=10,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if ver.returncode == 0:
-            tool_version = (ver.stdout or "").strip().splitlines()[0] if ver.stdout else ""
+            tool_version = (
+                (ver.stdout or "").strip().splitlines()[0] if ver.stdout else ""
+            )
     except subprocess.SubprocessError:
         pass
 
@@ -273,37 +274,51 @@ def _run_nix_build_src_fod(
     # No `-A` argument: we want the package's default output, which
     # depends on src materialising first.
     cmd = [
-        "nix-build", "--no-out-link",
-        "-E", expression,
+        "nix-build",
+        "--no-out-link",
+        "-E",
+        expression,
     ]
     derivation_command = " ".join(cmd)
 
     try:
         result = subprocess.run(
-            cmd, check=False, capture_output=True, text=True,
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
             timeout=request.timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        return ("err",
-                f"nix-build timed out after {request.timeout_seconds}s",
-                tool_version, derivation_command)
+        return (
+            "err",
+            f"nix-build timed out after {request.timeout_seconds}s",
+            tool_version,
+            derivation_command,
+        )
     except OSError as exc:
         return ("err", f"OSError: {exc}", tool_version, derivation_command)
 
     if result.returncode == 0:
-        return ("err",
-                "nix-build succeeded with src outputHash=lib.fakeHash; the "
-                "override was bypassed or src did not require fetching",
-                tool_version, derivation_command)
+        return (
+            "err",
+            "nix-build succeeded with src outputHash=lib.fakeHash; the "
+            "override was bypassed or src did not require fetching",
+            tool_version,
+            derivation_command,
+        )
 
     combined = (result.stderr or "") + "\n" + (result.stdout or "")
     sri = _parse_fod_hash_mismatch(combined)
     if sri is None:
-        return ("err",
-                f"could not parse FOD hash mismatch from nix-build output; "
-                f"exit={result.returncode}, last-2KiB-stderr: "
-                f"{(result.stderr or '')[-1900:]!r}",
-                tool_version, derivation_command)
+        return (
+            "err",
+            f"could not parse FOD hash mismatch from nix-build output; "
+            f"exit={result.returncode}, last-2KiB-stderr: "
+            f"{(result.stderr or '')[-1900:]!r}",
+            tool_version,
+            derivation_command,
+        )
     return ("ok", sri, tool_version, derivation_command)
 
 

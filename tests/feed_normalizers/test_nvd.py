@@ -80,7 +80,9 @@ def test_cve_id_and_publication_preserved() -> None:
     cve = _cve_record()
     output = normalize_nvd(cve)
     assert output["cve_id"] == "CVE-2024-13978"
-    assert output["published_at"].startswith("2025") or output["published_at"].startswith("2024")
+    assert output["published_at"].startswith("2025") or output[
+        "published_at"
+    ].startswith("2024")
 
 
 def test_summary_is_en_description() -> None:
@@ -89,7 +91,9 @@ def test_summary_is_en_description() -> None:
     assert "summary" in output
     assert len(output["summary"]) > 10
     # The CVE-2024-13978 description mentions libtiff or fax2ps somewhere.
-    assert any(tok in output["summary"].lower() for tok in ("libtiff", "fax2ps", "tiff"))
+    assert any(
+        tok in output["summary"].lower() for tok in ("libtiff", "fax2ps", "tiff")
+    )
 
 
 def test_summary_truncated_to_max(scout_input_validator: Draft202012Validator) -> None:
@@ -127,7 +131,14 @@ def test_references_categorised() -> None:
     output = normalize_nvd(cve)
     refs = output.get("references", [])
     assert refs
-    allowed = {"advisory", "upstream-commit", "release-notes", "blog", "bug-tracker", "other"}
+    allowed = {
+        "advisory",
+        "upstream-commit",
+        "release-notes",
+        "blog",
+        "bug-tracker",
+        "other",
+    }
     for r in refs:
         assert r["url"]
         assert r["kind"] in allowed
@@ -151,16 +162,22 @@ def test_version_bounds_extracted_from_versionEndExcluding() -> None:
         "id": "CVE-2099-9001",
         "published": "2026-04-30T00:00:00Z",
         "descriptions": [{"lang": "en", "value": "x"}],
-        "configurations": [{
-            "nodes": [{
-                "operator": "OR",
-                "cpeMatch": [{
-                    "vulnerable": True,
-                    "criteria": "cpe:2.3:a:frappe:press:*:*:*:*:*:*:*:*",
-                    "versionEndExcluding": "0.9.0",
-                }],
-            }],
-        }],
+        "configurations": [
+            {
+                "nodes": [
+                    {
+                        "operator": "OR",
+                        "cpeMatch": [
+                            {
+                                "vulnerable": True,
+                                "criteria": "cpe:2.3:a:frappe:press:*:*:*:*:*:*:*:*",
+                                "versionEndExcluding": "0.9.0",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
     }
     output = normalize_nvd(cve)
     bounds = output.get("version_bounds", [])
@@ -177,16 +194,22 @@ def test_version_bounds_extracted_from_versionEndIncluding() -> None:
         "id": "CVE-2099-9002",
         "published": "2026-04-30T00:00:00Z",
         "descriptions": [{"lang": "en", "value": "x"}],
-        "configurations": [{
-            "nodes": [{
-                "operator": "OR",
-                "cpeMatch": [{
-                    "vulnerable": True,
-                    "criteria": "cpe:2.3:a:x:y:*:*:*:*:*:*:*:*",
-                    "versionEndIncluding": "1.4.5",
-                }],
-            }],
-        }],
+        "configurations": [
+            {
+                "nodes": [
+                    {
+                        "operator": "OR",
+                        "cpeMatch": [
+                            {
+                                "vulnerable": True,
+                                "criteria": "cpe:2.3:a:x:y:*:*:*:*:*:*:*:*",
+                                "versionEndIncluding": "1.4.5",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
     }
     output = normalize_nvd(cve)
     b = output["version_bounds"][0]
@@ -201,16 +224,22 @@ def test_version_bounds_omitted_when_no_end_field() -> None:
         "id": "CVE-2099-9003",
         "published": "2026-04-30T00:00:00Z",
         "descriptions": [{"lang": "en", "value": "x"}],
-        "configurations": [{
-            "nodes": [{
-                "operator": "OR",
-                "cpeMatch": [{
-                    "vulnerable": True,
-                    "criteria": "cpe:2.3:a:x:y:*:*:*:*:*:*:*:*",
-                    "versionStartIncluding": "1.0.0",
-                }],
-            }],
-        }],
+        "configurations": [
+            {
+                "nodes": [
+                    {
+                        "operator": "OR",
+                        "cpeMatch": [
+                            {
+                                "vulnerable": True,
+                                "criteria": "cpe:2.3:a:x:y:*:*:*:*:*:*:*:*",
+                                "versionStartIncluding": "1.0.0",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
     }
     output = normalize_nvd(cve)
     assert "version_bounds" not in output or output["version_bounds"] == []

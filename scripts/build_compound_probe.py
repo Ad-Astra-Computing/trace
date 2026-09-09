@@ -41,6 +41,7 @@ Usage:
     --prompt prompts/reviewer.v9.md \\
     --out    data/probes/compound-guard-probe.jsonl
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,17 +61,36 @@ def _load_json(p: Path) -> dict | None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--probes", type=Path, default=ROOT / "traces" / "probes" / "compound-guard",
-                     help="probe bundle root (default traces/probes/compound-guard)")
-    ap.add_argument("--prompt", type=Path, default=ROOT / "prompts" / "reviewer.v9.md",
-                     help="reviewer system prompt to embed (default prompts/reviewer.v9.md, "
-                          "matching REVIEWER_PROMPT_PATH_DEFAULT / the v1.10 gate-pilot build)")
-    ap.add_argument("--out", type=Path, default=ROOT / "data" / "probes" / "compound-guard-probe.jsonl",
-                     help="output JSONL path")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--probes",
+        type=Path,
+        default=ROOT / "traces" / "probes" / "compound-guard",
+        help="probe bundle root (default traces/probes/compound-guard)",
+    )
+    ap.add_argument(
+        "--prompt",
+        type=Path,
+        default=ROOT / "prompts" / "reviewer.v9.md",
+        help="reviewer system prompt to embed (default prompts/reviewer.v9.md, "
+        "matching REVIEWER_PROMPT_PATH_DEFAULT / the v1.10 gate-pilot build)",
+    )
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=ROOT / "data" / "probes" / "compound-guard-probe.jsonl",
+        help="output JSONL path",
+    )
     args = ap.parse_args()
 
-    from tools.trace_cli.export import _build_user_turn, _normalize_attr, _redact, SCHEMA_VERSION
+    from tools.trace_cli.export import (
+        _build_user_turn,
+        _normalize_attr,
+        _redact,
+        SCHEMA_VERSION,
+    )
 
     if not args.probes.is_dir():
         print(f"error: probe root not found: {args.probes}", file=sys.stderr)
@@ -95,8 +115,10 @@ def main() -> int:
 
         user_turn = _build_user_turn(bd)
         if not user_turn:
-            print(f"  SKIP {bd.name} (_build_user_turn failed -- missing package.nix/"
-                  f"patch.diff/patch-rationale.md or an assemble_user_content error)")
+            print(
+                f"  SKIP {bd.name} (_build_user_turn failed -- missing package.nix/"
+                f"patch.diff/patch-rationale.md or an assemble_user_content error)"
+            )
             continue
 
         affected = finding.get("affected") or [{}]
@@ -125,19 +147,23 @@ def main() -> int:
             "note": marker.get("probe_note"),
         }
 
-        rows.append({
-            "schema_version": SCHEMA_VERSION,
-            "scope": "reviewer",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": _redact(user_turn)},
-            ],
-            "label": label,
-            "split": "canary",
-            "eligibility_for_training": False,
-            "provenance": provenance,
-        })
-        print(f"  {label:8s} {cve_id} ({attr}) mt={mutation_type} expected={expected} bundle_id={provenance['bundle_id']}")
+        rows.append(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "scope": "reviewer",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": _redact(user_turn)},
+                ],
+                "label": label,
+                "split": "canary",
+                "eligibility_for_training": False,
+                "provenance": provenance,
+            }
+        )
+        print(
+            f"  {label:8s} {cve_id} ({attr}) mt={mutation_type} expected={expected} bundle_id={provenance['bundle_id']}"
+        )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w") as fh:
@@ -147,7 +173,9 @@ def main() -> int:
     n_pos = sum(1 for r in rows if r["label"] == "positive")
     n_neg = sum(1 for r in rows if r["label"] == "negative")
     families = sorted({r["provenance"]["split_family"] for r in rows})
-    print(f"\nCompound-guard probe: {n_pos} positive + {n_neg} negative = {len(rows)} rows")
+    print(
+        f"\nCompound-guard probe: {n_pos} positive + {n_neg} negative = {len(rows)} rows"
+    )
     print(f"Families: {families}")
     print(f"Written: {args.out}")
     return 0 if rows else 1

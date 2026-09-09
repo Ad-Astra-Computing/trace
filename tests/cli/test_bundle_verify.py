@@ -30,7 +30,9 @@ def policy_path() -> Path:
     return REPO_ROOT / "policy" / "signing-identity.json"
 
 
-def _args(artifact_dir: Path, fmt: str = "json", policy: Path | None = None) -> argparse.Namespace:
+def _args(
+    artifact_dir: Path, fmt: str = "json", policy: Path | None = None
+) -> argparse.Namespace:
     return argparse.Namespace(
         cmd="bundle",
         bundle_cmd="verify",
@@ -80,7 +82,9 @@ def test_policy_missing_returns_not_found(tmp_path: Path, capsys) -> None:
     assert rc == v.EXIT_NOT_FOUND
 
 
-def test_verify_constructs_expected_cosign_invocation(tmp_path: Path, policy_path: Path) -> None:
+def test_verify_constructs_expected_cosign_invocation(
+    tmp_path: Path, policy_path: Path
+) -> None:
     artifact = tmp_path / "artifact"
     artifact.mkdir()
     (artifact / "bundle.canonical.json").write_text('{"k":"v"}')
@@ -98,8 +102,10 @@ def test_verify_constructs_expected_cosign_invocation(tmp_path: Path, policy_pat
 
         return _R()
 
-    with mock.patch.object(v.subprocess, "run", fake_run), \
-         mock.patch.object(v.shutil, "which", return_value="/fake/cosign"):
+    with (
+        mock.patch.object(v.subprocess, "run", fake_run),
+        mock.patch.object(v.shutil, "which", return_value="/fake/cosign"),
+    ):
         rc = v.run(_args(artifact, fmt="json"), repo_root=REPO_ROOT)
 
     assert rc == v.EXIT_OK
@@ -137,8 +143,10 @@ def test_cosign_failure_emits_failure_payload(tmp_path: Path, capsys) -> None:
 
         return _R()
 
-    with mock.patch.object(v.subprocess, "run", fake_run), \
-         mock.patch.object(v.shutil, "which", return_value="/fake/cosign"):
+    with (
+        mock.patch.object(v.subprocess, "run", fake_run),
+        mock.patch.object(v.shutil, "which", return_value="/fake/cosign"),
+    ):
         rc = v.run(_args(artifact, fmt="json"), repo_root=REPO_ROOT)
 
     assert rc == v.EXIT_VERIFY_FAILED

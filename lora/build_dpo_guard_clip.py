@@ -21,6 +21,7 @@ Usage:
       --train exports/authoring-lora/authoring.train.jsonl \
       --out exports/dpo-guard-clip/dpo.jsonl [--max-per-prompt 3] [--self-test]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,11 +33,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _added(diff: str) -> list[str]:
-    return [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
+    return [
+        l[1:]
+        for l in diff.splitlines()
+        if l.startswith("+") and not l.startswith("+++")
+    ]
 
 
 def _removed(diff: str) -> list[str]:
-    return [l[1:] for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
+    return [
+        l[1:]
+        for l in diff.splitlines()
+        if l.startswith("-") and not l.startswith("---")
+    ]
 
 
 def _norm(s: str) -> str:
@@ -49,8 +58,9 @@ def _norm_set(lines: list[str]) -> set[str]:
 
 def norm_exact(gen: str, ref: str) -> bool:
     """Added AND removed line-sets both equal the reference (edit correct modulo format)."""
-    return (_norm_set(_added(gen)) == _norm_set(_added(ref))
-            and _norm_set(_removed(gen)) == _norm_set(_removed(ref)))
+    return _norm_set(_added(gen)) == _norm_set(_added(ref)) and _norm_set(
+        _removed(gen)
+    ) == _norm_set(_removed(ref))
 
 
 # clip tells: a fresh clamp assignment `<lhs> = <rhs>;` or a new `if (...)`/`if ... :` guard
@@ -83,20 +93,28 @@ def _prompt_msgs(train_rows: list, idx: int) -> list | None:
 
 def self_test() -> None:
     """Confirm the clip detector fires on the 18 archived canary guard-clips."""
-    CAN = {"CVE-2022-37434": "zlib", "CVE-2026-42250": "bzip2recover",
-           "CVE-2024-47081": "requests", "CVE-2026-48526": "pyjwt"}
+    CAN = {
+        "CVE-2022-37434": "zlib",
+        "CVE-2026-42250": "bzip2recover",
+        "CVE-2024-47081": "requests",
+        "CVE-2026-48526": "pyjwt",
+    }
     refs = {}
     for l in open(ROOT / "exports/authoring-lora/authoring-canary.jsonl"):
-        r = json.loads(l); cve = (r.get("provenance") or {}).get("cve_id", "")
+        r = json.loads(l)
+        cve = (r.get("provenance") or {}).get("cve_id", "")
         if cve in CAN:
-            refs[cve] = next((m["content"] for m in r["messages"] if m["role"] == "assistant"), "")
+            refs[cve] = next(
+                (m["content"] for m in r["messages"] if m["role"] == "assistant"), ""
+            )
     fired = total = 0
     for f in (ROOT / "data/reports").glob("authoring-lora-v*-responses.jsonl"):
         for l in open(f):
             l = l.strip()
             if not l:
                 continue
-            r = json.loads(l); cve = r.get("cve_id")
+            r = json.loads(l)
+            cve = r.get("cve_id")
             if cve not in refs:
                 continue
             gen = r.get("generated", "")
@@ -105,14 +123,22 @@ def self_test() -> None:
             total += 1
             if is_guard_clip(gen, refs[cve]):
                 fired += 1
-    print(f"[self-test] clip detector fired on {fired}/{total} archived wrong canary gens")
+    print(
+        f"[self-test] clip detector fired on {fired}/{total} archived wrong canary gens"
+    )
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("samples", type=Path)
-    ap.add_argument("--train", type=Path, default=ROOT / "exports/authoring-lora/authoring.train.jsonl")
-    ap.add_argument("--out", type=Path, default=ROOT / "exports/dpo-guard-clip/dpo.jsonl")
+    ap.add_argument(
+        "--train",
+        type=Path,
+        default=ROOT / "exports/authoring-lora/authoring.train.jsonl",
+    )
+    ap.add_argument(
+        "--out", type=Path, default=ROOT / "exports/dpo-guard-clip/dpo.jsonl"
+    )
     ap.add_argument("--max-per-prompt", type=int, default=3)
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
@@ -120,8 +146,12 @@ def main() -> None:
     if args.self_test:
         self_test()
 
-    train_rows = [json.loads(l) for l in args.train.read_text().splitlines() if l.strip()]
-    samples = [json.loads(l) for l in args.samples.read_text().splitlines() if l.strip()]
+    train_rows = [
+        json.loads(l) for l in args.train.read_text().splitlines() if l.strip()
+    ]
+    samples = [
+        json.loads(l) for l in args.samples.read_text().splitlines() if l.strip()
+    ]
 
     by_idx: dict[int, list] = {}
     for s in samples:
@@ -146,11 +176,13 @@ def main() -> None:
             if key in seen:
                 continue
             seen.add(key)
-            pairs.append({
-                "prompt": msgs,
-                "chosen": [{"role": "assistant", "content": ref}],
-                "rejected": [{"role": "assistant", "content": g}],
-            })
+            pairs.append(
+                {
+                    "prompt": msgs,
+                    "chosen": [{"role": "assistant", "content": ref}],
+                    "rejected": [{"role": "assistant", "content": g}],
+                }
+            )
             kept += 1
             if kept >= args.max_per_prompt:
                 break
@@ -159,11 +191,15 @@ def main() -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("\n".join(json.dumps(p) for p in pairs) + "\n")
-    print(f"samples={len(samples)} prompts={len(by_idx)} "
-          f"prompts_with_clip={n_prompts_with_pair} PAIRS={len(pairs)} "
-          f"(max {args.max_per_prompt}/prompt)")
+    print(
+        f"samples={len(samples)} prompts={len(by_idx)} "
+        f"prompts_with_clip={n_prompts_with_pair} PAIRS={len(pairs)} "
+        f"(max {args.max_per_prompt}/prompt)"
+    )
     if dropped_no_prompt:
-        print(f"WARNING {dropped_no_prompt} train_idx had no matching prompt in --train")
+        print(
+            f"WARNING {dropped_no_prompt} train_idx had no matching prompt in --train"
+        )
     print(f"wrote {args.out}")
 
 

@@ -79,8 +79,14 @@ def test_workflow_runs_only_the_two_gated_pytest_cases() -> None:
     in ci.yml)."""
     text = _read_workflow()
     # The two qualified test-ids the workflow points at.
-    assert "tests/upstream_ref_resolver/test_prefetch.py::test_real_nix_prefetch_url_smoke" in text
-    assert "tests/upstream_ref_resolver/test_go_mod_vendor.py::test_real_traefik_go_vendor_smoke" in text
+    assert (
+        "tests/upstream_ref_resolver/test_prefetch.py::test_real_nix_prefetch_url_smoke"
+        in text
+    )
+    assert (
+        "tests/upstream_ref_resolver/test_go_mod_vendor.py::test_real_traefik_go_vendor_smoke"
+        in text
+    )
 
 
 def test_workflow_helper_script_exists_and_runs() -> None:
@@ -100,9 +106,12 @@ def test_workflow_helper_script_exists_and_runs() -> None:
 def test_workflow_resolver_input_fixture_exists() -> None:
     """The bind resolver-input.json fixture the workflow copies into the
     bundle dir must be on disk."""
-    fixture = REPO_ROOT / "tests" / "fixtures" / "real-ci" / "bind" / "resolver-input.json"
+    fixture = (
+        REPO_ROOT / "tests" / "fixtures" / "real-ci" / "bind" / "resolver-input.json"
+    )
     assert fixture.is_file()
     import json
+
     doc = json.loads(fixture.read_text())
     assert doc["cve_id"] == "CVE-2025-13878"
     assert doc["attr_path"] == "bind"

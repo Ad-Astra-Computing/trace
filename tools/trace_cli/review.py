@@ -80,9 +80,7 @@ def summarize(reviews: list[dict[str, Any]]) -> dict[str, Any]:
 
     rejection_counts = dict(
         Counter(
-            r["primary_rejection_reason"]
-            for r in reviews
-            if r["decision"] != "merge"
+            r["primary_rejection_reason"] for r in reviews if r["decision"] != "merge"
         )
     )
 

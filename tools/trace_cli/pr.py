@@ -185,7 +185,10 @@ def run(args: argparse.Namespace) -> int:
         # authority; the provenance gate (signature + cert evidence) is kept in
         # full (peer review 2026-06-12: the PR cites the bundle as evidence, so an
         # unsigned bundle would be a forgeable, independently-unverifiable claim).
-        if kind != "human-review-required" or kind_reason != "source-backport-experimental":
+        if (
+            kind != "human-review-required"
+            or kind_reason != "source-backport-experimental"
+        ):
             print(
                 f"error: --review operates only on human-review-required "
                 f"source-backport-experimental bundles; got kind={kind!r}, "
@@ -366,8 +369,10 @@ def run(args: argparse.Namespace) -> int:
     plan = None
     if bj is not None:
         plan, plan_err = _derive_apply_plan(
-            bj, patch_diff_path,
-            Path(owned_tmp) if owned_tmp else Path(tempfile.gettempdir()))
+            bj,
+            patch_diff_path,
+            Path(owned_tmp) if owned_tmp else Path(tempfile.gettempdir()),
+        )
         if plan_err:
             print(f"error: {plan_err}", file=sys.stderr)
             _cleanup(owned_tmp)
@@ -384,8 +389,11 @@ def run(args: argparse.Namespace) -> int:
             )
             _cleanup(owned_tmp)
             return EXIT_INVALID
-        plan = {"package_dir": package_dir_rel, "patch_path": patch_diff_path,
-                "mode": "attr-fallback"}
+        plan = {
+            "package_dir": package_dir_rel,
+            "patch_path": patch_diff_path,
+            "mode": "attr-fallback",
+        }
     package_dir_rel = plan["package_dir"]
     apply_patch_path = plan["patch_path"]
     print(f"  apply plan: mode={plan['mode']} dir={package_dir_rel or '<repo-root>'}")
@@ -404,10 +412,16 @@ def run(args: argparse.Namespace) -> int:
 
     # Review mode is dry-run BY DEFAULT (outward-facing draft PR for an
     # experimental backport): require an explicit --execute to actually open it.
-    effective_dry_run = args.dry_run or (review_mode and not getattr(args, "execute", False))
+    effective_dry_run = args.dry_run or (
+        review_mode and not getattr(args, "execute", False)
+    )
     if effective_dry_run:
-        why = "--dry-run" if args.dry_run else "--review default (pass --execute to open)"
-        print(f"[dry-run] mode:          {'review (draft PR)' if review_mode else 'auto-merge'}")
+        why = (
+            "--dry-run" if args.dry_run else "--review default (pass --execute to open)"
+        )
+        print(
+            f"[dry-run] mode:          {'review (draft PR)' if review_mode else 'auto-merge'}"
+        )
         print(f"[dry-run] bundle:        {cve_id} ({bundle_id})")
         print(f"[dry-run] fork:          {fork_owner}/{fork_repo}")
         print(f"[dry-run] base branch:   {base_branch}")
@@ -422,8 +436,13 @@ def run(args: argparse.Namespace) -> int:
             # base leaves the sentence out rather than asserting a wrong one.
             try:
                 preview_base = _resolve_base(
-                    fork_owner, fork_repo, base_branch, nixpkgs_rev,
-                    nixpkgs_dir, push_url, push_missing_base=False,
+                    fork_owner,
+                    fork_repo,
+                    base_branch,
+                    nixpkgs_rev,
+                    nixpkgs_dir,
+                    push_url,
+                    push_missing_base=False,
                 )
             except RuntimeError as e:
                 preview_base = None
@@ -434,10 +453,15 @@ def run(args: argparse.Namespace) -> int:
             print(f"[dry-run] --- PR body ---")
             # The preview is the approval surface: it has to be the body that
             # would be posted, base sentence included.
-            print(_build_pr_body(
-                bundle, bundle_dir, args.cert_run_url,
-                review=True, base_branch=preview_base,
-            ))
+            print(
+                _build_pr_body(
+                    bundle,
+                    bundle_dir,
+                    args.cert_run_url,
+                    review=True,
+                    base_branch=preview_base,
+                )
+            )
         print(f"[dry-run] stopping here ({why})")
         _cleanup(owned_tmp)
         return EXIT_OK
@@ -482,8 +506,12 @@ def run(args: argparse.Namespace) -> int:
 
     # The PR must be exactly this commit on the pinned revision. Anything else is
     # refused before it leaves the machine.
-    ok, why = _commit_is_only_the_patch(nixpkgs_dir, nixpkgs_rev, package_dir_rel,
-                                        allowed_files=plan.get("files_changed"))
+    ok, why = _commit_is_only_the_patch(
+        nixpkgs_dir,
+        nixpkgs_rev,
+        package_dir_rel,
+        allowed_files=plan.get("files_changed"),
+    )
     if not ok:
         print(f"error: refusing to push: {why}", file=sys.stderr)
         _cleanup(owned_tmp)
@@ -498,15 +526,20 @@ def run(args: argparse.Namespace) -> int:
 
     # ── 10. create PR against a base that contains the pinned revision ─────
     try:
-        base_branch = _resolve_base(fork_owner, fork_repo, base_branch, nixpkgs_rev, nixpkgs_dir, push_url)
+        base_branch = _resolve_base(
+            fork_owner, fork_repo, base_branch, nixpkgs_rev, nixpkgs_dir, push_url
+        )
     except RuntimeError as e:
         print(f"error: {e}", file=sys.stderr)
         _cleanup(owned_tmp)
         return EXIT_GIT_FAIL
     print(f"  PR base: {base_branch}")
     pr_body = _build_pr_body(
-        bundle, bundle_dir, args.cert_run_url,
-        review=review_mode, base_branch=base_branch,
+        bundle,
+        bundle_dir,
+        args.cert_run_url,
+        review=review_mode,
+        base_branch=base_branch,
     )
     pr_url, rc = _gh_pr_create(
         nixpkgs_dir=nixpkgs_dir,
@@ -583,8 +616,9 @@ def _load_policy(args: argparse.Namespace) -> tuple[dict[str, Any] | None, str |
 _ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$")
 
 
-def _verify_manifest_bytes(bundle_dir: Path, bundle: dict,
-                           name: str) -> tuple[bytes | None, str | None]:
+def _verify_manifest_bytes(
+    bundle_dir: Path, bundle: dict, name: str
+) -> tuple[bytes | None, str | None]:
     """Return the bytes of bundle_dir/<name> AFTER verifying their sha256 against the
     signed bundle.json manifest — so neither a tampered nor a DELETED file (which would
     silently downgrade to a weaker path) can steer the apply. Returns (bytes | None,
@@ -594,20 +628,27 @@ def _verify_manifest_bytes(bundle_dir: Path, bundle: dict,
     p = bundle_dir / name
     if not p.is_file():
         # manifest lists it but it is gone on disk → tamper / downgrade attempt (M1)
-        return (None, f"{name} is in the signed manifest but missing on disk") if entry \
+        return (
+            (None, f"{name} is in the signed manifest but missing on disk")
+            if entry
             else (None, None)
+        )
     if not isinstance(entry, dict) or not entry.get("sha256"):
         return None, f"{name} present on disk but absent from the signed manifest"
-    raw = p.read_bytes()                                   # hash and parse the SAME bytes (M3)
+    raw = p.read_bytes()  # hash and parse the SAME bytes (M3)
     got = hashlib.sha256(raw).hexdigest()
     if got != entry["sha256"]:
-        return None, (f"{name} does not match the signed manifest "
-                      f"(got {got[:12]}, want {entry['sha256'][:12]}) — "
-                      "bundle tampered or stale-finalized")
+        return None, (
+            f"{name} does not match the signed manifest "
+            f"(got {got[:12]}, want {entry['sha256'][:12]}) — "
+            "bundle tampered or stale-finalized"
+        )
     return raw, None
 
 
-def _verify_build_json(bundle_dir: Path, bundle: dict) -> tuple[dict | None, str | None]:
+def _verify_build_json(
+    bundle_dir: Path, bundle: dict
+) -> tuple[dict | None, str | None]:
     """The manifest-verified build.json dict (or None to fall back on a legacy bundle)."""
     raw, err = _verify_manifest_bytes(bundle_dir, bundle, "build.json")
     if err or raw is None:
@@ -643,8 +684,9 @@ def _diff_effective_paths(patch_text: str) -> set[str]:
     return paths
 
 
-def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
-                       tmpdir: Path) -> tuple[dict | None, str | None]:
+def _derive_apply_plan(
+    build_json: dict, patch_diff_path: Path, tmpdir: Path
+) -> tuple[dict | None, str | None]:
     """From the SIGNED build.json apply record, derive the PR apply plan — replaying
     what the cert proved instead of re-resolving. Returns (plan | None, error | None);
     (None, None) means no apply record → caller falls back. plan['package_dir'] is ''
@@ -662,17 +704,26 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
         pkg_dir, base = posixpath.dirname(target), posixpath.basename(target)
         if not _NIX_BASENAME_RE.match(base) or not pkg_dir.startswith("pkgs/"):
             return None, f"build.json remap target is unsafe: {target!r}"
-        if base == "package.nix":                       # no real remap needed
-            return {"package_dir": pkg_dir, "patch_path": patch_diff_path,
-                    "mode": "by-name"}, None
-        remapped = _remap_diff_basename(patch_diff_path.read_text(), "package.nix", base)
+        if base == "package.nix":  # no real remap needed
+            return {
+                "package_dir": pkg_dir,
+                "patch_path": patch_diff_path,
+                "mode": "by-name",
+            }, None
+        remapped = _remap_diff_basename(
+            patch_diff_path.read_text(), "package.nix", base
+        )
         # a dedicated temp file (not the checkout tree) — no clobber, no PR leak (M4)
-        tf = tempfile.NamedTemporaryFile(mode="w", suffix=".remapped.diff",
-                                         dir=str(tmpdir), delete=False)
+        tf = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".remapped.diff", dir=str(tmpdir), delete=False
+        )
         tf.write(remapped)
         tf.close()
-        return {"package_dir": pkg_dir, "patch_path": Path(tf.name),
-                "mode": "canonical-package-remap"}, None
+        return {
+            "package_dir": pkg_dir,
+            "patch_path": Path(tf.name),
+            "mode": "canonical-package-remap",
+        }, None
     # canonical-source-backport-remap: a multi-file source-backport (bundle-relative
     # package.nix wiring + authored <CVE>.patch) whose package.nix the Builder
     # remapped onto the real non-by-name file (e.g. default.nix) by content match
@@ -682,7 +733,10 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
     if remap and pa.get("apply_mode") == "canonical-source-backport-remap":
         dirs = {posixpath.dirname(f) for f in files}
         if len(dirs) != 1 or not next(iter(dirs)).startswith("pkgs/"):
-            return None, f"build.json remap record does not name one pkgs/ dir: {files!r}"
+            return (
+                None,
+                f"build.json remap record does not name one pkgs/ dir: {files!r}",
+            )
         pkg_dir = dirs.pop()
         nix_targets = [posixpath.basename(f) for f in files if f.endswith(".nix")]
         if len(nix_targets) != 1 or not _NIX_BASENAME_RE.match(nix_targets[0]):
@@ -696,7 +750,10 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
                 "refresh build.json"
             )
         if "package.nix" not in effective:
-            return None, "build.json records a package.nix remap but patch.diff does not touch package.nix"
+            return (
+                None,
+                "build.json records a package.nix remap but patch.diff does not touch package.nix",
+            )
         remapped_effective = {target if e == "package.nix" else e for e in effective}
         unlisted = sorted(remapped_effective - {posixpath.basename(f) for f in files})
         if unlisted:
@@ -705,18 +762,27 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
                 f"{unlisted!r}: the signed apply record is inconsistent with the patch; "
                 "re-cert to refresh build.json"
             )
-        remapped = _remap_diff_basename(patch_diff_path.read_text(), "package.nix", target)
-        tf = tempfile.NamedTemporaryFile(mode="w", suffix=".remapped.diff",
-                                         dir=str(tmpdir), delete=False)
+        remapped = _remap_diff_basename(
+            patch_diff_path.read_text(), "package.nix", target
+        )
+        tf = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".remapped.diff", dir=str(tmpdir), delete=False
+        )
         tf.write(remapped)
         tf.close()
-        return {"package_dir": pkg_dir, "patch_path": Path(tf.name),
-                "mode": "canonical-source-backport-remap",
-                "files_changed": list(files)}, None
+        return {
+            "package_dir": pkg_dir,
+            "patch_path": Path(tf.name),
+            "mode": "canonical-source-backport-remap",
+            "files_changed": list(files),
+        }, None
     # single package.nix, no remap → by-name (unchanged behaviour)
     if len(files) == 1 and files[0].endswith("/package.nix"):
-        return {"package_dir": posixpath.dirname(files[0]), "patch_path": patch_diff_path,
-                "mode": "by-name"}, None
+        return {
+            "package_dir": posixpath.dirname(files[0]),
+            "patch_path": patch_diff_path,
+            "mode": "by-name",
+        }, None
     # by-name-package-nix source-backport: the Builder applied a bundle-relative
     # diff (`a/package.nix` + the authored `a/<CVE>.patch`) with --directory into
     # ONE package dir, and recorded the resulting repo paths. Replay exactly that:
@@ -741,8 +807,12 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
                 f"{unlisted!r}: the signed apply record is inconsistent with the patch; "
                 "re-cert to refresh build.json"
             )
-        return {"package_dir": pkg_dir, "patch_path": patch_diff_path,
-                "mode": "by-name-package-nix", "files_changed": list(files)}, None
+        return {
+            "package_dir": pkg_dir,
+            "patch_path": patch_diff_path,
+            "mode": "by-name-package-nix",
+            "files_changed": list(files),
+        }, None
     # multi-file / non-package.nix → repo-root apply (paths already pkgs/-contained).
     # Carry the verified file list so staging is exact — a repo-root `git add` must
     # not sweep unrelated WIP from a dirty --nixpkgs-checkout into the PR (M2).
@@ -759,15 +829,26 @@ def _derive_apply_plan(build_json: dict, patch_diff_path: Path,
             f"{unlisted!r} — the signed apply record is inconsistent with the patch; "
             "re-cert to refresh build.json"
         )
-    return {"package_dir": "", "patch_path": patch_diff_path, "mode": "repo-root",
-            "files_changed": list(files)}, None
+    return {
+        "package_dir": "",
+        "patch_path": patch_diff_path,
+        "mode": "repo-root",
+        "files_changed": list(files),
+    }, None
 
 
-REVIEW_TITLE_FORMAT_DEFAULT = "{cve_id}: {attr_path}, backport upstream fix (no version bump)"
+REVIEW_TITLE_FORMAT_DEFAULT = (
+    "{cve_id}: {attr_path}, backport upstream fix (no version bump)"
+)
 
 
-def _pr_title(policy: dict, review_mode: bool, cve_id: str, attr_path: str,
-              target_version: str | None) -> str:
+def _pr_title(
+    policy: dict,
+    review_mode: bool,
+    cve_id: str,
+    attr_path: str,
+    target_version: str | None,
+) -> str:
     """Auto-merge PRs bump to `target_version`. Review-mode PRs author an in-tree
     backport at the CURRENT version, so the bump-shaped title would misread as a
     version bump; they use `pr_convention.review_title_format` (policy) instead."""
@@ -775,8 +856,9 @@ def _pr_title(policy: dict, review_mode: bool, cve_id: str, attr_path: str,
     fmt = conv["title_format"]
     if review_mode:
         fmt = conv.get("review_title_format", REVIEW_TITLE_FORMAT_DEFAULT)
-    return fmt.format(cve_id=cve_id, attr_path=attr_path,
-                      target_version=target_version or "unknown")
+    return fmt.format(
+        cve_id=cve_id, attr_path=attr_path, target_version=target_version or "unknown"
+    )
 
 
 def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
@@ -830,7 +912,7 @@ def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
     bare_expr = f"(import {nixpkgs_abs} {{}}).{attr}.meta.position"
     nixpkgs_json = json.dumps(nixpkgs_abs)
     quoted_expr = (
-        f"(import (builtins.path {{ path = {nixpkgs_json}; name = \"nixpkgs\"; }}) "
+        f'(import (builtins.path {{ path = {nixpkgs_json}; name = "nixpkgs"; }}) '
         f"{{}}).{attr}.meta.position"
     )
 
@@ -840,7 +922,10 @@ def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
     try:
         proc = subprocess.run(
             ["nix-instantiate", "--eval", "--raw", "--expr", bare_expr],
-            check=False, capture_output=True, text=True, timeout=60,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         result = _position_from_proc(proc)
         if result is not None:
@@ -853,7 +938,10 @@ def _resolve_attr_package_dir(nixpkgs: Path, attr: str) -> str | None:
     try:
         proc = subprocess.run(
             ["nix", "eval", "--raw", "--impure", "--expr", quoted_expr],
-            check=False, capture_output=True, text=True, timeout=60,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         return _position_from_proc(proc)
     except (OSError, subprocess.SubprocessError):
@@ -878,8 +966,7 @@ def _shallow_clone(fork_url: str, rev: str, dest: Path) -> int:
         r = subprocess.run(cmd, check=False, capture_output=True, text=True)
         if r.returncode != 0:
             print(
-                f"  git step failed: {' '.join(cmd)}\n"
-                f"  stderr: {r.stderr[:500]}",
+                f"  git step failed: {' '.join(cmd)}\n  stderr: {r.stderr[:500]}",
                 file=sys.stderr,
             )
             return r.returncode
@@ -893,9 +980,14 @@ def _git_apply_check(nixpkgs: Path, package_dir: str, patch: Path) -> int:
     # content + context are correct. The Builder certs the patch with --recount,
     # so trace pr MUST apply it the same way or a cert-green bundle fails here.
     # An empty package_dir means a repo-root apply (paths already pkgs/-contained).
-    cmd = ["git", "apply", "--recount"] + (
-        [f"--directory={package_dir}"] if package_dir else []) + ["--check", str(patch)]
-    r = subprocess.run(cmd, cwd=str(nixpkgs), check=False, capture_output=True, text=True)
+    cmd = (
+        ["git", "apply", "--recount"]
+        + ([f"--directory={package_dir}"] if package_dir else [])
+        + ["--check", str(patch)]
+    )
+    r = subprocess.run(
+        cmd, cwd=str(nixpkgs), check=False, capture_output=True, text=True
+    )
     if r.returncode != 0:
         print(
             f"  git apply --check stderr:\n  {r.stderr[:800]}",
@@ -907,15 +999,23 @@ def _git_apply_check(nixpkgs: Path, package_dir: str, patch: Path) -> int:
 def _create_branch(nixpkgs: Path, branch: str) -> int:
     r = subprocess.run(
         ["git", "checkout", "-b", branch],
-        cwd=str(nixpkgs), check=False, capture_output=True, text=True,
+        cwd=str(nixpkgs),
+        check=False,
+        capture_output=True,
+        text=True,
     )
     return r.returncode
 
 
 def _git_apply(nixpkgs: Path, package_dir: str, patch: Path) -> int:
-    cmd = ["git", "apply", "--recount"] + (
-        [f"--directory={package_dir}"] if package_dir else []) + [str(patch)]
-    r = subprocess.run(cmd, cwd=str(nixpkgs), check=False, capture_output=True, text=True)
+    cmd = (
+        ["git", "apply", "--recount"]
+        + ([f"--directory={package_dir}"] if package_dir else [])
+        + [str(patch)]
+    )
+    r = subprocess.run(
+        cmd, cwd=str(nixpkgs), check=False, capture_output=True, text=True
+    )
     if r.returncode != 0:
         print(f"  git apply stderr:\n  {r.stderr[:800]}", file=sys.stderr)
     return r.returncode
@@ -925,6 +1025,7 @@ def _find_nixfmt() -> list[str] | None:
     """Locate nixfmt (the nixpkgs treefmt formatter). Prefer it on PATH; fall
     back to `nix run nixpkgs#nixfmt-rfc-style` when nix is available."""
     import shutil
+
     p = shutil.which("nixfmt")
     if p:
         return [p]
@@ -938,11 +1039,15 @@ def _nixfmt_modified(nixpkgs: Path, package_dir: str, patch_text: str) -> int:
     nixfmt warns + proceeds rather than blocking the PR."""
     nixfmt = _find_nixfmt()
     if nixfmt is None:
-        print("  warning: nixfmt not found; skipping formatting — the PR may fail "
-              "nixpkgs treefmt CI. Install nixfmt-rfc-style.", file=sys.stderr)
+        print(
+            "  warning: nixfmt not found; skipping formatting — the PR may fail "
+            "nixpkgs treefmt CI. Install nixfmt-rfc-style.",
+            file=sys.stderr,
+        )
         return 0
     nix_files = {
-        ln[6:].strip() for ln in patch_text.splitlines()
+        ln[6:].strip()
+        for ln in patch_text.splitlines()
         if ln.startswith("+++ b/") and ln[6:].strip().endswith(".nix")
     }
     for nf in sorted(nix_files):
@@ -951,13 +1056,16 @@ def _nixfmt_modified(nixpkgs: Path, package_dir: str, patch_text: str) -> int:
             continue
         r = subprocess.run([*nixfmt, str(target)], capture_output=True, text=True)
         if r.returncode != 0:
-            print(f"  warning: nixfmt {nf} failed ({r.stderr[:200]}); proceeding unformatted",
-                  file=sys.stderr)
+            print(
+                f"  warning: nixfmt {nf} failed ({r.stderr[:200]}); proceeding unformatted",
+                file=sys.stderr,
+            )
     return 0
 
 
-def _git_add(nixpkgs: Path, package_dir: str,
-             files_changed: list[str] | None = None) -> int:
+def _git_add(
+    nixpkgs: Path, package_dir: str, files_changed: list[str] | None = None
+) -> int:
     """Stage exactly what the signed apply record verified, never more. In repo-root
     mode the resolved `files_changed` list is staged path-by-path so a dirty
     --nixpkgs-checkout can't leak unrelated WIP into the PR (M2); those paths are the
@@ -969,7 +1077,10 @@ def _git_add(nixpkgs: Path, package_dir: str,
         add_target = ["--", package_dir] if package_dir else ["--", "pkgs"]
     r = subprocess.run(
         ["git", "add", "-A", *add_target],
-        cwd=str(nixpkgs), check=False, capture_output=True, text=True,
+        cwd=str(nixpkgs),
+        check=False,
+        capture_output=True,
+        text=True,
     )
     if r.returncode != 0:
         print(f"  git add stderr:\n  {r.stderr[:800]}", file=sys.stderr)
@@ -982,11 +1093,18 @@ def _git_commit(nixpkgs: Path, message: str) -> int:
     r = subprocess.run(
         [
             "git",
-            "-c", "user.email=trace@adastracomputing.com",
-            "-c", "user.name=trace",
-            "commit", "-m", message,
+            "-c",
+            "user.email=trace@adastracomputing.com",
+            "-c",
+            "user.name=trace",
+            "commit",
+            "-m",
+            message,
         ],
-        cwd=str(nixpkgs), check=False, capture_output=True, text=True,
+        cwd=str(nixpkgs),
+        check=False,
+        capture_output=True,
+        text=True,
     )
     if r.returncode != 0:
         print(f"  git commit stderr:\n  {r.stderr[:800]}", file=sys.stderr)
@@ -1041,7 +1159,10 @@ def _validate_push_url_override(
 def _git_push(nixpkgs: Path, fork_url: str, branch: str) -> int:
     r = subprocess.run(
         ["git", "push", fork_url, f"{branch}:{branch}"],
-        cwd=str(nixpkgs), check=False, capture_output=True, text=True,
+        cwd=str(nixpkgs),
+        check=False,
+        capture_output=True,
+        text=True,
     )
     if r.returncode != 0:
         print(f"  git push stderr:\n  {r.stderr[:800]}", file=sys.stderr)
@@ -1051,23 +1172,45 @@ def _git_push(nixpkgs: Path, fork_url: str, branch: str) -> int:
 def _gh_compare_status(owner: str, repo: str, base: str, rev: str) -> str | None:
     """GitHub's view of base...rev: identical, behind, ahead or diverged. None on failure."""
     r = subprocess.run(
-        ["gh", "api", f"repos/{owner}/{repo}/compare/{base}...{rev}", "--jq", ".status"],
-        check=False, capture_output=True, text=True,
+        [
+            "gh",
+            "api",
+            f"repos/{owner}/{repo}/compare/{base}...{rev}",
+            "--jq",
+            ".status",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
     )
     return (r.stdout or "").strip() or None if r.returncode == 0 else None
 
 
 def _git_push_refspec(nixpkgs: Path, fork_url: str, refspec: str) -> int:
-    r = subprocess.run(["git", "push", fork_url, refspec], cwd=str(nixpkgs), check=False,
-                       capture_output=True, text=True)
+    r = subprocess.run(
+        ["git", "push", fork_url, refspec],
+        cwd=str(nixpkgs),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
         print(f"  git push stderr:\n  {r.stderr[:800]}", file=sys.stderr)
     return r.returncode
 
 
-def _resolve_base(owner: str, repo: str, base_branch: str, nixpkgs_rev: str, nixpkgs_dir: Path,
-                  push_url: str, *, compare=_gh_compare_status, push=_git_push_refspec,
-                  push_missing_base: bool = True) -> str:
+def _resolve_base(
+    owner: str,
+    repo: str,
+    base_branch: str,
+    nixpkgs_rev: str,
+    nixpkgs_dir: Path,
+    push_url: str,
+    *,
+    compare=_gh_compare_status,
+    push=_git_push_refspec,
+    push_missing_base: bool = True,
+) -> str:
     """The branch the PR must target so its diff is exactly our commit.
 
     The patch branch is cut from the bundle's pinned nixpkgs_rev. When the fork's
@@ -1104,8 +1247,12 @@ def _validate_nixpkgs_rev(rev: str) -> str | None:
     return f"bundle nixpkgs_rev must be a full 40-character revision, got {rev!r}"
 
 
-def _commit_is_only_the_patch(nixpkgs: Path, nixpkgs_rev: str, package_dir_rel: str,
-                              allowed_files: list[str] | None = None) -> tuple[bool, str]:
+def _commit_is_only_the_patch(
+    nixpkgs: Path,
+    nixpkgs_rev: str,
+    package_dir_rel: str,
+    allowed_files: list[str] | None = None,
+) -> tuple[bool, str]:
     """Exactly one commit on top of the pinned revision, touching only the patch's files.
 
     With a package directory, every changed file must live under it. In repo-root
@@ -1113,16 +1260,21 @@ def _commit_is_only_the_patch(nixpkgs: Path, nixpkgs_rev: str, package_dir_rel: 
     The parent must equal the pin outright: a prefix match let an empty or
     truncated revision through.
     """
+
     def git(*a: str) -> str:
-        r = subprocess.run(["git", "-C", str(nixpkgs), *a], check=False, capture_output=True, text=True)
+        r = subprocess.run(
+            ["git", "-C", str(nixpkgs), *a], check=False, capture_output=True, text=True
+        )
         return r.stdout.strip() if r.returncode == 0 else ""
 
     if _validate_nixpkgs_rev(nixpkgs_rev):
         return False, _validate_nixpkgs_rev(nixpkgs_rev)
     parent = git("rev-parse", "HEAD~1")
     if parent != nixpkgs_rev:
-        return False, (f"HEAD~1 is {parent[:12] or '?'}, not the pinned nixpkgs_rev {nixpkgs_rev[:12]}; "
-                       "the PR would carry more than one commit")
+        return False, (
+            f"HEAD~1 is {parent[:12] or '?'}, not the pinned nixpkgs_rev {nixpkgs_rev[:12]}; "
+            "the PR would carry more than one commit"
+        )
     files = [f for f in git("diff", "--name-only", "HEAD~1..HEAD").splitlines() if f]
     if not files:
         return False, "the commit changes no files"
@@ -1135,7 +1287,10 @@ def _commit_is_only_the_patch(nixpkgs: Path, nixpkgs_rev: str, package_dir_rel: 
         stray = [f for f in files if f not in allowed]
         scope = "in the apply plan"
     if stray:
-        return False, f"the commit touches files outside the patch's scope ({scope}): {stray[:5]}"
+        return (
+            False,
+            f"the commit touches files outside the patch's scope ({scope}): {stray[:5]}",
+        )
     return True, f"{len(files)} file(s) {scope}"
 
 
@@ -1152,19 +1307,28 @@ def _gh_pr_create(
 ) -> tuple[str, int]:
     """Create a PR in the fork via gh CLI. Returns (pr_url, exit_code)."""
     cmd = [
-        "gh", "pr", "create",
-        "--repo", f"{fork_owner}/{fork_repo}",
-        "--base", base_branch,
-        "--head", branch,
-        "--title", title,
-        "--body", body,
+        "gh",
+        "pr",
+        "create",
+        "--repo",
+        f"{fork_owner}/{fork_repo}",
+        "--base",
+        base_branch,
+        "--head",
+        branch,
+        "--title",
+        title,
+        "--body",
+        body,
     ]
     if draft:
         cmd.append("--draft")  # maintainer must explicitly mark Ready-for-review
     r = subprocess.run(
         cmd,
         cwd=str(nixpkgs_dir),
-        check=False, capture_output=True, text=True,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     if r.returncode != 0:
         print(f"  gh pr create stderr:\n  {r.stderr[:800]}", file=sys.stderr)
@@ -1187,7 +1351,9 @@ def _describe_the_change(bundle_dir: Path) -> str:
     # equal to the current version. Reading that as a bump would describe the
     # change as moving the package to the version it is already on.
     if strategy == "source-backport" or (target and target == current):
-        return "This backports the fix as an in-tree patch, without bumping the package."
+        return (
+            "This backports the fix as an in-tree patch, without bumping the package."
+        )
     if target:
         return f"This moves the package to {target}, which carries the fix."
     return "This carries the fix into nixpkgs."
@@ -1213,9 +1379,9 @@ def _build_pr_body(
     sm = bundle.get("signed_manifest", {})
     log_index = sm.get("rekor_log_index")
     rekor_url = (
-        f"{_pr_snippet.REKOR_PUBLIC_LOG_URL}"
-        f"/api/v1/log/entries?logIndex={log_index}"
-        if log_index else None
+        f"{_pr_snippet.REKOR_PUBLIC_LOG_URL}/api/v1/log/entries?logIndex={log_index}"
+        if log_index
+        else None
     )
     cve_id = bundle.get("cve_id", "?")
     kind = bundle.get("kind", "?")
@@ -1260,10 +1426,13 @@ def _build_pr_body(
             fix_commits = ur.get("upstream_fix_commits") or []
         except Exception:
             pass
-        links = ", ".join(
-            f"{c.get('repo_url', '')}/commit/{c.get('commit_sha', '')}"
-            for c in fix_commits
-        ) or "the commits recorded in the bundle's upstream-ref.json"
+        links = (
+            ", ".join(
+                f"{c.get('repo_url', '')}/commit/{c.get('commit_sha', '')}"
+                for c in fix_commits
+            )
+            or "the commits recorded in the bundle's upstream-ref.json"
+        )
         paragraphs.append(
             f"{cve_id} is fixed upstream in {links}, and nixpkgs at "
             f"{nixpkgs_rev[:12]} still carries the vulnerable version. This "
@@ -1281,7 +1450,6 @@ def _build_pr_body(
             + _describe_the_change(bundle_dir)
         )
 
-
     paragraphs.append(where)
     # The tool that produced the PR, named so a reader can find it. It is the
     # generator's own signature rather than a line of body copy, so it sits
@@ -1294,6 +1462,7 @@ def _cleanup(tmp_dir: str | None) -> None:
     if tmp_dir is None:
         return
     import shutil
+
     try:
         shutil.rmtree(tmp_dir, ignore_errors=True)
     except Exception:

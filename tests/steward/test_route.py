@@ -110,14 +110,16 @@ def _eligible_upstream(
         "eligibility": {"verdict": verdict},
     }
     if with_prefetch:
-        out["prefetch_hashes"] = [{
-            "name": "src",
-            "algorithm": "sha256",
-            "value": "0" * 64,
-            "source": "nix-prefetch-url",
-            "prefetch_kind": "release-archive",
-            "replay_critical": True,
-        }]
+        out["prefetch_hashes"] = [
+            {
+                "name": "src",
+                "algorithm": "sha256",
+                "value": "0" * 64,
+                "source": "nix-prefetch-url",
+                "prefetch_kind": "release-archive",
+                "replay_critical": True,
+            }
+        ]
     out["eligibility"].update(extra)
     return out
 
@@ -125,22 +127,27 @@ def _eligible_upstream(
 def _finding(confidence: str = "high") -> dict[str, Any]:
     return {
         "cve_id": "CVE-2099-0001",
-        "affected": [{
-            "attr_path": "foo",
-            "drv_path": "attr:foo",
-            "pname": "foo",
-            "version": "1.0.0",
-            "confidence": confidence,
-            "confidence_reason": "test",
-        }],
+        "affected": [
+            {
+                "attr_path": "foo",
+                "drv_path": "attr:foo",
+                "pname": "foo",
+                "version": "1.0.0",
+                "confidence": confidence,
+                "confidence_reason": "test",
+            }
+        ],
         "mapping": {"method": "cpe-exact", "mapping_notes": "test"},
         "published_at": "2026-04-29T00:00:00Z",
         "references": [],
     }
 
 
-def test_auto_merge_eligible_when_eligible_and_high_confidence(tmp_path: Path, opa_available: bool) -> None:
+def test_auto_merge_eligible_when_eligible_and_high_confidence(
+    tmp_path: Path, opa_available: bool
+) -> None:
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(confidence="high"),
@@ -155,8 +162,11 @@ def test_auto_merge_eligible_when_eligible_and_high_confidence(tmp_path: Path, o
     assert out["cve_id"] == "CVE-2099-0001"
 
 
-def test_human_review_when_resolver_routes_to_review(tmp_path: Path, opa_available: bool) -> None:
+def test_human_review_when_resolver_routes_to_review(
+    tmp_path: Path, opa_available: bool
+) -> None:
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
@@ -168,14 +178,20 @@ def test_human_review_when_resolver_routes_to_review(tmp_path: Path, opa_availab
     )
     decision = route_inbox_entry(entry)
     assert decision["state"] == "human-review-required"
-    assert "upstream-ref-requires-human-review:major-version-jump" in decision["reason_codes"]
+    assert (
+        "upstream-ref-requires-human-review:major-version-jump"
+        in decision["reason_codes"]
+    )
 
 
-def test_human_review_when_confidence_below_high(tmp_path: Path, opa_available: bool) -> None:
+def test_human_review_when_confidence_below_high(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """Even with verdict=eligible, medium-confidence pname-heuristic
     findings can never auto-merge per rule-1 of the merge-gate policy.
     Steward routes them to review instead of letting them slip through."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(confidence="medium"),
@@ -186,8 +202,11 @@ def test_human_review_when_confidence_below_high(tmp_path: Path, opa_available: 
     assert "confidence-not-high:medium" in decision["reason_codes"]
 
 
-def test_advisory_only_when_resolver_ineligible(tmp_path: Path, opa_available: bool) -> None:
+def test_advisory_only_when_resolver_ineligible(
+    tmp_path: Path, opa_available: bool
+) -> None:
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
@@ -203,6 +222,7 @@ def test_advisory_only_when_resolver_ineligible(tmp_path: Path, opa_available: b
 
 def test_reject_when_only_mapping_failure(tmp_path: Path, opa_available: bool) -> None:
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         mapping_failure={"cve_id": "CVE-2099-0001", "reason": "no-match"},
@@ -214,6 +234,7 @@ def test_reject_when_only_mapping_failure(tmp_path: Path, opa_available: bool) -
 
 def test_reject_when_no_actionable_input(tmp_path: Path, opa_available: bool) -> None:
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(tmp_path)  # nothing
     decision = route_inbox_entry(entry)
     assert decision["state"] == "reject"
@@ -224,6 +245,7 @@ def test_decision_records_inputs_summary(tmp_path: Path, opa_available: bool) ->
     """The decision artifact must record what the policy actually saw,
     so downstream metrics can group by resolver_verdict / trigger."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
@@ -242,8 +264,11 @@ def test_decision_records_inputs_summary(tmp_path: Path, opa_available: bool) ->
     assert summary["confidence_high_only"] is True
 
 
-def test_decision_records_policy_provenance(tmp_path: Path, opa_available: bool) -> None:
+def test_decision_records_policy_provenance(
+    tmp_path: Path, opa_available: bool
+) -> None:
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
@@ -261,6 +286,7 @@ def test_decision_records_policy_provenance(tmp_path: Path, opa_available: bool)
 def test_atomic_write(tmp_path: Path, opa_available: bool) -> None:
     """A reprocess overwrites cleanly; no partial files remain."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
@@ -268,92 +294,115 @@ def test_atomic_write(tmp_path: Path, opa_available: bool) -> None:
     )
     route_inbox_entry(entry)
     route_inbox_entry(entry)
-    leftovers = [p for p in entry.iterdir() if p.name.startswith("steward-decision.json.")]
+    leftovers = [
+        p for p in entry.iterdir() if p.name.startswith("steward-decision.json.")
+    ]
     assert leftovers == [], f"temp files leaked: {leftovers}"
 
 
-def test_unanalyzed_impact_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+def test_unanalyzed_impact_routes_to_human_review(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """When impact.json is present with analysis_status != 'complete',
     Steward routes to human-review-required regardless of the resolver
     verdict. Auto-merge cannot happen on partial impact data."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
         upstream_ref=_eligible_upstream(verdict="eligible"),
     )
-    (entry / "impact.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": "CVE-2099-0001",
-        "nixpkgs_rev": "0" * 40,
-        "blast_radius_threshold": 500,
-        "threshold_policy": "v0-default",
-        "affected_attr_paths": ["foo"],
-        "reverse_closure_count": 0,
-        "reverse_closure_bucket": "<50",
-        "exceeds_threshold": False,
-        "per_attr": [],
-        "replay_critical": True,
-        "analysis_status": "skipped-v0",
-        "analysis_reason": "snapshot-backend-unimplemented",
-    }))
+    (entry / "impact.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": "CVE-2099-0001",
+                "nixpkgs_rev": "0" * 40,
+                "blast_radius_threshold": 500,
+                "threshold_policy": "v0-default",
+                "affected_attr_paths": ["foo"],
+                "reverse_closure_count": 0,
+                "reverse_closure_bucket": "<50",
+                "exceeds_threshold": False,
+                "per_attr": [],
+                "replay_critical": True,
+                "analysis_status": "skipped-v0",
+                "analysis_reason": "snapshot-backend-unimplemented",
+            }
+        )
+    )
     decision = route_inbox_entry(entry)
     assert decision["state"] == "human-review-required"
     assert "impact-unanalyzed:skipped-v0" in decision["reason_codes"]
 
 
-def test_impact_without_analysis_status_forces_review(tmp_path: Path, opa_available: bool) -> None:
+def test_impact_without_analysis_status_forces_review(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """analysis_status is optional in impact-schema.json, so absence is reachable.
     `analysis_status != "complete"` is UNDEFINED when the field is missing, which
     used to let such an impact stay auto-merge eligible. Absence means nobody
     asserted the analysis ran: fail closed."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
         upstream_ref=_eligible_upstream(verdict="eligible"),
     )
-    (entry / "impact.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": "CVE-2099-0001",
-        "nixpkgs_rev": "0" * 40,
-        "blast_radius_threshold": 500,
-        "threshold_policy": "v0-default",
-        "affected_attr_paths": ["foo"],
-        "reverse_closure_count": 42,
-        "reverse_closure_bucket": "<50",
-        "exceeds_threshold": False,
-        "per_attr": [],
-        "replay_critical": True,
-    }))
+    (entry / "impact.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": "CVE-2099-0001",
+                "nixpkgs_rev": "0" * 40,
+                "blast_radius_threshold": 500,
+                "threshold_policy": "v0-default",
+                "affected_attr_paths": ["foo"],
+                "reverse_closure_count": 42,
+                "reverse_closure_bucket": "<50",
+                "exceeds_threshold": False,
+                "per_attr": [],
+                "replay_critical": True,
+            }
+        )
+    )
     decision = route_inbox_entry(entry)
     assert decision["state"] == "human-review-required"
     assert "impact-unanalyzed:absent" in decision["reason_codes"]
 
 
-def test_complete_impact_does_not_force_review(tmp_path: Path, opa_available: bool) -> None:
+def test_complete_impact_does_not_force_review(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """Backwards-compat: impact.json with analysis_status='complete'
     behaves exactly like before (no impact.json)."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
         upstream_ref=_eligible_upstream(verdict="eligible"),
     )
-    (entry / "impact.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": "CVE-2099-0001",
-        "nixpkgs_rev": "0" * 40,
-        "blast_radius_threshold": 500,
-        "threshold_policy": "v0-default",
-        "affected_attr_paths": ["foo"],
-        "reverse_closure_count": 0,
-        "reverse_closure_bucket": "<50",
-        "exceeds_threshold": False,
-        "per_attr": [],
-        "replay_critical": True,
-        "analysis_status": "complete",
-    }))
+    (entry / "impact.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": "CVE-2099-0001",
+                "nixpkgs_rev": "0" * 40,
+                "blast_radius_threshold": 500,
+                "threshold_policy": "v0-default",
+                "affected_attr_paths": ["foo"],
+                "reverse_closure_count": 0,
+                "reverse_closure_bucket": "<50",
+                "exceeds_threshold": False,
+                "per_attr": [],
+                "replay_critical": True,
+                "analysis_status": "complete",
+            }
+        )
+    )
     decision = route_inbox_entry(entry)
     assert decision["state"] == "auto-merge-eligible"
 
@@ -362,15 +411,34 @@ def test_decision_validates_against_schema(tmp_path: Path, opa_available: bool) 
     from jsonschema import Draft202012Validator
     from agents.steward.agent import route_inbox_entry
 
-    schema_path = Path(__file__).resolve().parents[2] / "policy" / "steward-decision-schema.json"
+    schema_path = (
+        Path(__file__).resolve().parents[2] / "policy" / "steward-decision-schema.json"
+    )
     validator = Draft202012Validator(json.loads(schema_path.read_text()))
 
     cases = [
-        ("CVE-2099-1001", {"finding": _finding(), "upstream_ref": _eligible_upstream(verdict="eligible")}),
-        ("CVE-2099-1002", {"finding": _finding(), "upstream_ref": _eligible_upstream(
-            verdict="eligible-requires-human-review",
-            verdict_reason="t", human_review_trigger="major-version-jump")}),
-        ("CVE-2099-1003", {"mapping_failure": {"cve_id": "CVE-2099-1003", "reason": "x"}}),
+        (
+            "CVE-2099-1001",
+            {
+                "finding": _finding(),
+                "upstream_ref": _eligible_upstream(verdict="eligible"),
+            },
+        ),
+        (
+            "CVE-2099-1002",
+            {
+                "finding": _finding(),
+                "upstream_ref": _eligible_upstream(
+                    verdict="eligible-requires-human-review",
+                    verdict_reason="t",
+                    human_review_trigger="major-version-jump",
+                ),
+            },
+        ),
+        (
+            "CVE-2099-1003",
+            {"mapping_failure": {"cve_id": "CVE-2099-1003", "reason": "x"}},
+        ),
     ]
     for cve_id, kwargs in cases:
         e = _seed(tmp_path, cve_id=cve_id, **kwargs)
@@ -380,11 +448,14 @@ def test_decision_validates_against_schema(tmp_path: Path, opa_available: bool) 
         assert not errors, [str(x) for x in errors[:3]]
 
 
-def test_missing_prefetch_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+def test_missing_prefetch_routes_to_human_review(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """Without prefetch_hashes, Patcher's rule 8 would refuse downstream.
     Steward must surface that as a routing decision pre-flight, not
     pretend the bundle is auto-merge-ready."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(),
@@ -395,49 +466,67 @@ def test_missing_prefetch_routes_to_human_review(tmp_path: Path, opa_available: 
     assert "patcher-not-ready:missing-prefetch-hashes" in decision["reason_codes"]
 
 
-def test_prefetch_skip_required_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+def test_prefetch_skip_required_routes_to_human_review(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """A prefetch_skips[] entry with required_for_patch=true is an
     auditable refusal trigger downstream; route to review now."""
     from agents.steward.agent import route_inbox_entry
+
     upstream = _eligible_upstream(verdict="eligible")
-    upstream["prefetch_skips"] = [{
-        "name": "src",
-        "reason": "v0-no-fetcher-handler",
-        "required_for_patch": True,
-    }]
+    upstream["prefetch_skips"] = [
+        {
+            "name": "src",
+            "reason": "v0-no-fetcher-handler",
+            "required_for_patch": True,
+        }
+    ]
     entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream)
     decision = route_inbox_entry(entry)
     assert decision["state"] == "human-review-required"
     assert "patcher-not-ready:prefetch-skipped:src" in decision["reason_codes"]
 
 
-def test_prefetch_failure_required_routes_to_human_review(tmp_path: Path, opa_available: bool) -> None:
+def test_prefetch_failure_required_routes_to_human_review(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """A prefetch_failures[] entry with required_for_patch=true is the
     other auditable refusal trigger; route to review."""
     from agents.steward.agent import route_inbox_entry
+
     upstream = _eligible_upstream(verdict="eligible")
-    upstream["prefetch_failures"] = [{
-        "name": "src",
-        "reason": "404 from upstream",
-        "required_for_patch": True,
-    }]
+    upstream["prefetch_failures"] = [
+        {
+            "name": "src",
+            "reason": "404 from upstream",
+            "required_for_patch": True,
+        }
+    ]
     entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream)
     decision = route_inbox_entry(entry)
     assert decision["state"] == "human-review-required"
     assert "patcher-not-ready:prefetch-failed:src" in decision["reason_codes"]
 
 
-def test_optional_prefetch_skip_does_not_block(tmp_path: Path, opa_available: bool) -> None:
+def test_optional_prefetch_skip_does_not_block(
+    tmp_path: Path, opa_available: bool
+) -> None:
     """A prefetch_skips[] entry with required_for_patch=false is informational;
     auto-merge still rides as long as prefetch_hashes are present."""
     from agents.steward.agent import route_inbox_entry
+
     upstream = _eligible_upstream(verdict="eligible")
-    upstream["prefetch_skips"] = [{
-        "name": "vendored-cargo-deps",
-        "reason": "no-rust-vendoring-in-this-package",
-        "required_for_patch": False,
-    }]
-    entry = _seed(tmp_path, finding=_finding(), upstream_ref=upstream,
+    upstream["prefetch_skips"] = [
+        {
+            "name": "vendored-cargo-deps",
+            "reason": "no-rust-vendoring-in-this-package",
+            "required_for_patch": False,
+        }
+    ]
+    entry = _seed(
+        tmp_path,
+        finding=_finding(),
+        upstream_ref=upstream,
         impact=_analyzed_impact(),
     )
     decision = route_inbox_entry(entry)
@@ -448,6 +537,7 @@ def test_missing_opa_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     """If opa isn't on PATH, the agent must fail loudly rather than
     silently producing no decision."""
     from agents.steward.agent import route_inbox_entry, OpaUnavailable
+
     monkeypatch.setenv("PATH", "/nonexistent")
     entry = _seed(tmp_path, mapping_failure={"cve_id": "x", "reason": "y"})
     with pytest.raises(OpaUnavailable):
@@ -459,6 +549,7 @@ def test_missing_impact_file_forces_review(tmp_path: Path, opa_available: bool) 
     impact.json reached auto-merge with no blast-radius analysis at all. Nothing
     under agents/scout/ writes that file, so the live polling path always hit this."""
     from agents.steward.agent import route_inbox_entry
+
     entry = _seed(
         tmp_path,
         finding=_finding(confidence="high"),

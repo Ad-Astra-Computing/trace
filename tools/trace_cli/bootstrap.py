@@ -10,6 +10,7 @@ so the no-spend gates stay something an operator runs on purpose.
 
 See docs/specs/candidate-bootstrap.md.
 """
+
 from __future__ import annotations
 
 import json
@@ -51,7 +52,11 @@ def package_nix_path_for_attr(attr_path: str) -> str | None:
     `pkgs/by-name`, and a one-character name has no two-letter shard, so both
     return None rather than a wrong guess.
     """
-    if "." in attr_path or len(attr_path) < 2 or not re.fullmatch(r"[A-Za-z0-9_-]+", attr_path):
+    if (
+        "." in attr_path
+        or len(attr_path) < 2
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", attr_path)
+    ):
         return None
     return f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix"
 
@@ -73,6 +78,7 @@ def _declared_version(package_nix: str) -> str | None:
     found = _declared_versions(package_nix)
     return found[0] if found else None
 
+
 def commit_patch_url(repo_url: str, commit_sha: str) -> str:
     repo = repo_url.rstrip("/")
     host = repo.split("//", 1)[-1].split("/", 1)[0].lower()
@@ -84,7 +90,8 @@ def read_pinned_file(checkout: Path, rev: str, path: str) -> str:
     """The file's bytes at the pinned revision, not the working tree's copy."""
     proc = subprocess.run(
         ["git", "-C", str(checkout), "show", f"{rev}:{path}"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         raise BootstrapError(
@@ -117,7 +124,9 @@ def bootstrap_candidate(
 ) -> BootstrapResult:
     ri_path = entry_dir / "resolver-input.json"
     if not ri_path.is_file():
-        raise BootstrapError(f"{entry_dir} has no resolver-input.json; is it a screen inbox entry?")
+        raise BootstrapError(
+            f"{entry_dir} has no resolver-input.json; is it a screen inbox entry?"
+        )
     resolver_input = json.loads(ri_path.read_text())
 
     cve_id = resolver_input.get("cve_id") or entry_dir.name
@@ -132,7 +141,9 @@ def bootstrap_candidate(
             f"{cve_id}: no candidate ref carries a fix commit, so there is nothing to backport"
         )
     commit = ref["upstream_fix_commits"][0]
-    patch_url = commit_patch_url(commit.get("repo_url", ""), commit.get("commit_sha", ""))
+    patch_url = commit_patch_url(
+        commit.get("repo_url", ""), commit.get("commit_sha", "")
+    )
 
     rel_path = package_path or package_nix_path_for_attr(attr_path)
     if not rel_path:
@@ -141,7 +152,9 @@ def bootstrap_candidate(
         )
 
     if out_dir.exists() and any(out_dir.iterdir()) and not force:
-        raise BootstrapError(f"{out_dir} already exists and is not empty; pass --force to overwrite")
+        raise BootstrapError(
+            f"{out_dir} already exists and is not empty; pass --force to overwrite"
+        )
 
     package_nix = read_pinned_file(nixpkgs_checkout, nixpkgs_rev, rel_path)
 
@@ -150,7 +163,12 @@ def bootstrap_candidate(
     # which preflight only catches later, after the source has been fetched.
     pinned = _declared_versions(package_nix)
     candidate_version = resolver_input.get("current_version") or ""
-    if pinned and candidate_version and candidate_version not in pinned and not allow_version_drift:
+    if (
+        pinned
+        and candidate_version
+        and candidate_version not in pinned
+        and not allow_version_drift
+    ):
         raise BootstrapError(
             f"{cve_id}: the candidate names version {candidate_version} but {rel_path} at "
             f"{nixpkgs_rev[:12]} declares {', '.join(pinned)}. Pin the revision the screen ran against, "
@@ -168,7 +186,10 @@ def bootstrap_candidate(
         finding = json.loads(finding_src.read_text())
         for affected in finding.get("affected") or []:
             if not _DRV_PATH_RE.fullmatch(str(affected.get("drv_path") or "")):
-                pname = affected.get("pname") or affected.get("attr_path", "pkg").split(".")[-1]
+                pname = (
+                    affected.get("pname")
+                    or affected.get("attr_path", "pkg").split(".")[-1]
+                )
                 affected["drv_path"] = f"/nix/store/{'0' * 32}-{pname}.drv"
         (out_dir / "finding.json").write_text(json.dumps(finding, indent=2) + "\n")
 
@@ -183,16 +204,21 @@ def bootstrap_candidate(
     staged_ref.setdefault("changelog_url", commit_url)
     staged_ref.setdefault("advisory_urls", [commit_url])
     staged_ref.setdefault("version", resolver_input.get("current_version", ""))
-    staged_ref.setdefault("delta", {
-        "transitive_package_changes": 0,
-        "new_direct_deps": [],
-        "removed_direct_deps": [],
-        "crosses_large_delta_threshold": False,
-        "threshold_policy": "v0-default",
-    })
+    staged_ref.setdefault(
+        "delta",
+        {
+            "transitive_package_changes": 0,
+            "new_direct_deps": [],
+            "removed_direct_deps": [],
+            "crosses_large_delta_threshold": False,
+            "threshold_policy": "v0-default",
+        },
+    )
     staged_input = dict(resolver_input)
     staged_input["candidate_refs"] = [staged_ref]
-    (out_dir / "resolver-input.json").write_text(json.dumps(staged_input, indent=2) + "\n")
+    (out_dir / "resolver-input.json").write_text(
+        json.dumps(staged_input, indent=2) + "\n"
+    )
 
     drv = f"/nix/store/{'0' * 32}-{attr_path.split('.')[-1]}.drv"
     impact = {
@@ -209,15 +235,17 @@ def bootstrap_candidate(
         "exceeds_threshold": False,
         "analysis_status": "skipped-v0",
         "analysis_reason": _IMPACT_REASON,
-        "per_attr": [{
-            "attr_path": attr_path,
-            "drv_path": drv,
-            "reverse_closure_count": 0,
-            "reverse_closure_bucket": "<50",
-            "reverse_closure_sample": [],
-            "critical_downstreams": [],
-            "exceeds_threshold": False,
-        }],
+        "per_attr": [
+            {
+                "attr_path": attr_path,
+                "drv_path": drv,
+                "reverse_closure_count": 0,
+                "reverse_closure_bucket": "<50",
+                "reverse_closure_sample": [],
+                "critical_downstreams": [],
+                "exceeds_threshold": False,
+            }
+        ],
         "replay_critical": True,
     }
     (out_dir / "impact.json").write_text(json.dumps(impact, indent=2) + "\n")
@@ -253,19 +281,33 @@ def add_parser(subs) -> None:
             "before the Patcher and before preflight, on purpose."
         ),
     )
-    p.add_argument("--inbox-entry", type=Path, required=True,
-                   help="screen inbox entry for one CVE")
+    p.add_argument(
+        "--inbox-entry", type=Path, required=True, help="screen inbox entry for one CVE"
+    )
     p.add_argument("--out", type=Path, required=True, help="staging directory to write")
-    p.add_argument("--nixpkgs-checkout", type=Path, required=True,
-                   help="local nixpkgs clone to read the pinned package.nix from")
-    p.add_argument("--nixpkgs-rev", required=True, help="pinned nixpkgs revision (40 chars)")
-    p.add_argument("--package-path",
-                   help="repository-relative path to the package file, needed when the attr "
-                        "is not a pkgs/by-name package")
-    p.add_argument("--force", action="store_true", help="overwrite a non-empty output directory")
-    p.add_argument("--allow-version-drift", action="store_true",
-                   help="proceed even when the pinned package file declares a different version "
-                        "than the candidate names")
+    p.add_argument(
+        "--nixpkgs-checkout",
+        type=Path,
+        required=True,
+        help="local nixpkgs clone to read the pinned package.nix from",
+    )
+    p.add_argument(
+        "--nixpkgs-rev", required=True, help="pinned nixpkgs revision (40 chars)"
+    )
+    p.add_argument(
+        "--package-path",
+        help="repository-relative path to the package file, needed when the attr "
+        "is not a pkgs/by-name package",
+    )
+    p.add_argument(
+        "--force", action="store_true", help="overwrite a non-empty output directory"
+    )
+    p.add_argument(
+        "--allow-version-drift",
+        action="store_true",
+        help="proceed even when the pinned package file declares a different version "
+        "than the candidate names",
+    )
 
 
 def run(args) -> int:
@@ -288,5 +330,7 @@ def run(args) -> int:
     print(f"  package.nix:  {result.package_nix_path}")
     print(f"  fix patch:    {result.fix_commit_url}")
     print(f"  staged in:    {result.out_dir}")
-    print("  next:         bundle assemble, then bundle preflight before any model spend")
+    print(
+        "  next:         bundle assemble, then bundle preflight before any model spend"
+    )
     return 0

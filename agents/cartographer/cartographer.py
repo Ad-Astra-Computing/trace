@@ -51,15 +51,17 @@ def analyze(
         closure = list(graph.reverse_closure(attr))
         crit = list(graph.critical_downstreams(attr))
         count = len(closure)
-        per_attr.append({
-            "attr_path": attr,
-            "drv_path": drv,
-            "reverse_closure_count": count,
-            "reverse_closure_bucket": _bucket(count),
-            "reverse_closure_sample": closure[:sample_size],
-            "critical_downstreams": crit,
-            "exceeds_threshold": count > blast_radius_threshold,
-        })
+        per_attr.append(
+            {
+                "attr_path": attr,
+                "drv_path": drv,
+                "reverse_closure_count": count,
+                "reverse_closure_bucket": _bucket(count),
+                "reverse_closure_sample": closure[:sample_size],
+                "critical_downstreams": crit,
+                "exceeds_threshold": count > blast_radius_threshold,
+            }
+        )
         union_closure.update(closure)
         union_critical.update(crit)
 
@@ -86,9 +88,7 @@ def analyze(
     maint_section: dict[str, dict[str, Any]] = {}
     for attr in impact["affected_attr_paths"]:
         maints = list(graph.maintainers(attr))
-        maint_section[attr] = {
-            "maintainers": [_maintainer_to_dict(m) for m in maints]
-        }
+        maint_section[attr] = {"maintainers": [_maintainer_to_dict(m) for m in maints]}
 
     maintainers: dict[str, Any] = {
         "schema_version": MAINTAINERS_SCHEMA_VERSION,

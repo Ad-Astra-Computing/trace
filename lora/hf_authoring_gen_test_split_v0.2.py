@@ -23,6 +23,7 @@ Steps:
      adastracomputing/authoring-lora-canary-responses as
      authoring-lora-v0.2-test-split-responses.jsonl
 """
+
 import json
 import os
 import tempfile
@@ -33,12 +34,12 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 import torch
 
-HF_TOKEN       = os.environ["HF_TOKEN"]
-BASE_MODEL_ID  = "Qwen/Qwen2.5-Coder-14B-Instruct"
-BASE_REVISION  = "aedcc2d42b622764e023cf882b6652e646b95671"
-ADAPTER_REPO   = "adastracomputing/authoring-lora-v0.2"
-DATA_REPO      = "adastracomputing/authoring-lora-data"
-TEST_PATH      = "authoring.test.jsonl"
+HF_TOKEN = os.environ["HF_TOKEN"]
+BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
+BASE_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
+ADAPTER_REPO = "adastracomputing/authoring-lora-v0.2"
+DATA_REPO = "adastracomputing/authoring-lora-data"
+TEST_PATH = "authoring.test.jsonl"
 RESPONSES_REPO = "adastracomputing/authoring-lora-canary-responses"
 MAX_NEW_TOKENS = 4096
 
@@ -88,12 +89,13 @@ for rec in records:
     # system + user only.
     msgs = rec["messages"]
     system = next(m["content"] for m in msgs if m["role"] == "system")
-    user   = next(m["content"] for m in msgs if m["role"] == "user")
+    user = next(m["content"] for m in msgs if m["role"] == "user")
     # Identify the example: use cve_id from provenance if present, else from messages metadata
-    cve = rec.get("provenance", {}).get("cve_id", rec.get("cve_id", f"idx-{len(responses)}"))
+    cve = rec.get("provenance", {}).get(
+        "cve_id", rec.get("cve_id", f"idx-{len(responses)}")
+    )
 
-    chat = [{"role": "system", "content": system},
-            {"role": "user",   "content": user}]
+    chat = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     prompt = tokenizer.apply_chat_template(
         chat, tokenize=False, add_generation_prompt=True
     )
@@ -106,7 +108,7 @@ for rec in records:
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
-    generated_ids = out[0][inputs["input_ids"].shape[1]:]
+    generated_ids = out[0][inputs["input_ids"].shape[1] :]
     text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
     responses.append({"cve_id": cve, "generated": text})
@@ -114,7 +116,9 @@ for rec in records:
 
 api = HfApi(token=HF_TOKEN)
 try:
-    api.create_repo(repo_id=RESPONSES_REPO, repo_type="dataset", private=True, exist_ok=True)
+    api.create_repo(
+        repo_id=RESPONSES_REPO, repo_type="dataset", private=True, exist_ok=True
+    )
 except Exception as e:
     print(f"  (repo create: {e})")
 

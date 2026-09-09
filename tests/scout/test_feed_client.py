@@ -45,35 +45,43 @@ from agents.scout.feed_client import (
 )
 
 
-_DOSSIER_BODY = json.dumps({
-    "success": True,
-    "data": {
-        "cveId": "CVE-2024-13978",
-        "canonical": {
-            "id": "CVE-2024-13978",
-            "publishedAt": "2025-01-01T00:00:00Z",
-            "description": "x",
+_DOSSIER_BODY = json.dumps(
+    {
+        "success": True,
+        "data": {
+            "cveId": "CVE-2024-13978",
+            "canonical": {
+                "id": "CVE-2024-13978",
+                "publishedAt": "2025-01-01T00:00:00Z",
+                "description": "x",
+            },
+            "provenance": [],
         },
-        "provenance": [],
-    },
-    "timestamp": "2026-04-29T00:00:00Z",
-}).encode()
+        "timestamp": "2026-04-29T00:00:00Z",
+    }
+).encode()
 
 
-_NVD_BODY = json.dumps({
-    "vulnerabilities": [{
-        "cve": {
-            "id": "CVE-2024-13978",
-            "published": "2025-01-01T00:00:00.000",
-            "descriptions": [{"lang": "en", "value": "x"}],
-            "references": [],
-        },
-    }],
-    "totalResults": 1,
-}).encode()
+_NVD_BODY = json.dumps(
+    {
+        "vulnerabilities": [
+            {
+                "cve": {
+                    "id": "CVE-2024-13978",
+                    "published": "2025-01-01T00:00:00.000",
+                    "descriptions": [{"lang": "en", "value": "x"}],
+                    "references": [],
+                },
+            }
+        ],
+        "totalResults": 1,
+    }
+).encode()
 
 
-def _ok_http(body: bytes, status: int = 200, headers: dict[str, str] | None = None) -> Any:
+def _ok_http(
+    body: bytes, status: int = 200, headers: dict[str, str] | None = None
+) -> Any:
     """Build a fake `http(url, headers, timeout) -> (status, body, headers)` callable."""
     return MagicMock(return_value=(status, body, headers or {}))
 

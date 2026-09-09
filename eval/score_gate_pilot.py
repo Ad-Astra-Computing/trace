@@ -8,6 +8,7 @@ Usage:
       --responses lora-gate-pilot-v1.1-responses.jsonl \
       --out data/reports/lora-gate-pilot-v1.1.json
 """
+
 import argparse
 import json
 import re
@@ -36,8 +37,12 @@ def check_pc_grounding(generated: str, pilot_rec: dict) -> str | None:
     # Extract quoted lines from the PC section (lines starting with `- ` or `+ `)
     pc_start = generated.find("## Patch comparison")
     # Find the end of the PC section (next ## heading)
-    pc_end_match = re.search(r"\n## ", generated[pc_start + 1:])
-    pc_text = generated[pc_start: pc_start + 1 + (pc_end_match.start() if pc_end_match else len(generated))]
+    pc_end_match = re.search(r"\n## ", generated[pc_start + 1 :])
+    pc_text = generated[
+        pc_start : pc_start
+        + 1
+        + (pc_end_match.start() if pc_end_match else len(generated))
+    ]
 
     # Pull backtick-quoted lines: `- some code` or `+ some code`
     quoted_lines = re.findall(r"`[+-]\s+(.+?)`", pc_text)
@@ -85,7 +90,7 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
         # as preamble instructions inside the upstream-fix.patch section.
         nxt = re.search(
             r"\n# \S+\.(json|nix|diff|patch|md)\b",
-            content[start + 1:],
+            content[start + 1 :],
             re.IGNORECASE,
         )
         end = start + 1 + nxt.start() if nxt else len(content)
@@ -105,8 +110,8 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
         idx = generated.find(header)
         if idx < 0:
             return ""
-        end_m = re.search(r"\n## ", generated[idx + 1:])
-        return generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
+        end_m = re.search(r"\n## ", generated[idx + 1 :])
+        return generated[idx : idx + 1 + (end_m.start() if end_m else len(generated))]
 
     def _block_line_set(block: str) -> set[str]:
         """Normalized content lines from a diff block.
@@ -137,7 +142,7 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
             return True
         for line in line_set:
             if line.startswith(q_norm):
-                rest = line[len(q_norm):]
+                rest = line[len(q_norm) :]
                 if not rest or rest[0].isspace():
                     return True  # clean truncation — remaining text is whitespace-delimited
         return False
@@ -173,7 +178,9 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
         hunk_blocks = re.split(r"hunk\s+\d+\s*[—\-–]", pc_text, flags=re.IGNORECASE)
 
         for hunk_num, block in enumerate(hunk_blocks[1:], 1):
-            comparison_m = re.search(r"comparison\s*:\s*(\w[\w-]*)", block, re.IGNORECASE)
+            comparison_m = re.search(
+                r"comparison\s*:\s*(\w[\w-]*)", block, re.IGNORECASE
+            )
             if not comparison_m:
                 continue
             verdict = comparison_m.group(1).lower()
@@ -182,11 +189,13 @@ def check_pc_file_grounding(generated: str, pilot_rec: dict) -> str | None:
 
             authored_m = re.search(
                 r"patch\.diff\s*:(.*?)(?:- upstream-fix\.patch\s*:|comparison\s*:|$)",
-                block, re.DOTALL | re.IGNORECASE,
+                block,
+                re.DOTALL | re.IGNORECASE,
             )
             upstream_m = re.search(
                 r"upstream-fix\.patch\s*:(.*?)(?:- patch\.diff\s*:|comparison\s*:|$)",
-                block, re.DOTALL | re.IGNORECASE,
+                block,
+                re.DOTALL | re.IGNORECASE,
             )
 
             if authored_m and patch_diff_block:
@@ -225,7 +234,9 @@ def check_pc_extraction_order(generated: str, pilot_rec: dict) -> str | None:
     if not m:
         return None
     start = m.start()
-    nxt = re.search(r"\n# \S+\.(json|nix|diff|patch|md)\b", user_content[start + 1:], re.IGNORECASE)
+    nxt = re.search(
+        r"\n# \S+\.(json|nix|diff|patch|md)\b", user_content[start + 1 :], re.IGNORECASE
+    )
     end = start + 1 + nxt.start() if nxt else len(user_content)
     patch_diff_block = user_content[start:end]
 
@@ -237,11 +248,13 @@ def check_pc_extraction_order(generated: str, pilot_rec: dict) -> str | None:
     idx = generated.find("## patch.diff extraction")
     if idx < 0:
         return None
-    end_m = re.search(r"\n## ", generated[idx + 1:])
-    section = generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
+    end_m = re.search(r"\n## ", generated[idx + 1 :])
+    section = generated[idx : idx + 1 + (end_m.start() if end_m else len(generated))]
     # Quoted +/-/context diff lines in extraction order (skip the CTW sub-bullet,
     # whose content does not begin with a diff-prefix char).
-    quoted = [re.sub(r"\s+", " ", q.strip()) for q in re.findall(r"`[+\- ]\s*(.+?)`", section)]
+    quoted = [
+        re.sub(r"\s+", " ", q.strip()) for q in re.findall(r"`[+\- ]\s*(.+?)`", section)
+    ]
     quoted = [q for q in quoted if q]
 
     def _positions(q: str) -> list[int]:
@@ -249,7 +262,9 @@ def check_pc_extraction_order(generated: str, pilot_rec: dict) -> str | None:
         for i, bl in enumerate(block_lines):
             if not bl:
                 continue
-            if bl == q or (bl.startswith(q) and (len(bl) == len(q) or bl[len(q)] == " ")):
+            if bl == q or (
+                bl.startswith(q) and (len(bl) == len(q) or bl[len(q)] == " ")
+            ):
                 out.append(i)
         return out
 
@@ -286,7 +301,9 @@ def check_pc_role_grounding(generated: str, pilot_rec: dict) -> str | None:
     if not m:
         return None
     start = m.start()
-    nxt = re.search(r"\n# \S+\.(json|nix|diff|patch|md)\b", user_content[start + 1:], re.IGNORECASE)
+    nxt = re.search(
+        r"\n# \S+\.(json|nix|diff|patch|md)\b", user_content[start + 1 :], re.IGNORECASE
+    )
     end = start + 1 + nxt.start() if nxt else len(user_content)
     block = user_content[start:end]
 
@@ -302,18 +319,20 @@ def check_pc_role_grounding(generated: str, pilot_rec: dict) -> str | None:
         elif raw.startswith("+-"):
             removed.add(_norm(raw))
         elif raw.startswith("+") and not raw.startswith("+++"):
-            added.add(_norm(raw))          # plain added line
+            added.add(_norm(raw))  # plain added line
         elif raw.startswith("-") and not raw.startswith("---"):
-            removed.add(_norm(raw))         # plain removed line
+            removed.add(_norm(raw))  # plain removed line
     added.discard("")
     removed.discard("")
 
     idx = generated.find("## patch.diff extraction")
     if idx < 0:
         return None
-    end_m = re.search(r"\n## ", generated[idx + 1:])
-    section = generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
-    plus_quoted = [re.sub(r"\s+", " ", q.strip()) for q in re.findall(r"`\+\s+(.+?)`", section)]
+    end_m = re.search(r"\n## ", generated[idx + 1 :])
+    section = generated[idx : idx + 1 + (end_m.start() if end_m else len(generated))]
+    plus_quoted = [
+        re.sub(r"\s+", " ", q.strip()) for q in re.findall(r"`\+\s+(.+?)`", section)
+    ]
 
     def _in(q: str, s: set[str]) -> bool:
         if q in s:
@@ -332,7 +351,6 @@ def check_pc_role_grounding(generated: str, pilot_rec: dict) -> str | None:
                 f"but it is a REMOVED (-) line in patch.diff"
             )
     return None
-
 
 
 def check_pc_omission_claim(generated: str) -> str | None:
@@ -356,8 +374,8 @@ def check_pc_omission_claim(generated: str) -> str | None:
     idx = generated.find("## patch.diff extraction")
     if idx < 0:
         return None
-    end_m = re.search(r"\n## ", generated[idx + 1:])
-    section = generated[idx: idx + 1 + (end_m.start() if end_m else len(generated))]
+    end_m = re.search(r"\n## ", generated[idx + 1 :])
+    section = generated[idx : idx + 1 + (end_m.start() if end_m else len(generated))]
     quoted = [
         re.sub(r"\s+", " ", q.strip())
         for q in re.findall(r"`[+\- ]?\s*(.+?)`", section)
@@ -372,7 +390,7 @@ def check_pc_omission_claim(generated: str) -> str | None:
     quoted_blob = _norm(quoted_blob)
 
     # Prose omission claims anywhere outside the extraction section itself.
-    rest = generated[:idx] + generated[idx + len(section):]
+    rest = generated[:idx] + generated[idx + len(section) :]
     pattern = re.compile(
         r"(?:omits?|omitted|missing|lacks?|absent|does not (?:include|contain|add)|"
         r"fails to (?:include|add))\b[^`\n]{0,80}`([^`\n]{3,120})`",
@@ -409,8 +427,12 @@ def check_pc_consistency(generated: str) -> str | None:
         return None
 
     pc_start = generated.find("## Patch comparison")
-    pc_end_match = re.search(r"\n## ", generated[pc_start + 1:])
-    pc_text = generated[pc_start: pc_start + 1 + (pc_end_match.start() if pc_end_match else len(generated))]
+    pc_end_match = re.search(r"\n## ", generated[pc_start + 1 :])
+    pc_text = generated[
+        pc_start : pc_start
+        + 1
+        + (pc_end_match.start() if pc_end_match else len(generated))
+    ]
 
     # Extract per-hunk blocks separated by "hunk N" or "hunk:" markers
     # Strategy: split on blank lines and group lines that reference patch.diff vs upstream-fix.patch
@@ -425,13 +447,17 @@ def check_pc_consistency(generated: str) -> str | None:
         # Extract upstream +lines and authored +lines
         upstream_section = re.search(
             r"upstream-fix\.patch\s*:(.*?)(?:- patch\.diff\s*:|comparison\s*:|$)",
-            block, re.DOTALL | re.IGNORECASE
+            block,
+            re.DOTALL | re.IGNORECASE,
         )
         authored_section = re.search(
             r"patch\.diff\s*:(.*?)(?:- upstream-fix\.patch\s*:|comparison\s*:|$)",
-            block, re.DOTALL | re.IGNORECASE
+            block,
+            re.DOTALL | re.IGNORECASE,
         )
-        comparison_line = re.search(r"comparison\s*:\s*(\w[\w-]*)", block, re.IGNORECASE)
+        comparison_line = re.search(
+            r"comparison\s*:\s*(\w[\w-]*)", block, re.IGNORECASE
+        )
         if not comparison_line:
             continue
         comparison_verdict = comparison_line.group(1).lower()
@@ -449,7 +475,7 @@ def check_pc_consistency(generated: str) -> str | None:
                 # Normalize: strip whitespace from each line
                 up_norm = [re.sub(r"\s+", " ", l).strip() for l in upstream_plus]
                 au_norm = [re.sub(r"\s+", " ", l).strip() for l in authored_plus]
-                lines_match = (up_norm == au_norm)
+                lines_match = up_norm == au_norm
 
                 if lines_match and comparison_verdict == "mismatch":
                     errors.append(
@@ -461,7 +487,9 @@ def check_pc_consistency(generated: str) -> str | None:
     # Check verdict-PC consistency: if PC conclusion says accept, verdict must not reject
     verdict_match = re.search(r"^## Verdict\s*\n\s*(\w+)", generated, re.MULTILINE)
     verdict = verdict_match.group(1).lower() if verdict_match else None
-    pc_conclusion = re.search(r"conclusion\s*:\s*(accept|reject)", pc_text, re.IGNORECASE)
+    pc_conclusion = re.search(
+        r"conclusion\s*:\s*(accept|reject)", pc_text, re.IGNORECASE
+    )
     if pc_conclusion and verdict:
         pc_says = pc_conclusion.group(1).lower()
         if pc_says == "accept" and verdict == "reject":
@@ -520,6 +548,7 @@ def main():
     pilot_records = [
         json.loads(l) for l in args.pilot.read_text().splitlines() if l.strip()
     ]
+
     # Key by (bundle_id, mutation_type or '') because a positive bundle and its
     # mutation share the same bundle_id — using only bundle_id causes the scorer
     # to match the wrong response when both appear in the same pilot set.
@@ -583,12 +612,22 @@ def main():
             continue
 
         pilot_rec = pilot_by_key.get((bundle_id, mutation or ""), rec)
-        grounding_failure = check_pc_grounding(text, pilot_rec) if split == "canary" else None
+        grounding_failure = (
+            check_pc_grounding(text, pilot_rec) if split == "canary" else None
+        )
         pc_consistency_error = check_pc_consistency(text) if split == "canary" else None
-        pc_file_grounding_error = check_pc_file_grounding(text, pilot_rec) if split == "canary" else None
-        pc_extraction_order_error = check_pc_extraction_order(text, pilot_rec) if split == "canary" else None
-        pc_role_grounding_error = check_pc_role_grounding(text, pilot_rec) if split == "canary" else None
-        pc_omission_claim_error = check_pc_omission_claim(text) if split == "canary" else None
+        pc_file_grounding_error = (
+            check_pc_file_grounding(text, pilot_rec) if split == "canary" else None
+        )
+        pc_extraction_order_error = (
+            check_pc_extraction_order(text, pilot_rec) if split == "canary" else None
+        )
+        pc_role_grounding_error = (
+            check_pc_role_grounding(text, pilot_rec) if split == "canary" else None
+        )
+        pc_omission_claim_error = (
+            check_pc_omission_claim(text) if split == "canary" else None
+        )
 
         entry = {
             "bundle_id": bundle_id,
@@ -625,7 +664,8 @@ def main():
             and pc_file_grounding_error
         ):
             pd_gnd = [
-                e for e in pc_file_grounding_error.split("; ")
+                e
+                for e in pc_file_grounding_error.split("; ")
                 if "patch.diff extraction" in e
             ]
             if pd_gnd:
@@ -649,11 +689,7 @@ def main():
         # escalation fires on ANY reject carrying the shape. On a true reject
         # the human confirms it (cost: one review); on a false reject the
         # human overturns it (the win this promotion buys).
-        if (
-            split == "canary"
-            and verdict == "reject"
-            and pc_omission_claim_error
-        ):
+        if split == "canary" and verdict == "reject" and pc_omission_claim_error:
             entry["effective_verdict"] = "escalate-human"
             entry["effective_reason"] = (
                 "reject rests on an omission claim contradicting the model's own "
@@ -675,12 +711,16 @@ def main():
             and label == "negative"
             and verdict == "reject"
             and entry.get("effective_verdict", verdict) == "reject"
-            and "PC conclusion says accept but verdict is reject" in pc_consistency_error
+            and "PC conclusion says accept but verdict is reject"
+            in pc_consistency_error
             # The hallucinated PC evidence is independently caught by a deterministic
             # layer — EITHER absence (patch.diff-side file grounding) OR wrong +/-
             # role (the model presented a removed line as the applied critical token).
             and (
-                (pc_file_grounding_error and "patch.diff extraction" in pc_file_grounding_error)
+                (
+                    pc_file_grounding_error
+                    and "patch.diff extraction" in pc_file_grounding_error
+                )
                 or pc_role_grounding_error
             )
         ):
@@ -688,8 +728,10 @@ def main():
 
         if split == "train-retest":
             expected = "accept" if label == "positive" else "reject"
-            entry["outcome"] = "correct" if verdict == expected else (
-                "false_reject" if label == "positive" else "false_accept"
+            entry["outcome"] = (
+                "correct"
+                if verdict == expected
+                else ("false_reject" if label == "positive" else "false_accept")
             )
             retest_results.append(entry)
         elif split == "canary":
@@ -700,8 +742,10 @@ def main():
                 # the machine declined to decide. Reported as a third category.
                 entry["outcome"] = "escalated"
             else:
-                entry["outcome"] = "correct" if effective == expected else (
-                    "false_reject" if label == "positive" else "false_accept"
+                entry["outcome"] = (
+                    "correct"
+                    if effective == expected
+                    else ("false_reject" if label == "positive" else "false_accept")
                 )
             canary_results.append(entry)
         else:
@@ -716,7 +760,9 @@ def main():
     total_canary = len([r for r in pilot_records if r.get("split") == "canary"])
     total_retest = len([r for r in pilot_records if r.get("split") == "train-retest"])
     canary_correct = sum(1 for r in canary_results if r.get("outcome") == "correct")
-    canary_pc_consistency_errors = [r for r in canary_results if r.get("pc_consistency_error")]
+    canary_pc_consistency_errors = [
+        r for r in canary_results if r.get("pc_consistency_error")
+    ]
     # v1.11 reconciliation: split PC-consistency contradictions into FATAL vs
     # grounding-explained (safe reject independently caught by deterministic
     # patch.diff-side grounding). Only FATAL ones fail the gate.
@@ -724,17 +770,29 @@ def main():
         r for r in canary_results if r.get("pc_consistency_grounding_explained")
     ]
     canary_pc_consistency_fatal = [
-        r for r in canary_results
-        if r.get("pc_consistency_error") and not r.get("pc_consistency_grounding_explained")
+        r
+        for r in canary_results
+        if r.get("pc_consistency_error")
+        and not r.get("pc_consistency_grounding_explained")
     ]
-    canary_pc_file_grounding_errors = [r for r in canary_results if r.get("pc_file_grounding_error")]
-    canary_pc_role_grounding_errors = [r for r in canary_results if r.get("pc_role_grounding_error")]
-    canary_pc_omission_claim_errors = [r for r in canary_results if r.get("pc_omission_claim_error")]
+    canary_pc_file_grounding_errors = [
+        r for r in canary_results if r.get("pc_file_grounding_error")
+    ]
+    canary_pc_role_grounding_errors = [
+        r for r in canary_results if r.get("pc_role_grounding_error")
+    ]
+    canary_pc_omission_claim_errors = [
+        r for r in canary_results if r.get("pc_omission_claim_error")
+    ]
     # Non-gating diagnostic (v1.10): extraction-order artifacts. Surfaced separately
     # so an order-artifact reject (e.g. the libxmp reshape false-reject) is
     # distinguishable from a genuine placement-defect reject when reading the gate.
-    canary_pc_extraction_order_errors = [r for r in canary_results if r.get("pc_extraction_order_error")]
-    canary_effective_overrides = [r for r in canary_results if r.get("effective_verdict")]
+    canary_pc_extraction_order_errors = [
+        r for r in canary_results if r.get("pc_extraction_order_error")
+    ]
+    canary_effective_overrides = [
+        r for r in canary_results if r.get("effective_verdict")
+    ]
     canary_pass = (
         canary_correct == total_canary
         and len(canary_parse_fails) == 0
@@ -750,8 +808,12 @@ def main():
     gate_pass = canary_pass and test_pass
 
     # Flatten for legacy callers that expect top-level false_rejects / false_accepts
-    false_rejects = test_false_rejects + [r for r in canary_results if r.get("outcome") == "false_reject"]
-    false_accepts = test_false_accepts + [r for r in canary_results if r.get("outcome") == "false_accept"]
+    false_rejects = test_false_rejects + [
+        r for r in canary_results if r.get("outcome") == "false_reject"
+    ]
+    false_accepts = test_false_accepts + [
+        r for r in canary_results if r.get("outcome") == "false_accept"
+    ]
 
     report = {
         "gate_pass": gate_pass,
@@ -762,7 +824,9 @@ def main():
             "canary_parse_fails": len(canary_parse_fails),
             "canary_pc_consistency_errors": len(canary_pc_consistency_errors),
             "canary_pc_consistency_fatal": len(canary_pc_consistency_fatal),
-            "canary_pc_consistency_grounding_explained": len(canary_pc_consistency_grounding_explained),
+            "canary_pc_consistency_grounding_explained": len(
+                canary_pc_consistency_grounding_explained
+            ),
             "canary_pc_file_grounding_errors": len(canary_pc_file_grounding_errors),
             "canary_pc_role_grounding_errors": len(canary_pc_role_grounding_errors),
             # Non-gating diagnostic (v1.11): see check_pc_omission_claim.
@@ -780,7 +844,9 @@ def main():
             "test_parse_fails": len(test_parse_fails),
             "test_pass": test_pass,
             "retest_total": total_retest,
-            "retest_correct": sum(1 for r in retest_results if r.get("outcome") == "correct"),
+            "retest_correct": sum(
+                1 for r in retest_results if r.get("outcome") == "correct"
+            ),
             "retest_parse_fails": len(retest_parse_fails),
             # legacy flat keys
             "false_rejects": len(false_rejects),
@@ -806,30 +872,68 @@ def main():
 
     print(f"Gate: {'PASS' if gate_pass else 'FAIL'}")
     if total_canary:
-        print(f"Canary ({total_canary}): {canary_correct}/{total_canary} correct  ({'PASS' if canary_pass else 'FAIL'})")
+        print(
+            f"Canary ({total_canary}): {canary_correct}/{total_canary} correct  ({'PASS' if canary_pass else 'FAIL'})"
+        )
         for r in canary_results:
             icon = "OK" if r.get("outcome") == "correct" else "!!"
-            gf = f"  [GROUNDING:{r['grounding_failure'][:60]}]" if r.get("grounding_failure") else ""
-            pce = f"  [PC-CONSISTENCY:{r['pc_consistency_error'][:80]}]" if r.get("pc_consistency_error") else ""
-            pfg = f"  [PC-FILE-GND:{r['pc_file_grounding_error'][:60]}]" if r.get("pc_file_grounding_error") else ""
-            peo = f"  [EXTRACT-ORDER:{r['pc_extraction_order_error'][:50]}]" if r.get("pc_extraction_order_error") else ""
-            prg = f"  [ROLE-GND:{r['pc_role_grounding_error'][:50]}]" if r.get("pc_role_grounding_error") else ""
-            ge = "  [GND-EXPLAINED]" if r.get("pc_consistency_grounding_explained") else ""
+            gf = (
+                f"  [GROUNDING:{r['grounding_failure'][:60]}]"
+                if r.get("grounding_failure")
+                else ""
+            )
+            pce = (
+                f"  [PC-CONSISTENCY:{r['pc_consistency_error'][:80]}]"
+                if r.get("pc_consistency_error")
+                else ""
+            )
+            pfg = (
+                f"  [PC-FILE-GND:{r['pc_file_grounding_error'][:60]}]"
+                if r.get("pc_file_grounding_error")
+                else ""
+            )
+            peo = (
+                f"  [EXTRACT-ORDER:{r['pc_extraction_order_error'][:50]}]"
+                if r.get("pc_extraction_order_error")
+                else ""
+            )
+            prg = (
+                f"  [ROLE-GND:{r['pc_role_grounding_error'][:50]}]"
+                if r.get("pc_role_grounding_error")
+                else ""
+            )
+            ge = (
+                "  [GND-EXPLAINED]"
+                if r.get("pc_consistency_grounding_explained")
+                else ""
+            )
             ev = f"  [EFF-VRD:reject]" if r.get("effective_verdict") else ""
-            print(f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{ev}{gf}{pce}{pfg}{peo}{prg}{ge}")
+            print(
+                f"  [{icon}] {r['cve_id']} ({r['label']}, mt={r['mutation_type']}) → {r['verdict']}{ev}{gf}{pce}{pfg}{peo}{prg}{ge}"
+            )
         if canary_parse_fails:
             print(f"  PARSE FAILS: {len(canary_parse_fails)}")
         if canary_pc_consistency_errors:
-            print(f"  PC CONSISTENCY ERRORS: {len(canary_pc_consistency_errors)} "
-                  f"({len(canary_pc_consistency_fatal)} FATAL, "
-                  f"{len(canary_pc_consistency_grounding_explained)} grounding-explained/non-fatal)")
+            print(
+                f"  PC CONSISTENCY ERRORS: {len(canary_pc_consistency_errors)} "
+                f"({len(canary_pc_consistency_fatal)} FATAL, "
+                f"{len(canary_pc_consistency_grounding_explained)} grounding-explained/non-fatal)"
+            )
         if canary_pc_file_grounding_errors:
-            print(f"  PC FILE GROUNDING ERRORS: {len(canary_pc_file_grounding_errors)} (informational)")
+            print(
+                f"  PC FILE GROUNDING ERRORS: {len(canary_pc_file_grounding_errors)} (informational)"
+            )
         if canary_pc_extraction_order_errors:
-            print(f"  PC EXTRACTION-ORDER ARTIFACTS: {len(canary_pc_extraction_order_errors)} (informational; an order-artifact reject is not a real placement defect)")
+            print(
+                f"  PC EXTRACTION-ORDER ARTIFACTS: {len(canary_pc_extraction_order_errors)} (informational; an order-artifact reject is not a real placement defect)"
+            )
         if canary_effective_overrides:
-            print(f"  EFFECTIVE VERDICT OVERRIDES: {len(canary_effective_overrides)} accept→reject")
-    print(f"Test ({total_test}): {len(test_correct)}/{total_test} correct  (FR={len(test_false_rejects)} FA={len(test_false_accepts)} PF={len(test_parse_fails)})  ({'PASS' if test_pass else 'FAIL'})")
+            print(
+                f"  EFFECTIVE VERDICT OVERRIDES: {len(canary_effective_overrides)} accept→reject"
+            )
+    print(
+        f"Test ({total_test}): {len(test_correct)}/{total_test} correct  (FR={len(test_false_rejects)} FA={len(test_false_accepts)} PF={len(test_parse_fails)})  ({'PASS' if test_pass else 'FAIL'})"
+    )
     if retest_results:
         rc = sum(1 for r in retest_results if r.get("outcome") == "correct")
         print(f"Retest: {rc}/{total_retest} fixed")

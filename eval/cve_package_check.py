@@ -6,6 +6,7 @@ flaw, but a minted pair labelled with it carried the corosync orf_token fix
 (really CVE-2025-30472), so the model would have learned the wrong association
 between an advisory and a fix.
 """
+
 from __future__ import annotations
 
 import json
@@ -68,7 +69,7 @@ def check_cve_names_package(
         return f"{cve} was withdrawn by its CNA and is not a vulnerability"
     seen = {_norm(w) for w in words} | set(words)
     for n in (2, 3, 4):
-        seen |= {"".join(words[i:i + n]) for i in range(len(words) - n + 1)}
+        seen |= {"".join(words[i : i + n]) for i in range(len(words) - n + 1)}
     # nixpkgs drops the `lib` an upstream project keeps: the attr is `expat`,
     # the advisory says `libexpat`.
     seen |= {w[3:] for w in list(seen) if w.startswith("lib") and len(w) > 5}
@@ -76,7 +77,11 @@ def check_cve_names_package(
         for word in seen:
             if word == tok:
                 return None
-            if len(word) >= 4 and len(tok) >= 4 and (word.startswith(tok) or tok.startswith(word)):
+            if (
+                len(word) >= 4
+                and len(tok) >= 4
+                and (word.startswith(tok) or tok.startswith(word))
+            ):
                 return None
     return f"{cve} does not name {package}: the advisory is about something else"
 

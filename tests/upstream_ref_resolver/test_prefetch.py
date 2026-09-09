@@ -33,7 +33,11 @@ def _fake_prefetcher(table: dict):
     def fn(url: str, algorithm: str):
         key = (url, algorithm)
         if key not in table:
-            return ("fetch-error-other", f"unmocked url={url!r} algo={algorithm!r}", None)
+            return (
+                "fetch-error-other",
+                f"unmocked url={url!r} algo={algorithm!r}",
+                None,
+            )
         return table[key]
 
     return fn
@@ -44,14 +48,20 @@ def test_happy_path_records_full_attribution() -> None:
         PrefetchTarget(name="src.hash", url="https://example.invalid/v1.0.tar.gz"),
         PrefetchTarget(name="vendorHash", url="https://example.invalid/vendor.tar.gz"),
     ]
-    fake = _fake_prefetcher({
-        ("https://example.invalid/v1.0.tar.gz", "sha256"): (
-            "ok", "sha256-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh=", "nix-prefetch-url 2.33.3",
-        ),
-        ("https://example.invalid/vendor.tar.gz", "sha256"): (
-            "ok", "sha256-Vend0rHashThatIsAlsoSyntheticForTestPurposes=", "nix-prefetch-url 2.33.3",
-        ),
-    })
+    fake = _fake_prefetcher(
+        {
+            ("https://example.invalid/v1.0.tar.gz", "sha256"): (
+                "ok",
+                "sha256-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh=",
+                "nix-prefetch-url 2.33.3",
+            ),
+            ("https://example.invalid/vendor.tar.gz", "sha256"): (
+                "ok",
+                "sha256-Vend0rHashThatIsAlsoSyntheticForTestPurposes=",
+                "nix-prefetch-url 2.33.3",
+            ),
+        }
+    )
     out = prefetch_targets(targets, prefetch_url_fn=fake)
     assert len(out.hashes) == 2
     assert len(out.failures) == 0
@@ -71,14 +81,20 @@ def test_mixed_outcome_records_both_lists() -> None:
         PrefetchTarget(name="src.hash", url="https://example.invalid/ok.tar.gz"),
         PrefetchTarget(name="vendorHash", url="https://example.invalid/missing.tar.gz"),
     ]
-    fake = _fake_prefetcher({
-        ("https://example.invalid/ok.tar.gz", "sha256"): (
-            "ok", "sha256-Th1sIsAGr0und3dValueFromTheM0ckedPrefetcher=", "nix-prefetch-url 2.33.3",
-        ),
-        ("https://example.invalid/missing.tar.gz", "sha256"): (
-            "fetch-error-404", "nix-prefetch-url: download failed: 404 Not Found", "nix-prefetch-url 2.33.3",
-        ),
-    })
+    fake = _fake_prefetcher(
+        {
+            ("https://example.invalid/ok.tar.gz", "sha256"): (
+                "ok",
+                "sha256-Th1sIsAGr0und3dValueFromTheM0ckedPrefetcher=",
+                "nix-prefetch-url 2.33.3",
+            ),
+            ("https://example.invalid/missing.tar.gz", "sha256"): (
+                "fetch-error-404",
+                "nix-prefetch-url: download failed: 404 Not Found",
+                "nix-prefetch-url 2.33.3",
+            ),
+        }
+    )
     out = prefetch_targets(targets, prefetch_url_fn=fake)
     assert len(out.hashes) == 1
     assert len(out.failures) == 1
@@ -93,11 +109,15 @@ def test_mixed_outcome_records_both_lists() -> None:
 
 def test_tool_not_on_path_yields_structured_failures() -> None:
     targets = [PrefetchTarget(name="src.hash", url="https://example.invalid/x.tar.gz")]
-    fake = _fake_prefetcher({
-        ("https://example.invalid/x.tar.gz", "sha256"): (
-            "tool-not-on-path", "nix-prefetch-url not on PATH", None,
-        ),
-    })
+    fake = _fake_prefetcher(
+        {
+            ("https://example.invalid/x.tar.gz", "sha256"): (
+                "tool-not-on-path",
+                "nix-prefetch-url not on PATH",
+                None,
+            ),
+        }
+    )
     out = prefetch_targets(targets, prefetch_url_fn=fake)
     assert out.hashes == []
     assert len(out.failures) == 1
@@ -113,19 +133,33 @@ def test_outcome_serialises_to_schema_shape() -> None:
         PrefetchTarget(name="src.hash", url="https://example.invalid/v.tar.gz"),
         PrefetchTarget(name="vendorHash", url="https://example.invalid/oops.tar.gz"),
     ]
-    fake = _fake_prefetcher({
-        ("https://example.invalid/v.tar.gz", "sha256"): (
-            "ok", "sha256-Pr0duc3dByMockButSh4pedRightForJsonschemaXY=", "nix-prefetch-url 2.33.3",
-        ),
-        ("https://example.invalid/oops.tar.gz", "sha256"): (
-            "tool-exit-nonzero", "exit=1; stderr: hash mismatch", "nix-prefetch-url 2.33.3",
-        ),
-    })
+    fake = _fake_prefetcher(
+        {
+            ("https://example.invalid/v.tar.gz", "sha256"): (
+                "ok",
+                "sha256-Pr0duc3dByMockButSh4pedRightForJsonschemaXY=",
+                "nix-prefetch-url 2.33.3",
+            ),
+            ("https://example.invalid/oops.tar.gz", "sha256"): (
+                "tool-exit-nonzero",
+                "exit=1; stderr: hash mismatch",
+                "nix-prefetch-url 2.33.3",
+            ),
+        }
+    )
     out = prefetch_targets(targets, prefetch_url_fn=fake)
     h = out.hashes_as_list()[0]
     assert set(h) == {
-        "name", "algorithm", "value", "source", "prefetch_kind", "url",
-        "tool", "tool_version", "fetched_at", "replay_critical",
+        "name",
+        "algorithm",
+        "value",
+        "source",
+        "prefetch_kind",
+        "url",
+        "tool",
+        "tool_version",
+        "fetched_at",
+        "replay_critical",
     }
     assert h["prefetch_kind"] == "url"
     f = out.failures_as_list()[0]
@@ -142,11 +176,15 @@ def test_outcome_validates_against_upstream_ref_schema() -> None:
     from jsonschema import Draft202012Validator
 
     targets = [PrefetchTarget(name="src.hash", url="https://example.invalid/v.tar.gz")]
-    fake = _fake_prefetcher({
-        ("https://example.invalid/v.tar.gz", "sha256"): (
-            "ok", "sha256-Pr0duc3dByMockButSh4pedRightForJsonschemaXY=", "nix-prefetch-url 2.33.3",
-        ),
-    })
+    fake = _fake_prefetcher(
+        {
+            ("https://example.invalid/v.tar.gz", "sha256"): (
+                "ok",
+                "sha256-Pr0duc3dByMockButSh4pedRightForJsonschemaXY=",
+                "nix-prefetch-url 2.33.3",
+            ),
+        }
+    )
     out = prefetch_targets(targets, prefetch_url_fn=fake)
     upstream_ref = {
         "schema_version": "1.1.0",
@@ -164,10 +202,14 @@ def test_outcome_validates_against_upstream_ref_schema() -> None:
         "eligibility": {"verdict": "eligible"},
         "replay_critical": True,
     }
-    schema_path = Path(__file__).resolve().parents[2] / "policy" / "upstream-ref-schema.json"
+    schema_path = (
+        Path(__file__).resolve().parents[2] / "policy" / "upstream-ref-schema.json"
+    )
     validator = Draft202012Validator(json.loads(schema_path.read_text()))
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(upstream_ref)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(upstream_ref)
+    ]
     assert not errors, errors
 
 
@@ -179,10 +221,12 @@ def test_real_nix_prefetch_url_smoke() -> None:
     """Network-gated. Asserts the runner can actually shell out and
     receive an SRI-form hash. Does not pin the hash value; upstream
     re-tags would otherwise turn this test flaky."""
-    targets = [PrefetchTarget(
-        name="src.hash",
-        url="https://downloads.isc.org/isc/bind9/9.20.18/bind-9.20.18.tar.xz",
-    )]
+    targets = [
+        PrefetchTarget(
+            name="src.hash",
+            url="https://downloads.isc.org/isc/bind9/9.20.18/bind-9.20.18.tar.xz",
+        )
+    ]
     out = prefetch_targets(targets)
     assert len(out.hashes) == 1, out.failures_as_list()
     h = out.hashes[0]

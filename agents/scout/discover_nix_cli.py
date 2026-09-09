@@ -101,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.since and args.lookback_hours is not None:
-        print("error: --since and --lookback-hours are mutually exclusive", file=sys.stderr)
+        print(
+            "error: --since and --lookback-hours are mutually exclusive",
+            file=sys.stderr,
+        )
         return _EXIT_USAGE
 
     until: datetime | None = None
@@ -181,7 +184,9 @@ def main(argv: list[str] | None = None) -> int:
     return _EXIT_OK
 
 
-def _in_window(published_at: str, since: datetime | None, until: datetime | None) -> bool:
+def _in_window(
+    published_at: str, since: datetime | None, until: datetime | None
+) -> bool:
     """Client-side published_at window. An unparseable timestamp fails OPEN
     (kept) rather than silently dropping a real candidate — the poll loop is
     the authority that confirms or discards it."""

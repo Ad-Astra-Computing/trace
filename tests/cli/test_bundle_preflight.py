@@ -36,7 +36,8 @@ def _make_patch(tmp: Path, before: str, after: str) -> Path:
     b.write_text(after)
     proc = subprocess.run(
         ["diff", "-u", "--label", "a/foo.c", "--label", "b/foo.c", str(a), str(b)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     # diff exits 1 when files differ; that is the expected/normal path here.
     assert proc.returncode == 1, proc.stderr
@@ -53,6 +54,7 @@ def _source_tree(tmp: Path, name: str, content: str) -> Path:
 
 
 # ─── apply_patch ───────────────────────────────────────────────────────────
+
 
 def test_apply_patch_applies_clean(tmp_path: Path) -> None:
     patch = _make_patch(tmp_path, _SRC_BEFORE, _SRC_AFTER)
@@ -72,6 +74,7 @@ def test_apply_patch_fails_on_base_mismatch(tmp_path: Path) -> None:
 
 
 # ─── symlink-escape defense-in-depth ────────────────────────────────────────
+
 
 def _symlink_patch(tmp: Path, name: str, target: str) -> Path:
     """A git-style patch that creates symlink ``name`` -> ``target`` (mode 120000).
@@ -143,15 +146,16 @@ def test_escaping_symlinks_helper(tmp_path: Path) -> None:
     tree = tmp_path / "t"
     tree.mkdir()
     (tree / "inside.txt").write_text("x")
-    (tree / "ok-link").symlink_to("inside.txt")               # in-tree → ignored
-    (tree / "abs-escape").symlink_to("/etc/passwd")           # out → flagged
-    (tree / "dangling-escape").symlink_to("../../nowhere")    # out (dangling) → flagged
+    (tree / "ok-link").symlink_to("inside.txt")  # in-tree → ignored
+    (tree / "abs-escape").symlink_to("/etc/passwd")  # out → flagged
+    (tree / "dangling-escape").symlink_to("../../nowhere")  # out (dangling) → flagged
     escaping = preflight._escaping_symlinks(tree)
     names = {Path(p).name for p in escaping}
     assert names == {"abs-escape", "dangling-escape"}
 
 
 # ─── discover_source_patches ───────────────────────────────────────────────
+
 
 def test_discover_defaults_to_upstream_fix(tmp_path: Path) -> None:
     bd = tmp_path / "bundle"
@@ -187,13 +191,16 @@ def test_discover_missing_override_raises(tmp_path: Path) -> None:
 # (pinned-source primitive tests — field fallback, extraction, injection guards —
 #  live in test_pinned_source.py alongside the extracted module.)
 
+
 def _args(**kw: object) -> argparse.Namespace:
     base = dict(source_tree=None, patches=None, strip=1, format="json")
     base.update(kw)
     return argparse.Namespace(**base)
 
 
-def test_run_ok_when_patch_applies(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_run_ok_when_patch_applies(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     patch = _make_patch(tmp_path, _SRC_BEFORE, _SRC_AFTER)
     tree = _source_tree(tmp_path, "src-ok", _SRC_BEFORE)
     bd = tmp_path / "bundle"
@@ -259,10 +266,10 @@ def test_run_applies_dependent_patches_cumulatively(
     patch 2 (the P2 finding this covers)."""
     p1 = tmp_path / "p1"
     p1.mkdir()
-    patch1 = _make_patch(p1, _SRC_BEFORE, _SRC_AFTER)   # x=1 -> x=2
+    patch1 = _make_patch(p1, _SRC_BEFORE, _SRC_AFTER)  # x=1 -> x=2
     p2 = tmp_path / "p2"
     p2.mkdir()
-    patch2 = _make_patch(p2, _SRC_AFTER, _SRC_FINAL)    # x=2 -> x=3 (needs patch1)
+    patch2 = _make_patch(p2, _SRC_AFTER, _SRC_FINAL)  # x=2 -> x=3 (needs patch1)
     tree = _source_tree(tmp_path, "src", _SRC_BEFORE)
     bd = tmp_path / "bundle"
     bd.mkdir()
@@ -327,15 +334,41 @@ def test_failure_report_names_the_retire_case(capsys):
     preflight crashed instead of reporting; the orchestrator's first prevail run
     ended on it. Exercise the branch for both classifications."""
     from tools.trace_cli.preflight import _emit_result
-    already = [{"patch": "upstream-fix.patch", "applies": False,
-                "output": "Reversed (or previously applied) patch detected!  Skipping patch.\n"}]
-    _emit_result("human", all_ok=False, results=already, bundle_dir="b", source_tree="s",
-                 source_origin="supplied", patch_flags=["-p1"])
+
+    already = [
+        {
+            "patch": "upstream-fix.patch",
+            "applies": False,
+            "output": "Reversed (or previously applied) patch detected!  Skipping patch.\n",
+        }
+    ]
+    _emit_result(
+        "human",
+        all_ok=False,
+        results=already,
+        bundle_dir="b",
+        source_tree="s",
+        source_origin="supplied",
+        patch_flags=["-p1"],
+    )
     out = capsys.readouterr()
     assert "already contains this fix" in out.err
 
-    mismatch = [{"patch": "upstream-fix.patch", "applies": False, "output": "Hunk #1 FAILED at 3.\n"}]
-    _emit_result("human", all_ok=False, results=mismatch, bundle_dir="b", source_tree="s",
-                 source_origin="supplied", patch_flags=["-p1"])
+    mismatch = [
+        {
+            "patch": "upstream-fix.patch",
+            "applies": False,
+            "output": "Hunk #1 FAILED at 3.\n",
+        }
+    ]
+    _emit_result(
+        "human",
+        all_ok=False,
+        results=mismatch,
+        bundle_dir="b",
+        source_tree="s",
+        source_origin="supplied",
+        patch_flags=["-p1"],
+    )
     out = capsys.readouterr()
     assert "base mismatch" in out.err

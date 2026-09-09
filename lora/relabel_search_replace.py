@@ -21,6 +21,7 @@ learned as search/replace and is excluded — same exclude-not-degrade disciplin
 
 Run: python3 lora/relabel_search_replace.py <in_dir> <out_dir>
 """
+
 from __future__ import annotations
 
 import json
@@ -70,21 +71,31 @@ def _blocks_from_diff(diff: str) -> list[tuple[str, str]]:
     while i < n:
         ln = lines[i]
         if ln.startswith("--- ") and i + 1 < n and lines[i + 1].startswith("+++ "):
-            flush(); in_hunk = False; i += 2; continue
+            flush()
+            in_hunk = False
+            i += 2
+            continue
         if ln.startswith("diff ") or ln.startswith("index "):
-            i += 1; continue
+            i += 1
+            continue
         if _HUNK_RE.match(ln):
-            flush(); in_hunk = True; i += 1; continue
+            flush()
+            in_hunk = True
+            i += 1
+            continue
         if not in_hunk:
-            i += 1; continue
+            i += 1
+            continue
         if ln.startswith("-") and not ln.startswith("---"):
             before.append(ln[1:])
         elif ln.startswith("+") and not ln.startswith("+++"):
             after.append(ln[1:])
         elif ln.startswith(" "):
-            before.append(ln[1:]); after.append(ln[1:])
+            before.append(ln[1:])
+            after.append(ln[1:])
         elif ln == "":
-            before.append(""); after.append("")
+            before.append("")
+            after.append("")
         else:
             flush()  # `\ No newline`, stray line
         i += 1
@@ -124,19 +135,28 @@ def relabel(in_dir: Path, out_dir: Path) -> dict:
             if sr is None:
                 dropped += 1
                 continue
-            kept.append({"messages": [
-                {"role": "system", "content": _SR_SYSTEM},
-                {"role": "user", "content": msgs[1]["content"]},
-                {"role": "assistant", "content": sr},
-            ]})
-        (out_dir / f"authoring.{split}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in kept))
+            kept.append(
+                {
+                    "messages": [
+                        {"role": "system", "content": _SR_SYSTEM},
+                        {"role": "user", "content": msgs[1]["content"]},
+                        {"role": "assistant", "content": sr},
+                    ]
+                }
+            )
+        (out_dir / f"authoring.{split}.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in kept)
+        )
         stats[split] = {"kept": len(kept), "dropped_unlocatable_search": dropped}
-    (out_dir / "manifest.json").write_text(json.dumps({"format": "search-replace", **stats}, indent=2) + "\n")
+    (out_dir / "manifest.json").write_text(
+        json.dumps({"format": "search-replace", **stats}, indent=2) + "\n"
+    )
     return stats
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print(__doc__); raise SystemExit(2)
+        print(__doc__)
+        raise SystemExit(2)
     s = relabel(Path(sys.argv[1]), Path(sys.argv[2]))
     print(json.dumps(s, indent=2))

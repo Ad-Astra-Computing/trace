@@ -55,7 +55,9 @@ def test_version_bumps_are_not_source_backports():
 # ─── the validated baseline (discriminating reproducers) ──────────────────────
 
 
-@pytest.mark.parametrize("sub", ["proxychains-ng-backport", "libxmp-backport", "graphite2-backport"])
+@pytest.mark.parametrize(
+    "sub", ["proxychains-ng-backport", "libxmp-backport", "graphite2-backport"]
+)
 def test_discriminating_source_backports_validate(sub):
     """These three carry a hand-authored discriminating reproducer whose
     SIGNAL_UNPATCHED/SIGNAL_PATCHED landed in build.json — they are validated."""
@@ -76,8 +78,9 @@ def test_timed_out_patched_run_is_verified_only(tmp_path):
     classify it verified-only, not validated, and name the recoverable reason."""
     bd = tmp_path / "CVE-2099-9999--timeout-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "diff --git a/pkgs/tools/t/CVE-2099-9999.patch b/pkgs/tools/t/CVE-2099-9999.patch\n"
         "new file mode 100644\n--- /dev/null\n+++ b/pkgs/tools/t/CVE-2099-9999.patch\n"
@@ -86,19 +89,28 @@ def test_timed_out_patched_run_is_verified_only(tmp_path):
     (bd / "upstream-fix.patch").write_text("--- a/src/foo.c\n+++ b/src/foo.c\n")
     (bd / "review.md").write_text("## Verdict\naccept\n")
     (bd / "reproducer.nix").write_text(
-        "# SIGNAL_UNPATCHED: vuln-triggered\n# SIGNAL_PATCHED: fix-confirmed\n")
-    (bd / "build.json").write_text(json.dumps({
-        "patch_apply": {"applied": True},
-        "unpatched": {"outcome": "succeeded",
-                      "stdout_stderr": "SIGNAL_UNPATCHED: vuln-triggered"},
-        "patched": {"outcome": "timed-out", "stdout_stderr": ""},
-    }))
+        "# SIGNAL_UNPATCHED: vuln-triggered\n# SIGNAL_PATCHED: fix-confirmed\n"
+    )
+    (bd / "build.json").write_text(
+        json.dumps(
+            {
+                "patch_apply": {"applied": True},
+                "unpatched": {
+                    "outcome": "succeeded",
+                    "stdout_stderr": "SIGNAL_UNPATCHED: vuln-triggered",
+                },
+                "patched": {"outcome": "timed-out", "stdout_stderr": ""},
+            }
+        )
+    )
     v = validate_backport(bd)
     assert v.is_source_backport
     assert not v.validated
     assert v.disposition == "verified-only"
     assert "backported-reproducer-clean" in v.failed_load_bearing()
-    detail = next(a.detail for a in v.assertions if a.name == "backported-reproducer-clean")
+    detail = next(
+        a.detail for a in v.assertions if a.name == "backported-reproducer-clean"
+    )
     assert "timed-out" in detail
 
 
@@ -108,8 +120,9 @@ def test_timed_out_patched_run_is_verified_only(tmp_path):
 def test_no_version_bump_rejects_version_change(tmp_path):
     bd = tmp_path / "CVE-2099-0001--fake-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "--- a/pkgs/by-name/fa/fake/package.nix\n"
         "+++ b/pkgs/by-name/fa/fake/package.nix\n"
@@ -125,8 +138,9 @@ def test_no_version_bump_rejects_version_change(tmp_path):
 def test_no_version_bump_rejects_hash_change(tmp_path):
     bd = tmp_path / "CVE-2099-0002--fake-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "--- a/pkgs/by-name/fa/fake/package.nix\n"
         "+++ b/pkgs/by-name/fa/fake/package.nix\n"
@@ -140,17 +154,27 @@ def test_no_version_bump_rejects_hash_change(tmp_path):
 def test_no_version_bump_accepts_added_patch_file(tmp_path):
     bd = tmp_path / "CVE-2099-0003--fake-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "--- /dev/null\n"
         "+++ b/pkgs/by-name/fa/fake/CVE-2099-0003.patch\n"
         "@@ -0,0 +1 @@\n+real source fix hunk\n"
     )
-    (bd / "build.json").write_text(json.dumps({"patch_apply": {
-        "applied": True,
-        "files_changed": ["pkgs/by-name/fa/fake/CVE-2099-0003.patch",
-                          "pkgs/by-name/fa/fake/package.nix"]}}))
+    (bd / "build.json").write_text(
+        json.dumps(
+            {
+                "patch_apply": {
+                    "applied": True,
+                    "files_changed": [
+                        "pkgs/by-name/fa/fake/CVE-2099-0003.patch",
+                        "pkgs/by-name/fa/fake/package.nix",
+                    ],
+                }
+            }
+        )
+    )
     v = validate_backport(bd)
     nb = next(a for a in v.assertions if a.name == "no-version-bump")
     assert nb.passed, nb.detail
@@ -161,8 +185,9 @@ def test_no_version_bump_accepts_fetchpatch_overlay(tmp_path):
     block, and the bundle has upstream-fix.patch — this is a valid source fix."""
     bd = tmp_path / "CVE-2099-0004--fake-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "--- a/pkgs/by-name/fa/fake/package.nix\n"
         "+++ b/pkgs/by-name/fa/fake/package.nix\n"
@@ -174,9 +199,19 @@ def test_no_version_bump_accepts_fetchpatch_overlay(tmp_path):
         "+    })\n"
         "+  ];\n"
     )
-    (bd / "upstream-fix.patch").write_text("diff --git a/src/foo.c b/src/foo.c\n+fix here\n")
-    (bd / "build.json").write_text(json.dumps({"patch_apply": {
-        "applied": True, "files_changed": ["pkgs/by-name/fa/fake/package.nix"]}}))
+    (bd / "upstream-fix.patch").write_text(
+        "diff --git a/src/foo.c b/src/foo.c\n+fix here\n"
+    )
+    (bd / "build.json").write_text(
+        json.dumps(
+            {
+                "patch_apply": {
+                    "applied": True,
+                    "files_changed": ["pkgs/by-name/fa/fake/package.nix"],
+                }
+            }
+        )
+    )
     v = validate_backport(bd)
     nb = next(a for a in v.assertions if a.name == "no-version-bump")
     assert nb.passed, nb.detail
@@ -187,8 +222,9 @@ def test_no_version_bump_rejects_fetchpatch_with_version_bump(tmp_path):
     """A fetchpatch block that also changes `version =` is still a version bump."""
     bd = tmp_path / "CVE-2099-0006--fake-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "--- a/pkgs/by-name/fa/fake/package.nix\n"
         "+++ b/pkgs/by-name/fa/fake/package.nix\n"
@@ -201,7 +237,9 @@ def test_no_version_bump_rejects_fetchpatch_with_version_bump(tmp_path):
         "+    })\n"
         "+  ];\n"
     )
-    (bd / "upstream-fix.patch").write_text("diff --git a/src/foo.c b/src/foo.c\n+fix here\n")
+    (bd / "upstream-fix.patch").write_text(
+        "diff --git a/src/foo.c b/src/foo.c\n+fix here\n"
+    )
     v = validate_backport(bd)
     nb = next(a for a in v.assertions if a.name == "no-version-bump")
     assert not nb.passed
@@ -211,8 +249,9 @@ def test_no_version_bump_rejects_hash_bump_outside_fetchpatch_block(tmp_path):
     """A hash change OUTSIDE the fetchpatch block is still a source-hash version bump."""
     bd = tmp_path / "CVE-2099-0007--fake-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "--- a/pkgs/by-name/fa/fake/package.nix\n"
         "+++ b/pkgs/by-name/fa/fake/package.nix\n"
@@ -226,7 +265,9 @@ def test_no_version_bump_rejects_hash_bump_outside_fetchpatch_block(tmp_path):
         "+    })\n"
         "+  ];\n"
     )
-    (bd / "upstream-fix.patch").write_text("diff --git a/src/foo.c b/src/foo.c\n+fix here\n")
+    (bd / "upstream-fix.patch").write_text(
+        "diff --git a/src/foo.c b/src/foo.c\n+fix here\n"
+    )
     v = validate_backport(bd)
     nb = next(a for a in v.assertions if a.name == "no-version-bump")
     assert not nb.passed
@@ -237,15 +278,24 @@ def test_no_version_bump_rejects_nix_only_without_fetchpatch(tmp_path):
     and no upstream-fix.patch must still fail (degenerate diff guard)."""
     bd = tmp_path / "CVE-2099-0005--fake-backport"
     bd.mkdir()
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (bd / "patch.diff").write_text(
         "--- a/pkgs/by-name/fa/fake/package.nix\n"
         "+++ b/pkgs/by-name/fa/fake/package.nix\n"
         "@@ -1 +1 @@\n+  meta.maintainers = [];\n"
     )
-    (bd / "build.json").write_text(json.dumps({"patch_apply": {
-        "applied": True, "files_changed": ["pkgs/by-name/fa/fake/package.nix"]}}))
+    (bd / "build.json").write_text(
+        json.dumps(
+            {
+                "patch_apply": {
+                    "applied": True,
+                    "files_changed": ["pkgs/by-name/fa/fake/package.nix"],
+                }
+            }
+        )
+    )
     v = validate_backport(bd)
     nb = next(a for a in v.assertions if a.name == "no-version-bump")
     assert not nb.passed

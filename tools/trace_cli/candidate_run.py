@@ -10,6 +10,7 @@ and Reproducer are steps 6, 8 and 9 of eleven, and each earlier step has to pass
 
 See docs/specs/candidate-orchestrator.md.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -78,8 +79,8 @@ def _completed_steps(record_path: Path) -> dict[str, dict]:
     """
     if not record_path.is_file():
         return {}
-    finished: dict[str, dict] = {}   # the last run that reached a result line
-    current: dict[str, dict] = {}    # a run still in progress, or one that crashed
+    finished: dict[str, dict] = {}  # the last run that reached a result line
+    current: dict[str, dict] = {}  # a run still in progress, or one that crashed
     for line in record_path.read_text().splitlines():
         try:
             entry = json.loads(line)
@@ -95,10 +96,24 @@ def _completed_steps(record_path: Path) -> dict[str, dict]:
 
 # Model outputs on disk mean the model already ran; resume never calls it again,
 # provided the inputs that produced the output are unchanged.
-_PAID_OUTPUTS = {"patcher": "patch.diff", "reviewer": "review.md", "reproducer": "reproducer.nix"}
+_PAID_OUTPUTS = {
+    "patcher": "patch.diff",
+    "reviewer": "review.md",
+    "reproducer": "reproducer.nix",
+}
 _PAID_INPUTS = {
-    "patcher": ("package.nix", "upstream-fix.patch", "finding.json", "upstream-ref.json"),
-    "reviewer": ("patch.diff", "patch-rationale.md", "package.nix", "upstream-fix.patch"),
+    "patcher": (
+        "package.nix",
+        "upstream-fix.patch",
+        "finding.json",
+        "upstream-ref.json",
+    ),
+    "reviewer": (
+        "patch.diff",
+        "patch-rationale.md",
+        "package.nix",
+        "upstream-fix.patch",
+    ),
     "reproducer": ("patch.diff", "package.nix", "finding.json", "upstream-ref.json"),
 }
 # On the adaptation lane the Patcher runs patcher.v5 and the Reviewer reads the
@@ -108,8 +123,15 @@ _PAID_INPUTS = {
 _ADAPTATION_INPUTS = frozenset({"patcher", "reviewer"})
 # Free gates are re-run on every resume. A run.jsonl line is a claim, and these
 # are the checks that stand between a model payload and a cert.
-_ALWAYS_RUN = frozenset({"preflight_upstream", "rationale_binding",
-                         "preflight_payload", "probe", "refinalize"})
+_ALWAYS_RUN = frozenset(
+    {
+        "preflight_upstream",
+        "rationale_binding",
+        "preflight_payload",
+        "probe",
+        "refinalize",
+    }
+)
 
 
 def _inputs_sha(bundle_dir: Path, step: str, model_id: str | None = None) -> str:
@@ -184,8 +206,9 @@ def _rehydrate(ctx: dict[str, Any]) -> None:
             pass
 
 
-def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
-                  until: str | None = None) -> int:
+def run_candidate(
+    ctx: dict[str, Any], *, steps: Steps, resume: bool = False, until: str | None = None
+) -> int:
     """Run the steps in order. Returns EXIT_READY, EXIT_GATE_STOPPED, EXIT_INFRA or EXIT_STEP_ERROR.
 
     `until` names the last step to run, for surveying candidates through the free
@@ -211,7 +234,8 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
                 if not (bundle_dir / _PAID_OUTPUTS[name]).is_file():
                     continue
                 if recorded[name].get("inputs_sha256") != _inputs_sha(
-                        bundle_dir, name, ctx.get("models", {}).get(name)):
+                    bundle_dir, name, ctx.get("models", {}).get(name)
+                ):
                     continue
             if name == "fetch_source":
                 tree = _recorded_source_tree(recorded)
@@ -223,13 +247,29 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
         _rehydrate(ctx)
 
     def stop(name: str, reason: str) -> int:
-        _append(record, {"at": _now(), "step": name, "status": "stopped", "reason": reason})
-        _append(record, {"at": _now(), "step": "result", "outcome": "stopped", "gate": name, "reason": reason})
+        _append(
+            record, {"at": _now(), "step": name, "status": "stopped", "reason": reason}
+        )
+        _append(
+            record,
+            {
+                "at": _now(),
+                "step": "result",
+                "outcome": "stopped",
+                "gate": name,
+                "reason": reason,
+            },
+        )
         return EXIT_GATE_STOPPED
 
     for name in ORDER:
         if name in skip:
-            entry = {"at": _now(), "step": name, "status": "skipped", "reason": "resume"}
+            entry = {
+                "at": _now(),
+                "step": name,
+                "status": "skipped",
+                "reason": "resume",
+            }
             if name in PAID_STEPS:
                 # Carry the hash forward, or a resume of a resume would re-bill.
                 entry["inputs_sha256"] = recorded[name].get("inputs_sha256")
@@ -248,20 +288,57 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
             else:
                 return stop(name, f"{name} exited with status {exit_.code}")
         except ExecutionError as contract:
-            _append(record, {"at": _now(), "step": name, "status": "error", "reason": str(contract)})
-            _append(record, {"at": _now(), "step": "result", "outcome": "step-error",
-                             "step_failed": name, "reason": str(contract)})
+            _append(
+                record,
+                {
+                    "at": _now(),
+                    "step": name,
+                    "status": "error",
+                    "reason": str(contract),
+                },
+            )
+            _append(
+                record,
+                {
+                    "at": _now(),
+                    "step": "result",
+                    "outcome": "step-error",
+                    "step_failed": name,
+                    "reason": str(contract),
+                },
+            )
             return EXIT_STEP_ERROR
         except (OSError, subprocess.SubprocessError, RuntimeError) as infra:
-            _append(record, {"at": _now(), "step": name, "status": "error", "reason": str(infra)})
-            _append(record, {"at": _now(), "step": "result", "outcome": "infrastructure-error",
-                             "reason": str(infra)})
+            _append(
+                record,
+                {"at": _now(), "step": name, "status": "error", "reason": str(infra)},
+            )
+            _append(
+                record,
+                {
+                    "at": _now(),
+                    "step": "result",
+                    "outcome": "infrastructure-error",
+                    "reason": str(infra),
+                },
+            )
             return EXIT_INFRA
         except Exception as bug:  # noqa: BLE001 - a bug in a step is recorded, then surfaced
             reason = f"{type(bug).__name__}: {bug}"
-            _append(record, {"at": _now(), "step": name, "status": "error", "reason": reason})
-            _append(record, {"at": _now(), "step": "result", "outcome": "step-error",
-                             "step_failed": name, "reason": reason})
+            _append(
+                record,
+                {"at": _now(), "step": name, "status": "error", "reason": reason},
+            )
+            _append(
+                record,
+                {
+                    "at": _now(),
+                    "step": "result",
+                    "outcome": "step-error",
+                    "step_failed": name,
+                    "reason": reason,
+                },
+            )
             return EXIT_STEP_ERROR
         # Two steps carry their verdict in the return value rather than raising.
         if name == "reviewer" and result not in (None, "accept"):
@@ -277,10 +354,21 @@ def run_candidate(ctx: dict[str, Any], *, steps: Steps, resume: bool = False,
             entry["source_tree"] = str(result)
         if name in PAID_STEPS:
             entry["inputs_sha256"] = _inputs_sha(
-                Path(ctx.get("bundle_dir") or out_dir / "bundle"), name, ctx.get("models", {}).get(name))
+                Path(ctx.get("bundle_dir") or out_dir / "bundle"),
+                name,
+                ctx.get("models", {}).get(name),
+            )
         _append(record, entry)
         if until == name:
-            _append(record, {"at": _now(), "step": "result", "outcome": "stopped-at-until", "until": name})
+            _append(
+                record,
+                {
+                    "at": _now(),
+                    "step": "result",
+                    "outcome": "stopped-at-until",
+                    "until": name,
+                },
+            )
             return EXIT_READY
 
     _append(record, {"at": _now(), "step": "result", "outcome": "ready-for-cert"})
@@ -304,9 +392,12 @@ def _bootstrap(ctx: dict[str, Any]) -> None:
     staged = Path(ctx["out_dir"]) / "staged"
     try:
         result = bootstrap_candidate(
-            entry_dir=Path(ctx["inbox_entry"]), out_dir=staged,
-            nixpkgs_checkout=Path(ctx["nixpkgs_checkout"]), nixpkgs_rev=ctx["nixpkgs_rev"],
-            package_path=ctx.get("package_path"), force=True,
+            entry_dir=Path(ctx["inbox_entry"]),
+            out_dir=staged,
+            nixpkgs_checkout=Path(ctx["nixpkgs_checkout"]),
+            nixpkgs_rev=ctx["nixpkgs_rev"],
+            package_path=ctx.get("package_path"),
+            force=True,
         )
     except BootstrapError as e:
         raise StepStopped("bootstrap", str(e)) from e
@@ -328,7 +419,9 @@ def _assemble(ctx: dict[str, Any]) -> None:
             impact_path=staged / "impact.json",
             maintainers_path=staged / "maintainers.json",
             upstream_fix_patch_path=staged / "upstream-fix.patch",
-            attr_path=ctx["attr_path"], nixpkgs_rev=ctx["nixpkgs_rev"], out_dir=bundle_dir,
+            attr_path=ctx["attr_path"],
+            nixpkgs_rev=ctx["nixpkgs_rev"],
+            out_dir=bundle_dir,
         )
     except (ValueError, KeyError) as e:
         raise StepStopped("assemble", f"assemble refused: {e}") from e
@@ -347,7 +440,10 @@ def _finalize(ctx: dict[str, Any]) -> None:
 def _fetch_source(ctx: dict[str, Any]) -> Path:
     """Materialise the pinned source under out/src. Network and store failures are
     infrastructure, not a verdict about the candidate."""
-    from tools.trace_cli.pinned_source import _build_pinned_src, unpack_source_store_path
+    from tools.trace_cli.pinned_source import (
+        _build_pinned_src,
+        unpack_source_store_path,
+    )
 
     tmp_root = Path(ctx["out_dir"]) / "src-tmp"
     tmp_root.mkdir(parents=True, exist_ok=True)
@@ -361,7 +457,9 @@ def _fetch_source(ctx: dict[str, Any]) -> Path:
     return tree
 
 
-def _choose_applying_fix(commits: list[dict], *, fetch_patch, applies) -> tuple[dict, str] | None:
+def _choose_applying_fix(
+    commits: list[dict], *, fetch_patch, applies
+) -> tuple[dict, str] | None:
     """The first cited fix commit whose patch applies to the pinned source.
 
     A CVE record often cites one fix commit per maintained branch. Bootstrap takes
@@ -386,8 +484,13 @@ def _preflight(ctx: dict[str, Any], *, patch_diff: bool) -> None:
     from tools.trace_cli import preflight
 
     args = argparse.Namespace(
-        bundle_dir=ctx["bundle_dir"], source_tree=ctx["source_tree"], patches=[],
-        strip=None, patch_flags=None, patch_diff=patch_diff, format="human",
+        bundle_dir=ctx["bundle_dir"],
+        source_tree=ctx["source_tree"],
+        patches=[],
+        strip=None,
+        patch_flags=None,
+        patch_diff=patch_diff,
+        format="human",
     )
     repo_root = Path(__file__).resolve().parents[2]
     code = preflight.run(args, repo_root=repo_root)
@@ -400,15 +503,21 @@ def _preflight(ctx: dict[str, Any], *, patch_diff: bool) -> None:
             code = 0
     if code == 0:
         return
-    if not patch_diff and _adaptation_reason(ctx) and code == preflight.EXIT_APPLY_FAILED:
+    if (
+        not patch_diff
+        and _adaptation_reason(ctx)
+        and code == preflight.EXIT_APPLY_FAILED
+    ):
         # Only a failed dry-run can be an adaptation. A missing input, a source
         # tree that would not extract or a usage error is infrastructure, and
         # overriding those buys a Patcher call on a base nobody has read.
         _enter_adaptation_lane(ctx)
         return
     which = "the model payload" if patch_diff else "upstream-fix.patch"
-    raise StepStopped("preflight_payload" if patch_diff else "preflight_upstream",
-                      f"{which} does not apply to the pinned source (preflight exit {code})")
+    raise StepStopped(
+        "preflight_payload" if patch_diff else "preflight_upstream",
+        f"{which} does not apply to the pinned source (preflight exit {code})",
+    )
 
 
 def _adaptation_reason(ctx: dict[str, Any]) -> str:
@@ -448,8 +557,11 @@ def _enter_adaptation_lane(ctx: dict[str, Any]) -> None:
         ctx["entered_adaptation_lane"] = _adaptation_reason(ctx)
         return
 
-    present = sorted(name for name, out in _PAID_OUTPUTS.items()
-                     if (Path(ctx["bundle_dir"]) / out).is_file())
+    present = sorted(
+        name
+        for name, out in _PAID_OUTPUTS.items()
+        if (Path(ctx["bundle_dir"]) / out).is_file()
+    )
     if present:
         # Restaging rewrites replay.json as a resolver-only seed. A resume decides
         # what to skip from hashes taken before that, so these outputs would stay
@@ -472,17 +584,23 @@ def _enter_adaptation_lane(ctx: dict[str, Any]) -> None:
             impact_path=staged / "impact.json",
             maintainers_path=staged / "maintainers.json",
             upstream_fix_patch_path=staged / "upstream-fix.patch",
-            attr_path=ctx["attr_path"], nixpkgs_rev=ctx["nixpkgs_rev"],
-            out_dir=ctx["bundle_dir"], source_tree=Path(ctx["source_tree"]),
+            attr_path=ctx["attr_path"],
+            nixpkgs_rev=ctx["nixpkgs_rev"],
+            out_dir=ctx["bundle_dir"],
+            source_tree=Path(ctx["source_tree"]),
         )
     except SourceContextError as e:
         # A file the fix touches is missing from the pinned source. That is the
         # libarchive shape, where no faithful backport exists, and no operator
         # reason makes it adaptable.
-        raise StepStopped("preflight_upstream",
-                          f"the fix touches source absent from the pinned base: {e}") from e
+        raise StepStopped(
+            "preflight_upstream",
+            f"the fix touches source absent from the pinned base: {e}",
+        ) from e
     except (ValueError, KeyError) as e:
-        raise StepStopped("preflight_upstream", f"adaptation restage refused: {e}") from e
+        raise StepStopped(
+            "preflight_upstream", f"adaptation restage refused: {e}"
+        ) from e
 
     _finalize(ctx)
 
@@ -526,8 +644,10 @@ def _assert_adaptation_staging(ctx: dict[str, Any]) -> None:
 
     fix = bundle_dir / "upstream-fix.patch"
     if not fix.is_file():
-        raise StepStopped("preflight_upstream",
-                          "no upstream-fix.patch to adapt from; refusing the lane")
+        raise StepStopped(
+            "preflight_upstream",
+            "no upstream-fix.patch to adapt from; refusing the lane",
+        )
     touched = source_context.parse_touched_paths(fix.read_text())
     if not touched:
         raise StepStopped(
@@ -574,7 +694,9 @@ def _already_staged_for_adaptation(bundle_dir: Path) -> bool:
     return sc.is_dir() and any(f.is_file() for f in sc.rglob("*"))
 
 
-def _retry_with_other_cited_commits(ctx: dict[str, Any], args: argparse.Namespace, repo_root: Path) -> int:
+def _retry_with_other_cited_commits(
+    ctx: dict[str, Any], args: argparse.Namespace, repo_root: Path
+) -> int:
     """When the first cited fix does not apply, try the others the CVE names."""
     import shutil as _shutil
 
@@ -605,7 +727,8 @@ def _retry_with_other_cited_commits(ctx: dict[str, Any], args: argparse.Namespac
     ref_path.write_text(json.dumps(ref, indent=2) + "\n")
     ctx.setdefault("notes", []).append(
         f"upstream fix: cited commit {commits[0].get('commit_sha', '')[:12]} did not apply; "
-        f"using {commit.get('commit_sha', '')[:12]}, which does")
+        f"using {commit.get('commit_sha', '')[:12]}, which does"
+    )
     return 0
 
 
@@ -613,8 +736,14 @@ def _role(ctx: dict[str, Any], role: str) -> dict[str, Any]:
     from tools.trace_cli.execute import execute
 
     invocation = {"invocation_id": None, "inputs": [], "outputs": []}
-    return execute(role, ctx["bundle_dir"], invocation, verify=True,
-                   model_id=ctx["models"][role], adapter_factory=ctx.get("adapter_factory"))
+    return execute(
+        role,
+        ctx["bundle_dir"],
+        invocation,
+        verify=True,
+        model_id=ctx["models"][role],
+        adapter_factory=ctx.get("adapter_factory"),
+    )
 
 
 def _patcher(ctx: dict[str, Any]) -> None:
@@ -640,7 +769,8 @@ def _rationale_binding(ctx: dict[str, Any]) -> str:
         raise StepStopped(
             "rationale_binding",
             "the rationale claims work the payload does not contain: "
-            + "; ".join(result.problems))
+            + "; ".join(result.problems),
+        )
     return result.verdict
 
 
@@ -660,16 +790,25 @@ def _reviewer(ctx: dict[str, Any]) -> str:
 def _reproducer(ctx: dict[str, Any]) -> None:
     _role(ctx, "reproducer")
     if not (ctx["bundle_dir"] / "reproducer.nix").is_file():
-        raise StepStopped("reproducer", "the Reproducer produced no fixture; see reproducer-refusal.json")
+        raise StepStopped(
+            "reproducer",
+            "the Reproducer produced no fixture; see reproducer-refusal.json",
+        )
 
 
 def _probe(ctx: dict[str, Any]) -> bool:
     from agents.builder import LocalNixBuildRunner
-    from tools.trace_cli.probe import EXIT_OK, EXIT_PROBE_ERROR, ProbeRefused, probe_bundle
+    from tools.trace_cli.probe import (
+        EXIT_OK,
+        EXIT_PROBE_ERROR,
+        ProbeRefused,
+        probe_bundle,
+    )
 
     try:
         code, verdict = probe_bundle(
-            ctx["bundle_dir"], build_runner=ctx.get("build_runner") or LocalNixBuildRunner(),
+            ctx["bundle_dir"],
+            build_runner=ctx.get("build_runner") or LocalNixBuildRunner(),
             nixpkgs_checkout=Path(ctx["nixpkgs_checkout"]),
         )
     except ProbeRefused as e:
@@ -687,11 +826,18 @@ def _refinalize(ctx: dict[str, Any]) -> None:
 
 def default_steps() -> Steps:
     return Steps(
-        bootstrap=_bootstrap, assemble=_assemble, finalize=_finalize,
-        fetch_source=_fetch_source, preflight_upstream=lambda c: _preflight(c, patch_diff=False),
-        patcher=_patcher, rationale_binding=_rationale_binding,
+        bootstrap=_bootstrap,
+        assemble=_assemble,
+        finalize=_finalize,
+        fetch_source=_fetch_source,
+        preflight_upstream=lambda c: _preflight(c, patch_diff=False),
+        patcher=_patcher,
+        rationale_binding=_rationale_binding,
         preflight_payload=lambda c: _preflight(c, patch_diff=True),
-        reviewer=_reviewer, reproducer=_reproducer, probe=_probe, refinalize=_refinalize,
+        reviewer=_reviewer,
+        reproducer=_reproducer,
+        probe=_probe,
+        refinalize=_refinalize,
     )
 
 
@@ -708,38 +854,62 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--inbox-entry", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
-    p.add_argument("--nixpkgs-checkout", type=Path, required=True,
-                   help="clean git checkout at --nixpkgs-rev; the probe resets it to HEAD")
+    p.add_argument(
+        "--nixpkgs-checkout",
+        type=Path,
+        required=True,
+        help="clean git checkout at --nixpkgs-rev; the probe resets it to HEAD",
+    )
     p.add_argument("--nixpkgs-rev", required=True)
     p.add_argument("--package-path", default=None)
-    p.add_argument("--created-at", default=None, help="bundle created_at (default: now)")
+    p.add_argument(
+        "--created-at", default=None, help="bundle created_at (default: now)"
+    )
     p.add_argument("--patcher-model", default="claude-opus-4-7")
     p.add_argument("--reviewer-model", default="claude-sonnet-4-5-20250929")
     p.add_argument("--reproducer-model", default="claude-sonnet-4-5-20250929")
-    p.add_argument("--until", default=None, choices=ORDER,
-                   help="run through this step and stop; use it to survey the free gates without spend")
-    p.add_argument("--resume", action="store_true",
-                   help="skip steps the last run in --out completed; never repeats a model call")
-    p.add_argument("--adaptation-lane", default=None, metavar="REASON",
-                   help="continue past a failing upstream-patch preflight by restaging the "
-                        "bundle against the fetched pinned source, which routes the Patcher to "
-                        "patcher.v5 and signs the applies_verbatim verdict. For the "
-                        "semantic-adaptation lane, where the fix is expressible on the pinned "
-                        "base but does not apply verbatim. REASON is recorded in run.jsonl. The "
-                        "payload preflight still gates.")
+    p.add_argument(
+        "--until",
+        default=None,
+        choices=ORDER,
+        help="run through this step and stop; use it to survey the free gates without spend",
+    )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip steps the last run in --out completed; never repeats a model call",
+    )
+    p.add_argument(
+        "--adaptation-lane",
+        default=None,
+        metavar="REASON",
+        help="continue past a failing upstream-patch preflight by restaging the "
+        "bundle against the fetched pinned source, which routes the Patcher to "
+        "patcher.v5 and signs the applies_verbatim verdict. For the "
+        "semantic-adaptation lane, where the fix is expressible on the pinned "
+        "base but does not apply verbatim. REASON is recorded in run.jsonl. The "
+        "payload preflight still gates.",
+    )
 
 
 def run(args: argparse.Namespace) -> int:
     ctx = {
-        "inbox_entry": args.inbox_entry, "out_dir": args.out,
-        "nixpkgs_checkout": args.nixpkgs_checkout, "nixpkgs_rev": args.nixpkgs_rev,
+        "inbox_entry": args.inbox_entry,
+        "out_dir": args.out,
+        "nixpkgs_checkout": args.nixpkgs_checkout,
+        "nixpkgs_rev": args.nixpkgs_rev,
         "package_path": args.package_path,
         "created_at": args.created_at or _now(),
-        "models": {"patcher": args.patcher_model, "reviewer": args.reviewer_model,
-                   "reproducer": args.reproducer_model},
+        "models": {
+            "patcher": args.patcher_model,
+            "reviewer": args.reviewer_model,
+            "reproducer": args.reproducer_model,
+        },
         "adaptation_lane": args.adaptation_lane,
     }
-    code = run_candidate(ctx, steps=default_steps(), resume=args.resume, until=args.until)
+    code = run_candidate(
+        ctx, steps=default_steps(), resume=args.resume, until=args.until
+    )
     last = (Path(args.out) / "run.jsonl").read_text().splitlines()[-1]
     print(last)
     return code

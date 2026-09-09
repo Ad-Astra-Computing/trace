@@ -139,15 +139,17 @@ def aggregate_reports(
         composite = _extract_composite(doc)
         patcher_kind = _extract_patcher_kind(doc)
 
-        provenance.append(ProvenanceEntry(
-            file=str(path),
-            bundle_id=_pick(doc, "bundle_id"),
-            invocation_id=_pick(doc, "patcher_invocation_id", "invocation_id"),
-            prompt_sha=_pick(doc, "prompt_sha", "rescored_under_prompt_sha"),
-            model_id=_pick(doc, "model_id"),
-            patcher_kind=patcher_kind,
-            composite_merge_ready_rate=composite,
-        ))
+        provenance.append(
+            ProvenanceEntry(
+                file=str(path),
+                bundle_id=_pick(doc, "bundle_id"),
+                invocation_id=_pick(doc, "patcher_invocation_id", "invocation_id"),
+                prompt_sha=_pick(doc, "prompt_sha", "rescored_under_prompt_sha"),
+                model_id=_pick(doc, "model_id"),
+                patcher_kind=patcher_kind,
+                composite_merge_ready_rate=composite,
+            )
+        )
 
         if composite is not None:
             composites.append(composite)
@@ -198,7 +200,9 @@ def expand_glob(pattern: str, *, root: Path | None = None) -> list[Path]:
     paths = sorted(Path(p) for p in glob.glob(pattern, recursive=True))
     if not paths:
         # Try relative-to-root.
-        paths = sorted((base / p) for p in glob.glob(str(base / pattern), recursive=True))
+        paths = sorted(
+            (base / p) for p in glob.glob(str(base / pattern), recursive=True)
+        )
     return [p for p in paths if p.is_file()]
 
 

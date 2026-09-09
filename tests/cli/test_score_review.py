@@ -64,7 +64,9 @@ def _build_bundle(tmp_path: Path, *, review_md: str = _REVIEW_MD) -> Path:
     (b / "review.md").write_text(review_md)
     finding_bytes = json.dumps({"cve_id": "CVE-2025-0001"}).encode("utf-8")
     (b / "finding.json").write_bytes(finding_bytes)
-    (b / "bundle.json").write_text(json.dumps({"bundle_id": "abc123", "kind": "auto-merge"}))
+    (b / "bundle.json").write_text(
+        json.dumps({"bundle_id": "abc123", "kind": "auto-merge"})
+    )
     recorded = sha256(review_md.encode("utf-8")).hexdigest()
     replay = {
         "roles": [
@@ -76,7 +78,10 @@ def _build_bundle(tmp_path: Path, *, review_md: str = _REVIEW_MD) -> Path:
                         "model": {"model_id": "claude-sonnet-4-5-20250929"},
                         "prompt": {"sha256": "deadbeef"},
                         "inputs": [
-                            {"path": "finding.json", "sha256": sha256(finding_bytes).hexdigest()},
+                            {
+                                "path": "finding.json",
+                                "sha256": sha256(finding_bytes).hexdigest(),
+                            },
                         ],
                         "outputs": [{"path": "review.md", "sha256": recorded}],
                     }
@@ -101,7 +106,10 @@ def test_score_review_happy_path_writes_report(tmp_path, capsys):
     names = {s["scorer_name"] for s in report["scorers"]}
     assert "review-adaptation-equivalence" in names
     # provenance carries input hashes
-    assert report["provenance"]["review_md_sha256"] == sha256(_REVIEW_MD.encode()).hexdigest()
+    assert (
+        report["provenance"]["review_md_sha256"]
+        == sha256(_REVIEW_MD.encode()).hexdigest()
+    )
     assert report["provenance"]["scorer_schema_version"]
 
 
@@ -141,7 +149,9 @@ def test_score_review_non_object_replay(tmp_path, capsys):
 def test_score_review_no_reviewer_invocation(tmp_path, capsys):
     b = tmp_path / "norev"
     b.mkdir()
-    (b / "replay.json").write_text(json.dumps({"roles": [{"role": "patcher", "invocations": [{"x": 1}]}]}))
+    (b / "replay.json").write_text(
+        json.dumps({"roles": [{"role": "patcher", "invocations": [{"x": 1}]}]})
+    )
     rc, _, err = _run(["score", "review", str(b)], capsys)
     assert rc == EXIT_INVALID
     assert "no reviewer invocation" in err
@@ -174,7 +184,9 @@ def test_score_review_input_mismatch_guard(tmp_path, capsys):
     """A recorded INPUT modified after the run must be rejected — several
     scorers derive from inputs, so the report would misattribute otherwise."""
     b = _build_bundle(tmp_path)
-    (b / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-0001", "tampered": True}))
+    (b / "finding.json").write_text(
+        json.dumps({"cve_id": "CVE-2025-0001", "tampered": True})
+    )
     rc, _, err = _run(["score", "review", str(b)], capsys)
     assert rc == EXIT_HASH_MISMATCH
     assert "finding.json" in err
@@ -261,9 +273,9 @@ def test_score_review_unpinned_source_context_rejected(tmp_path, capsys):
     reviewer; an unrecorded one present on disk must be rejected."""
     b = _build_bundle(tmp_path)
     # Make it a source-backport adaptation-lane bundle.
-    (b / "upstream-ref.json").write_text(json.dumps({
-        "eligibility": {"patch_strategy": "source-backport"}
-    }))
+    (b / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     (b / "preflight.json").write_text(json.dumps({"applies_verbatim": False}))
     sc = b / "source-context" / "src"
     sc.mkdir(parents=True)

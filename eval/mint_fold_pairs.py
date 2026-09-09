@@ -20,6 +20,7 @@ eval/-only; no contract-path change; no API/HF spend (NVD/OSV advisory fetch onl
 
 Usage: python3 eval/mint_fold_pairs.py [--leads ...] [--limit N]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,25 +31,48 @@ from collections import Counter
 from pathlib import Path
 
 import sys
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.trace_cli.export import _AUTHORING_SYSTEM, _scrub_summary, _fix_symbols  # noqa: E402
-from eval.author_blind_eval import _strip_remediation                              # noqa: E402
-from eval.classify_edit_shape import classify_diff                                 # noqa: E402
+from eval.author_blind_eval import _strip_remediation  # noqa: E402
+from eval.classify_edit_shape import classify_diff  # noqa: E402
 
 NIXPKGS = ROOT.parent / "nixpkgs"
-_FENCE = {"c": "c", "h": "c", "cc": "cpp", "cpp": "cpp", "hpp": "cpp", "py": "python",
-          "pl": "perl", "pm": "perl", "rb": "ruby", "go": "go", "rs": "rust", "js": "javascript"}
+_FENCE = {
+    "c": "c",
+    "h": "c",
+    "cc": "cpp",
+    "cpp": "cpp",
+    "hpp": "cpp",
+    "py": "python",
+    "pl": "perl",
+    "pm": "perl",
+    "rb": "ruby",
+    "go": "go",
+    "rs": "rust",
+    "js": "javascript",
+}
 
 
 def _show(commit: str, path: str) -> str:
-    r = subprocess.run(["git", "-C", str(NIXPKGS), "show", f"{commit}:{path}"], capture_output=True)
+    r = subprocess.run(
+        ["git", "-C", str(NIXPKGS), "show", f"{commit}:{path}"], capture_output=True
+    )
     return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
 
 
 def _changed(diff: str):
-    minus = [l[1:] for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
-    plus = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
+    minus = [
+        l[1:]
+        for l in diff.splitlines()
+        if l.startswith("-") and not l.startswith("---")
+    ]
+    plus = [
+        l[1:]
+        for l in diff.splitlines()
+        if l.startswith("+") and not l.startswith("+++")
+    ]
     return minus, plus
 
 
@@ -78,19 +102,31 @@ def _prefix_from_diff(fold: str) -> tuple[str | None, list[str]]:
             continue
         if ln.startswith("@@"):
             if cur in files and files[cur]:
-                files[cur].append("    ...")               # hunk separator
+                files[cur].append("    ...")  # hunk separator
             continue
-        if ln.startswith(("--- ", "diff ", "index ", "new file", "deleted file",
-                          "similarity", "rename", "old mode", "new mode", "Binary")):
+        if ln.startswith(
+            (
+                "--- ",
+                "diff ",
+                "index ",
+                "new file",
+                "deleted file",
+                "similarity",
+                "rename",
+                "old mode",
+                "new mode",
+                "Binary",
+            )
+        ):
             continue
         if cur is None or cur not in files:
             continue
         if ln.startswith("+"):
-            continue                                        # added = post-fix, dropped
+            continue  # added = post-fix, dropped
         if ln.startswith("-"):
-            files[cur].append(ln[1:])                       # removed = pre-fix
+            files[cur].append(ln[1:])  # removed = pre-fix
         elif ln.startswith(" "):
-            files[cur].append(ln[1:])                       # context = pre-fix
+            files[cur].append(ln[1:])  # context = pre-fix
     blocks, kept = [], []
     for path, lines in files.items():
         body = "\n".join(lines).strip()
@@ -106,11 +142,12 @@ def _jitter(window: str, seed: str) -> str:
     — converts 'position perfectly predicts the fix' into a noisy predictor, keeping the
     SHAPE signal load-bearing. Deterministic by CVE (reproducible), no fetch."""
     import hashlib
+
     lines = window.split("\n")
     if len(lines) < 10:
         return window
     h = int(hashlib.sha256(seed.encode()).hexdigest(), 16)
-    trim = (h >> 1) % 4                                   # 0-3 lines
+    trim = (h >> 1) % 4  # 0-3 lines
     if trim == 0:
         return window
     return "\n".join(lines[trim:] if (h & 1) == 0 else lines[:-trim])
@@ -120,6 +157,7 @@ def _fetch_advisory(cve: str) -> str | None:
     """Real advisory text: NVD (feed_client) → OSV fallback. None if neither."""
     try:
         from agents.scout.feed_client import fetch_nvd_direct
+
         r = fetch_nvd_direct(cve)
         if isinstance(r, dict):
             vulns = r.get("vulnerabilities") or []
@@ -134,7 +172,10 @@ def _fetch_advisory(cve: str) -> str | None:
         pass
     try:
         import urllib.request
-        with urllib.request.urlopen(f"https://api.osv.dev/v1/vulns/{cve}", timeout=20) as fh:
+
+        with urllib.request.urlopen(
+            f"https://api.osv.dev/v1/vulns/{cve}", timeout=20
+        ) as fh:
             d = json.load(fh)
         return d.get("details") or d.get("summary")
     except Exception:
@@ -146,48 +187,63 @@ def mint_one(lead: dict) -> tuple[dict | None, dict]:
     rep = {"cve": cve, "subshape": lead.get("subshape"), "verdict": None}
     fold = _show(lead["fix_commit"], lead["patch"])
     if not fold.strip():
-        rep["verdict"] = "drop:fold-extract"; return None, rep
+        rep["verdict"] = "drop:fold-extract"
+        return None, rep
     if not _target_files(fold):
-        rep["verdict"] = "drop:no-target"; return None, rep
+        rep["verdict"] = "drop:no-target"
+        return None, rep
     minus, plus = _changed(fold)
-    if not (1 <= len(plus) <= 20) or (len(minus) + len(plus)) > 60:   # size (multi-file aware)
-        rep["verdict"] = "drop:size"; return None, rep
+    if (
+        not (1 <= len(plus) <= 20) or (len(minus) + len(plus)) > 60
+    ):  # size (multi-file aware)
+        rep["verdict"] = "drop:size"
+        return None, rep
     if not cve:
-        rep["verdict"] = "drop:no-cve"; return None, rep
+        rep["verdict"] = "drop:no-cve"
+        return None, rep
 
-    pre, files = _prefix_from_diff(fold)                              # reconstruct pre-fix window
+    pre, files = _prefix_from_diff(fold)  # reconstruct pre-fix window
     if not pre or len(pre.strip()) < 40:
-        rep["verdict"] = "drop:window"; return None, rep
-    pre = _jitter(pre, cve)                                           # break the centered-position prior
+        rep["verdict"] = "drop:window"
+        return None, rep
+    pre = _jitter(pre, cve)  # break the centered-position prior
 
     adv = _fetch_advisory(cve)
     if not adv:
-        rep["verdict"] = "drop:no-advisory"; return None, rep
+        rep["verdict"] = "drop:no-advisory"
+        return None, rep
     vuln = _scrub_summary(_strip_remediation(adv), fold)
-    if len(vuln.strip()) < 120:                                       # over-scrub
-        rep["verdict"] = "drop:scrub-collapse"; return None, rep
+    if len(vuln.strip()) < 120:  # over-scrub
+        rep["verdict"] = "drop:scrub-collapse"
+        return None, rep
     leaks = [s for s in _fix_symbols(fold) if s in vuln]
     if leaks:
-        rep["verdict"] = f"drop:leak-residue:{leaks[:3]}"; return None, rep
+        rep["verdict"] = f"drop:leak-residue:{leaks[:3]}"
+        return None, rep
 
-    got = classify_diff(fold)                                         # extraction sanity
+    got = classify_diff(fold)  # extraction sanity
     if got["subshape"] != lead["subshape"]:
-        rep["verdict"] = f"drop:shape-mismatch:{got['subshape']}"; return None, rep
+        rep["verdict"] = f"drop:shape-mismatch:{got['subshape']}"
+        return None, rep
 
     ext = files[0].rsplit(".", 1)[-1] if "." in files[0] else ""
     lang = _FENCE.get(ext, "")
     hdr = ", ".join(files)
-    user = (f"# CVE\n{cve}: {vuln}\n\n"
-            f"# Vulnerable source ({hdr})\n```{lang}\n{pre}\n```")
+    user = f"# CVE\n{cve}: {vuln}\n\n# Vulnerable source ({hdr})\n```{lang}\n{pre}\n```"
     pair = {
         "messages": [
             {"role": "system", "content": _AUTHORING_SYSTEM},
             {"role": "user", "content": user},
             {"role": "assistant", "content": fold.strip()},
         ],
-        "provenance": {"source": "phase-b-auto-fold", "cve": cve, "subshape": lead["subshape"],
-                       "nixpkgs_commit": lead["fix_commit"], "files": files,
-                       "window": "diff-reconstructed"},
+        "provenance": {
+            "source": "phase-b-auto-fold",
+            "cve": cve,
+            "subshape": lead["subshape"],
+            "nixpkgs_commit": lead["fix_commit"],
+            "files": files,
+            "window": "diff-reconstructed",
+        },
     }
     rep["verdict"] = "MINTED"
     return pair, rep
@@ -195,8 +251,12 @@ def mint_one(lead: dict) -> tuple[dict | None, dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--leads", type=Path, default=ROOT / "data/reports/phase-b-fold-leads.jsonl")
-    ap.add_argument("--out", type=Path, default=ROOT / "data/reports/phase-b-fold-pairs.jsonl")
+    ap.add_argument(
+        "--leads", type=Path, default=ROOT / "data/reports/phase-b-fold-leads.jsonl"
+    )
+    ap.add_argument(
+        "--out", type=Path, default=ROOT / "data/reports/phase-b-fold-pairs.jsonl"
+    )
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
@@ -210,19 +270,37 @@ def main() -> None:
         try:
             pair, rep = mint_one(lead)
         except Exception as e:
-            pair, rep = None, {"cve": lead.get("cve"), "subshape": lead.get("subshape"),
-                               "verdict": f"drop:error:{type(e).__name__}"}
+            pair, rep = (
+                None,
+                {
+                    "cve": lead.get("cve"),
+                    "subshape": lead.get("subshape"),
+                    "verdict": f"drop:error:{type(e).__name__}",
+                },
+            )
         report.append(rep)
         if pair:
             pairs.append(pair)
 
     args.out.write_text("\n".join(json.dumps(p) for p in pairs) + "\n")
-    (ROOT / "data/reports/phase-b-fold-mint-report.json").write_text(json.dumps(report, indent=2))
+    (ROOT / "data/reports/phase-b-fold-mint-report.json").write_text(
+        json.dumps(report, indent=2)
+    )
     minted = [r for r in report if r["verdict"] == "MINTED"]
-    print(f"leads={len(leads)}  MINTED={len(minted)}  dropped={len(leads)-len(minted)}")
+    print(
+        f"leads={len(leads)}  MINTED={len(minted)}  dropped={len(leads) - len(minted)}"
+    )
     print("mint by sub-shape:", dict(Counter(r["subshape"] for r in minted)))
-    print("drop reasons:", dict(Counter(r["verdict"].split(":")[1] if ":" in r["verdict"]
-                                        else r["verdict"] for r in report if r["verdict"] != "MINTED")))
+    print(
+        "drop reasons:",
+        dict(
+            Counter(
+                r["verdict"].split(":")[1] if ":" in r["verdict"] else r["verdict"]
+                for r in report
+                if r["verdict"] != "MINTED"
+            )
+        ),
+    )
     print(f"wrote {args.out}")
 
 

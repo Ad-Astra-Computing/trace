@@ -75,65 +75,90 @@ def _write_full_report(
         _scorer("repro-schema-valid", score=schema_score, details=sv_details),
     ]
     if is_proxy:
-        scorers.append(_scorer(
-            "repro-unpatched-fails",
-            applies=False, score=None,
-            notes="proxy reproducer; unpatched-path evidence out of scope",
-        ))
+        scorers.append(
+            _scorer(
+                "repro-unpatched-fails",
+                applies=False,
+                score=None,
+                notes="proxy reproducer; unpatched-path evidence out of scope",
+            )
+        )
     else:
-        scorers.append(_scorer(
-            "repro-unpatched-fails",
-            applies=unpatched_applies,
-            score=unpatched_score if unpatched_applies else None,
-        ))
-    scorers.append(_scorer(
-        "repro-patched-passes",
-        applies=patched_applies,
-        score=patched_score if patched_applies else None,
-        details={"is_proxy": is_proxy},
-    ))
+        scorers.append(
+            _scorer(
+                "repro-unpatched-fails",
+                applies=unpatched_applies,
+                score=unpatched_score if unpatched_applies else None,
+            )
+        )
+    scorers.append(
+        _scorer(
+            "repro-patched-passes",
+            applies=patched_applies,
+            score=patched_score if patched_applies else None,
+            details={"is_proxy": is_proxy},
+        )
+    )
     if passthru_score is None:
         scorers.append(_scorer("repro-passthru-recorded", applies=False, score=None))
     else:
         scorers.append(_scorer("repro-passthru-recorded", score=passthru_score))
     if specificity_score is None:
-        scorers.append(_scorer("repro-signal-specificity", advisory=True,
-                               applies=False, score=None))
+        scorers.append(
+            _scorer(
+                "repro-signal-specificity", advisory=True, applies=False, score=None
+            )
+        )
     else:
-        scorers.append(_scorer("repro-signal-specificity", advisory=True,
-                               score=specificity_score))
+        scorers.append(
+            _scorer("repro-signal-specificity", advisory=True, score=specificity_score)
+        )
 
     p = tmp_path / f"{name}.json"
-    p.write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "scope": "reproducer",
-        "bundle_id": bundle_id or f"00000000{name:0>8s}",
-        "kind": "reproducer",
-        "model_id": model_id,
-        "prompt_sha": "f" * 64,
-        "scored_at": "2026-04-28T03:00:00Z",
-        "scorers": scorers,
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "scope": "reproducer",
+                "bundle_id": bundle_id or f"00000000{name:0>8s}",
+                "kind": "reproducer",
+                "model_id": model_id,
+                "prompt_sha": "f" * 64,
+                "scored_at": "2026-04-28T03:00:00Z",
+                "scorers": scorers,
+            }
+        )
+    )
     return p
 
 
 def _write_refusal_report(
-    tmp_path: Path, *, name: str, rule: int = 3, model_id: str = "claude-sonnet-4-6",
+    tmp_path: Path,
+    *,
+    name: str,
+    rule: int = 3,
+    model_id: str = "claude-sonnet-4-6",
 ) -> Path:
     p = tmp_path / f"{name}.json"
-    p.write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "scope": "reproducer",
-        "bundle_id": f"00000000{name:0>8s}",
-        "kind": "refusal",
-        "refusal_rule": rule,
-        "model_id": model_id,
-        "prompt_sha": "f" * 64,
-        "scored_at": "2026-04-28T03:00:00Z",
-        "scorers": [
-            _scorer("repro-schema-valid", score=1.0, details={"refusal_rule": rule}),
-        ],
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "scope": "reproducer",
+                "bundle_id": f"00000000{name:0>8s}",
+                "kind": "refusal",
+                "refusal_rule": rule,
+                "model_id": model_id,
+                "prompt_sha": "f" * 64,
+                "scored_at": "2026-04-28T03:00:00Z",
+                "scorers": [
+                    _scorer(
+                        "repro-schema-valid", score=1.0, details={"refusal_rule": rule}
+                    ),
+                ],
+            }
+        )
+    )
     return p
 
 
@@ -141,8 +166,13 @@ def _write_refusal_report(
 
 
 def test_known_cohort_labels_locked() -> None:
-    for label in ("synthetic", "real-single", "inner-loop",
-                  "full-corpus", "real-ci-smoke"):
+    for label in (
+        "synthetic",
+        "real-single",
+        "inner-loop",
+        "full-corpus",
+        "real-ci-smoke",
+    ):
         assert label in KNOWN_REPRODUCER_COHORT_LABELS
 
 
@@ -151,8 +181,7 @@ def test_known_cohort_labels_locked() -> None:
 
 def test_well_formed_rate_full(tmp_path: Path) -> None:
     reports = [
-        _write_full_report(tmp_path, name=f"r{i}", schema_score=1.0)
-        for i in range(3)
+        _write_full_report(tmp_path, name=f"r{i}", schema_score=1.0) for i in range(3)
     ]
     res = aggregate_reproducer_reports(report_paths=reports, cohort="synthetic")
     assert res.reproducer_well_formed_rate == 1.0
@@ -174,12 +203,15 @@ def test_vuln_signal_recovered_rate_strict_AND(tmp_path: Path) -> None:
     """Both unpatched-fails AND patched-passes must be 1.0 for the bundle
     to count as recovered. One 1.0 + one 0.0 → not recovered."""
     reports = [
-        _write_full_report(tmp_path, name="full",
-                           unpatched_score=1.0, patched_score=1.0),
-        _write_full_report(tmp_path, name="partial",
-                           unpatched_score=1.0, patched_score=0.0),
-        _write_full_report(tmp_path, name="other-partial",
-                           unpatched_score=0.0, patched_score=1.0),
+        _write_full_report(
+            tmp_path, name="full", unpatched_score=1.0, patched_score=1.0
+        ),
+        _write_full_report(
+            tmp_path, name="partial", unpatched_score=1.0, patched_score=0.0
+        ),
+        _write_full_report(
+            tmp_path, name="other-partial", unpatched_score=0.0, patched_score=1.0
+        ),
     ]
     res = aggregate_reproducer_reports(report_paths=reports, cohort="synthetic")
     assert res.totals["vuln_signal_eligible"] == 3
@@ -191,8 +223,9 @@ def test_vuln_signal_recovered_excludes_proxy(tmp_path: Path) -> None:
     denominator (their unpatched scorer applies=False by design)."""
     reports = [
         _write_full_report(tmp_path, name="full"),  # eligible, recovered
-        _write_full_report(tmp_path, name="proxy", is_proxy=True,
-                           proxy_reason="sandbox-cannot-trigger"),
+        _write_full_report(
+            tmp_path, name="proxy", is_proxy=True, proxy_reason="sandbox-cannot-trigger"
+        ),
     ]
     res = aggregate_reproducer_reports(report_paths=reports, cohort="synthetic")
     assert res.totals["vuln_signal_eligible"] == 1
@@ -203,12 +236,20 @@ def test_proxy_patched_passes_rate(tmp_path: Path) -> None:
     """Proxy bundles' repro-patched-passes is the proxy_patched_passes_rate
     numerator. 2 proxies, 1 with score 1.0 → 0.5."""
     reports = [
-        _write_full_report(tmp_path, name="px1", is_proxy=True,
-                           proxy_reason="sandbox-cannot-trigger",
-                           patched_score=1.0),
-        _write_full_report(tmp_path, name="px2", is_proxy=True,
-                           proxy_reason="cve-class-needs-fixture-corpus",
-                           patched_score=0.0),
+        _write_full_report(
+            tmp_path,
+            name="px1",
+            is_proxy=True,
+            proxy_reason="sandbox-cannot-trigger",
+            patched_score=1.0,
+        ),
+        _write_full_report(
+            tmp_path,
+            name="px2",
+            is_proxy=True,
+            proxy_reason="cve-class-needs-fixture-corpus",
+            patched_score=0.0,
+        ),
     ]
     res = aggregate_reproducer_reports(report_paths=reports, cohort="synthetic")
     assert res.totals["proxy_eligible"] == 2
@@ -218,12 +259,18 @@ def test_proxy_patched_passes_rate(tmp_path: Path) -> None:
 def test_proxy_rate_and_reason_distribution(tmp_path: Path) -> None:
     reports = [
         _write_full_report(tmp_path, name="full"),
-        _write_full_report(tmp_path, name="px1", is_proxy=True,
-                           proxy_reason="sandbox-cannot-trigger"),
-        _write_full_report(tmp_path, name="px2", is_proxy=True,
-                           proxy_reason="sandbox-cannot-trigger"),
-        _write_full_report(tmp_path, name="px3", is_proxy=True,
-                           proxy_reason="cve-class-needs-fixture-corpus"),
+        _write_full_report(
+            tmp_path, name="px1", is_proxy=True, proxy_reason="sandbox-cannot-trigger"
+        ),
+        _write_full_report(
+            tmp_path, name="px2", is_proxy=True, proxy_reason="sandbox-cannot-trigger"
+        ),
+        _write_full_report(
+            tmp_path,
+            name="px3",
+            is_proxy=True,
+            proxy_reason="cve-class-needs-fixture-corpus",
+        ),
     ]
     res = aggregate_reproducer_reports(report_paths=reports, cohort="synthetic")
     assert res.proxy_rate == 0.75
@@ -266,9 +313,13 @@ def test_signal_specificity_mean_advisory(tmp_path: Path) -> None:
 def test_provenance_recorded_per_run(tmp_path: Path) -> None:
     reports = [
         _write_full_report(tmp_path, name="r1", model_id="claude-sonnet-4-6"),
-        _write_full_report(tmp_path, name="r2", is_proxy=True,
-                           proxy_reason="sandbox-cannot-trigger",
-                           model_id="claude-sonnet-4-6"),
+        _write_full_report(
+            tmp_path,
+            name="r2",
+            is_proxy=True,
+            proxy_reason="sandbox-cannot-trigger",
+            model_id="claude-sonnet-4-6",
+        ),
         _write_refusal_report(tmp_path, name="r3", rule=3),
     ]
     res = aggregate_reproducer_reports(report_paths=reports, cohort="synthetic")
@@ -286,7 +337,8 @@ def test_unparseable_report_counted(tmp_path: Path) -> None:
     bad.write_text("not json{{")
     good = _write_full_report(tmp_path, name="ok")
     res = aggregate_reproducer_reports(
-        report_paths=[bad, good], cohort="synthetic",
+        report_paths=[bad, good],
+        cohort="synthetic",
     )
     assert res.totals["parse_errors"] == 1
     assert res.totals["scoring_reports"] == 2
@@ -297,16 +349,24 @@ def test_unparseable_report_counted(tmp_path: Path) -> None:
 
 def test_cli_repro_rate_runs(tmp_path: Path, capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
+
     _write_full_report(tmp_path, name="r1")
-    _write_full_report(tmp_path, name="r2", is_proxy=True,
-                       proxy_reason="sandbox-cannot-trigger")
+    _write_full_report(
+        tmp_path, name="r2", is_proxy=True, proxy_reason="sandbox-cannot-trigger"
+    )
     _write_refusal_report(tmp_path, name="r3", rule=3)
-    rc = cli_main([
-        "eval", "repro-rate",
-        "--cohort", "synthetic",
-        "--reports", str(tmp_path / "*.json"),
-        "--format", "json",
-    ])
+    rc = cli_main(
+        [
+            "eval",
+            "repro-rate",
+            "--cohort",
+            "synthetic",
+            "--reports",
+            str(tmp_path / "*.json"),
+            "--format",
+            "json",
+        ]
+    )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["cohort"] == "synthetic"
@@ -319,11 +379,17 @@ def test_cli_repro_rate_runs(tmp_path: Path, capsys) -> None:
 
 def test_cli_repro_rate_empty_glob_returns_invalid(tmp_path: Path, capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
-    rc = cli_main([
-        "eval", "repro-rate",
-        "--cohort", "synthetic",
-        "--reports", "/nonexistent/path/*.json",
-    ])
+
+    rc = cli_main(
+        [
+            "eval",
+            "repro-rate",
+            "--cohort",
+            "synthetic",
+            "--reports",
+            "/nonexistent/path/*.json",
+        ]
+    )
     assert rc != 0
     err = capsys.readouterr().err
     assert "no repro-scoring-report.json files matched" in err
@@ -331,12 +397,18 @@ def test_cli_repro_rate_empty_glob_returns_invalid(tmp_path: Path, capsys) -> No
 
 def test_cli_repro_rate_unknown_cohort_label_marked(tmp_path: Path, capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
+
     _write_full_report(tmp_path, name="r1")
-    rc = cli_main([
-        "eval", "repro-rate",
-        "--cohort", "experimental-cohort",
-        "--reports", str(tmp_path / "*.json"),
-    ])
+    rc = cli_main(
+        [
+            "eval",
+            "repro-rate",
+            "--cohort",
+            "experimental-cohort",
+            "--reports",
+            str(tmp_path / "*.json"),
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out
     assert "free-form label" in out

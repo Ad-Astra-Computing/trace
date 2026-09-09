@@ -4,6 +4,7 @@ stopping at the first refusal, with an append-only record.
 See docs/specs/candidate-orchestrator.md. Each step is injected so the suite
 spends nothing and the sequencing is what gets tested.
 """
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,11 @@ class Trace:
         self.stop_at = stop_at
         self.infra_at = infra_at
 
-    OUTPUTS = {"patcher": "patch.diff", "reviewer": "review.md", "reproducer": "reproducer.nix"}
+    OUTPUTS = {
+        "patcher": "patch.diff",
+        "reviewer": "review.md",
+        "reproducer": "reproducer.nix",
+    }
 
     def step(self, name: str, result=None):
         def _run(ctx):
@@ -52,6 +57,7 @@ class Trace:
                 bundle.mkdir(parents=True, exist_ok=True)
                 (bundle / self.OUTPUTS[name]).write_text(f"{name} output\n")
             return result
+
         return _run
 
     def steps(self) -> Steps:
@@ -71,8 +77,20 @@ class Trace:
         )
 
 
-ORDER = ["bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream",
-         "patcher", "rationale_binding", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"]
+ORDER = [
+    "bootstrap",
+    "assemble",
+    "finalize",
+    "fetch_source",
+    "preflight_upstream",
+    "patcher",
+    "rationale_binding",
+    "preflight_payload",
+    "reviewer",
+    "reproducer",
+    "probe",
+    "refinalize",
+]
 PAID = {"patcher", "reviewer", "reproducer"}
 
 
@@ -169,14 +187,29 @@ def test_resume_skips_completed_steps_and_never_recalls_a_model(tmp_path):
 def test_default_steps_are_the_real_commands():
     """The orchestrator sequences existing commands; it must not grow its own."""
     from tools.trace_cli import candidate_run as m
+
     defaults = m.default_steps()
     assert defaults.bootstrap.__module__.endswith("candidate_run")
-    for name in ("bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream",
-                 "patcher", "rationale_binding", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"):
+    for name in (
+        "bootstrap",
+        "assemble",
+        "finalize",
+        "fetch_source",
+        "preflight_upstream",
+        "patcher",
+        "rationale_binding",
+        "preflight_payload",
+        "reviewer",
+        "reproducer",
+        "probe",
+        "refinalize",
+    ):
         assert callable(getattr(defaults, name)), name
 
 
-def test_resume_after_a_stop_skips_the_completed_steps_and_repeats_no_model_call(tmp_path):
+def test_resume_after_a_stop_skips_the_completed_steps_and_repeats_no_model_call(
+    tmp_path,
+):
     """The recorded use case: mailpit stopped at the probe after all three paid
     steps had run. Resume must start at the probe."""
     t = Trace()
@@ -188,8 +221,13 @@ def test_resume_after_a_stop_skips_the_completed_steps_and_repeats_no_model_call
     assert code == EXIT_READY
     assert not (PAID & set(t2.calls))
     # free gates are never skipped; the expensive setup and the paid steps are
-    assert t2.calls == ["preflight_upstream", "rationale_binding",
-                        "preflight_payload", "probe", "refinalize"]
+    assert t2.calls == [
+        "preflight_upstream",
+        "rationale_binding",
+        "preflight_payload",
+        "probe",
+        "refinalize",
+    ]
 
 
 def test_resume_never_repeats_a_paid_step_whose_output_exists(tmp_path):
@@ -240,6 +278,7 @@ def test_a_contract_failure_in_a_model_step_is_recorded_not_raised(tmp_path):
 
     def bad_reviewer(c):
         raise ExecutionError("reviewer output malformed after retries")
+
     steps.reviewer = bad_reviewer
     code = run_candidate(_ctx(tmp_path), steps=steps)
     assert code == EXIT_STEP_ERROR
@@ -256,8 +295,13 @@ def test_free_gates_are_never_skipped_on_resume_even_if_the_record_says_ok(tmp_p
     run_candidate(_ctx(tmp_path), steps=t.steps())
     t2 = Trace()
     run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
-    for gate in ("preflight_upstream", "rationale_binding",
-                 "preflight_payload", "probe", "refinalize"):
+    for gate in (
+        "preflight_upstream",
+        "rationale_binding",
+        "preflight_payload",
+        "probe",
+        "refinalize",
+    ):
         assert gate in t2.calls, gate
 
 
@@ -267,7 +311,7 @@ def test_a_paid_output_is_only_reused_for_the_inputs_that_produced_it(tmp_path):
     ctx = _ctx(tmp_path)
     bundle = tmp_path / "out" / "bundle"
     bundle.mkdir(parents=True)
-    (bundle / "package.nix").write_text("{ }: { version = \"1\"; }\n")
+    (bundle / "package.nix").write_text('{ }: { version = "1"; }\n')
     (bundle / "upstream-fix.patch").write_text("--- a\n+++ b\n")
     t = Trace()
     steps = t.steps()
@@ -278,7 +322,7 @@ def test_a_paid_output_is_only_reused_for_the_inputs_that_produced_it(tmp_path):
     run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
     assert "patcher" not in t2.calls
 
-    (bundle / "package.nix").write_text("{ }: { version = \"2\"; }\n")
+    (bundle / "package.nix").write_text('{ }: { version = "2"; }\n')
     t3 = Trace()
     run_candidate(_ctx(tmp_path), steps=t3.steps(), resume=True)
     assert "patcher" in t3.calls
@@ -295,7 +339,9 @@ def test_a_new_model_or_prompt_invalidates_a_reused_output(tmp_path, monkeypatch
     t2 = Trace()
     run_candidate(ctx2, steps=t2.steps(), resume=True)
     assert "patcher" in t2.calls
-    assert "reviewer" not in t2.calls or True  # reviewer reuse is judged on its own inputs
+    assert (
+        "reviewer" not in t2.calls or True
+    )  # reviewer reuse is judged on its own inputs
 
 
 def test_a_second_resume_still_reuses_the_model_outputs(tmp_path):
@@ -323,6 +369,7 @@ def test_a_step_that_exits_the_process_is_recorded_as_a_stop(tmp_path):
 
     def exiting(ctx):
         raise SystemExit(4)
+
     steps.preflight_upstream = exiting
     code = run_candidate(_ctx(tmp_path), steps=steps)
     assert code == EXIT_GATE_STOPPED
@@ -340,12 +387,17 @@ def test_an_unexpected_exception_in_a_step_still_leaves_a_result_line(tmp_path):
 
     def buggy(ctx):
         raise NameError("name 'results' is not defined")
+
     steps.preflight_upstream = buggy
     from tools.trace_cli.candidate_run import EXIT_STEP_ERROR
+
     code = run_candidate(_ctx(tmp_path), steps=steps)
     assert code == EXIT_STEP_ERROR
     rec = _record(tmp_path)
-    assert rec[-1]["outcome"] == "step-error" and rec[-1]["step_failed"] == "preflight_upstream"
+    assert (
+        rec[-1]["outcome"] == "step-error"
+        and rec[-1]["step_failed"] == "preflight_upstream"
+    )
     assert "NameError" in rec[-2]["reason"]
 
 
@@ -355,9 +407,18 @@ def test_until_stops_after_the_named_step_without_spending(tmp_path):
     t = Trace()
     code = run_candidate(_ctx(tmp_path), steps=t.steps(), until="preflight_upstream")
     assert code == EXIT_READY
-    assert t.calls == ["bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream"]
+    assert t.calls == [
+        "bootstrap",
+        "assemble",
+        "finalize",
+        "fetch_source",
+        "preflight_upstream",
+    ]
     rec = _record(tmp_path)
-    assert rec[-1]["outcome"] == "stopped-at-until" and rec[-1]["until"] == "preflight_upstream"
+    assert (
+        rec[-1]["outcome"] == "stopped-at-until"
+        and rec[-1]["until"] == "preflight_upstream"
+    )
 
 
 def test_until_rejects_an_unknown_step(tmp_path):
@@ -370,22 +431,37 @@ def test_choose_applying_fix_tries_each_cited_commit_in_order():
     """svgo CVE-2026-84370 cites three fix commits, one per maintained branch; the
     first is the v2 backport and does not apply to the packaged 4.0.1."""
     from tools.trace_cli.candidate_run import _choose_applying_fix
-    commits = [{"repo_url": "https://github.com/svg/svgo", "commit_sha": "a" * 40},
-               {"repo_url": "https://github.com/svg/svgo", "commit_sha": "b" * 40},
-               {"repo_url": "https://github.com/svg/svgo", "commit_sha": "c" * 40}]
+
+    commits = [
+        {"repo_url": "https://github.com/svg/svgo", "commit_sha": "a" * 40},
+        {"repo_url": "https://github.com/svg/svgo", "commit_sha": "b" * 40},
+        {"repo_url": "https://github.com/svg/svgo", "commit_sha": "c" * 40},
+    ]
     fetched = []
     texts = {"a" * 40: "v2 patch", "b" * 40: "v3 patch", "c" * 40: "v4 patch"}
+
     def fetch(url):
-        sha = url.rsplit("/", 1)[-1].removesuffix(".patch"); fetched.append(sha); return texts[sha]
-    chosen = _choose_applying_fix(commits, fetch_patch=fetch, applies=lambda text: text == "v4 patch")
+        sha = url.rsplit("/", 1)[-1].removesuffix(".patch")
+        fetched.append(sha)
+        return texts[sha]
+
+    chosen = _choose_applying_fix(
+        commits, fetch_patch=fetch, applies=lambda text: text == "v4 patch"
+    )
     assert chosen == (commits[2], "v4 patch")
     assert fetched == ["a" * 40, "b" * 40, "c" * 40]
 
 
 def test_choose_applying_fix_returns_none_when_nothing_applies():
     from tools.trace_cli.candidate_run import _choose_applying_fix
+
     commits = [{"repo_url": "https://github.com/o/r", "commit_sha": "a" * 40}]
-    assert _choose_applying_fix(commits, fetch_patch=lambda u: "x", applies=lambda t: False) is None
+    assert (
+        _choose_applying_fix(
+            commits, fetch_patch=lambda u: "x", applies=lambda t: False
+        )
+        is None
+    )
 
 
 def test_fetch_source_records_where_the_source_tree_is(tmp_path):
@@ -417,7 +493,9 @@ def test_resume_hands_the_recorded_source_tree_to_the_free_gates(tmp_path):
     seen = {}
     t2 = Trace()
     steps2 = t2.steps()
-    steps2.preflight_upstream = lambda c: seen.setdefault("source_tree", c.get("source_tree"))
+    steps2.preflight_upstream = lambda c: seen.setdefault(
+        "source_tree", c.get("source_tree")
+    )
     run_candidate(_ctx(tmp_path), steps=steps2, resume=True)
     assert "fetch_source" not in t2.calls
     assert seen["source_tree"] == src
@@ -491,13 +569,20 @@ class TestAdaptationLane:
     @staticmethod
     def _fail(monkeypatch, code=None):
         from tools.trace_cli import preflight
+
         if code is None:
             code = preflight.EXIT_APPLY_FAILED
         monkeypatch.setattr(preflight, "run", lambda *a, **k: code)
 
     @staticmethod
-    def _restage(monkeypatch, verdict, *, calls=None, raises=None,
-                 diagnostics="Hunk #3 FAILED at 274.\n"):
+    def _restage(
+        monkeypatch,
+        verdict,
+        *,
+        calls=None,
+        raises=None,
+        diagnostics="Hunk #3 FAILED at 274.\n",
+    ):
         """Stand in for assemble_bundle: record the call and write the verdict
         the real source-backport staging would have written."""
         from tools.trace_cli import bundle as bundle_mod
@@ -509,19 +594,28 @@ class TestAdaptationLane:
                 raise raises
             if verdict is not None:
                 (kw["out_dir"] / "preflight.json").write_text(
-                    json.dumps({"applies_verbatim": verdict,
-                                "diagnostics": diagnostics}) + "\n")
+                    json.dumps(
+                        {"applies_verbatim": verdict, "diagnostics": diagnostics}
+                    )
+                    + "\n"
+                )
                 TestAdaptationLane._stage_context(kw["out_dir"])
+
         monkeypatch.setattr(bundle_mod, "assemble_bundle", fake)
         monkeypatch.setattr(bundle_mod, "finalize_bundle", lambda **kw: None)
 
-    def test_a_failing_upstream_preflight_still_stops_without_the_flag(self, tmp_path, monkeypatch):
+    def test_a_failing_upstream_preflight_still_stops_without_the_flag(
+        self, tmp_path, monkeypatch
+    ):
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path)
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         with pytest.raises(StepStopped):
             candidate_run._preflight(ctx, patch_diff=False)
         assert calls == []
@@ -530,52 +624,74 @@ class TestAdaptationLane:
         """Without the restage the Patcher would get patcher.v3 and transcribe a
         fix that cannot apply, so the source tree reaching assemble is the point."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
-        ctx = self._ctx(tmp_path, "adaptation canary: fix expressible, pre-image differs")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        ctx = self._ctx(
+            tmp_path, "adaptation canary: fix expressible, pre-image differs"
+        )
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         candidate_run._preflight(ctx, patch_diff=False)
         assert len(calls) == 1
         assert calls[0]["source_tree"] == ctx["source_tree"]
         assert calls[0]["out_dir"] == ctx["bundle_dir"]
         assert ctx["entered_adaptation_lane"].startswith("adaptation canary")
 
-    def test_a_restage_that_does_not_record_the_divergence_stops(self, tmp_path, monkeypatch):
+    def test_a_restage_that_does_not_record_the_divergence_stops(
+        self, tmp_path, monkeypatch
+    ):
         """applies_verbatim true, or no preflight.json at all, would leave the
         Patcher on the verbatim lane with nothing signed saying the base moved."""
         from tools.trace_cli import candidate_run
+
         for verdict in (True, None):
             self._fail(monkeypatch)
             self._restage(monkeypatch, verdict)
             ctx = self._ctx(tmp_path, "adaptation canary")
-            monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+            monkeypatch.setattr(
+                candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+            )
             with pytest.raises(StepStopped) as e:
                 candidate_run._preflight(ctx, patch_diff=False)
             assert "applies_verbatim" in e.value.reason
             (tmp_path / "bundle" / "preflight.json").unlink(missing_ok=True)
 
-    def test_source_absent_from_the_pinned_base_is_not_adaptable(self, tmp_path, monkeypatch):
+    def test_source_absent_from_the_pinned_base_is_not_adaptable(
+        self, tmp_path, monkeypatch
+    ):
         """The libarchive shape: the fix names files the base does not have, so
         no faithful backport exists and no operator reason makes one."""
         from tools.trace_cli import candidate_run
         from tools.trace_cli.source_context import SourceContextError
+
         self._fail(monkeypatch)
-        self._restage(monkeypatch, False, raises=SourceContextError("missing archive_ckd.c"))
+        self._restage(
+            monkeypatch, False, raises=SourceContextError("missing archive_ckd.c")
+        )
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         with pytest.raises(StepStopped) as e:
             candidate_run._preflight(ctx, patch_diff=False)
         assert "absent from the pinned base" in e.value.reason
 
     @pytest.mark.parametrize("reason", ["", "   ", "\n\t ", None, 7, ["why"]])
-    def test_a_reason_that_says_nothing_does_not_open_the_gate(self, tmp_path, monkeypatch, reason):
+    def test_a_reason_that_says_nothing_does_not_open_the_gate(
+        self, tmp_path, monkeypatch, reason
+    ):
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, reason)
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         with pytest.raises(StepStopped):
             candidate_run._preflight(ctx, patch_diff=False)
         assert calls == []
@@ -583,6 +699,7 @@ class TestAdaptationLane:
     def test_the_payload_gate_is_not_overridable(self, tmp_path, monkeypatch):
         """What the Patcher actually wrote must apply, adaptation lane or not."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
@@ -595,6 +712,7 @@ class TestAdaptationLane:
     def test_a_clean_base_never_restages(self, tmp_path, monkeypatch):
         from tools.trace_cli import candidate_run
         from tools.trace_cli import preflight
+
         monkeypatch.setattr(preflight, "run", lambda *a, **k: 0)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
@@ -603,16 +721,21 @@ class TestAdaptationLane:
         assert calls == []
         assert "entered_adaptation_lane" not in ctx
 
-    def test_a_second_pass_does_not_restage_and_so_keeps_the_replay_record(self, tmp_path, monkeypatch):
+    def test_a_second_pass_does_not_restage_and_so_keeps_the_replay_record(
+        self, tmp_path, monkeypatch
+    ):
         """preflight_upstream re-runs on every resume, and assemble rewrites
         replay.json as a resolver-only seed. Restaging twice would drop the model
         invocations while their outputs stayed on disk."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         candidate_run._preflight(ctx, patch_diff=False)
         assert len(calls) == 1
 
@@ -625,16 +748,21 @@ class TestAdaptationLane:
         """One half of the pair is not the lane. Only both together mean the
         Patcher will see patcher.v4 with source to adapt against."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         pf = ctx["bundle_dir"] / "preflight.json"
         sc = ctx["bundle_dir"] / "source-context"
         if state == "verdict-only":
-            pf.write_text(json.dumps(
-                {"applies_verbatim": False, "diagnostics": "Hunk #3 FAILED"}) + "\n")
+            pf.write_text(
+                json.dumps({"applies_verbatim": False, "diagnostics": "Hunk #3 FAILED"})
+                + "\n"
+            )
         elif state == "context-only":
             self._stage_context(ctx["bundle_dir"])
         else:
@@ -645,33 +773,45 @@ class TestAdaptationLane:
         assert len(calls) == 1
 
     @pytest.mark.parametrize("output", ["patch.diff", "review.md", "reproducer.nix"])
-    def test_switching_lanes_on_a_bundle_with_model_output_is_refused(self, tmp_path, monkeypatch, output):
+    def test_switching_lanes_on_a_bundle_with_model_output_is_refused(
+        self, tmp_path, monkeypatch, output
+    ):
         """Restaging resets replay.json, and a resume picks what to skip from
         hashes taken before that, so the outputs would end up with no invocation
         recording what produced them."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         (ctx["bundle_dir"] / output).write_text("model output\n")
         with pytest.raises(StepStopped) as e:
             candidate_run._preflight(ctx, patch_diff=False)
         assert output in e.value.reason
         assert calls == []
 
-    def test_an_already_staged_lane_with_model_output_still_resumes(self, tmp_path, monkeypatch):
+    def test_an_already_staged_lane_with_model_output_still_resumes(
+        self, tmp_path, monkeypatch
+    ):
         """The refusal above is about switching lanes, not about resuming one.
         A bundle already on the lane skips the restage before the check."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         (ctx["bundle_dir"] / "preflight.json").write_text(
-            json.dumps({"applies_verbatim": False, "diagnostics": "Hunk #3 FAILED"}) + "\n")
+            json.dumps({"applies_verbatim": False, "diagnostics": "Hunk #3 FAILED"})
+            + "\n"
+        )
         self._stage_context(ctx["bundle_dir"])
         (ctx["bundle_dir"] / "patch.diff").write_text("model output\n")
         candidate_run._preflight(ctx, patch_diff=False)
@@ -679,16 +819,20 @@ class TestAdaptationLane:
         assert ctx["entered_adaptation_lane"] == "adaptation canary"
 
     @pytest.mark.parametrize("step", ["patcher", "reviewer"])
-    def test_changed_adaptation_source_invalidates_a_reusable_model_output(self, tmp_path, step):
+    def test_changed_adaptation_source_invalidates_a_reusable_model_output(
+        self, tmp_path, step
+    ):
         """patcher.v4 adapts against source-context/, and the Reviewer checks the
         result against the same source. A resume that ignored them would reuse a
         patch authored for source the bundle no longer has."""
         from tools.trace_cli.candidate_run import _inputs_sha
+
         bundle = tmp_path / "bundle"
         sc = bundle / "source-context"
         sc.mkdir(parents=True)
         (bundle / "preflight.json").write_text(
-            json.dumps({"applies_verbatim": False}) + "\n")
+            json.dumps({"applies_verbatim": False}) + "\n"
+        )
         (sc / "file.c").write_text("int old(void);\n")
         before = _inputs_sha(bundle, step, "m")
 
@@ -699,27 +843,35 @@ class TestAdaptationLane:
         assert _inputs_sha(bundle, step, "m") == before
 
         (bundle / "preflight.json").write_text(
-            json.dumps({"applies_verbatim": False, "patch_flags": ["-p1"]}) + "\n")
+            json.dumps({"applies_verbatim": False, "patch_flags": ["-p1"]}) + "\n"
+        )
         assert _inputs_sha(bundle, step, "m") != before
 
-    def test_a_new_source_context_file_invalidates_a_reusable_model_output(self, tmp_path):
+    def test_a_new_source_context_file_invalidates_a_reusable_model_output(
+        self, tmp_path
+    ):
         from tools.trace_cli.candidate_run import _inputs_sha
+
         bundle = tmp_path / "bundle"
         sc = bundle / "source-context"
         sc.mkdir(parents=True)
         (bundle / "preflight.json").write_text(
-            json.dumps({"applies_verbatim": False}) + "\n")
+            json.dumps({"applies_verbatim": False}) + "\n"
+        )
         (sc / "a.c").write_text("x\n")
         before = _inputs_sha(bundle, "patcher", "m")
         (sc / "b.c").write_text("y\n")
         assert _inputs_sha(bundle, "patcher", "m") != before
 
     @pytest.mark.parametrize("step", ["patcher", "reviewer", "reproducer"])
-    def test_a_verbatim_bundle_keeps_the_hash_it_was_recorded_with(self, tmp_path, step):
+    def test_a_verbatim_bundle_keeps_the_hash_it_was_recorded_with(
+        self, tmp_path, step
+    ):
         """An in-flight ordinary run must not re-bill a model call because the
         adaptation lane was added to the tool underneath it."""
         from tools.trace_cli.candidate_run import _PAID_INPUTS, _inputs_sha
         import hashlib
+
         bundle = tmp_path / "bundle"
         bundle.mkdir()
         for name in _PAID_INPUTS[step]:
@@ -741,61 +893,84 @@ class TestAdaptationLane:
         """It reads the patch and the package, not the pre-patch source, so
         binding it there would re-bill a Reproducer for an unrelated change."""
         from tools.trace_cli.candidate_run import _inputs_sha
+
         bundle = tmp_path / "bundle"
         sc = bundle / "source-context"
         sc.mkdir(parents=True)
         (bundle / "preflight.json").write_text(
-            json.dumps({"applies_verbatim": False}) + "\n")
+            json.dumps({"applies_verbatim": False}) + "\n"
+        )
         (sc / "a.c").write_text("x\n")
         before = _inputs_sha(bundle, "reproducer", "m")
         (sc / "a.c").write_text("y\n")
         assert _inputs_sha(bundle, "reproducer", "m") == before
 
-    @pytest.mark.parametrize("code", ["EXIT_NOT_FOUND", "EXIT_UNPACK_FAILED",
-                                      "EXIT_EXTRACT_FAILED", "EXIT_USAGE"])
+    @pytest.mark.parametrize(
+        "code",
+        ["EXIT_NOT_FOUND", "EXIT_UNPACK_FAILED", "EXIT_EXTRACT_FAILED", "EXIT_USAGE"],
+    )
     def test_only_a_failed_dry_run_opens_the_lane(self, tmp_path, monkeypatch, code):
         """A missing input or a failed unpack says nothing about the base, so
         overriding it would buy a Patcher call on a bundle nobody has read."""
         from tools.trace_cli import candidate_run, preflight
+
         self._fail(monkeypatch, getattr(preflight, code))
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits",
-                            lambda *a, **k: getattr(preflight, code))
+        monkeypatch.setattr(
+            candidate_run,
+            "_retry_with_other_cited_commits",
+            lambda *a, **k: getattr(preflight, code),
+        )
         with pytest.raises(StepStopped):
             candidate_run._preflight(ctx, patch_diff=False)
         assert calls == []
 
-    @pytest.mark.parametrize("diagnostics,word", [
-        ("Reversed (or previously applied) patch detected!", "already-applied"),
-        ("Reversed (or previously applied) patch detected!\nHunk #2 FAILED", "mixed"),
-    ])
+    @pytest.mark.parametrize(
+        "diagnostics,word",
+        [
+            ("Reversed (or previously applied) patch detected!", "already-applied"),
+            (
+                "Reversed (or previously applied) patch detected!\nHunk #2 FAILED",
+                "mixed",
+            ),
+        ],
+    )
     def test_a_base_that_already_carries_the_fix_is_a_retirement(
-            self, tmp_path, monkeypatch, diagnostics, word):
+        self, tmp_path, monkeypatch, diagnostics, word
+    ):
         """The jsonxs shape: the pinned source is not vulnerable, so there is
         nothing to adapt and a Patcher call would produce invalid evidence."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         self._restage(monkeypatch, False, diagnostics=diagnostics)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         with pytest.raises(StepStopped) as e:
             candidate_run._preflight(ctx, patch_diff=False)
         assert word in e.value.reason
         assert "not vulnerable" in e.value.reason
         assert "entered_adaptation_lane" not in ctx
 
-    def test_the_retry_does_not_erase_the_dry_run_classification(self, tmp_path, monkeypatch):
+    def test_the_retry_does_not_erase_the_dry_run_classification(
+        self, tmp_path, monkeypatch
+    ):
         """`_retry_with_other_cited_commits` reports a bare 1 when the CVE cites a
         single commit, which is the common case. Letting that replace the real
         exit code would close the lane to every single-commit candidate."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         candidate_run._preflight(ctx, patch_diff=False)
         assert len(calls) == 1
 
@@ -803,26 +978,40 @@ class TestAdaptationLane:
         """A candidate rescued by another cited fix is a verbatim backport, not
         an adaptation, even with the flag set."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 0)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 0
+        )
         candidate_run._preflight(ctx, patch_diff=False)
         assert calls == []
         assert "entered_adaptation_lane" not in ctx
 
-    def _resume_ctx(self, tmp_path, monkeypatch, *, diagnostics="Hunk #3 FAILED",
-                    body=None, drop_context=False):
+    def _resume_ctx(
+        self,
+        tmp_path,
+        monkeypatch,
+        *,
+        diagnostics="Hunk #3 FAILED",
+        body=None,
+        drop_context=False,
+    ):
         """A bundle already staged for the lane, as a resume finds it."""
         from tools.trace_cli import candidate_run
+
         self._fail(monkeypatch)
         calls: list = []
         self._restage(monkeypatch, False, calls=calls)
         ctx = self._ctx(tmp_path, "adaptation canary")
-        monkeypatch.setattr(candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1)
+        monkeypatch.setattr(
+            candidate_run, "_retry_with_other_cited_commits", lambda *a, **k: 1
+        )
         (ctx["bundle_dir"] / "preflight.json").write_text(
-            json.dumps({"applies_verbatim": False, "diagnostics": diagnostics}) + "\n")
+            json.dumps({"applies_verbatim": False, "diagnostics": diagnostics}) + "\n"
+        )
         self._stage_context(ctx["bundle_dir"], body)
         if drop_context:
             (ctx["bundle_dir"] / "source-context" / "src" / "file.c").unlink()
@@ -830,23 +1019,30 @@ class TestAdaptationLane:
             (ctx["bundle_dir"] / "source-context" / "unrelated.c").write_text("x\n")
         return ctx, calls
 
-    def test_a_resume_rechecks_that_the_base_is_still_vulnerable(self, tmp_path, monkeypatch):
+    def test_a_resume_rechecks_that_the_base_is_still_vulnerable(
+        self, tmp_path, monkeypatch
+    ):
         """The early return skips the restage, not the checks. A bundle whose
         recorded diagnostics say the fix is already in must not reach the Patcher."""
         from tools.trace_cli import candidate_run
+
         ctx, calls = self._resume_ctx(
-            tmp_path, monkeypatch,
-            diagnostics="Reversed (or previously applied) patch detected!")
+            tmp_path,
+            monkeypatch,
+            diagnostics="Reversed (or previously applied) patch detected!",
+        )
         with pytest.raises(StepStopped) as e:
             candidate_run._preflight(ctx, patch_diff=False)
         assert "not vulnerable" in e.value.reason
         assert calls == []
 
     def test_a_resume_rejects_source_context_that_does_not_match_the_pinned_source(
-            self, tmp_path, monkeypatch):
+        self, tmp_path, monkeypatch
+    ):
         """Edited or stale context would have the Patcher adapt against source the
         bundle does not actually pin."""
         from tools.trace_cli import candidate_run
+
         ctx, _ = self._resume_ctx(tmp_path, monkeypatch, body="int tampered(void);\n")
         with pytest.raises(StepStopped) as e:
             candidate_run._preflight(ctx, patch_diff=False)
@@ -856,6 +1052,7 @@ class TestAdaptationLane:
         """Every file the fix touches has to be there, or the adaptation is
         authored against a partial view of the affected code."""
         from tools.trace_cli import candidate_run
+
         ctx, _ = self._resume_ctx(tmp_path, monkeypatch, drop_context=True)
         with pytest.raises(StepStopped) as e:
             candidate_run._preflight(ctx, patch_diff=False)
@@ -863,16 +1060,21 @@ class TestAdaptationLane:
 
     def test_a_resume_on_honest_staging_proceeds(self, tmp_path, monkeypatch):
         from tools.trace_cli import candidate_run
+
         ctx, calls = self._resume_ctx(tmp_path, monkeypatch)
         candidate_run._preflight(ctx, patch_diff=False)
         assert calls == []
         assert ctx["entered_adaptation_lane"] == "adaptation canary"
 
-    def test_an_addition_only_fix_has_nothing_to_adapt_against(self, tmp_path, monkeypatch):
+    def test_an_addition_only_fix_has_nothing_to_adapt_against(
+        self, tmp_path, monkeypatch
+    ):
         from tools.trace_cli import candidate_run
+
         ctx, _ = self._resume_ctx(tmp_path, monkeypatch)
         (ctx["bundle_dir"] / "upstream-fix.patch").write_text(
-            "diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n@@ -0,0 +1 @@\n+int x;\n")
+            "diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n@@ -0,0 +1 @@\n+int x;\n"
+        )
         with pytest.raises(StepStopped) as e:
             candidate_run._preflight(ctx, patch_diff=False)
         assert "nothing to" in e.value.reason
@@ -880,14 +1082,24 @@ class TestAdaptationLane:
     def test_the_flag_reaches_the_context_from_the_command_line(self, tmp_path):
         import argparse
         from tools.trace_cli import candidate_run
+
         root = argparse.ArgumentParser()
         candidate_run.add_parser(root.add_subparsers(dest="cmd"))
-        args = root.parse_args([
-            "run",
-            "--inbox-entry", str(tmp_path / "e"), "--out", str(tmp_path / "o"),
-            "--nixpkgs-checkout", str(tmp_path / "n"), "--nixpkgs-rev", "d" * 40,
-            "--adaptation-lane", "canary",
-        ])
+        args = root.parse_args(
+            [
+                "run",
+                "--inbox-entry",
+                str(tmp_path / "e"),
+                "--out",
+                str(tmp_path / "o"),
+                "--nixpkgs-checkout",
+                str(tmp_path / "n"),
+                "--nixpkgs-rev",
+                "d" * 40,
+                "--adaptation-lane",
+                "canary",
+            ]
+        )
         assert args.adaptation_lane == "canary"
 
 
@@ -915,35 +1127,45 @@ class TestRationaleBindingGate:
             "## Why this version\nSource-backport.\n\n"
             f"## Why minimal\n{why_minimal}\n\n"
             "## Alternatives rejected\n- Bump — not authorized.\n\n"
-            "## Downstream risk\nNone noted.\n")
+            "## Downstream risk\nNone noted.\n"
+        )
         return {"bundle_dir": bundle}
 
     def test_a_cited_claim_lets_the_run_reach_the_reviewer(self, tmp_path):
         ctx = self._bundle(
             tmp_path,
             "- [CLAIM-1] Declares the guard.\n  - Diff Line: `+int guard(void);`\n",
-            self.PATCH)
+            self.PATCH,
+        )
         assert candidate_run._rationale_binding(ctx) == "bound"
 
-    def test_a_claim_the_payload_does_not_contain_stops_before_reviewer_spend(self, tmp_path):
+    def test_a_claim_the_payload_does_not_contain_stops_before_reviewer_spend(
+        self, tmp_path
+    ):
         ctx = self._bundle(
             tmp_path,
             "- [CLAIM-1] Declares the guard.\n  - Diff Line: `+int guard(void);`\n"
             "- [CLAIM-2] Trims the vector.\n  - Diff Line: `+    v.resize(n);`\n",
-            self.PATCH)
+            self.PATCH,
+        )
         with pytest.raises(candidate_run.StepStopped) as e:
             candidate_run._rationale_binding(ctx)
         assert e.value.gate == "rationale_binding"
         assert "v.resize(n)" in e.value.reason
 
     def test_a_claim_with_no_citation_stops_the_run(self, tmp_path):
-        ctx = self._bundle(tmp_path, "- [CLAIM-1] Does something unstated.\n", self.PATCH)
+        ctx = self._bundle(
+            tmp_path, "- [CLAIM-1] Does something unstated.\n", self.PATCH
+        )
         with pytest.raises(candidate_run.StepStopped):
             candidate_run._rationale_binding(ctx)
 
     def test_a_rationale_authored_before_v5_passes_as_not_applicable(self, tmp_path):
         ctx = self._bundle(
-            tmp_path, "Prose justifying each hunk, as v3 and v4 asked for.\n", self.PATCH)
+            tmp_path,
+            "Prose justifying each hunk, as v3 and v4 asked for.\n",
+            self.PATCH,
+        )
         assert candidate_run._rationale_binding(ctx) == "not-applicable"
 
     def test_the_gate_runs_between_the_patcher_and_the_payload_preflight(self):

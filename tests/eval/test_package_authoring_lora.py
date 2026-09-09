@@ -16,7 +16,14 @@ pal = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(pal)
 
 
-def _rec(split, *, tier="behavioral-only", user="vuln desc", n_user=10, fix="--- a/f.c\n+++ b/f.c\n@@ -1,1 +1,1 @@\n-old\n+new\n"):
+def _rec(
+    split,
+    *,
+    tier="behavioral-only",
+    user="vuln desc",
+    n_user=10,
+    fix="--- a/f.c\n+++ b/f.c\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+):
     return {
         "split": split,
         "task": "author-from-vuln",
@@ -40,15 +47,23 @@ def _setup(monkeypatch, tmp_path, rows):
 
 
 def test_packages_messages_only_per_split(monkeypatch, tmp_path):
-    _setup(monkeypatch, tmp_path, [
-        _rec("train"), _rec("train", tier="cert-green"), _rec("dev"),
-    ])
+    _setup(
+        monkeypatch,
+        tmp_path,
+        [
+            _rec("train"),
+            _rec("train", tier="cert-green"),
+            _rec("dev"),
+        ],
+    )
     m = pal.package(seq_len=16384)
     assert m["splits"] == {"train": 2, "dev": 1, "test": 0}
     assert m["tiers"] == {"behavioral-only": 2, "cert-green": 1}
     # training lines carry ONLY messages
     line = json.loads(
-        (tmp_path / "authoring-lora" / "authoring.train.jsonl").read_text().splitlines()[0]
+        (tmp_path / "authoring-lora" / "authoring.train.jsonl")
+        .read_text()
+        .splitlines()[0]
     )
     assert list(line.keys()) == ["messages"]
     assert m["validation_errors"] == []
@@ -90,9 +105,15 @@ def test_empty_content_is_flagged(monkeypatch, tmp_path):
 
 
 def test_tiers_by_split(monkeypatch, tmp_path):
-    _setup(monkeypatch, tmp_path, [
-        _rec("train"), _rec("train", tier="cert-green"), _rec("dev", tier="cert-green"),
-    ])
+    _setup(
+        monkeypatch,
+        tmp_path,
+        [
+            _rec("train"),
+            _rec("train", tier="cert-green"),
+            _rec("dev", tier="cert-green"),
+        ],
+    )
     m = pal.package(seq_len=16384)
     assert m["tiers_by_split"]["train"] == {"behavioral-only": 1, "cert-green": 1}
     assert m["tiers_by_split"]["dev"] == {"cert-green": 1}

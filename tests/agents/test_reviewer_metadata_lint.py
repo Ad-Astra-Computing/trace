@@ -39,6 +39,7 @@ def _codes(d: Path) -> set[str]:
 
 # ---- No false-rejects on honest patches (the load-bearing property) --------
 
+
 @pytest.mark.skipif(not POS.exists(), reason="corpus not present")
 def test_no_false_positive_on_any_honest_positive():
     offenders = {
@@ -50,6 +51,7 @@ def test_no_false_positive_on_any_honest_positive():
 
 
 # ---- Fires on the metadata-defect negatives it targets ---------------------
+
 
 @pytest.mark.skipif(not NEG.exists(), reason="corpus not present")
 @pytest.mark.parametrize(
@@ -68,7 +70,9 @@ def test_fires_on_metadata_negatives(mutation_type, expected_code):
     # every negative of this type must be flagged with the expected code
     for d in dirs:
         codes = _codes(d)
-        assert expected_code in codes, f"{d.name}: expected {expected_code}, got {codes}"
+        assert expected_code in codes, (
+            f"{d.name}: expected {expected_code}, got {codes}"
+        )
 
 
 @pytest.mark.skipif(not NEG.exists(), reason="corpus not present")
@@ -80,6 +84,7 @@ def test_does_not_fire_on_pure_code_mutations():
 
 
 # ---- Unit behaviour on synthetic bundles -----------------------------------
+
 
 def _write_bundle(tmp_path: Path, diff: str, upstream_ref: dict | None = None) -> Path:
     # Real bundle diffs carry a `+++ b/<file>` header; the lint only scans .nix
@@ -134,16 +139,20 @@ def test_wrong_src_hash(tmp_path):
         "target_version": "1.2.4",
         "prefetch_hashes": [{"name": "src.hash", "value": "sha256-EXPECTED"}],
     }
-    assert "wrong-src-hash" in {x.code for x in check_metadata_consistency(
-        _write_bundle(tmp_path, diff, ref))}
+    assert "wrong-src-hash" in {
+        x.code for x in check_metadata_consistency(_write_bundle(tmp_path, diff, ref))
+    }
 
 
 def test_version_mismatch_vs_resolver(tmp_path):
     diff = '-  version = "1.2.3";\n+  version = "9.9.9";\n+    hash = "sha256-NEW";\n'
-    ref = {"target_version": "1.2.4",
-           "prefetch_hashes": [{"name": "src.hash", "value": "sha256-NEW"}]}
+    ref = {
+        "target_version": "1.2.4",
+        "prefetch_hashes": [{"name": "src.hash", "value": "sha256-NEW"}],
+    }
     assert "version-mismatch-vs-resolver" in {
-        x.code for x in check_metadata_consistency(_write_bundle(tmp_path, diff, ref))}
+        x.code for x in check_metadata_consistency(_write_bundle(tmp_path, diff, ref))
+    }
 
 
 def test_multi_hash_bump_with_correct_src_is_clean(tmp_path):
@@ -196,15 +205,17 @@ def test_src_hash_on_vendor_line_does_not_satisfy_src_check(tmp_path):
     diff = (
         '-  version = "1.0";\n'
         '+  version = "1.1";\n'
-        '     hash = "sha256-STALE_SRC";\n'          # src hash unchanged (context)
+        '     hash = "sha256-STALE_SRC";\n'  # src hash unchanged (context)
         '-  vendorHash = "sha256-VOLD";\n'
-        '+  vendorHash = "sha256-EXPECTED_SRC";\n'   # src value on the wrong attr
+        '+  vendorHash = "sha256-EXPECTED_SRC";\n'  # src value on the wrong attr
     )
     ref = {
         "target_version": "1.1",
         "prefetch_hashes": [{"name": "src.hash", "value": "sha256-EXPECTED_SRC"}],
     }
-    codes = {x.code for x in check_metadata_consistency(_write_bundle(tmp_path, diff, ref))}
+    codes = {
+        x.code for x in check_metadata_consistency(_write_bundle(tmp_path, diff, ref))
+    }
     assert codes & {"wrong-src-hash", "version-without-hash"}
 
 
@@ -222,7 +233,8 @@ def test_wrong_src_hash_with_src_sha256_resolver_name(tmp_path):
         "prefetch_hashes": [{"name": "src.sha256", "value": "sha256-EXPECTED"}],
     }
     assert "wrong-src-hash" in {
-        x.code for x in check_metadata_consistency(_write_bundle(tmp_path, diff, ref))}
+        x.code for x in check_metadata_consistency(_write_bundle(tmp_path, diff, ref))
+    }
 
 
 def test_src_hash_check_skipped_when_resolver_ungrounded(tmp_path):
@@ -285,9 +297,9 @@ def test_known_limitation_wrong_src_with_subfetcher_coincidence(tmp_path):
         '-  version = "1.0";\n'
         '+  version = "1.1";\n'
         '-    hash = "sha256-SRC_OLD";\n'
-        '+    hash = "sha256-SRC_WRONG";\n'            # real src hash is wrong
+        '+    hash = "sha256-SRC_WRONG";\n'  # real src hash is wrong
         '-      hash = "sha256-PATCH_OLD";\n'
-        '+      hash = "sha256-EXPECTED_SRC";\n'       # resolver value on a patch line
+        '+      hash = "sha256-EXPECTED_SRC";\n'  # resolver value on a patch line
     )
     ref = {
         "target_version": "1.1",

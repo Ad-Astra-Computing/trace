@@ -103,7 +103,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: cve-ids file not found: {args.cve_ids_file}", file=sys.stderr)
         return _EXIT_USAGE
     if not args.graph_snapshot.is_file():
-        print(f"error: graph snapshot not found: {args.graph_snapshot}", file=sys.stderr)
+        print(
+            f"error: graph snapshot not found: {args.graph_snapshot}", file=sys.stderr
+        )
         return _EXIT_USAGE
 
     try:
@@ -148,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
                 nixpkgs_root=nixpkgs_root,
                 use_nix_eval=use_nix_eval,
             )
+
         auto_prefetch_fn = _ap_fn
 
     prefetch_stats_collected: list[AutoPrefetchStats] = []
@@ -159,7 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     with args.output_jsonl.open("w") as out:
         for cve_id in cve_ids:
             record = _process_one(
-                cve_id, graph=graph, inbox=args.inbox,
+                cve_id,
+                graph=graph,
+                inbox=args.inbox,
                 nvd_api_key=nvd_api_key,
                 auto_prefetch_fn=auto_prefetch_fn,
                 stats_sink=prefetch_stats_collected,
@@ -222,7 +227,9 @@ def _process_one(
 
     try:
         process = process_entry(
-            poll.entry_path, graph=graph, auto_prefetch_fn=auto_prefetch_fn,
+            poll.entry_path,
+            graph=graph,
+            auto_prefetch_fn=auto_prefetch_fn,
         )
     except Exception as e:
         base["finding_status"] = "error"

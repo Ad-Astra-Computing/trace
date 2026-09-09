@@ -109,10 +109,16 @@ def _bundle(tmp_path: Path, inner: str) -> tuple[Path, Path]:
     return bd, root
 
 
-def _args(bundle_dir: Path, source_tree: Path, apply: bool = False) -> argparse.Namespace:
+def _args(
+    bundle_dir: Path, source_tree: Path, apply: bool = False
+) -> argparse.Namespace:
     return argparse.Namespace(
-        bundle_dir=bundle_dir, ground_truth=None, source_tree=source_tree,
-        patch_flags=None, apply=apply, format="json",
+        bundle_dir=bundle_dir,
+        ground_truth=None,
+        source_tree=source_tree,
+        patch_flags=None,
+        apply=apply,
+        format="json",
     )
 
 
@@ -126,7 +132,9 @@ def test_corrupt_context_fixture_does_not_apply(tmp_path: Path) -> None:
     assert ok_gt
 
 
-def test_apply_substitutes_and_attests(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_apply_substitutes_and_attests(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     bd, root = _bundle(tmp_path, _corrupt_context(_GT_INNER))
     rc = ctx.run(_args(bd, root, apply=True), repo_root=tmp_path)
     out = capsys.readouterr().out
@@ -145,6 +153,7 @@ def test_apply_substitutes_and_attests(tmp_path: Path, capsys: pytest.CaptureFix
     assert sidecar["normalized_patch_diff_sha256"] == ctx.sha256_text(new_patch)
     # the normalized payload re-extracts and applies at fuzz=0
     from tools.trace_cli import nested_patch
+
     inner, _names = nested_patch.extract_nested_source_patch(new_patch)
     ok, output = ctx._dry_run(root, inner, ["-p1"])
     assert ok, output
@@ -166,7 +175,9 @@ def test_no_apply_fails_closed(tmp_path: Path, capsys: pytest.CaptureFixture) ->
     assert not (bd / ctx.ATTESTATION_FILENAME).exists()
 
 
-def test_added_line_divergence_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_added_line_divergence_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     diverged = _corrupt_context(_GT_INNER).replace("fail();", "exploit();")
     bd, root = _bundle(tmp_path, diverged)
     rc = ctx.run(_args(bd, root, apply=True), repo_root=tmp_path)
@@ -176,7 +187,9 @@ def test_added_line_divergence_refused(tmp_path: Path, capsys: pytest.CaptureFix
     assert not (bd / ctx.ATTESTATION_FILENAME).exists()
 
 
-def test_deleted_line_divergence_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_deleted_line_divergence_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     # Ground truth variant that also deletes a line; raw payload does not.
     gt_del = _GT_INNER.replace(
         "@@ -2,4 +2,7 @@ static int study(void) {\n",
@@ -193,13 +206,12 @@ def test_deleted_line_divergence_refused(tmp_path: Path, capsys: pytest.CaptureF
     assert "DELETED lines differ" in payload["error"]
 
 
-def test_hunk_count_mismatch_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_hunk_count_mismatch_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     two_hunks = _GT_INNER.replace(
         "--\n2.43.0\n",
-        "@@ -6,1 +9,2 @@ static int study(void) {\n"
-        " }\n"
-        "+// end\n"
-        "--\n2.43.0\n",
+        "@@ -6,1 +9,2 @@ static int study(void) {\n }\n+// end\n--\n2.43.0\n",
     )
     bd, root = _bundle(tmp_path, _corrupt_context(_GT_INNER))
     (bd / "upstream-fix.patch").write_text(two_hunks)
@@ -209,7 +221,9 @@ def test_hunk_count_mismatch_refused(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "hunk" in payload["error"]
 
 
-def test_file_set_mismatch_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_file_set_mismatch_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     bd, root = _bundle(tmp_path, _corrupt_context(_GT_INNER))
     (bd / "upstream-fix.patch").write_text(_GT_INNER.replace("study.c", "other.c"))
     rc = ctx.run(_args(bd, root, apply=True), repo_root=tmp_path)
@@ -217,7 +231,9 @@ def test_file_set_mismatch_refused(tmp_path: Path, capsys: pytest.CaptureFixture
     assert rc == ctx.EXIT_REFUSED
 
 
-def test_already_canonical_is_noop(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_already_canonical_is_noop(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     bd, root = _bundle(tmp_path, _GT_INNER)
     before = (bd / "patch.diff").read_text()
     rc = ctx.run(_args(bd, root, apply=True), repo_root=tmp_path)

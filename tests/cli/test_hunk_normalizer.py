@@ -24,7 +24,9 @@ from tools.trace_cli.hunk_normalizer import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LIBARCHIVE = REPO_ROOT / "traces/example/CVE-2026-15028--libarchive-tar-atol-oob-backport"
+LIBARCHIVE = (
+    REPO_ROOT / "traces/example/CVE-2026-15028--libarchive-tar-atol-oob-backport"
+)
 MAXIMA = REPO_ROOT / "traces/drafts/CVE-2024-34490--maxima-plot-tempfile-backport"
 
 
@@ -86,7 +88,11 @@ def test_body_lines_never_mutated():
     ctx = {"src/f.c": FLAT_SOURCE}
     patch = _flat_patch("@@ -1,1 +1,1 @@")
     res = normalize_backport_patch(patch, ctx)
-    body = [ln for ln in res.text.split("\n") if ln[:1] in {" ", "+", "-"} and not ln.startswith("@@")]
+    body = [
+        ln
+        for ln in res.text.split("\n")
+        if ln[:1] in {" ", "+", "-"} and not ln.startswith("@@")
+    ]
     assert " \tif (bad) {" in body
     assert "-\t\tx = compute();" in body
     assert "+\t\tx = compute_safe();" in body
@@ -116,7 +122,9 @@ def test_ungroundable_body_fails_loudly():
             "",
         ]
     )
-    with pytest.raises(HunkNormalizationError, match="does not match the pinned source"):
+    with pytest.raises(
+        HunkNormalizationError, match="does not match the pinned source"
+    ):
         normalize_backport_patch(patch, ctx)
 
 
@@ -150,11 +158,11 @@ def test_multi_hunk_new_start_uses_prior_delta():
             "diff --git a/src/f.c b/src/f.c",
             "--- a/src/f.c",
             "+++ b/src/f.c",
-            "@@ -1,1 +1,1 @@",       # hunk 1 at L2, net +2
+            "@@ -1,1 +1,1 @@",  # hunk 1 at L2, net +2
             " L2",
             "+A",
             "+B",
-            "@@ -1,1 +1,1 @@",       # hunk 2 at L15, expect new_start 15+2=17
+            "@@ -1,1 +1,1 @@",  # hunk 2 at L15, expect new_start 15+2=17
             " L15",
             "+C",
             "",
@@ -279,10 +287,10 @@ def test_deletion_line_beginning_with_dashdash_kept_in_body():
             "diff --git a/src/g.c b/src/g.c",
             "--- a/src/g.c",
             "+++ b/src/g.c",
-            "@@ -99,9 +99,9 @@",       # wrong start; recompute to line 1
+            "@@ -99,9 +99,9 @@",  # wrong start; recompute to line 1
             " int g(void) {",
-            "--- keep",                # deletion of the `-- keep` source line
-            " \treturn 0;",            # context (NOT a +++ header)
+            "--- keep",  # deletion of the `-- keep` source line
+            " \treturn 0;",  # context (NOT a +++ header)
             "",
         ]
     )
@@ -425,7 +433,9 @@ def test_bare_header_ungroundable_still_fails_loud():
             "",
         ]
     )
-    with pytest.raises(HunkNormalizationError, match="does not match the pinned source"):
+    with pytest.raises(
+        HunkNormalizationError, match="does not match the pinned source"
+    ):
         normalize_backport_patch(patch, ctx)
 
 
@@ -441,15 +451,15 @@ def test_bare_header_ungroundable_still_fails_loud():
 # single model spanning-hunk must re-split into two canonical hunks (maxima shape).
 SPANNED_SOURCE = "\n".join(
     [
-        "int f(void) {",     # 1
+        "int f(void) {",  # 1
         "\tint a = bad1();",  # 2  <- change site 1
-        "\tint b = 0;",       # 3
-        "\tint c = 0;",       # 4
-        "\tint d = 0;",       # 5
-        "\tint e = 0;",       # 6
-        "\tint g = 0;",       # 7
-        "\treturn bad2();",   # 8  <- change site 2
-        "}",                  # 9
+        "\tint b = 0;",  # 3
+        "\tint c = 0;",  # 4
+        "\tint d = 0;",  # 5
+        "\tint e = 0;",  # 6
+        "\tint g = 0;",  # 7
+        "\treturn bad2();",  # 8  <- change site 2
+        "}",  # 9
         "",
     ]
 )
@@ -463,7 +473,7 @@ def test_canonicalize_redundant_deladd_and_missing_trailing_context():
     inner = [
         "--- a/src/f.c",
         "+++ b/src/f.c",
-        "@@",                       # bare header
+        "@@",  # bare header
         " int f(void) {",
         "-\tint a = bad1();",
         "+\tint a = safe1();",
@@ -472,9 +482,9 @@ def test_canonicalize_redundant_deladd_and_missing_trailing_context():
         " \tint d = 0;",
         " \tint e = 0;",
         " \tint g = 0;",
-        "-\treturn bad2();",        # change site 2
+        "-\treturn bad2();",  # change site 2
         "+\treturn safe2();",
-        "-}",                       # redundant: `}` deleted AND re-added identically
+        "-}",  # redundant: `}` deleted AND re-added identically
         "+}",
     ]
     patch = "\n".join(
@@ -579,7 +589,9 @@ def test_canonicalize_ungroundable_fails_loud():
             "",
         ]
     )
-    with pytest.raises(HunkNormalizationError, match="does not match the pinned source"):
+    with pytest.raises(
+        HunkNormalizationError, match="does not match the pinned source"
+    ):
         canonicalize_backport_patch(patch, ctx)
 
 
@@ -824,7 +836,11 @@ def test_canonicalize_maxima_real_case_applies():
     assert res.changed
     by_file = {r["file"]: r for r in res.files}
     # All three touched lisp files compiled.
-    assert set(by_file) == {"src/plot.lisp", "src/gnuplot_def.lisp", "src/xmaxima_def.lisp"}
+    assert set(by_file) == {
+        "src/plot.lisp",
+        "src/gnuplot_def.lisp",
+        "src/xmaxima_def.lisp",
+    }
     # The merged spanning hunk in plot.lisp re-splits into multiple canonical hunks.
     assert by_file["src/plot.lisp"]["canonical_hunks"] >= 2
     # Idempotent fixpoint.

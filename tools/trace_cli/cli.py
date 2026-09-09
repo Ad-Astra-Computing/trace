@@ -54,6 +54,7 @@ def main(argv: list[str]) -> int:
     subs = parser.add_subparsers(dest="cmd", required=True)
 
     from tools.trace_cli import pr as _pr_module
+
     _pr_module.add_parser(subs)
 
     rv = subs.add_parser("review", help="panel review rubric tooling")
@@ -190,45 +191,83 @@ def main(argv: list[str]) -> int:
             "call Patcher and does NOT synthesise Scout/Cartographer."
         ),
     )
-    b_asm.add_argument("--input", type=Path, required=True,
-                       help="path to resolver-input.json")
-    b_asm.add_argument("--package", type=Path, required=True,
-                       help="path to package.nix for the affected attr")
-    b_asm.add_argument("--out", type=Path, required=True,
-                       help="output directory (created if missing)")
-    b_asm.add_argument("--finding", type=Path, default=None,
-                       help="optional finding.json to copy in verbatim")
-    b_asm.add_argument("--impact", type=Path, default=None,
-                       help="optional impact.json to copy in verbatim")
-    b_asm.add_argument("--maintainers", type=Path, default=None,
-                       help="optional maintainers.json to copy in verbatim")
-    b_asm.add_argument("--attr", default=None,
-                       help="affected attr_path (e.g. 'traefik'); falls back to "
-                            "resolver-input's attr_path field")
-    b_asm.add_argument("--nixpkgs-rev", default=None,
-                       help="nixpkgs revision for go-mod-vendor pinning")
-    b_asm.add_argument("--go-mod-vendor", action="store_true",
-                       help="run live go-mod-vendor for vendorHash slots "
-                            "(slow; off by default)")
-    b_asm.add_argument("--fetchzip", action="store_true",
-                       help="run live fetchzip src.hash extraction for "
-                            "fetchFromGitHub / fetchzip / fetchgit packages "
-                            "(slow; off by default). Required when the "
-                            "package uses any fetcher whose hash is NOT "
-                            "the raw download hash.")
-    b_asm.add_argument("--upstream-fix-patch", type=Path, default=None,
-                       help="source-backport only: the upstream fix commit diff "
-                            "(ground truth). Copied in as upstream-fix.patch; when "
-                            "a source tree is available also drives source-context/ "
-                            "extraction + the applies_verbatim preflight verdict.")
-    b_asm.add_argument("--source-tree", type=Path, default=None,
-                       help="pre-unpacked pinned source root for source-context "
-                            "extraction (skips the nix unpack; use offline or when "
-                            "you already have the source, e.g. from preflight).")
-    b_asm.add_argument("--source-context", action="store_true",
-                       help="source-backport only: extract source-context/ from the "
-                            "pinned pkg.src (nix unpack; slow, network). Implied "
-                            "when --source-tree is given.")
+    b_asm.add_argument(
+        "--input", type=Path, required=True, help="path to resolver-input.json"
+    )
+    b_asm.add_argument(
+        "--package",
+        type=Path,
+        required=True,
+        help="path to package.nix for the affected attr",
+    )
+    b_asm.add_argument(
+        "--out", type=Path, required=True, help="output directory (created if missing)"
+    )
+    b_asm.add_argument(
+        "--finding",
+        type=Path,
+        default=None,
+        help="optional finding.json to copy in verbatim",
+    )
+    b_asm.add_argument(
+        "--impact",
+        type=Path,
+        default=None,
+        help="optional impact.json to copy in verbatim",
+    )
+    b_asm.add_argument(
+        "--maintainers",
+        type=Path,
+        default=None,
+        help="optional maintainers.json to copy in verbatim",
+    )
+    b_asm.add_argument(
+        "--attr",
+        default=None,
+        help="affected attr_path (e.g. 'traefik'); falls back to "
+        "resolver-input's attr_path field",
+    )
+    b_asm.add_argument(
+        "--nixpkgs-rev", default=None, help="nixpkgs revision for go-mod-vendor pinning"
+    )
+    b_asm.add_argument(
+        "--go-mod-vendor",
+        action="store_true",
+        help="run live go-mod-vendor for vendorHash slots (slow; off by default)",
+    )
+    b_asm.add_argument(
+        "--fetchzip",
+        action="store_true",
+        help="run live fetchzip src.hash extraction for "
+        "fetchFromGitHub / fetchzip / fetchgit packages "
+        "(slow; off by default). Required when the "
+        "package uses any fetcher whose hash is NOT "
+        "the raw download hash.",
+    )
+    b_asm.add_argument(
+        "--upstream-fix-patch",
+        type=Path,
+        default=None,
+        help="source-backport only: the upstream fix commit diff "
+        "(ground truth). Copied in as upstream-fix.patch; when "
+        "a source tree is available also drives source-context/ "
+        "extraction + the applies_verbatim preflight verdict.",
+    )
+    b_asm.add_argument(
+        "--source-tree",
+        type=Path,
+        default=None,
+        help="pre-unpacked pinned source root for source-context "
+        "extraction (skips the nix unpack; use offline or when "
+        "you already have the source, e.g. from preflight).",
+    )
+    b_asm.add_argument(
+        "--source-context",
+        action="store_true",
+        help="source-backport only: extract source-context/ from the "
+        "pinned pkg.src (nix unpack; slow, network). Implied "
+        "when --source-tree is given.",
+    )
     b_asm.add_argument("--format", choices=("human", "json"), default="human")
 
     b_fin = b_subs.add_parser(
@@ -241,91 +280,142 @@ def main(argv: list[str]) -> int:
             "can run downstream against the bundle."
         ),
     )
-    b_fin.add_argument("--bundle-dir", type=Path, required=True,
-                       help="bundle directory previously produced by assemble")
-    b_fin.add_argument("--kind", default="auto-merge",
-                       choices=("auto-merge", "advisory-only", "human-review-required"))
-    b_fin.add_argument("--kind-reason", default=None,
-                       help="kind_reason code for non-auto-merge bundles. "
-                            "Defaults derived from upstream-ref.json's "
-                            "eligibility.human_review_trigger when omitted.")
-    b_fin.add_argument("--created-at", default=None,
-                       help="override created_at timestamp (default: now UTC)")
-    b_fin.add_argument("--nixpkgs-rev", default=None,
-                       help="override nixpkgs_rev (default: read from impact.json)")
-    b_fin.add_argument("--cve-id", default=None,
-                       help="override cve_id (default: read from upstream-ref.json)")
-    b_fin.add_argument("--evidence-path", default=None,
-                       choices=("reproducer", "reviewer-attested"),
-                       help="auto_merge_evidence_path override (default: preserve from existing bundle.json)")
-    b_fin.add_argument("--gate-sourceroot", action="store_true",
-                       help="opt-in: for a source-backport bundle with patch.diff "
-                            "already on disk, fail closed unless it applies -p1 "
-                            "from the derivation's EFFECTIVE sourceRoot (catches "
-                            "a path-strip mismatch before cert dispatch). Requires "
-                            "nix + network unless --gate-source-tree is given.")
-    b_fin.add_argument("--gate-source-tree", type=Path, default=None,
-                       help="pre-unpacked EFFECTIVE source root for "
-                            "--gate-sourceroot (skips the nix unpack)")
-    b_fin.add_argument("--gate-patch-flags", type=str, default=None, metavar="FLAGS",
-                       help="(with --gate-source-tree) the package's patchFlags "
-                            "as one whitespace-separated string, `=` form so "
-                            "argparse accepts dashes, e.g. --gate-patch-flags=-p0. "
-                            "Without it a supplied tree is gated at -p1; ignored "
-                            "on the nix-unpack path (evaluated patchFlags win).")
+    b_fin.add_argument(
+        "--bundle-dir",
+        type=Path,
+        required=True,
+        help="bundle directory previously produced by assemble",
+    )
+    b_fin.add_argument(
+        "--kind",
+        default="auto-merge",
+        choices=("auto-merge", "advisory-only", "human-review-required"),
+    )
+    b_fin.add_argument(
+        "--kind-reason",
+        default=None,
+        help="kind_reason code for non-auto-merge bundles. "
+        "Defaults derived from upstream-ref.json's "
+        "eligibility.human_review_trigger when omitted.",
+    )
+    b_fin.add_argument(
+        "--created-at",
+        default=None,
+        help="override created_at timestamp (default: now UTC)",
+    )
+    b_fin.add_argument(
+        "--nixpkgs-rev",
+        default=None,
+        help="override nixpkgs_rev (default: read from impact.json)",
+    )
+    b_fin.add_argument(
+        "--cve-id",
+        default=None,
+        help="override cve_id (default: read from upstream-ref.json)",
+    )
+    b_fin.add_argument(
+        "--evidence-path",
+        default=None,
+        choices=("reproducer", "reviewer-attested"),
+        help="auto_merge_evidence_path override (default: preserve from existing bundle.json)",
+    )
+    b_fin.add_argument(
+        "--gate-sourceroot",
+        action="store_true",
+        help="opt-in: for a source-backport bundle with patch.diff "
+        "already on disk, fail closed unless it applies -p1 "
+        "from the derivation's EFFECTIVE sourceRoot (catches "
+        "a path-strip mismatch before cert dispatch). Requires "
+        "nix + network unless --gate-source-tree is given.",
+    )
+    b_fin.add_argument(
+        "--gate-source-tree",
+        type=Path,
+        default=None,
+        help="pre-unpacked EFFECTIVE source root for "
+        "--gate-sourceroot (skips the nix unpack)",
+    )
+    b_fin.add_argument(
+        "--gate-patch-flags",
+        type=str,
+        default=None,
+        metavar="FLAGS",
+        help="(with --gate-source-tree) the package's patchFlags "
+        "as one whitespace-separated string, `=` form so "
+        "argparse accepts dashes, e.g. --gate-patch-flags=-p0. "
+        "Without it a supplied tree is gated at -p1; ignored "
+        "on the nix-unpack path (evaluated patchFlags win).",
+    )
     b_fin.add_argument("--format", choices=("human", "json"), default="human")
 
     from tools.trace_cli import verify as _verify_module
+
     _verify_module.add_parser(b_subs)
 
     from tools.trace_cli import pr_snippet as _pr_snippet_module
+
     _pr_snippet_module.add_parser(b_subs)
 
     from tools.trace_cli import preflight as _preflight_module
+
     _preflight_module.add_parser(b_subs)
 
     from tools.trace_cli import bootstrap as _bootstrap_module
+
     _bootstrap_module.add_parser(b_subs)
 
     from tools.trace_cli import probe as _probe_module
+
     _probe_module.add_parser(b_subs)
 
     from tools.trace_cli import normalize_sourceroot as _normalize_module
+
     _normalize_module.add_parser(b_subs)
 
     from tools.trace_cli import normalize_context as _normalize_ctx_module
+
     _normalize_ctx_module.add_parser(b_subs)
 
     from tools.trace_cli import rationale_binding as _rationale_binding_module
+
     _rationale_binding_module.add_parser(b_subs)
 
     cand = subs.add_parser("candidate", help="work one screened candidate end to end")
     cand_subs = cand.add_subparsers(dest="candidate_cmd", required=True)
     from tools.trace_cli import candidate_run as _candidate_run_module
+
     _candidate_run_module.add_parser(cand_subs)
 
-    cmp = subs.add_parser("compare", help="compare live-lane bundles against what nixpkgs lands")
+    cmp = subs.add_parser(
+        "compare", help="compare live-lane bundles against what nixpkgs lands"
+    )
     cmp_subs = cmp.add_subparsers(dest="compare_cmd", required=True)
     from tools.trace_cli import compare_watch as _compare_watch_module
+
     _compare_watch_module.add_parser(cmp_subs)
 
     rp = subs.add_parser("report", help="rollup reports over on-disk artifacts")
     rp_subs = rp.add_subparsers(dest="report_cmd", required=True)
     from tools.trace_cli import report as _report_module
+
     _report_module.add_parser(rp_subs)
 
     rs = subs.add_parser("reproducer", help="reproducer-stage tooling")
     rs_subs = rs.add_subparsers(dest="reproducer_cmd", required=True)
     from tools.trace_cli import reproducer_sample as _reproducer_sample_module
+
     _reproducer_sample_module.add_parser(rs_subs)
 
     from tools.trace_cli import export as _export_module
+
     _export_module.add_parser(subs)
 
     from tools.trace_cli import mutate as _mutate_module
+
     _mutate_module.add_parser(subs)
 
     from tools.trace_cli import backport_patch as _backport_module
+
     _backport_module.add_parser(subs)
     _backport_module.add_fixtures_parser(subs)
 
@@ -341,12 +431,18 @@ def main(argv: list[str]) -> int:
             "per-scorer means + per-invocation provenance."
         ),
     )
-    e_pr.add_argument("--cohort", required=True,
-                      help="cohort label. Recommended: synthetic | real-single "
-                           "| inner-loop | full-corpus. Free-form strings "
-                           "accepted; the four above are the documented baselines.")
-    e_pr.add_argument("--reports", required=True,
-                      help="glob expression matching scoring-report.json files")
+    e_pr.add_argument(
+        "--cohort",
+        required=True,
+        help="cohort label. Recommended: synthetic | real-single "
+        "| inner-loop | full-corpus. Free-form strings "
+        "accepted; the four above are the documented baselines.",
+    )
+    e_pr.add_argument(
+        "--reports",
+        required=True,
+        help="glob expression matching scoring-report.json files",
+    )
     e_pr.add_argument("--format", choices=("human", "json"), default="human")
 
     e_rr = e_subs.add_parser(
@@ -358,12 +454,18 @@ def main(argv: list[str]) -> int:
             "disagreement rate, provenance per run."
         ),
     )
-    e_rr.add_argument("--cohort", required=True,
-                      help="cohort label. Recommended: synthetic | real-single "
-                           "| inner-loop | full-corpus | real-ci-smoke. Free-form "
-                           "strings accepted.")
-    e_rr.add_argument("--reports", required=True,
-                      help="glob expression matching review-scoring-report.json files")
+    e_rr.add_argument(
+        "--cohort",
+        required=True,
+        help="cohort label. Recommended: synthetic | real-single "
+        "| inner-loop | full-corpus | real-ci-smoke. Free-form "
+        "strings accepted.",
+    )
+    e_rr.add_argument(
+        "--reports",
+        required=True,
+        help="glob expression matching review-scoring-report.json files",
+    )
     e_rr.add_argument("--format", choices=("human", "json"), default="human")
 
     e_repro = e_subs.add_parser(
@@ -377,19 +479,25 @@ def main(argv: list[str]) -> int:
         ),
     )
     e_repro.add_argument(
-        "--cohort", required=True,
+        "--cohort",
+        required=True,
         help="cohort label. Recommended: synthetic | real-single | inner-loop | "
-             "full-corpus | real-ci-smoke. Free-form strings accepted.",
+        "full-corpus | real-ci-smoke. Free-form strings accepted.",
     )
     e_repro.add_argument(
-        "--reports", required=True,
+        "--reports",
+        required=True,
         help="glob expression matching repro-scoring-report.json files",
     )
     e_repro.add_argument(
-        "--format", choices=("human", "json"), default="human",
+        "--format",
+        choices=("human", "json"),
+        default="human",
     )
 
-    sc = subs.add_parser("score", help="scorer-run tooling (produces scoring-report.json artifacts)")
+    sc = subs.add_parser(
+        "score", help="scorer-run tooling (produces scoring-report.json artifacts)"
+    )
     sc_subs = sc.add_subparsers(dest="score_cmd", required=True)
     sc_rv = sc_subs.add_parser(
         "review",
@@ -400,31 +508,45 @@ def main(argv: list[str]) -> int:
         ),
     )
     sc_rv.add_argument("bundle_dir", type=Path, help="bundle directory")
-    sc_rv.add_argument("--force", action="store_true",
-                       help="overwrite an existing review-scoring-report.json")
+    sc_rv.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing review-scoring-report.json",
+    )
     sc_rv.add_argument("--format", choices=("text", "json"), default="text")
-    sc_rv.add_argument("-o", "--out", type=Path, default=None,
-                       help="output path (default: <bundle_dir>/review-scoring-report.json)")
+    sc_rv.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=None,
+        help="output path (default: <bundle_dir>/review-scoring-report.json)",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "pr":
         from tools.trace_cli import pr as _pr_module
+
         return _pr_module.run(args)
     if args.cmd == "export":
         from tools.trace_cli import export as _export_module
+
         return _export_module.run(args)
     if args.cmd == "mutate":
         from tools.trace_cli import mutate as _mutate_module
+
         return _mutate_module.run(args)
     if args.cmd == "backport-patch":
         from tools.trace_cli import backport_patch as _backport_module
+
         return _backport_module.run(args)
     if args.cmd == "backport-fixtures":
         from tools.trace_cli import backport_patch as _backport_module
+
         return _backport_module.run_fixtures(args)
     if args.cmd == "reproducer":
         if args.reproducer_cmd == "sample":
             from tools.trace_cli import reproducer_sample as _reproducer_sample_module
+
             return _reproducer_sample_module.run(args)
         return EXIT_USAGE
     if args.cmd == "replay":
@@ -441,45 +563,66 @@ def main(argv: list[str]) -> int:
         if args.bundle_cmd == "verify":
             from tools.trace_cli import verify as _verify_module
             from pathlib import Path as _Path
-            return _verify_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+
+            return _verify_module.run(
+                args, repo_root=_Path(__file__).resolve().parents[2]
+            )
         if args.bundle_cmd == "pr-snippet":
             from tools.trace_cli import pr_snippet as _pr_snippet_module
+
             return _pr_snippet_module.run(args)
         if args.bundle_cmd == "probe":
             from tools.trace_cli import probe as _probe_module
+
             return _probe_module.run(args)
         if args.bundle_cmd == "bootstrap":
             from tools.trace_cli import bootstrap as _bootstrap_module
+
             return _bootstrap_module.run(args)
         if args.bundle_cmd == "preflight":
             from tools.trace_cli import preflight as _preflight_module
             from pathlib import Path as _Path
-            return _preflight_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+
+            return _preflight_module.run(
+                args, repo_root=_Path(__file__).resolve().parents[2]
+            )
         if args.bundle_cmd == "normalize-sourceroot":
             from tools.trace_cli import normalize_sourceroot as _normalize_module
             from pathlib import Path as _Path
-            return _normalize_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+
+            return _normalize_module.run(
+                args, repo_root=_Path(__file__).resolve().parents[2]
+            )
         if args.bundle_cmd == "rationale-binding":
             from tools.trace_cli import rationale_binding as _rationale_binding_module
+
             return _rationale_binding_module.run(args)
         if args.bundle_cmd == "normalize-context":
             from tools.trace_cli import normalize_context as _normalize_ctx_module
             from pathlib import Path as _Path
-            return _normalize_ctx_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+
+            return _normalize_ctx_module.run(
+                args, repo_root=_Path(__file__).resolve().parents[2]
+            )
         return EXIT_USAGE
     if args.cmd == "candidate":
         if args.candidate_cmd == "run":
             from tools.trace_cli import candidate_run as _candidate_run_module
+
             return _candidate_run_module.run(args)
         return EXIT_USAGE
     if args.cmd == "compare":
         from tools.trace_cli import compare_watch as _compare_watch_module
+
         return _compare_watch_module.run(args)
     if args.cmd == "report":
         if args.report_cmd == "throughput":
             from tools.trace_cli import report as _report_module
             from pathlib import Path as _Path
-            return _report_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+
+            return _report_module.run(
+                args, repo_root=_Path(__file__).resolve().parents[2]
+            )
         return EXIT_USAGE
     if args.cmd == "eval":
         if args.eval_cmd == "patch-rate":
@@ -523,8 +666,11 @@ def _cmd_eval_repro_rate(args: argparse.Namespace) -> int:
     def _fmt(v: float | None) -> str:
         return "n/a" if v is None else f"{v:.3f}"
 
-    label_note = "" if args.cohort in KNOWN_REPRODUCER_COHORT_LABELS else \
-                 " (free-form label; not in KNOWN_REPRODUCER_COHORT_LABELS)"
+    label_note = (
+        ""
+        if args.cohort in KNOWN_REPRODUCER_COHORT_LABELS
+        else " (free-form label; not in KNOWN_REPRODUCER_COHORT_LABELS)"
+    )
     print(f"cohort:                            {result.cohort}{label_note}")
     print(f"aggregated_at:                     {result.aggregated_at}")
     print(f"scoring_reports:                   {result.totals['scoring_reports']}")
@@ -533,9 +679,15 @@ def _cmd_eval_repro_rate(args: argparse.Namespace) -> int:
     print(f"  proxy:                           {result.totals['proxy']}")
     print(f"  vuln_signal_eligible:            {result.totals['vuln_signal_eligible']}")
     print(f"  proxy_eligible:                  {result.totals['proxy_eligible']}")
-    print(f"reproducer_well_formed_rate:       {_fmt(result.reproducer_well_formed_rate)}")
-    print(f"vuln_signal_recovered_rate:       {_fmt(result.vuln_signal_recovered_rate)}")
-    print(f"proxy_patched_passes_rate:         {_fmt(result.proxy_patched_passes_rate)}")
+    print(
+        f"reproducer_well_formed_rate:       {_fmt(result.reproducer_well_formed_rate)}"
+    )
+    print(
+        f"vuln_signal_recovered_rate:       {_fmt(result.vuln_signal_recovered_rate)}"
+    )
+    print(
+        f"proxy_patched_passes_rate:         {_fmt(result.proxy_patched_passes_rate)}"
+    )
     print(f"passthru_coverage_mean:            {_fmt(result.passthru_coverage_mean)}")
     print(f"proxy_rate:                        {_fmt(result.proxy_rate)}")
     print(f"refusal_rate:                      {_fmt(result.refusal_rate)}")
@@ -575,16 +727,21 @@ def _cmd_eval_review_rate(args: argparse.Namespace) -> int:
     def _fmt(v: float | None) -> str:
         return "n/a" if v is None else f"{v:.3f}"
 
-    label_note = "" if args.cohort in KNOWN_REVIEWER_COHORT_LABELS else \
-                 " (free-form label; not in KNOWN_REVIEWER_COHORT_LABELS)"
+    label_note = (
+        ""
+        if args.cohort in KNOWN_REVIEWER_COHORT_LABELS
+        else " (free-form label; not in KNOWN_REVIEWER_COHORT_LABELS)"
+    )
     print(f"cohort:                       {result.cohort}{label_note}")
     print(f"aggregated_at:                {result.aggregated_at}")
     print(f"scoring_reports:              {result.totals['scoring_reports']}")
     print(f"  parse_errors:               {result.totals['parse_errors']}")
     print(f"  verdicts:                   {result.totals['verdicts']}")
     print(f"  refusals:                   {result.totals['refusals']}")
-    print(f"  accept / reject / escalate: "
-          f"{result.totals['accept']} / {result.totals['reject']} / {result.totals['escalate']}")
+    print(
+        f"  accept / reject / escalate: "
+        f"{result.totals['accept']} / {result.totals['reject']} / {result.totals['escalate']}"
+    )
     print(f"accept_rate:                  {_fmt(result.accept_rate)}")
     print(f"reject_rate:                  {_fmt(result.reject_rate)}")
     print(f"escalate_rate:                {_fmt(result.escalate_rate)}")
@@ -593,9 +750,13 @@ def _cmd_eval_review_rate(args: argparse.Namespace) -> int:
     print(f"patch_comparison_present_rate:")
     print(f"                              {_fmt(result.patch_comparison_present_rate)}")
     print(f"adaptation_equivalence_correct_rate:")
-    print(f"                              {_fmt(result.adaptation_equivalence_correct_rate)}")
+    print(
+        f"                              {_fmt(result.adaptation_equivalence_correct_rate)}"
+    )
     print(f"reviewer_steward_disagreement_rate (informational):")
-    print(f"                              {_fmt(result.reviewer_steward_disagreement_rate)}")
+    print(
+        f"                              {_fmt(result.reviewer_steward_disagreement_rate)}"
+    )
     return EXIT_OK
 
 
@@ -701,8 +862,7 @@ def _verify_invocation_artifacts(
         recorded = entry.get("sha256")
         if not isinstance(rel, str) or not rel or not isinstance(recorded, str):
             return False, (
-                f"malformed {kind} record (missing/invalid path or sha256): "
-                f"{entry!r}"
+                f"malformed {kind} record (missing/invalid path or sha256): {entry!r}"
             )
         if not _safe_bundle_relpath(bundle_dir, rel):
             return False, (
@@ -777,7 +937,8 @@ def _verify_invocation_artifacts(
     if adaptation:
         required += list(_ADAPTATION_ONLY_INPUTS)
     unpinned = [
-        name for name in required
+        name
+        for name in required
         if (bundle_dir / name).is_file() and name not in verified_inputs
     ]
     # Only the adaptation lane feeds source-context/** to the reviewer (a
@@ -860,7 +1021,9 @@ def _cmd_score_review(args: argparse.Namespace) -> int:
 
     report = run_reviewer_scorers(bundle_dir=bundle_dir, invocation=invocation)
 
-    out_path: Path = args.out if args.out is not None else bundle_dir / "review-scoring-report.json"
+    out_path: Path = (
+        args.out if args.out is not None else bundle_dir / "review-scoring-report.json"
+    )
     if out_path.exists() and not args.force:
         print(
             f"error: {out_path} already exists; pass --force to overwrite",
@@ -882,7 +1045,9 @@ def _cmd_score_review(args: argparse.Namespace) -> int:
     for s in report.scorers:
         d = s.to_dict()
         score_str = "n/a" if d["score"] is None else f"{d['score']:.3f}"
-        print(f"  {d['scorer_name']:32s} applies={str(d['applies']):5s} score={score_str}")
+        print(
+            f"  {d['scorer_name']:32s} applies={str(d['applies']):5s} score={score_str}"
+        )
     return EXIT_OK
 
 
@@ -911,9 +1076,15 @@ def _cmd_eval_patch_rate(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     pr = "n/a" if result.patch_rate is None else f"{result.patch_rate:.3f}"
-    mr = "n/a" if result.merge_ready_rate_mean is None else f"{result.merge_ready_rate_mean:.3f}"
-    print(f"cohort:                 {result.cohort}"
-          f"{'' if args.cohort in KNOWN_COHORT_LABELS else ' (free-form label; not in KNOWN_COHORT_LABELS)'}")
+    mr = (
+        "n/a"
+        if result.merge_ready_rate_mean is None
+        else f"{result.merge_ready_rate_mean:.3f}"
+    )
+    print(
+        f"cohort:                 {result.cohort}"
+        f"{'' if args.cohort in KNOWN_COHORT_LABELS else ' (free-form label; not in KNOWN_COHORT_LABELS)'}"
+    )
     print(f"aggregated_at:          {result.aggregated_at}")
     print(f"scoring_reports:        {result.totals['scoring_reports']}")
     print(f"  parse_errors:         {result.totals['parse_errors']}")
@@ -946,7 +1117,9 @@ def _cmd_bundle_finalize(args: argparse.Namespace) -> int:
             gate_sourceroot=getattr(args, "gate_sourceroot", False),
             gate_source_tree=getattr(args, "gate_source_tree", None),
             gate_patch_flags=(
-                _gpf.split() if (_gpf := getattr(args, "gate_patch_flags", None)) else None
+                _gpf.split()
+                if (_gpf := getattr(args, "gate_patch_flags", None))
+                else None
             ),
         )
     except FileNotFoundError as exc:
@@ -1101,14 +1274,13 @@ def _do_execute(
     # provenance and there is no "fresh-run" semantic for them at this
     # layer.
     from tools.trace_cli.execute import RUNNER_BACKED_ROLES
+
     _fresh_run_eligible = MODEL_BACKED_ROLES | RUNNER_BACKED_ROLES
     if role_entry is None:
         if args.role in _fresh_run_eligible:
             role_entry = {
                 "role": args.role,
-                "invocations": [
-                    {"invocation_id": None, "inputs": [], "outputs": []}
-                ],
+                "invocations": [{"invocation_id": None, "inputs": [], "outputs": []}],
             }
         else:
             print(
@@ -1171,7 +1343,9 @@ def _do_execute(
             "cve_id": bundle.get("cve_id"),
             "role": args.role,
             "verified": not args.no_verify,
-            "executor": "deterministic-stub" if args.role not in MODEL_BACKED_ROLES else "model-backed",
+            "executor": "deterministic-stub"
+            if args.role not in MODEL_BACKED_ROLES
+            else "model-backed",
             "results": [
                 {
                     "invocation_id": r["invocation_id"],
@@ -1255,7 +1429,9 @@ def _locate_bundle(identifier: str, traces_root: Path) -> Path | None:
     return None
 
 
-def _build_overrides(args: argparse.Namespace) -> tuple[dict[str, dict[str, str]], str | None]:
+def _build_overrides(
+    args: argparse.Namespace,
+) -> tuple[dict[str, dict[str, str]], str | None]:
     if args.role and args.model:
         return {args.role: {"model_id": args.model}}, None
     if args.routing_config:
@@ -1274,7 +1450,9 @@ def _build_overrides(args: argparse.Namespace) -> tuple[dict[str, dict[str, str]
 
 def _validate_routing_config(rc: Any) -> str | None:
     if not isinstance(rc, dict):
-        return "routing-config must be a JSON object mapping role -> { model_id, family? }"
+        return (
+            "routing-config must be a JSON object mapping role -> { model_id, family? }"
+        )
     if not rc:
         return "routing-config is empty; supply at least one role override"
     allowed_role_keys = set(ROLE_NAMES)
@@ -1283,7 +1461,11 @@ def _validate_routing_config(rc: Any) -> str | None:
             return f"routing-config: {role!r} is not a known role (expected one of {sorted(allowed_role_keys)})"
         if not isinstance(spec, dict):
             return f"routing-config[{role}]: value must be an object"
-        if "model_id" not in spec or not isinstance(spec["model_id"], str) or not spec["model_id"]:
+        if (
+            "model_id" not in spec
+            or not isinstance(spec["model_id"], str)
+            or not spec["model_id"]
+        ):
             return f"routing-config[{role}]: missing or empty model_id"
         extra = set(spec.keys()) - {"model_id", "family"}
         if extra:

@@ -48,14 +48,18 @@ def _runner_returning(payload: bytes | str) -> Any:
     raw = payload if isinstance(payload, bytes) else payload.encode()
 
     def _run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=raw, stderr=b"")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=raw, stderr=b""
+        )
 
     return _run
 
 
 def _runner_failing(returncode: int = 1, stderr: bytes = b"nix-env failed") -> Any:
     def _run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
-        return subprocess.CompletedProcess(args=cmd, returncode=returncode, stdout=b"", stderr=stderr)
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=returncode, stdout=b"", stderr=stderr
+        )
 
     return _run
 
@@ -90,7 +94,10 @@ def test_drv_path_real_when_present_in_json() -> None:
     runner = _runner_returning(_FIXTURE.read_bytes())
     records = build_snapshot(runner=runner)
     libtiff = next(r for r in records if r.attr_path == "libtiff")
-    assert libtiff.drv_path == "/nix/store/md65ryqwhx17sh1vpcdy5v4146k8f5ld-libtiff-4.7.1.drv"
+    assert (
+        libtiff.drv_path
+        == "/nix/store/md65ryqwhx17sh1vpcdy5v4146k8f5ld-libtiff-4.7.1.drv"
+    )
 
 
 def test_drv_path_placeholder_when_field_absent() -> None:
@@ -112,7 +119,9 @@ def test_default_cmd_includes_drv_path_flag() -> None:
 
     def runner(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
         seen["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"{}", stderr=b"")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=b"{}", stderr=b""
+        )
 
     build_snapshot(runner=runner)
     assert "--drv-path" in seen["cmd"]
@@ -123,7 +132,9 @@ def test_with_drv_paths_false_omits_flag() -> None:
 
     def runner(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
         seen["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"{}", stderr=b"")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=b"{}", stderr=b""
+        )
 
     build_snapshot(runner=runner, with_drv_paths=False)
     assert "--drv-path" not in seen["cmd"]
@@ -170,7 +181,9 @@ def test_runner_invoked_with_default_nix_env_args() -> None:
     def runner(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
         seen["cmd"] = cmd
         seen["kwargs"] = kwargs
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"{}", stderr=b"")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=b"{}", stderr=b""
+        )
 
     build_snapshot(runner=runner)
 
@@ -189,7 +202,9 @@ def test_build_with_explicit_nixpkgs_expr() -> None:
 
     def runner(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
         seen["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"{}", stderr=b"")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=b"{}", stderr=b""
+        )
 
     build_snapshot(runner=runner, nixpkgs="/path/to/nixpkgs")
     f_idx = seen["cmd"].index("-f")

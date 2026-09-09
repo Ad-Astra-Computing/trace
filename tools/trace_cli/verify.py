@@ -72,14 +72,14 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "artifact_dir",
         type=Path,
         help="path to the unzipped artifact directory from the Steward "
-             "workflow run (must contain bundle.canonical.json + bundle.sig)",
+        "workflow run (must contain bundle.canonical.json + bundle.sig)",
     )
     p.add_argument(
         "--policy",
         type=Path,
         default=None,
         help="override path to signing-identity.json (default: "
-             "policy/signing-identity.json relative to repo root)",
+        "policy/signing-identity.json relative to repo root)",
     )
     p.add_argument(
         "--format",
@@ -95,23 +95,31 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
     sig = artifact_dir / "bundle.sig"
 
     if not artifact_dir.is_dir():
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                           f"artifact dir not found: {artifact_dir}")
+        return _emit_error(
+            args.format, EXIT_NOT_FOUND, f"artifact dir not found: {artifact_dir}"
+        )
     if not canonical.is_file():
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                           f"bundle.canonical.json missing under {artifact_dir}. "
-                           f"This is the frozen pre-sign snapshot; without it "
-                           f"the signature cannot be verified. Did the artifact "
-                           f"come from a Steward run that allowed (signed) the "
-                           f"bundle? Denied runs do not produce a canonical.")
+        return _emit_error(
+            args.format,
+            EXIT_NOT_FOUND,
+            f"bundle.canonical.json missing under {artifact_dir}. "
+            f"This is the frozen pre-sign snapshot; without it "
+            f"the signature cannot be verified. Did the artifact "
+            f"come from a Steward run that allowed (signed) the "
+            f"bundle? Denied runs do not produce a canonical.",
+        )
     if not sig.is_file():
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                           f"bundle.sig missing under {artifact_dir}")
+        return _emit_error(
+            args.format, EXIT_NOT_FOUND, f"bundle.sig missing under {artifact_dir}"
+        )
 
     policy_path = args.policy or (repo_root / "policy" / "signing-identity.json")
     if not policy_path.is_file():
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                           f"signing-identity policy not found at {policy_path}")
+        return _emit_error(
+            args.format,
+            EXIT_NOT_FOUND,
+            f"signing-identity policy not found at {policy_path}",
+        )
 
     try:
         policy = json.loads(policy_path.read_text())
@@ -119,23 +127,31 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         subject_regex = active["subject_regex"]
         oidc_issuer = active["oidc_issuer"]
     except (KeyError, json.JSONDecodeError) as exc:
-        return _emit_error(args.format, EXIT_USAGE,
-                           f"signing-identity policy malformed: {exc}")
+        return _emit_error(
+            args.format, EXIT_USAGE, f"signing-identity policy malformed: {exc}"
+        )
 
     cosign = shutil.which("cosign")
     if not cosign:
-        return _emit_error(args.format, EXIT_NOT_FOUND,
-                           "cosign not found on PATH. Install from "
-                           "https://github.com/sigstore/cosign/releases or "
-                           "via your platform package manager. v0 trace's "
-                           "dev shell does not bundle cosign because verifiers "
-                           "are typically external to the project.")
+        return _emit_error(
+            args.format,
+            EXIT_NOT_FOUND,
+            "cosign not found on PATH. Install from "
+            "https://github.com/sigstore/cosign/releases or "
+            "via your platform package manager. v0 trace's "
+            "dev shell does not bundle cosign because verifiers "
+            "are typically external to the project.",
+        )
 
     cmd = [
-        cosign, "verify-blob",
-        "--certificate-identity-regexp", subject_regex,
-        "--certificate-oidc-issuer", oidc_issuer,
-        "--bundle", str(sig),
+        cosign,
+        "verify-blob",
+        "--certificate-identity-regexp",
+        subject_regex,
+        "--certificate-oidc-issuer",
+        oidc_issuer,
+        "--bundle",
+        str(sig),
         str(canonical),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)

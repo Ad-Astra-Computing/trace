@@ -33,6 +33,7 @@ Usage:
       --generate --model claude-sonnet-4-5-20250929 \
       --out data/reports/authoring-pilot-sonnet.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,7 +60,9 @@ from eval.backport_validation import _VERSION_BUMP_RE, validate_backport
 
 # `_VERSION_BUMP_RE` catches nix-style `version =`/`rev =`/`sha256 =`; add the
 # Python `__version__ = "x"` / `VERSION = "x"` shape (the pyjwt release-bump tell).
-_PY_VERSION_RE = re.compile(r"""^\+(?!\+\+).*\b_{0,2}version_{0,2}\s*=\s*['"]""", re.IGNORECASE)
+_PY_VERSION_RE = re.compile(
+    r"""^\+(?!\+\+).*\b_{0,2}version_{0,2}\s*=\s*['"]""", re.IGNORECASE
+)
 
 # Fraction of the reference's distinctive fix-symbols a candidate must reproduce.
 # Not 1.0: a semantically-equivalent fix may name things differently; we want
@@ -72,8 +75,10 @@ _MIN_REGION_ANCHORS = 1
 
 
 def _has_version_bump(diff: str) -> bool:
-    return any(_VERSION_BUMP_RE.match(ln) or _PY_VERSION_RE.match(ln)
-               for ln in diff.splitlines())
+    return any(
+        _VERSION_BUMP_RE.match(ln) or _PY_VERSION_RE.match(ln)
+        for ln in diff.splitlines()
+    )
 
 
 def _target_files(diff: str) -> list[str]:
@@ -85,7 +90,11 @@ def _target_files(diff: str) -> list[str]:
     for i, ln in enumerate(lines):
         if ln.startswith("+++ "):
             new = ln[4:].strip()
-            old = lines[i - 1][4:].strip() if i and lines[i - 1].startswith("--- ") else ""
+            old = (
+                lines[i - 1][4:].strip()
+                if i and lines[i - 1].startswith("--- ")
+                else ""
+            )
             path = old if new == "/dev/null" else new
             if path and path != "/dev/null":
                 p = path[2:] if path.startswith(("a/", "b/")) else path
@@ -114,8 +123,11 @@ def _diff_body_lines(diff: str, fpath: str) -> tuple[set[str], set[str]]:
 def _prefix_window(user_content: str) -> str:
     """The pre-fix source the model was shown (the fenced block under
     `# Vulnerable source (...)`)."""
-    m = re.search(r"# Vulnerable source \([^)]*\)\n```[a-zA-Z0-9]*\n(.*?)\n```",
-                  user_content, re.S)
+    m = re.search(
+        r"# Vulnerable source \([^)]*\)\n```[a-zA-Z0-9]*\n(.*?)\n```",
+        user_content,
+        re.S,
+    )
     return m.group(1) if m else ""
 
 
@@ -126,7 +138,7 @@ def _clean_generated(text: str) -> str:
     m = re.search(r"```(?:diff|patch)?\s*\n(.*?)```", text, re.S)
     body = m.group(1) if m else text
     if "diff --git" in body:
-        body = body[body.find("diff --git"):]
+        body = body[body.find("diff --git") :]
     elif "\n--- " in body or body.startswith("--- "):
         idx = 0 if body.startswith("--- ") else body.find("\n--- ") + 1
         body = body[idx:]
@@ -151,8 +163,8 @@ def score_candidate(generated: str, record: dict) -> dict:
     tier0 = {
         "parses": gen_parsed is not None,
         "no_version_bump": not _has_version_bump(generated),
-        "no_test_or_doc_files": bool(targeted) and not any(
-            bp._NON_SOURCE_RE.search(f) for f in targeted),
+        "no_test_or_doc_files": bool(targeted)
+        and not any(bp._NON_SOURCE_RE.search(f) for f in targeted),
     }
     format_pass = all(tier0.values())
 
@@ -168,8 +180,11 @@ def score_candidate(generated: str, record: dict) -> dict:
     # Match against the candidate's CHANGED lines (added AND removed): `_fix_symbols`
     # draws tokens from both sides of the reference, so a fix that REMOVES a line
     # carrying a key symbol must get credit for reproducing it.
-    gen_changed = "\n".join(l for l in generated.splitlines()
-                            if l[:1] in ("+", "-") and not l.startswith(("+++", "---")))
+    gen_changed = "\n".join(
+        l
+        for l in generated.splitlines()
+        if l[:1] in ("+", "-") and not l.startswith(("+++", "---"))
+    )
     syms_hit = sum(1 for s in ref_syms if s in gen_changed)
     sym_frac = (syms_hit / len(ref_syms)) if ref_syms else 1.0
 
@@ -184,14 +199,16 @@ def score_candidate(generated: str, record: dict) -> dict:
     n_gen_hunks = sum(len(_file_diff_starts(gen_canon, f)) for f in ref_files)
     covers_all = bool(ref_files) and all(
         len(_file_diff_starts(gen_canon, f)) >= len(_file_diff_starts(ref_canon, f))
-        for f in ref_files)
+        for f in ref_files
+    )
 
     tier1 = {
         # Exactly the reference's source files: covers every required file AND adds
         # no unrelated source file (subset-only would pass an incomplete fix).
         "same_impl_file": bool(gen_files) and gen_files == ref_files,
-        "grounds_in_prefix": bool(gen_parsed) and bool(pre_fix)
-            and _patch_grounded(gen_canon, primary, pre_fix),
+        "grounds_in_prefix": bool(gen_parsed)
+        and bool(pre_fix)
+        and _patch_grounded(gen_canon, primary, pre_fix),
         "hits_reference_region": region_anchors >= _MIN_REGION_ANCHORS,
         "fix_symbols_present": sym_frac >= _FIX_SYMBOL_THRESHOLD,
         "covers_all_reference_hunks": covers_all,
@@ -267,8 +284,9 @@ def _bundle_strip_level(bundle_dir: Path) -> int:
     return 1
 
 
-def _rewrite_embedded_patch(patch_diff: str, candidate: str, *,
-                             strip_level: int = 1) -> str | None:
+def _rewrite_embedded_patch(
+    patch_diff: str, candidate: str, *, strip_level: int = 1
+) -> str | None:
     """Replace the embedded source-patch body (the `+`-prefixed hunk of the
     `new file mode ... CVE-*.patch` section) inside a source-backport `patch.diff`
     with the generated candidate diff. Returns the rewritten tree-diff, or None
@@ -281,24 +299,39 @@ def _rewrite_embedded_patch(patch_diff: str, candidate: str, *,
     if strip_level == 0:
         candidate = _strip_git_path_prefixes(candidate)
     lines = patch_diff.splitlines()
-    starts = [i for i, ln in enumerate(lines) if _EMBEDDED_PATCH_HDR.match(ln)
-              and i + 1 < len(lines) and lines[i + 1].startswith("new file")]
+    starts = [
+        i
+        for i, ln in enumerate(lines)
+        if _EMBEDDED_PATCH_HDR.match(ln)
+        and i + 1 < len(lines)
+        and lines[i + 1].startswith("new file")
+    ]
     if len(starts) != 1:
         return None
     start = starts[0]
-    hh = next((j for j in range(start, min(start + 8, len(lines)))
-               if lines[j].startswith("@@")), None)
+    hh = next(
+        (
+            j
+            for j in range(start, min(start + 8, len(lines)))
+            if lines[j].startswith("@@")
+        ),
+        None,
+    )
     if hh is None:
         return None
     body_end = hh + 1
-    while body_end < len(lines) and (lines[body_end].startswith("+")
-                                     or lines[body_end] == r"\ No newline at end of file"):
+    while body_end < len(lines) and (
+        lines[body_end].startswith("+")
+        or lines[body_end] == r"\ No newline at end of file"
+    ):
         body_end += 1
     cand = candidate.rstrip("\n").split("\n")
-    rewritten = (lines[:hh]
-                 + [f"@@ -0,0 +1,{len(cand)} @@"]
-                 + [f"+{c}" for c in cand]
-                 + lines[body_end:])
+    rewritten = (
+        lines[:hh]
+        + [f"@@ -0,0 +1,{len(cand)} @@"]
+        + [f"+{c}" for c in cand]
+        + lines[body_end:]
+    )
     return "\n".join(rewritten) + "\n"
 
 
@@ -320,7 +353,10 @@ def _detect_proxy_reproducer(bundle_dir: Path) -> bool:
     if not rp.is_file():
         return False
     t = rp.read_text()
-    return bool(re.search(r"for\s+p\s+in\s+\$patches", t) and re.search(r'grep\s+-q\S*\s+\S.*"\$p"', t))
+    return bool(
+        re.search(r"for\s+p\s+in\s+\$patches", t)
+        and re.search(r'grep\s+-q\S*\s+\S.*"\$p"', t)
+    )
 
 
 def _bundle_for(traces_root: Path, record: dict) -> Path | None:
@@ -346,7 +382,9 @@ def _load(p: Path) -> dict | None:
         return None
 
 
-def score_behavioral(generated: str, record: dict, *, traces_root: Path, build_fn) -> dict:
+def score_behavioral(
+    generated: str, record: dict, *, traces_root: Path, build_fn
+) -> dict:
     """Tier 2 behavioral verdict for one candidate. `build_fn(candidate_bundle_dir)`
     returns the build.json dict (production: run_builder + LocalNixBuildRunner;
     tests inject a synthetic build.json). Pure orchestration otherwise."""
@@ -367,7 +405,9 @@ def score_behavioral(generated: str, record: dict, *, traces_root: Path, build_f
         out["behavioral_status"] = "no_patch_diff"
         return out
     strip_level = _bundle_strip_level(bundle)
-    rewritten = _rewrite_embedded_patch(pd.read_text(), generated, strip_level=strip_level)
+    rewritten = _rewrite_embedded_patch(
+        pd.read_text(), generated, strip_level=strip_level
+    )
     if rewritten is None:
         out["behavioral_status"] = "no_unique_embedded_patch"
         return out
@@ -409,32 +449,64 @@ def _make_build_fn(nixpkgs: Path, timeout: int):
         with tempfile.TemporaryDirectory(prefix="trace-nixpkgs-wt-") as wt:
             wtree = Path(wt) / "tree"
             add = subprocess.run(
-                ["git", "-C", str(nixpkgs), "worktree", "add", "--detach", str(wtree), "HEAD"],
-                capture_output=True, text=True)
+                [
+                    "git",
+                    "-C",
+                    str(nixpkgs),
+                    "worktree",
+                    "add",
+                    "--detach",
+                    str(wtree),
+                    "HEAD",
+                ],
+                capture_output=True,
+                text=True,
+            )
             if add.returncode != 0:
-                raise RuntimeError(f"git worktree add failed: {add.stderr.strip()[:200]}")
+                raise RuntimeError(
+                    f"git worktree add failed: {add.stderr.strip()[:200]}"
+                )
             try:
-                res = run_builder(bundle_dir=bundle_dir, build_runner=LocalNixBuildRunner(),
-                                  nixpkgs_checkout=wtree, apply_patch=True,
-                                  timeout_seconds_per_build=timeout)
+                res = run_builder(
+                    bundle_dir=bundle_dir,
+                    build_runner=LocalNixBuildRunner(),
+                    nixpkgs_checkout=wtree,
+                    apply_patch=True,
+                    timeout_seconds_per_build=timeout,
+                )
                 return res.build_json
             finally:
-                subprocess.run(["git", "-C", str(nixpkgs), "worktree", "remove", "--force", str(wtree)],
-                               capture_output=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(nixpkgs),
+                        "worktree",
+                        "remove",
+                        "--force",
+                        str(wtree),
+                    ],
+                    capture_output=True,
+                )
+
     return build_fn
 
 
 def _generate(records: list[dict], model_id: str) -> dict[str, str]:
     """Live base-model generation for each canary. Costs API spend."""
     from agents.patcher.adapter import AnthropicAdapter
+
     adapter = AnthropicAdapter(model_id)
     out: dict[str, str] = {}
     for rec in records:
         msgs = rec["messages"]
         system = next(m["content"] for m in msgs if m["role"] == "system")
         user = next(m["content"] for m in msgs if m["role"] == "user")
-        resp = adapter.invoke(system_prompt=system, user_content=user,
-                              sampling={"temperature": 0.0, "max_tokens": 4096})
+        resp = adapter.invoke(
+            system_prompt=system,
+            user_content=user,
+            sampling={"temperature": 0.0, "max_tokens": 4096},
+        )
         out[rec["provenance"]["cve_id"]] = _clean_generated(resp.text)
     return out
 
@@ -446,15 +518,22 @@ def _aggregate(scored: list[dict], model_id: str | None) -> dict:
 
     def _check_rates(tier: str) -> dict:
         keys = scored[0][tier].keys() if scored else []
-        return {k: round(sum(1 for s in scored if s[tier][k]) / n, 3) for k in keys} if n else {}
+        return (
+            {k: round(sum(1 for s in scored if s[tier][k]) / n, 3) for k in keys}
+            if n
+            else {}
+        )
 
     # Tier 2 (if any candidate carries a behavioral block). `attempted` = candidates
     # whose behavioral run actually ran (status=="ran"); precondition_failed and
     # the various skip statuses are NOT in the denominator (codex 2026-06-25).
     behav = [s["behavioral"] for s in scored if s.get("behavioral")]
     ran = [b for b in behav if b.get("behavioral_status") == "ran"]
-    behavioral_pass_rate = (round(sum(1 for b in ran if b["behavioral_pass"]) / len(ran), 3)
-                            if ran else None)
+    behavioral_pass_rate = (
+        round(sum(1 for b in ran if b["behavioral_pass"]) / len(ran), 3)
+        if ran
+        else None
+    )
     behavioral_statuses: dict[str, int] = {}
     for b in behav:
         st = b.get("behavioral_status") or "none"
@@ -484,28 +563,59 @@ def _aggregate(scored: list[dict], model_id: str | None) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--canary", type=Path, required=True,
-                    help="held-out canary JSONL (from `trace export authoring --split-manifest`)")
-    ap.add_argument("--responses", type=Path, default=None,
-                    help="pre-generated responses JSONL: {cve_id, generated} per line")
-    ap.add_argument("--generate", action="store_true",
-                    help="generate live from --model instead of reading --responses")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--canary",
+        type=Path,
+        required=True,
+        help="held-out canary JSONL (from `trace export authoring --split-manifest`)",
+    )
+    ap.add_argument(
+        "--responses",
+        type=Path,
+        default=None,
+        help="pre-generated responses JSONL: {cve_id, generated} per line",
+    )
+    ap.add_argument(
+        "--generate",
+        action="store_true",
+        help="generate live from --model instead of reading --responses",
+    )
     ap.add_argument("--model", default=None, help="model id for --generate")
     ap.add_argument("--out", type=Path, required=True, help="report JSON path")
-    ap.add_argument("--save-responses", type=Path, default=None,
-                    help="when generating, also write the raw responses here")
-    ap.add_argument("--behavioral", action="store_true",
-                    help="Tier 2: build the authored fix + run the reproducer "
-                         "(needs a Linux nix host + --nixpkgs). Runs only on "
-                         "format-passing candidates.")
-    ap.add_argument("--nixpkgs", type=Path, default=None,
-                    help="nixpkgs checkout at the bundle's rev (required for --behavioral)")
-    ap.add_argument("--traces-root", type=Path, default=Path("traces/example"),
-                    help="root of CVE-* bundles (for --behavioral patch injection)")
-    ap.add_argument("--build-timeout", type=int, default=1800,
-                    help="per-build timeout seconds for --behavioral (default 1800)")
+    ap.add_argument(
+        "--save-responses",
+        type=Path,
+        default=None,
+        help="when generating, also write the raw responses here",
+    )
+    ap.add_argument(
+        "--behavioral",
+        action="store_true",
+        help="Tier 2: build the authored fix + run the reproducer "
+        "(needs a Linux nix host + --nixpkgs). Runs only on "
+        "format-passing candidates.",
+    )
+    ap.add_argument(
+        "--nixpkgs",
+        type=Path,
+        default=None,
+        help="nixpkgs checkout at the bundle's rev (required for --behavioral)",
+    )
+    ap.add_argument(
+        "--traces-root",
+        type=Path,
+        default=Path("traces/example"),
+        help="root of CVE-* bundles (for --behavioral patch injection)",
+    )
+    ap.add_argument(
+        "--build-timeout",
+        type=int,
+        default=1800,
+        help="per-build timeout seconds for --behavioral (default 1800)",
+    )
     args = ap.parse_args(argv)
 
     if not args.canary.is_file():
@@ -513,7 +623,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     records = [json.loads(l) for l in args.canary.read_text().splitlines() if l.strip()]
     if not records:
-        print("error: canary file is empty (no held-out examples to score)", file=sys.stderr)
+        print(
+            "error: canary file is empty (no held-out examples to score)",
+            file=sys.stderr,
+        )
         return 2
 
     if args.generate:
@@ -524,10 +637,20 @@ def main(argv: list[str] | None = None) -> int:
         model_id = args.model
         if args.save_responses:
             args.save_responses.write_text(
-                "\n".join(json.dumps({"cve_id": k, "generated": v}) for k, v in gen.items()) + "\n")
+                "\n".join(
+                    json.dumps({"cve_id": k, "generated": v}) for k, v in gen.items()
+                )
+                + "\n"
+            )
     elif args.responses:
-        gen = {r["cve_id"]: r["generated"]
-               for r in (json.loads(l) for l in args.responses.read_text().splitlines() if l.strip())}
+        gen = {
+            r["cve_id"]: r["generated"]
+            for r in (
+                json.loads(l)
+                for l in args.responses.read_text().splitlines()
+                if l.strip()
+            )
+        }
         model_id = args.model  # optional label for which model produced the responses
     else:
         print("error: pass --responses or --generate", file=sys.stderr)
@@ -550,21 +673,32 @@ def main(argv: list[str] | None = None) -> int:
             # Tier 2 gates on Tier 0 (format/apply) ONLY — a structurally-divergent
             # but behaviorally-correct fix must still get a build.
             if not s["format_pass"]:
-                s["behavioral"] = {"cve_id": s["cve_id"], "behavioral_status": "skipped_format_fail",
-                                   "behavioral_pass": False}
+                s["behavioral"] = {
+                    "cve_id": s["cve_id"],
+                    "behavioral_status": "skipped_format_fail",
+                    "behavioral_pass": False,
+                }
                 continue
             rec = by_cve[s["cve_id"]]
-            s["behavioral"] = score_behavioral(gen.get(s["cve_id"], ""), rec,
-                                                traces_root=args.traces_root, build_fn=build_fn)
+            s["behavioral"] = score_behavioral(
+                gen.get(s["cve_id"], ""),
+                rec,
+                traces_root=args.traces_root,
+                build_fn=build_fn,
+            )
 
     report = _aggregate(scored, model_id)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
-    msg = (f"format_pass_rate={report['format_pass_rate']} "
-           f"structural_pass_rate={report['structural_pass_rate']}")
+    msg = (
+        f"format_pass_rate={report['format_pass_rate']} "
+        f"structural_pass_rate={report['structural_pass_rate']}"
+    )
     if report["behavioral_pass_rate"] is not None:
-        msg += (f" behavioral_pass_rate={report['behavioral_pass_rate']} "
-                f"(attempted={report['behavioral_attempted_n']})")
+        msg += (
+            f" behavioral_pass_rate={report['behavioral_pass_rate']} "
+            f"(attempted={report['behavioral_attempted_n']})"
+        )
     print(f"{msg} (n={report['n']}, model={model_id}) -> {args.out}")
     return 0
 

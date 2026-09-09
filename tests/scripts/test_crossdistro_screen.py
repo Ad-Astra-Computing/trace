@@ -1,4 +1,5 @@
 """Pure-function tests for the cross-distro screening study. No network."""
+
 from __future__ import annotations
 
 from scripts import crossdistro_screen as cs
@@ -22,12 +23,18 @@ def test_debian_patch_url_matches_known_good():
 
 
 def test_resolve_upstream_github_gitlab_and_none():
-    assert cs.resolve_upstream(
-        "see github.com/nginx/nginx/commit/7199ebc203f74fd9e44595474de6bdc41740c5cf"
-    ) == "https://github.com/nginx/nginx/commit/7199ebc203f74fd9e44595474de6bdc41740c5cf.patch"
-    assert cs.resolve_upstream(
-        "Origin: gitlab.com/foo/bar/-/commit/abcdef1234567890abcdef1234567890abcdef12"
-    ) == "https://gitlab.com/foo/bar/-/commit/abcdef1234567890abcdef1234567890abcdef12.patch"
+    assert (
+        cs.resolve_upstream(
+            "see github.com/nginx/nginx/commit/7199ebc203f74fd9e44595474de6bdc41740c5cf"
+        )
+        == "https://github.com/nginx/nginx/commit/7199ebc203f74fd9e44595474de6bdc41740c5cf.patch"
+    )
+    assert (
+        cs.resolve_upstream(
+            "Origin: gitlab.com/foo/bar/-/commit/abcdef1234567890abcdef1234567890abcdef12"
+        )
+        == "https://gitlab.com/foo/bar/-/commit/abcdef1234567890abcdef1234567890abcdef12.patch"
+    )
     assert cs.resolve_upstream("no ref, just prose") is None
 
 

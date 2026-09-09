@@ -73,19 +73,19 @@ REVIEW_REJECT = (
 
 
 REFUSAL = (
-    "=== BEGIN refusal ===\n"
-    "rule: 1\n"
-    "reason: patch.diff missing\n"
-    "=== END refusal ==="
+    "=== BEGIN refusal ===\nrule: 1\nreason: patch.diff missing\n=== END refusal ==="
 )
 
 
-FIXTURE_SRC = REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+FIXTURE_SRC = (
+    REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+)
 
 
 def _factory(text: str):
     def _make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, text)
+
     return _make
 
 
@@ -104,7 +104,7 @@ def _build_reviewable_bundle(tmp_path: Path) -> Path:
         '   pname = "libexample";\n'
         '-  version = "1.4.7";\n'
         '+  version = "1.4.8";\n'
-        ' \n'
+        " \n"
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         "## Upstream reference\nfix at v1.4.8 per upstream commit abc1234\n\n"
@@ -155,8 +155,13 @@ def test_reviewer_writes_review_md_and_appends_replay(tmp_path: Path) -> None:
     assert inv["model"]["model_id"] == "claude-sonnet-4-6"
     # Reviewer's input set includes patch.diff + patch-rationale.md.
     input_paths = {i["path"] for i in inv["inputs"]}
-    assert {"finding.json", "upstream-ref.json", "patch.diff",
-            "patch-rationale.md", "package.nix"} <= input_paths
+    assert {
+        "finding.json",
+        "upstream-ref.json",
+        "patch.diff",
+        "patch-rationale.md",
+        "package.nix",
+    } <= input_paths
 
 
 def test_reviewer_reject_verdict_writes_findings(tmp_path: Path) -> None:
@@ -272,6 +277,7 @@ def test_reviewer_prompt_path_default_is_v9() -> None:
     source-backport corpus had to be regenerated. The override (`--reviewer-prompt`)
     remains for explicit per-run selection."""
     from tools.trace_cli.execute import REVIEWER_PROMPT_PATH_DEFAULT
+
     assert REVIEWER_PROMPT_PATH_DEFAULT.name == "reviewer.v9.md"
     assert REVIEWER_PROMPT_PATH_DEFAULT.is_file()
 
@@ -348,6 +354,7 @@ def test_reviewer_user_content_surfaces_attestation_block(tmp_path: Path) -> Non
             captured["user_content"] = user_content
             captured["system_prompt"] = system_prompt
             from agents.patcher.adapter import ModelResponse
+
             return ModelResponse(
                 text=REVIEW_OK,
                 model_id=self.model_id,
@@ -375,7 +382,9 @@ def test_reviewer_user_content_surfaces_attestation_block(tmp_path: Path) -> Non
     assert "cross_family_rule_honored_expected: true" in uc
 
 
-def test_reviewer_attestation_grounded_when_model_copies_correctly(tmp_path: Path) -> None:
+def test_reviewer_attestation_grounded_when_model_copies_correctly(
+    tmp_path: Path,
+) -> None:
     """When the Reviewer emits the family strings verbatim from the
     attestation context, validators_passed should include 'attestation-grounded'
     and reviewer-invocation.json should record attestation_grounded=True."""
@@ -390,13 +399,16 @@ def test_reviewer_attestation_grounded_when_model_copies_correctly(tmp_path: Pat
         adapter_factory=_factory(REVIEW_OK),
     )
     import json
+
     sidecar = next(bundle_dir.glob("reviewer-invocation.json"))
     d = json.loads(sidecar.read_text())
     # attestation_grounded=True: model emitted exactly what the context block said
     assert d["attestation_grounded"] is True
 
 
-def test_reviewer_attestation_mismatch_flagged_when_model_hallucinates(tmp_path: Path) -> None:
+def test_reviewer_attestation_mismatch_flagged_when_model_hallucinates(
+    tmp_path: Path,
+) -> None:
     """When the Reviewer emits wrong family strings (hallucination), validators_passed
     should include 'attestation-mismatch' and attestation_grounded=False."""
     bundle_dir = _build_reviewable_bundle(tmp_path)
@@ -414,6 +426,7 @@ def test_reviewer_attestation_mismatch_flagged_when_model_hallucinates(tmp_path:
         adapter_factory=_factory(hallucinated_review),
     )
     import json
+
     sidecar = next(bundle_dir.glob("reviewer-invocation.json"))
     d = json.loads(sidecar.read_text())
     # attestation_grounded=False: model emitted wrong reviewer_family

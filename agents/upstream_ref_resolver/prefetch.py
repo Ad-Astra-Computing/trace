@@ -43,7 +43,7 @@ class PrefetchTarget:
     """A request to prefetch the hash for one Nix attribute."""
 
     name: str  # e.g. "src.hash"
-    url: str   # the derived target-release URL the resolver wants to pin
+    url: str  # the derived target-release URL the resolver wants to pin
     algorithm: str = "sha256"
 
 
@@ -154,30 +154,34 @@ def prefetch_targets(
         outcome, value, detail = fn(t.url, t.algorithm)
         if outcome == "ok":
             tool_version = detail or ""
-            hashes.append(PrefetchSuccess(
-                name=t.name,
-                algorithm=t.algorithm,
-                value=value,
-                source="nix-prefetch-url",
-                url=t.url,
-                tool="nix-prefetch-url",
-                tool_version=tool_version,
-                fetched_at=ts,
-            ))
+            hashes.append(
+                PrefetchSuccess(
+                    name=t.name,
+                    algorithm=t.algorithm,
+                    value=value,
+                    source="nix-prefetch-url",
+                    url=t.url,
+                    tool="nix-prefetch-url",
+                    tool_version=tool_version,
+                    fetched_at=ts,
+                )
+            )
         else:
             # outcome is the failure-reason enum value; value is the
             # detail string (stderr excerpt, exit code etc.); detail is
             # tool_version when known.
             tool_version = detail
-            failures.append(PrefetchFailure(
-                name=t.name,
-                reason=outcome,
-                url_attempted=t.url,
-                tool="nix-prefetch-url",
-                tool_version=tool_version,
-                detail=value,
-                attempted_at=ts,
-            ))
+            failures.append(
+                PrefetchFailure(
+                    name=t.name,
+                    reason=outcome,
+                    url_attempted=t.url,
+                    tool="nix-prefetch-url",
+                    tool_version=tool_version,
+                    detail=value,
+                    attempted_at=ts,
+                )
+            )
     return PrefetchOutcome(hashes=hashes, failures=failures)
 
 
@@ -198,29 +202,47 @@ def _run_nix_prefetch_url(url: str, algorithm: str) -> PrefetchResult:
     try:
         ver = subprocess.run(
             ["nix-prefetch-url", "--version"],
-            check=False, capture_output=True, text=True, timeout=10,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if ver.returncode == 0:
-            tool_version = (ver.stdout or "").strip().splitlines()[0] if ver.stdout else ""
+            tool_version = (
+                (ver.stdout or "").strip().splitlines()[0] if ver.stdout else ""
+            )
     except subprocess.SubprocessError:
         pass
 
     if algorithm not in ("sha256", "sha512"):
-        return ("ecosystem-not-supported",
-                f"nix-prefetch-url does not support algorithm {algorithm!r}",
-                tool_version)
+        return (
+            "ecosystem-not-supported",
+            f"nix-prefetch-url does not support algorithm {algorithm!r}",
+            tool_version,
+        )
 
     try:
         # `--print-path` is intentionally OMITTED so stdout is just the hash.
         # `--type sha256` ensures the hash type matches what nixpkgs uses.
         result = subprocess.run(
             ["nix-prefetch-url", "--type", algorithm, url],
-            check=False, capture_output=True, text=True, timeout=120,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
     except subprocess.TimeoutExpired:
-        return ("fetch-error-other", "nix-prefetch-url timed out after 120s", tool_version)
+        return (
+            "fetch-error-other",
+            "nix-prefetch-url timed out after 120s",
+            tool_version,
+        )
     except FileNotFoundError:
-        return ("tool-not-on-path", "nix-prefetch-url disappeared mid-run", tool_version)
+        return (
+            "tool-not-on-path",
+            "nix-prefetch-url disappeared mid-run",
+            tool_version,
+        )
     except OSError as exc:
         return ("fetch-error-other", f"OSError: {exc}", tool_version)
 
@@ -230,18 +252,22 @@ def _run_nix_prefetch_url(url: str, algorithm: str) -> PrefetchResult:
         lo = stderr.lower()
         if "404" in lo or "not found" in lo:
             return ("fetch-error-404", stderr[:2048], tool_version)
-        return ("tool-exit-nonzero",
-                f"exit={result.returncode}; stderr: {stderr[:1900]}",
-                tool_version)
+        return (
+            "tool-exit-nonzero",
+            f"exit={result.returncode}; stderr: {stderr[:1900]}",
+            tool_version,
+        )
 
     # Parse stdout into the SRI form.
     raw = (result.stdout or "").strip()
     # nix-prefetch-url output is the base32 hash on stdout. Convert to SRI.
     sri = _to_sri(raw, algorithm)
     if sri is None:
-        return ("tool-output-unparseable",
-                f"could not parse stdout as a {algorithm} hash: {raw[:200]!r}",
-                tool_version)
+        return (
+            "tool-output-unparseable",
+            f"could not parse stdout as a {algorithm} hash: {raw[:200]!r}",
+            tool_version,
+        )
     return ("ok", sri, tool_version)
 
 
@@ -263,7 +289,10 @@ def _to_sri(hash_str: str, algorithm: str) -> str | None:
         try:
             result = subprocess.run(
                 ["nix", "hash", "to-sri", "--type", algorithm, hash_str],
-                check=False, capture_output=True, text=True, timeout=10,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if result.returncode == 0:
                 out = (result.stdout or "").strip()

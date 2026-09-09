@@ -61,13 +61,15 @@ def unpack_source_store_path(store_path: Path, dest: Path) -> Path:
     if tar_bin is not None:
         proc = subprocess.run(
             [tar_bin, "-xf", str(store_path), "-C", str(dest)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         extracted = proc.returncode == 0
     if not extracted and unzip_bin is not None:
         proc = subprocess.run(
             [unzip_bin, "-q", str(store_path), "-d", str(dest)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         extracted = proc.returncode == 0
     if not extracted:
@@ -117,7 +119,8 @@ def eval_patch_flags(
     )
     proc = subprocess.run(
         [nix_eval, "--eval", "--strict", "--json", "--expr", expr],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         if strict:
@@ -138,9 +141,7 @@ def eval_patch_flags(
     if isinstance(flags, list):
         return [str(f) for f in flags]
     if strict:
-        raise PatchFlagsEvalError(
-            f"pkg.patchFlags evaluated to a non-list: {flags!r}"
-        )
+        raise PatchFlagsEvalError(f"pkg.patchFlags evaluated to a non-list: {flags!r}")
     return ["-p1"]
 
 
@@ -182,11 +183,12 @@ def eval_source_root(nix_expr_prefix: str, attr_path_list: str) -> str | None:
         f"{nix_expr_prefix} "
         f"pkg = pkgs.lib.attrByPath {attr_path_list} "
         '(throw "attr not found") pkgs; '
-        'in if (pkg.sourceRoot or null) == null then null else toString pkg.sourceRoot'
+        "in if (pkg.sourceRoot or null) == null then null else toString pkg.sourceRoot"
     )
     proc = subprocess.run(
         [nix_eval, "--eval", "--strict", "--json", "--expr", expr],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         raise SourceRootEvalError(
@@ -233,11 +235,12 @@ def eval_preceding_patches_count(nix_expr_prefix: str, attr_path_list: str) -> i
         f"{nix_expr_prefix} "
         f"pkg = pkgs.lib.attrByPath {attr_path_list} "
         '(throw "attr not found") pkgs; '
-        'in builtins.length (pkg.patches or [])'
+        "in builtins.length (pkg.patches or [])"
     )
     proc = subprocess.run(
         [nix_eval, "--eval", "--strict", "--json", "--expr", expr],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         raise PatchesEvalError(
@@ -349,10 +352,10 @@ def _nix_expr_parts(
     shared by every eval/build against the pinned nixpkgs. ``attr``/``rev``
     must already be validated (see :func:`_resolve_attr_rev`)."""
     if nixpkgs_override:
-        nixpkgs_expr = f'(import {json.dumps(nixpkgs_override)})'
+        nixpkgs_expr = f"(import {json.dumps(nixpkgs_override)})"
     else:
         nixpkgs_expr = (
-            'import (builtins.fetchTarball '
+            "import (builtins.fetchTarball "
             f'"https://github.com/NixOS/nixpkgs/archive/{rev}.tar.gz")'
         )
     attr_path_list = "[" + " ".join(json.dumps(seg) for seg in attr.split(".")) + "]"
@@ -412,7 +415,8 @@ def unpack_pinned_source(
     user at a pre-unpacked source.
     """
     store_path, nix_expr_prefix, attr_path_list, _attr, _rev = _build_pinned_src(
-        bundle_dir, tmp_root, nixpkgs_override)
+        bundle_dir, tmp_root, nixpkgs_override
+    )
     tree = unpack_source_store_path(store_path, tmp_root / "unpacked")
     patch_flags = eval_patch_flags(nix_expr_prefix, attr_path_list)
     return tree, patch_flags
@@ -455,7 +459,8 @@ def unpack_pinned_source_with_effective_root(
     ``sourceRoot = "krb5-${version}/src"`` case in this module's docstring.
     """
     store_path, nix_expr_prefix, attr_path_list, _attr, rev = _build_pinned_src(
-        bundle_dir, tmp_root, nixpkgs_override)
+        bundle_dir, tmp_root, nixpkgs_override
+    )
     tree = unpack_source_store_path(store_path, tmp_root / "unpacked")
     # strict: this is the fail-closed effective-root path — an eval hiccup must
     # surface, never silently degrade to a wrong strip / assumed sourceRoot.

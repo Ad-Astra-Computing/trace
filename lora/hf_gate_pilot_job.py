@@ -48,6 +48,7 @@ Optional env vars (all additive / backward compatible):
                       runtime (falls back to "unknown" on failure, e.g. no
                       network).
 """
+
 import hashlib
 import json
 import os
@@ -77,7 +78,9 @@ def sha256_text(text: str) -> str:
     return sha256_bytes(text.encode())
 
 
-def build_response_row(*, prov: dict, label, split, user_text: str, generated: str) -> dict:
+def build_response_row(
+    *, prov: dict, label, split, user_text: str, generated: str
+) -> dict:
     """The existing (unchanged) per-row schema pushed to responses.jsonl."""
     return {
         "cve_id": prov.get("cve_id"),
@@ -135,7 +138,9 @@ def assert_responses_path_free(
     try:
         existing = set(api.list_repo_files(repo_id=repo_id, repo_type="model"))
     except Exception as e:  # noqa: BLE001 - never lose a finished run to a listing error
-        print(f"WARNING: could not list {repo_id} to check for overwrite: {e}", flush=True)
+        print(
+            f"WARNING: could not list {repo_id} to check for overwrite: {e}", flush=True
+        )
         return
     if path_in_repo in existing:
         raise RuntimeError(
@@ -148,7 +153,9 @@ def assert_responses_path_free(
 def manifest_path_for(responses_path_in_repo: str) -> str:
     """run_manifest.json lives alongside responses.jsonl in the same repo dir."""
     parent = Path(responses_path_in_repo).parent
-    return "run_manifest.json" if str(parent) == "." else str(parent / "run_manifest.json")
+    return (
+        "run_manifest.json" if str(parent) == "." else str(parent / "run_manifest.json")
+    )
 
 
 def build_run_manifest(
@@ -229,8 +236,10 @@ def main():
         bnb_4bit_use_double_quant=True,
     )
     base = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL, revision=BASE_REVISION,
-        quantization_config=bnb_config, device_map="auto",
+        BASE_MODEL,
+        revision=BASE_REVISION,
+        quantization_config=bnb_config,
+        device_map="auto",
     )
     model = PeftModel.from_pretrained(base, adapter_repo)
     model.eval()
@@ -239,7 +248,9 @@ def main():
     responses = []
     for i, rec in enumerate(records):
         msgs = rec["messages"][:2]  # system + user only
-        text = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+        text = tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=True
+        )
         inputs = tokenizer(text, return_tensors="pt").to(model.device)
         with torch.inference_mode():
             out = model.generate(
@@ -248,22 +259,31 @@ def main():
                 do_sample=do_sample,
                 pad_token_id=tokenizer.eos_token_id,
             )
-        response_ids = out[0][inputs["input_ids"].shape[-1]:]
+        response_ids = out[0][inputs["input_ids"].shape[-1] :]
         response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
         prov = rec.get("provenance", {})
         user_text = next(
-            (m["content"] for m in rec.get("messages", []) if m.get("role") == "user"), ""
+            (m["content"] for m in rec.get("messages", []) if m.get("role") == "user"),
+            "",
         )
         entry = build_response_row(
-            prov=prov, label=rec.get("label"), split=rec.get("split"),
-            user_text=user_text, generated=response,
+            prov=prov,
+            label=rec.get("label"),
+            split=rec.get("split"),
+            user_text=user_text,
+            generated=response,
         )
         responses.append(entry)
-        print(f"[{i+1}/{len(records)}] {prov.get('cve_id')} ({rec.get('label')}) done", flush=True)
+        print(
+            f"[{i + 1}/{len(records)}] {prov.get('cve_id')} ({rec.get('label')}) done",
+            flush=True,
+        )
 
     out_path = Path("/tmp/gate_pilot_responses.jsonl")
     write_jsonl(out_path, responses)
-    path_in_repo = os.environ.get("RESPONSES_PATH", "gate_pilot_responses/responses.jsonl")
+    path_in_repo = os.environ.get(
+        "RESPONSES_PATH", "gate_pilot_responses/responses.jsonl"
+    )
     assert_responses_path_free(
         HfApi(),
         repo_id=adapter_repo,
@@ -278,7 +298,10 @@ def main():
     )
     response_sha256 = sha256_bytes(out_path.read_bytes())
     print(f"response_sha256={response_sha256} adapter={adapter_repo}", flush=True)
-    print(f"Pushed {len(responses)} responses to {adapter_repo}/{path_in_repo}", flush=True)
+    print(
+        f"Pushed {len(responses)} responses to {adapter_repo}/{path_in_repo}",
+        flush=True,
+    )
 
     # Adapter revision: pin via env var if supplied, else resolve at runtime.
     adapter_revision = os.environ.get("ADAPTER_REVISION")
@@ -286,7 +309,10 @@ def main():
         try:
             adapter_revision = HfApi().model_info(adapter_repo).sha
         except Exception as e:  # noqa: BLE001 - best-effort provenance, never fatal
-            print(f"WARNING: could not resolve adapter_revision for {adapter_repo}: {e}", flush=True)
+            print(
+                f"WARNING: could not resolve adapter_revision for {adapter_repo}: {e}",
+                flush=True,
+            )
             adapter_revision = "unknown"
 
     decode = build_decode_settings(

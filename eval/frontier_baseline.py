@@ -71,7 +71,9 @@ def _call_api(model_id: str, system: str, user: str) -> tuple[str, dict]:
     kwargs = dict(
         model=model_id,
         max_tokens=2048,
-        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+        system=[
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ],
         messages=[{"role": "user", "content": user}],
     )
     try:
@@ -83,7 +85,9 @@ def _call_api(model_id: str, system: str, user: str) -> tuple[str, dict]:
         else:
             raise
     text = "".join(
-        b.text for b in getattr(msg, "content", []) if getattr(b, "type", None) == "text"
+        b.text
+        for b in getattr(msg, "content", [])
+        if getattr(b, "type", None) == "text"
     )
     usage = {}
     if hasattr(msg, "usage"):
@@ -165,7 +169,10 @@ def run_baseline(
     records = [json.loads(l) for l in export_path.read_text().splitlines() if l.strip()]
     test_records = [r for r in records if r.get("split") == "test"]
 
-    print(f"frontier baseline: {len(test_records)} test examples | model={model_id}", file=sys.stderr)
+    print(
+        f"frontier baseline: {len(test_records)} test examples | model={model_id}",
+        file=sys.stderr,
+    )
 
     results = []
     total_usage: dict = {"input_tokens": 0, "output_tokens": 0}
@@ -183,7 +190,9 @@ def run_baseline(
             content = m.get("content", "")
             if isinstance(content, list):
                 content = "\n".join(
-                    c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"
+                    c.get("text", "")
+                    for c in content
+                    if isinstance(c, dict) and c.get("type") == "text"
                 )
             if role == "system":
                 system_text = content
@@ -191,8 +200,8 @@ def run_baseline(
                 user_text = content
 
         print(
-            f"  [{i}/{len(test_records)}] {prov.get('cve_id','?')}/{prov.get('attr_path','?')} "
-            f"label={label} mutation={prov.get('mutation_type','-')}",
+            f"  [{i}/{len(test_records)}] {prov.get('cve_id', '?')}/{prov.get('attr_path', '?')} "
+            f"label={label} mutation={prov.get('mutation_type', '-')}",
             file=sys.stderr,
         )
 
@@ -233,7 +242,10 @@ def run_baseline(
         "parse_failure_count": n_parse_fail,
         "false_accept_count": len(false_accepts),
         "false_reject_count": len(false_rejects),
-        "false_accepts": [{"cve_id": r["cve_id"], "mutation_type": r["mutation_type"]} for r in false_accepts],
+        "false_accepts": [
+            {"cve_id": r["cve_id"], "mutation_type": r["mutation_type"]}
+            for r in false_accepts
+        ],
         "false_rejects": [{"cve_id": r["cve_id"]} for r in false_rejects],
         "positives_n": len(positives),
         "positives_correct": sum(1 for r in positives if r["verdict_correct"]),
@@ -262,26 +274,51 @@ def run_baseline(
 
     print(f"\n== Frontier baseline results ==", file=sys.stderr)
     print(f"  model: {model_id}", file=sys.stderr)
-    print(f"  test fold: {n} examples ({agg['positives_n']} pos + {agg['negatives_n']} neg)", file=sys.stderr)
-    print(f"  verdict accuracy: {agg['verdict_accuracy']:.1%}  ({n_correct}/{n})", file=sys.stderr)
-    print(f"  false accepts: {agg['false_accept_count']}  false rejects: {agg['false_reject_count']}", file=sys.stderr)
-    print(f"  schema valid: {agg['schema_valid_rate']:.1%}  evidence cited: {agg['evidence_cited_rate']:.1%}", file=sys.stderr)
+    print(
+        f"  test fold: {n} examples ({agg['positives_n']} pos + {agg['negatives_n']} neg)",
+        file=sys.stderr,
+    )
+    print(
+        f"  verdict accuracy: {agg['verdict_accuracy']:.1%}  ({n_correct}/{n})",
+        file=sys.stderr,
+    )
+    print(
+        f"  false accepts: {agg['false_accept_count']}  false rejects: {agg['false_reject_count']}",
+        file=sys.stderr,
+    )
+    print(
+        f"  schema valid: {agg['schema_valid_rate']:.1%}  evidence cited: {agg['evidence_cited_rate']:.1%}",
+        file=sys.stderr,
+    )
     print(f"  parse failures: {agg['parse_failure_count']}", file=sys.stderr)
 
     return output
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Frontier Reviewer baseline eval on held-out test fold")
-    p.add_argument("--dry-run", action="store_true", help="Skip API calls; just print what would run")
-    p.add_argument("--model", default=DEFAULT_MODEL, help=f"Model id (default: {DEFAULT_MODEL})")
-    p.add_argument("--export", type=Path, default=DEFAULT_EXPORT, help="reviewer.jsonl export")
+    p = argparse.ArgumentParser(
+        description="Frontier Reviewer baseline eval on held-out test fold"
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Skip API calls; just print what would run",
+    )
+    p.add_argument(
+        "--model", default=DEFAULT_MODEL, help=f"Model id (default: {DEFAULT_MODEL})"
+    )
+    p.add_argument(
+        "--export", type=Path, default=DEFAULT_EXPORT, help="reviewer.jsonl export"
+    )
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help="Output JSON path")
     args = p.parse_args()
 
     if not args.export.exists():
         print(f"error: export not found: {args.export}", file=sys.stderr)
-        print("Run: python3 -m tools.trace_cli export reviewer --out exports/reviewer-v1.0", file=sys.stderr)
+        print(
+            "Run: python3 -m tools.trace_cli export reviewer --out exports/reviewer-v1.0",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     run_baseline(args.export, args.out, args.model, args.dry_run)

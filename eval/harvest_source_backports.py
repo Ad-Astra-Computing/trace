@@ -76,12 +76,34 @@ class BackportCandidate:
 
 # Memory-safety classes that are silent without ASAN — flagged so the bootstrap
 # can scope v1 to behaviorally-testable-WITHOUT-ASAN candidates first (codex).
-_ASAN_HINTS = ("heap buffer overflow", "heap-buffer-overflow", "buffer overflow",
-               "use-after-free", "use after free", "out-of-bounds", "out of bounds",
-               "oob", "double free", "double-free", "uninitialized")
-_TESTABLE_HINTS = ("command injection", "shell injection", "path traversal",
-                   "null", "host key", "credential", "verification", "auth",
-                   "ssrf", "xxe", "denial", "infinite loop", "integer overflow")
+_ASAN_HINTS = (
+    "heap buffer overflow",
+    "heap-buffer-overflow",
+    "buffer overflow",
+    "use-after-free",
+    "use after free",
+    "out-of-bounds",
+    "out of bounds",
+    "oob",
+    "double free",
+    "double-free",
+    "uninitialized",
+)
+_TESTABLE_HINTS = (
+    "command injection",
+    "shell injection",
+    "path traversal",
+    "null",
+    "host key",
+    "credential",
+    "verification",
+    "auth",
+    "ssrf",
+    "xxe",
+    "denial",
+    "infinite loop",
+    "integer overflow",
+)
 
 
 def package_from_patch_path(patch_path: str) -> str:
@@ -138,11 +160,13 @@ def resolve_strict_cves(
 # nixpkgs almost always cite their origin: a project commit URL, a git
 # format-patch `From <40hex>` header, or an `Origin:`/`Upstream-commit:` line.
 _UPSTREAM_URL_RE = re.compile(
-    r"https?://[^\s'\"<>]+/(?:commit|commits|pull|cgit[^\s'\"<>]*/commit)/[^\s'\"<>)]+")
+    r"https?://[^\s'\"<>]+/(?:commit|commits|pull|cgit[^\s'\"<>]*/commit)/[^\s'\"<>)]+"
+)
 _GIT_FROM_RE = re.compile(r"^From ([0-9a-f]{40})\b")
 _ORIGIN_SHA_RE = re.compile(
     r"(?:Upstream-commit|Git-commit|Origin|Upstream-Status)\s*:.*?\b([0-9a-f]{40})\b",
-    re.IGNORECASE)
+    re.IGNORECASE,
+)
 
 
 def extract_upstream_fix_url(full_diff_added_lines: list[str]) -> str | None:
@@ -164,8 +188,13 @@ def extract_upstream_fix_url(full_diff_added_lines: list[str]) -> str | None:
 
 
 def strict_reject_reason(
-    *, packages: list[str], patch_cves: list[str], version_changed: bool,
-    patch_files: list[str], max_patches: int = 4, max_cves: int = 3,
+    *,
+    packages: list[str],
+    patch_cves: list[str],
+    version_changed: bool,
+    patch_files: list[str],
+    max_patches: int = 4,
+    max_cves: int = 3,
 ) -> str | None:
     """Return why a candidate fails the strict precision gate, or None if it passes.
 
@@ -202,7 +231,9 @@ _NATIVE_SRC_RE = re.compile(r"[ab]/.*\.(xs|c|cc|cpp|cxx|h|hpp|rs|go)\b")
 
 
 def classify_build_class(
-    patch_files: list[str], keywords: list[str], inner_native: bool = False,
+    patch_files: list[str],
+    keywords: list[str],
+    inner_native: bool = False,
 ) -> str:
     """Coarse build-class tag used to scope the bootstrap to the fast cert lane
     (codex 2026-06-16):
@@ -224,7 +255,11 @@ def classify_build_class(
     if inner_native:
         return "compiled"
     joined = " ".join(patch_files)
-    if "/perl-modules/" in joined or "/python-modules/" in joined or "/ruby-modules/" in joined:
+    if (
+        "/perl-modules/" in joined
+        or "/python-modules/" in joined
+        or "/ruby-modules/" in joined
+    ):
         return "light-interpreter"
     return "compiled"
 
@@ -244,14 +279,17 @@ def classify_build_class(
 _INNER_TEST_PATH_RE = re.compile(
     r"^[-+]{3}\s+[ab]/.*("
     r"tests?/|/test|[._-]test\b|testdata|testsuite|/t/|fixtures?/|samples?/|"
-    r"fuzz|corpus|regress)", re.IGNORECASE)
+    r"fuzz|corpus|regress)",
+    re.IGNORECASE,
+)
 # A bound/comparison/NULL token introduced by the fix. When a backport ADDS such
 # a check, its out-of-range trigger is usually DERIVABLE directly from the fix
 # (make the new condition false). `<`/`>` require a trailing space so member
 # access (`->`) and includes (`<config.h>`) don't match.
 _ADDED_BOUND_RE = re.compile(
     r"(>=|<=|==|!=|[<>](?=\s|$)|\bNULL\b|\bnullptr\b|_max\b|_MAX\b|_len\b|"
-    r"\b(count|length|size|bound|limit|extra_max|extra_len|ColorCount|maxdepth)\b)")
+    r"\b(count|length|size|bound|limit|extra_max|extra_len|ColorCount|maxdepth)\b)"
+)
 
 
 def classify_craftability(full_diff_added_lines: list[str]) -> str:
@@ -286,9 +324,14 @@ def classify_craftability(full_diff_added_lines: list[str]) -> str:
 
 
 def parse_commit_record(
-    *, commit: str, parent: str, subject: str,
-    added_patch_files: list[str], full_diff_added_lines: list[str],
-    patch_filenames_for_cve: bool = True, strict: bool = False,
+    *,
+    commit: str,
+    parent: str,
+    subject: str,
+    added_patch_files: list[str],
+    full_diff_added_lines: list[str],
+    patch_filenames_for_cve: bool = True,
+    strict: bool = False,
 ) -> BackportCandidate | None:
     """Pure parser: build a candidate from already-extracted git facts. Returns
     None if the commit added no `*.patch` under pkgs/ (not a source-backport).
@@ -298,8 +341,9 @@ def parse_commit_record(
     candidate must touch exactly one package, leave the version unchanged and not be
     a mass sweep, and the upstream fix reference is extracted. Commits that fail the
     gate return None. Non-strict behaviour is unchanged (the bulk-scan default)."""
-    patches = [f for f in added_patch_files
-               if f.endswith(".patch") and f.startswith("pkgs/")]
+    patches = [
+        f for f in added_patch_files if f.endswith(".patch") and f.startswith("pkgs/")
+    ]
     if not patches:
         return None
     version_changed = any(_VERSION_CHANGE_RE.match(ln) for ln in full_diff_added_lines)
@@ -307,15 +351,22 @@ def parse_commit_record(
     if strict:
         cves = resolve_strict_cves(patches, full_diff_added_lines, subject)
         packages = packages_from_patches(patches)
-        if strict_reject_reason(
-            packages=packages, patch_cves=cves,
-            version_changed=version_changed, patch_files=patches,
-        ) is not None:
+        if (
+            strict_reject_reason(
+                packages=packages,
+                patch_cves=cves,
+                version_changed=version_changed,
+                patch_files=patches,
+            )
+            is not None
+        ):
             return None
         package = packages[0]
         upstream_fix_url = extract_upstream_fix_url(full_diff_added_lines)
     else:
-        cve_blob = subject + (" " + " ".join(patches) if patch_filenames_for_cve else "")
+        cve_blob = subject + (
+            " " + " ".join(patches) if patch_filenames_for_cve else ""
+        )
         cves = sorted(set(_CVE_RE.findall(cve_blob)), key=str.upper)
         package = package_from_patch_path(patches[0])
         upstream_fix_url = extract_upstream_fix_url(full_diff_added_lines)
@@ -330,7 +381,8 @@ def parse_commit_record(
         version_changed=version_changed,
         keywords=classify_keywords(subject, patches),
         build_class=classify_build_class(
-            patches, classify_keywords(subject, patches),
+            patches,
+            classify_keywords(subject, patches),
             inner_native=any(_NATIVE_SRC_RE.search(ln) for ln in full_diff_added_lines),
         ),
         craftability=classify_craftability(full_diff_added_lines),
@@ -344,7 +396,10 @@ def _git(repo: Path, *args: str, timeout: int = 120) -> str:
     # patch bodies (build-class native detection) never crashes the scan.
     out = subprocess.run(
         ["git", "-C", str(repo), *args],
-        capture_output=True, text=True, timeout=timeout, errors="replace",
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        errors="replace",
     )
     if out.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {out.stderr[-300:]}")
@@ -362,9 +417,16 @@ def _is_shallow_ref(repo: Path, ref: str) -> bool:
     return len(parents) <= 1  # only the commit's own sha, no parent
 
 
-def harvest(repo: Path, *, limit: int, require_cve: bool = True,
-            ref: str = "HEAD", check_version: bool = False,
-            craftable: bool = False, strict: bool = False) -> list[BackportCandidate]:
+def harvest(
+    repo: Path,
+    *,
+    limit: int,
+    require_cve: bool = True,
+    ref: str = "HEAD",
+    check_version: bool = False,
+    craftable: bool = False,
+    strict: bool = False,
+) -> list[BackportCandidate]:
     """Scan the last `limit` commits of `repo` for source-backport candidates.
 
     `check_version` (off by default) runs a `git show` per candidate to flag
@@ -380,8 +442,15 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
         check_version = True
     # commits that ADD a *.patch under pkgs/, newest first
     log = _git(
-        repo, "log", f"-{limit}", ref, "--diff-filter=A",
-        "--name-only", "--pretty=format:\x01%H\x02%P\x02%s", "--", "pkgs/**/*.patch",
+        repo,
+        "log",
+        f"-{limit}",
+        ref,
+        "--diff-filter=A",
+        "--name-only",
+        "--pretty=format:\x01%H\x02%P\x02%s",
+        "--",
+        "pkgs/**/*.patch",
         timeout=600,
     )
     candidates: list[BackportCandidate] = []
@@ -398,8 +467,11 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
         if not parent:
             # Root commits have no pre-fix parent: not actionable as backport candidates.
             continue
-        added = [ln.strip() for ln in rest.splitlines()
-                 if ln.strip().endswith(".patch") and ln.strip().startswith("pkgs/")]
+        added = [
+            ln.strip()
+            for ln in rest.splitlines()
+            if ln.strip().endswith(".patch") and ln.strip().startswith("pkgs/")
+        ]
         if not added:
             continue
         # version-change probe + craftability classification (opt-in): read the
@@ -409,15 +481,27 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
         added_lines: list[str] = []
         if check_version or craftable:
             try:
-                show = _git(repo, "show", "--format=", "--unified=0", commit,
-                            "--", "pkgs/**/package.nix", "pkgs/**/default.nix",
-                            "pkgs/top-level/perl-packages.nix", "pkgs/**/*.patch")
+                show = _git(
+                    repo,
+                    "show",
+                    "--format=",
+                    "--unified=0",
+                    commit,
+                    "--",
+                    "pkgs/**/package.nix",
+                    "pkgs/**/default.nix",
+                    "pkgs/top-level/perl-packages.nix",
+                    "pkgs/**/*.patch",
+                )
                 added_lines = [ln for ln in show.splitlines() if ln.startswith("+")]
             except RuntimeError:
                 pass
         cand = parse_commit_record(
-            commit=commit, parent=parent, subject=subject,
-            added_patch_files=added, full_diff_added_lines=added_lines,
+            commit=commit,
+            parent=parent,
+            subject=subject,
+            added_patch_files=added,
+            full_diff_added_lines=added_lines,
             strict=strict,
         )
         if cand is None:
@@ -429,49 +513,88 @@ def harvest(repo: Path, *, limit: int, require_cve: bool = True,
 
 
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(description="Harvest source-backport candidates from nixpkgs history")
+    ap = argparse.ArgumentParser(
+        description="Harvest source-backport candidates from nixpkgs history"
+    )
     ap.add_argument("--repo", type=Path, default=Path.home() / "code" / "nixpkgs")
     ap.add_argument("--limit", type=int, default=3000, help="commits to scan")
-    ap.add_argument("--ref", default="HEAD",
-                    help="git ref to scan from. Must have full history — a shallow "
-                         "FETCH_HEAD (fetch --depth=1) is refused (default HEAD).")
-    ap.add_argument("--all", action="store_true", help="include commits with no CVE id in subject/patch")
-    ap.add_argument("--testable-only", action="store_true",
-                    help="only emit candidates tagged 'testable' (no-ASAN v1 priority)")
-    ap.add_argument("--light-only", action="store_true",
-                    help="only emit build_class=light-interpreter candidates (pure-script "
-                         "libs on a cached interpreter — the fast cert lane)")
-    ap.add_argument("--strict", action="store_true",
-                    help="apply the precision gate: exactly one package, CVE tied to "
-                         "the patch (not subject-only), version unchanged, not a mass "
-                         "sweep; extracts upstream_fix_url. Forces --check-version. Use "
-                         "before any model spend.")
-    ap.add_argument("--check-version", action="store_true",
-                    help="probe each candidate for a version change (slower; flags bump+patch combos)")
-    ap.add_argument("--craftable-only", action="store_true",
-                    help="classify reproducer craftability (embeds-test / derivable-guard / "
-                         "poc-gated) and emit only embeds-test + derivable-guard candidates — the "
-                         "ones whose discriminating reproducer is craftable from the fix alone "
-                         "(reads patch bodies, slower)")
+    ap.add_argument(
+        "--ref",
+        default="HEAD",
+        help="git ref to scan from. Must have full history — a shallow "
+        "FETCH_HEAD (fetch --depth=1) is refused (default HEAD).",
+    )
+    ap.add_argument(
+        "--all",
+        action="store_true",
+        help="include commits with no CVE id in subject/patch",
+    )
+    ap.add_argument(
+        "--testable-only",
+        action="store_true",
+        help="only emit candidates tagged 'testable' (no-ASAN v1 priority)",
+    )
+    ap.add_argument(
+        "--light-only",
+        action="store_true",
+        help="only emit build_class=light-interpreter candidates (pure-script "
+        "libs on a cached interpreter — the fast cert lane)",
+    )
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="apply the precision gate: exactly one package, CVE tied to "
+        "the patch (not subject-only), version unchanged, not a mass "
+        "sweep; extracts upstream_fix_url. Forces --check-version. Use "
+        "before any model spend.",
+    )
+    ap.add_argument(
+        "--check-version",
+        action="store_true",
+        help="probe each candidate for a version change (slower; flags bump+patch combos)",
+    )
+    ap.add_argument(
+        "--craftable-only",
+        action="store_true",
+        help="classify reproducer craftability (embeds-test / derivable-guard / "
+        "poc-gated) and emit only embeds-test + derivable-guard candidates — the "
+        "ones whose discriminating reproducer is craftable from the fix alone "
+        "(reads patch bodies, slower)",
+    )
     ap.add_argument("--out", type=Path, help="write JSONL here (default stdout)")
     args = ap.parse_args(argv)
 
     ref = args.ref
     if _is_shallow_ref(args.repo, ref):
-        print(f"error: {ref} is shallow (no parent) — history scanning needs full "
-              f"history. Use --ref HEAD against a non-shallow clone, or "
-              f"`git -C {args.repo} fetch --unshallow`.", file=sys.stderr)
+        print(
+            f"error: {ref} is shallow (no parent) — history scanning needs full "
+            f"history. Use --ref HEAD against a non-shallow clone, or "
+            f"`git -C {args.repo} fetch --unshallow`.",
+            file=sys.stderr,
+        )
         return 2
     try:
-        cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref,
-                        check_version=args.check_version, craftable=args.craftable_only,
-                        strict=args.strict)
+        cands = harvest(
+            args.repo,
+            limit=args.limit,
+            require_cve=not args.all,
+            ref=ref,
+            check_version=args.check_version,
+            craftable=args.craftable_only,
+            strict=args.strict,
+        )
     except RuntimeError as exc:
         if "unknown revision" in str(exc) or "bad revision" in str(exc):
             ref = "HEAD"
-            cands = harvest(args.repo, limit=args.limit, require_cve=not args.all, ref=ref,
-                            check_version=args.check_version, craftable=args.craftable_only,
-                            strict=args.strict)
+            cands = harvest(
+                args.repo,
+                limit=args.limit,
+                require_cve=not args.all,
+                ref=ref,
+                check_version=args.check_version,
+                craftable=args.craftable_only,
+                strict=args.strict,
+            )
         else:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -481,7 +604,9 @@ def main(argv: list[str]) -> int:
     if args.light_only:
         cands = [c for c in cands if c.build_class == "light-interpreter"]
     if args.craftable_only:
-        cands = [c for c in cands if c.craftability in ("embeds-test", "derivable-guard")]
+        cands = [
+            c for c in cands if c.craftability in ("embeds-test", "derivable-guard")
+        ]
 
     lines = [json.dumps(c.to_dict()) for c in cands]
     text = "\n".join(lines) + ("\n" if lines else "")
@@ -499,9 +624,12 @@ def main(argv: list[str]) -> int:
         n_guard = sum(1 for c in cands if c.craftability == "derivable-guard")
         n_poc = sum(1 for c in cands if c.craftability == "poc-gated")
         craft = f"; craftability {n_embed} embeds-test, {n_guard} derivable-guard, {n_poc} poc-gated"
-    print(f"# {len(cands)} candidates ({n_light} light-interpreter, "
-          f"{n_compiled} compiled, {n_asan} asan-class; {n_test} testable{craft}) "
-          f"from {ref}[-{args.limit}]", file=sys.stderr)
+    print(
+        f"# {len(cands)} candidates ({n_light} light-interpreter, "
+        f"{n_compiled} compiled, {n_asan} asan-class; {n_test} testable{craft}) "
+        f"from {ref}[-{args.limit}]",
+        file=sys.stderr,
+    )
     return 0
 
 

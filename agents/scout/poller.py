@@ -85,7 +85,9 @@ def poll_one(
             # is not fatal: the unenriched dossier record still gets written.
             enrich = _try_nvd(cve_id, http=http, api_key=nvd_api_key)
             if enrich.scout_input is not None and enrich.fetch is not None:
-                merged = _merge_nvd_enrichment(scout_input, enrich.scout_input, enrich.fetch)
+                merged = _merge_nvd_enrichment(
+                    scout_input, enrich.scout_input, enrich.fetch
+                )
                 if merged is not scout_input:
                     scout_input = merged
                     extra_raw = ("nvd-enrichment", enrich.fetch.raw_bytes)
@@ -101,7 +103,9 @@ def poll_one(
 
     nvd_attempt = _try_nvd(cve_id, http=http, api_key=nvd_api_key)
     if nvd_attempt.outcome is not None:
-        return _merge_dossier_rate_limit(nvd_attempt.outcome, dossier_attempt.rate_limited_seconds)
+        return _merge_dossier_rate_limit(
+            nvd_attempt.outcome, dossier_attempt.rate_limited_seconds
+        )
 
     if nvd_attempt.scout_input is not None:
         return _filter_and_write(
@@ -160,9 +164,12 @@ def _merge_nvd_enrichment(
     merged = dict(dossier_input)
     fields: list[str] = []
 
-    seen = {r.get("url") for r in (merged.get("references") or []) if isinstance(r, dict)}
+    seen = {
+        r.get("url") for r in (merged.get("references") or []) if isinstance(r, dict)
+    }
     extra = [
-        r for r in (nvd_input.get("references") or [])
+        r
+        for r in (nvd_input.get("references") or [])
         if isinstance(r, dict) and r.get("url") and r["url"] not in seen
     ]
     if extra:
@@ -218,39 +225,49 @@ def _try_nvd(cve_id: str, *, http: HttpFn | None, api_key: str | None) -> _Attem
     try:
         result = fetch_nvd_direct(cve_id, http=http, api_key=api_key)
     except FeedNotFound as e:
-        return _Attempt(outcome=PollOutcome(
-            cve_id=cve_id,
-            action="fetch-failed",
-            reason=f"NVD-direct: {e}",
-        ))
+        return _Attempt(
+            outcome=PollOutcome(
+                cve_id=cve_id,
+                action="fetch-failed",
+                reason=f"NVD-direct: {e}",
+            )
+        )
     except FeedRateLimit as e:
-        return _Attempt(outcome=PollOutcome(
-            cve_id=cve_id,
-            action="rate-limited",
-            reason=f"NVD-direct rate-limited (retry after {e.retry_after}s)",
-            retry_after_seconds=e.retry_after,
-        ))
+        return _Attempt(
+            outcome=PollOutcome(
+                cve_id=cve_id,
+                action="rate-limited",
+                reason=f"NVD-direct rate-limited (retry after {e.retry_after}s)",
+                retry_after_seconds=e.retry_after,
+            )
+        )
     except FeedTransientError as e:
-        return _Attempt(outcome=PollOutcome(
-            cve_id=cve_id,
-            action="fetch-failed",
-            reason=f"NVD-direct transient: {e}",
-        ))
+        return _Attempt(
+            outcome=PollOutcome(
+                cve_id=cve_id,
+                action="fetch-failed",
+                reason=f"NVD-direct transient: {e}",
+            )
+        )
     except FeedDecodeError as e:
-        return _Attempt(outcome=PollOutcome(
-            cve_id=cve_id,
-            action="fetch-failed",
-            reason=f"NVD-direct decode: {e}",
-        ))
+        return _Attempt(
+            outcome=PollOutcome(
+                cve_id=cve_id,
+                action="fetch-failed",
+                reason=f"NVD-direct decode: {e}",
+            )
+        )
 
     try:
         scout_input = normalize_nvd(result.data)
     except (KeyError, ValueError) as e:
-        return _Attempt(outcome=PollOutcome(
-            cve_id=cve_id,
-            action="fetch-failed",
-            reason=f"NVD normalizer rejected record: {e}",
-        ))
+        return _Attempt(
+            outcome=PollOutcome(
+                cve_id=cve_id,
+                action="fetch-failed",
+                reason=f"NVD normalizer rejected record: {e}",
+            )
+        )
 
     return _Attempt(scout_input=scout_input, fetch=result)
 

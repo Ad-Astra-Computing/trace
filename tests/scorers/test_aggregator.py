@@ -96,29 +96,33 @@ def _write_synthetic_report(
     bundle_id: str = "0000000000000001",
 ) -> Path:
     p = tmp_path / f"{name}.json"
-    p.write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_dir": str(tmp_path / "bundle"),
-        "bundle_id": bundle_id,
-        "cve_id": "CVE-0000-0001",
-        "invocation_id": "11111111-1111-4111-8111-111111111111",
-        "patcher_invocation_id": "11111111-1111-4111-8111-111111111111",
-        "patcher_kind": patcher_kind,
-        "model_id": "fake-test-model",
-        "prompt_sha": "f" * 64,
-        "scored_at": "2026-04-27T19:00:00Z",
-        "composite_merge_ready_rate": composite,
-        "scorer_results": [
+    p.write_text(
+        json.dumps(
             {
-                "scorer_name": "schema-valid",
-                "scorer_version": "1.0.0",
-                "applies": True,
-                "advisory": False,
-                "score": 1.0,
-                "notes": "synthetic",
-            },
-        ],
-    }))
+                "schema_version": "1.0.0",
+                "bundle_dir": str(tmp_path / "bundle"),
+                "bundle_id": bundle_id,
+                "cve_id": "CVE-0000-0001",
+                "invocation_id": "11111111-1111-4111-8111-111111111111",
+                "patcher_invocation_id": "11111111-1111-4111-8111-111111111111",
+                "patcher_kind": patcher_kind,
+                "model_id": "fake-test-model",
+                "prompt_sha": "f" * 64,
+                "scored_at": "2026-04-27T19:00:00Z",
+                "composite_merge_ready_rate": composite,
+                "scorer_results": [
+                    {
+                        "scorer_name": "schema-valid",
+                        "scorer_version": "1.0.0",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 1.0,
+                        "notes": "synthetic",
+                    },
+                ],
+            }
+        )
+    )
     return p
 
 
@@ -127,10 +131,20 @@ def test_refusal_only_cohort_yields_patch_rate_zero(tmp_path: Path) -> None:
     when every refusal scored 1.0 composite. patch_rate measures
     productivity, not contract honour."""
     reports = [
-        _write_synthetic_report(tmp_path, name="r1", composite=1.0,
-                                patcher_kind="refusal", bundle_id="aaaaaaaaaaaaaaaa"),
-        _write_synthetic_report(tmp_path, name="r2", composite=1.0,
-                                patcher_kind="refusal", bundle_id="bbbbbbbbbbbbbbbb"),
+        _write_synthetic_report(
+            tmp_path,
+            name="r1",
+            composite=1.0,
+            patcher_kind="refusal",
+            bundle_id="aaaaaaaaaaaaaaaa",
+        ),
+        _write_synthetic_report(
+            tmp_path,
+            name="r2",
+            composite=1.0,
+            patcher_kind="refusal",
+            bundle_id="bbbbbbbbbbbbbbbb",
+        ),
     ]
     result = aggregate_reports(report_paths=reports, cohort="synthetic")
     assert result.totals["dispatchable"] == 2
@@ -147,10 +161,12 @@ def test_below_threshold_patch_does_not_count(tmp_path: Path) -> None:
     does NOT count toward patch_rate. The 0.95 threshold is the SPEC §5
     ship-gate."""
     reports = [
-        _write_synthetic_report(tmp_path, name="p1", composite=0.8,
-                                bundle_id="cccccccccccccccc"),
-        _write_synthetic_report(tmp_path, name="p2", composite=1.0,
-                                bundle_id="dddddddddddddddd"),
+        _write_synthetic_report(
+            tmp_path, name="p1", composite=0.8, bundle_id="cccccccccccccccc"
+        ),
+        _write_synthetic_report(
+            tmp_path, name="p2", composite=1.0, bundle_id="dddddddddddddddd"
+        ),
     ]
     result = aggregate_reports(report_paths=reports, cohort="synthetic")
     assert result.totals["patches"] == 2
@@ -170,16 +186,44 @@ def test_unparseable_report_is_counted_in_parse_errors(tmp_path: Path) -> None:
 
 def test_scorer_means_aggregate_only_applies_true_entries(tmp_path: Path) -> None:
     p = tmp_path / "sample.json"
-    p.write_text(json.dumps({
-        "patcher_kind": "patch",
-        "composite_merge_ready_rate": 0.8,
-        "scorer_results": [
-            {"scorer_name": "schema-valid", "applies": True, "advisory": False, "score": 1.0, "notes": ""},
-            {"scorer_name": "minimality", "applies": True, "advisory": False, "score": 0.6, "notes": ""},
-            {"scorer_name": "historical-fix-similarity", "applies": False, "advisory": True, "score": None, "notes": ""},
-            {"scorer_name": "hash-verifiability", "applies": True, "advisory": False, "score": 0.7, "notes": ""},
-        ],
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "patcher_kind": "patch",
+                "composite_merge_ready_rate": 0.8,
+                "scorer_results": [
+                    {
+                        "scorer_name": "schema-valid",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 1.0,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "minimality",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 0.6,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "historical-fix-similarity",
+                        "applies": False,
+                        "advisory": True,
+                        "score": None,
+                        "notes": "",
+                    },
+                    {
+                        "scorer_name": "hash-verifiability",
+                        "applies": True,
+                        "advisory": False,
+                        "score": 0.7,
+                        "notes": "",
+                    },
+                ],
+            }
+        )
+    )
     result = aggregate_reports(report_paths=[p], cohort="synthetic")
     assert result.scorer_means["schema-valid"] == 1.0
     assert result.scorer_means["minimality"] == 0.6
@@ -206,12 +250,18 @@ def test_expand_glob_returns_sorted_files(tmp_path: Path) -> None:
 def test_cli_eval_patch_rate_runs_against_cohort_1(capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
 
-    rc = cli_main([
-        "eval", "patch-rate",
-        "--cohort", "inner-loop",
-        "--reports", str(REPO_ROOT / "traces" / "example" / "*" / "scoring-report.json"),
-        "--format", "json",
-    ])
+    rc = cli_main(
+        [
+            "eval",
+            "patch-rate",
+            "--cohort",
+            "inner-loop",
+            "--reports",
+            str(REPO_ROOT / "traces" / "example" / "*" / "scoring-report.json"),
+            "--format",
+            "json",
+        ]
+    )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["cohort"] == "inner-loop"
@@ -224,11 +274,17 @@ def test_cli_eval_patch_rate_runs_against_cohort_1(capsys) -> None:
 
 def test_cli_eval_patch_rate_empty_glob_returns_invalid(capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
-    rc = cli_main([
-        "eval", "patch-rate",
-        "--cohort", "synthetic",
-        "--reports", "/nonexistent/path/that/does/not/exist/*.json",
-    ])
+
+    rc = cli_main(
+        [
+            "eval",
+            "patch-rate",
+            "--cohort",
+            "synthetic",
+            "--reports",
+            "/nonexistent/path/that/does/not/exist/*.json",
+        ]
+    )
     assert rc != 0
     err = capsys.readouterr().err
     assert "no scoring-report.json files matched" in err
@@ -236,12 +292,18 @@ def test_cli_eval_patch_rate_empty_glob_returns_invalid(capsys) -> None:
 
 def test_cli_human_summary_marks_unknown_cohort_label(tmp_path: Path, capsys) -> None:
     from tools.trace_cli.cli import main as cli_main
+
     p = _write_synthetic_report(tmp_path, name="x", composite=1.0)
-    rc = cli_main([
-        "eval", "patch-rate",
-        "--cohort", "experimental-cohort-2026q2",
-        "--reports", str(p),
-    ])
+    rc = cli_main(
+        [
+            "eval",
+            "patch-rate",
+            "--cohort",
+            "experimental-cohort-2026q2",
+            "--reports",
+            str(p),
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out
     assert "free-form label" in out

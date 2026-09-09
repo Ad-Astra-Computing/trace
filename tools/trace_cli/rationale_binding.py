@@ -77,7 +77,11 @@ class Citation:
     match_kind: str  # "exact" | "whitespace-normalized" | "wiring" | "none"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"text": self.text, "matched": self.matched, "match_kind": self.match_kind}
+        return {
+            "text": self.text,
+            "matched": self.matched,
+            "match_kind": self.match_kind,
+        }
 
 
 @dataclass(frozen=True)
@@ -161,7 +165,8 @@ def parse_claims(rationale_text: str) -> list[Claim]:
         if c:
             if not claims:
                 raise RationaleBindingError(
-                    "a `Diff Line:` citation precedes the first [CLAIM-N] marker")
+                    "a `Diff Line:` citation precedes the first [CLAIM-N] marker"
+                )
             claims[-1][2].append(c.group(1))
     if not claims:
         return []
@@ -169,10 +174,11 @@ def parse_claims(rationale_text: str) -> list[Claim]:
     if len(set(ids)) != len(ids):
         raise RationaleBindingError(f"duplicate claim ids in `## Why minimal`: {ids}")
     if ids != list(range(1, len(ids) + 1)):
-        raise RationaleBindingError(
-            f"claim ids must run 1..N in order, got {ids}")
-    return [Claim(cid, text, [Citation(t, False, "none") for t in cites])
-            for cid, text, cites in claims]
+        raise RationaleBindingError(f"claim ids must run 1..N in order, got {ids}")
+    return [
+        Claim(cid, text, [Citation(t, False, "none") for t in cites])
+        for cid, text, cites in claims
+    ]
 
 
 def _added_lines(patch_diff_text: str) -> list[str]:
@@ -300,17 +306,23 @@ def check_binding(
         return BindingResult(VERDICT_UNBOUND, problems=[str(exc)])
     if not claims:
         if requires_claims:
-            return BindingResult(VERDICT_UNBOUND, problems=[
-                "the Patcher prompt contracts for a `## Why minimal` claim list "
-                "and the rationale carries none"])
+            return BindingResult(
+                VERDICT_UNBOUND,
+                problems=[
+                    "the Patcher prompt contracts for a `## Why minimal` claim list "
+                    "and the rationale carries none"
+                ],
+            )
         return BindingResult(VERDICT_NOT_APPLICABLE)
 
     try:
         added = _added_lines(patch_diff_text)
     except nested_patch.NestedPatchError as exc:
         return BindingResult(
-            VERDICT_UNBOUND, claims=claims,
-            problems=[f"patch.diff has no extractable source patch to cite: {exc}"])
+            VERDICT_UNBOUND,
+            claims=claims,
+            problems=[f"patch.diff has no extractable source patch to cite: {exc}"],
+        )
 
     exact = set(added)
     wiring = _wiring_added_lines(patch_diff_text)
@@ -337,14 +349,17 @@ def check_binding(
                 cites.append(Citation(text, False, "wiring"))
                 problems.append(
                     f"claim {claim.claim_id} cites the `package.nix` wiring, which is "
-                    f"not a behavioral change and cannot carry a claim: {text!r}")
+                    f"not a behavioral change and cannot carry a claim: {text!r}"
+                )
             else:
                 cites.append(Citation(text, False, "none"))
                 problems.append(
-                    f"claim {claim.claim_id} cites a line the patch does not add: {text!r}")
+                    f"claim {claim.claim_id} cites a line the patch does not add: {text!r}"
+                )
         if not cites:
             problems.append(
-                f"claim {claim.claim_id} carries no `Diff Line:` citation: {claim.text!r}")
+                f"claim {claim.claim_id} carries no `Diff Line:` citation: {claim.text!r}"
+            )
         resolved.append(Claim(claim.claim_id, claim.text, cites))
 
     uncited = [line for line in added if line not in cited_lines]
@@ -365,7 +380,8 @@ def check_bundle(bundle_dir: Path) -> BindingResult:
         return BindingResult(VERDICT_NOT_APPLICABLE)
     prompt = patcher_prompt_path(bundle_dir)
     return check_binding(
-        rationale.read_text(), patch.read_text(),
+        rationale.read_text(),
+        patch.read_text(),
         requires_claims=prompt in CLAIM_REQUIRING_PROMPTS,
     )
 
@@ -390,8 +406,11 @@ def add_parser(subs: Any) -> Any:
         ),
     )
     p.add_argument("bundle_dir", type=Path, help="bundle directory to check")
-    p.add_argument("--json", action="store_true",
-                   help="write the full binding record to stdout as JSON")
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="write the full binding record to stdout as JSON",
+    )
     return p
 
 

@@ -38,6 +38,7 @@ Submission (see lora/submit_hf_authoring_job_v0.5.sh):
     -e HUB_MODEL_ID=adastracomputing/authoring-lora-v0.5 \\
     lora/hf_authoring_job_v0.5.py
 """
+
 import json
 import os
 from pathlib import Path
@@ -63,8 +64,13 @@ LORA_RANK = 16
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
 LORA_TARGET_MODULES = [
-    "q_proj", "k_proj", "v_proj", "o_proj",
-    "gate_proj", "up_proj", "down_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
 ]
 
 # v0.5: 550 steps × grad_accum 4 = 2200 effective steps ≈ 26 passes over 85 train examples
@@ -84,6 +90,7 @@ def make_formatting_func(tok):
             tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
             for msgs in examples["messages"]
         ]
+
     return fmt
 
 
@@ -92,7 +99,9 @@ def main():
 
     data_dir = Path(os.environ.get("DATA_DIR", "/data"))
     adapter_dir = Path(os.environ.get("ADAPTER_DIR", "/tmp/authoring-lora-v0.5"))
-    hub_model_id = os.environ.get("HUB_MODEL_ID", "adastracomputing/authoring-lora-v0.5")
+    hub_model_id = os.environ.get(
+        "HUB_MODEL_ID", "adastracomputing/authoring-lora-v0.5"
+    )
     adapter_dir.mkdir(parents=True, exist_ok=True)
 
     train_file = os.environ.get("TRAIN_FILE", "authoring.train.jsonl")
@@ -131,7 +140,10 @@ def main():
             "v0.5 requires the NLTK example (authoring-v2 manifest forces it to train). "
             "Re-export with data/splits/authoring-v2.json and re-upload dataset."
         )
-    print("v0.5 corpus check: NLTK inline-guard example present in training set", flush=True)
+    print(
+        "v0.5 corpus check: NLTK inline-guard example present in training set",
+        flush=True,
+    )
 
     # Verify python-jose is present (second detect-and-reject-at-entry example)
     if "CVE-2024-33664" not in train_text and "python-jose" not in train_text.lower():
@@ -140,7 +152,10 @@ def main():
             "v0.5 requires the python-jose JWE-size-limit example (authoring-v2 manifest). "
             "Re-export with data/splits/authoring-v2.json and re-upload dataset."
         )
-    print("v0.5 corpus check: python-jose inline-guard example present in training set", flush=True)
+    print(
+        "v0.5 corpus check: python-jose inline-guard example present in training set",
+        flush=True,
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
     tokenizer.pad_token = tokenizer.eos_token
@@ -214,8 +229,13 @@ def main():
     )
 
     print(f"Model  {MODEL_ID} @ {MODEL_REVISION}", flush=True)
-    print(f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4", flush=True)
-    print(f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} seed={SEED}", flush=True)
+    print(
+        f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4",
+        flush=True,
+    )
+    print(
+        f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} seed={SEED}", flush=True
+    )
 
     train_result = trainer.train()
 
@@ -253,6 +273,7 @@ def main():
     tokenizer.save_pretrained(str(adapter_dir))
 
     from huggingface_hub import HfApi
+
     HfApi().upload_file(
         path_or_fileobj=str(manifest_path),
         path_in_repo="run_manifest.json",

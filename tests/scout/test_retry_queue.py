@@ -66,7 +66,9 @@ def test_enqueue_ids_adds_new_at_zero_attempts() -> None:
 
 def test_enqueue_ids_preserves_existing_entries() -> None:
     existing = [_entry("CVE-2026-1", attempts=2, last_error="503")]
-    out = enqueue_ids(existing, ["CVE-2026-1", "CVE-2026-9"], run_at="2026-07-21T12:00:00Z")
+    out = enqueue_ids(
+        existing, ["CVE-2026-1", "CVE-2026-9"], run_at="2026-07-21T12:00:00Z"
+    )
     by_id = {e.cve_id: e for e in out}
     # An already-queued id is untouched (attempts/first_seen preserved), not reset.
     assert by_id["CVE-2026-1"].attempts == 2
@@ -76,7 +78,9 @@ def test_enqueue_ids_preserves_existing_entries() -> None:
 
 
 def test_enqueue_ids_skips_blank_and_dedupes() -> None:
-    out = enqueue_ids([], ["CVE-2026-1", "", "  ", "CVE-2026-1"], run_at="2026-07-21T12:00:00Z")
+    out = enqueue_ids(
+        [], ["CVE-2026-1", "", "  ", "CVE-2026-1"], run_at="2026-07-21T12:00:00Z"
+    )
     assert [e.cve_id for e in out] == ["CVE-2026-1"]
 
 
@@ -93,15 +97,33 @@ def test_enqueued_displaced_id_gets_full_budget_on_later_failure() -> None:
     assert {e.cve_id: e.attempts for e in q2}["CVE-2026-1"] == 1
 
 
-def test_unparseable_line_skipped_with_warning(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_unparseable_line_skipped_with_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Defensive: a corrupt entry must not poison the whole queue."""
     path = tmp_path / "q.jsonl"
     path.write_text(
-        json.dumps({"cve_id": "CVE-2024-1", "attempts": 1, "first_seen": "x",
-                    "last_seen": "y", "last_error": "z"}) + "\n"
+        json.dumps(
+            {
+                "cve_id": "CVE-2024-1",
+                "attempts": 1,
+                "first_seen": "x",
+                "last_seen": "y",
+                "last_error": "z",
+            }
+        )
+        + "\n"
         + "not json\n"
-        + json.dumps({"cve_id": "CVE-2024-2", "attempts": 2, "first_seen": "x",
-                      "last_seen": "y", "last_error": "z"}) + "\n"
+        + json.dumps(
+            {
+                "cve_id": "CVE-2024-2",
+                "attempts": 2,
+                "first_seen": "x",
+                "last_seen": "y",
+                "last_error": "z",
+            }
+        )
+        + "\n"
     )
     out = read_queue(path)
     assert [e.cve_id for e in out] == ["CVE-2024-1", "CVE-2024-2"]
@@ -128,14 +150,23 @@ def test_fetch_failed_added_to_queue() -> None:
 
 def test_rate_limited_added_to_queue() -> None:
     summary = [{"cve_id": "CVE-2024-1", "action": "rate-limited", "reason": "60s"}]
-    new_q = update_queue(existing=[], run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3)
+    new_q = update_queue(
+        existing=[], run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3
+    )
     assert new_q[0].cve_id == "CVE-2024-1"
 
 
 def test_existing_retry_re_failing_increments_attempts() -> None:
     existing = [_entry("CVE-2024-1", attempts=1)]
-    summary = [{"cve_id": "CVE-2024-1", "action": "fetch-failed", "reason": "still 503"}]
-    new_q = update_queue(existing=existing, run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3)
+    summary = [
+        {"cve_id": "CVE-2024-1", "action": "fetch-failed", "reason": "still 503"}
+    ]
+    new_q = update_queue(
+        existing=existing,
+        run_summary=summary,
+        run_at="2026-04-29T17:00:00Z",
+        max_attempts=3,
+    )
     assert new_q[0].attempts == 2
     # first_seen preserved across retries
     assert new_q[0].first_seen == "2026-04-29T15:00:00Z"
@@ -148,8 +179,15 @@ def test_max_attempts_drops_entry(capsys: pytest.CaptureFixture[str]) -> None:
     from the queue with a warning. The data point is lost; better
     that than infinite retry."""
     existing = [_entry("CVE-2024-1", attempts=3)]
-    summary = [{"cve_id": "CVE-2024-1", "action": "fetch-failed", "reason": "still 503"}]
-    new_q = update_queue(existing=existing, run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3)
+    summary = [
+        {"cve_id": "CVE-2024-1", "action": "fetch-failed", "reason": "still 503"}
+    ]
+    new_q = update_queue(
+        existing=existing,
+        run_summary=summary,
+        run_at="2026-04-29T17:00:00Z",
+        max_attempts=3,
+    )
     assert new_q == []
     err = capsys.readouterr().err
     assert "CVE-2024-1" in err
@@ -159,16 +197,35 @@ def test_max_attempts_drops_entry(capsys: pytest.CaptureFixture[str]) -> None:
 def test_successful_outcome_removes_from_queue() -> None:
     """When a previously-queued CVE finally succeeds, drop it."""
     existing = [_entry("CVE-2024-1", attempts=2)]
-    summary = [{"cve_id": "CVE-2024-1", "action": "skipped-irrelevant", "reason": "no-match"}]
-    new_q = update_queue(existing=existing, run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3)
+    summary = [
+        {"cve_id": "CVE-2024-1", "action": "skipped-irrelevant", "reason": "no-match"}
+    ]
+    new_q = update_queue(
+        existing=existing,
+        run_summary=summary,
+        run_at="2026-04-29T17:00:00Z",
+        max_attempts=3,
+    )
     assert new_q == []
 
 
 def test_written_outcome_removes_from_queue() -> None:
     existing = [_entry("CVE-2024-1", attempts=2)]
-    summary = [{"cve_id": "CVE-2024-1", "action": "written", "reason": "hit",
-                "finding_status": "finding", "resolver_status": "eligible"}]
-    new_q = update_queue(existing=existing, run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3)
+    summary = [
+        {
+            "cve_id": "CVE-2024-1",
+            "action": "written",
+            "reason": "hit",
+            "finding_status": "finding",
+            "resolver_status": "eligible",
+        }
+    ]
+    new_q = update_queue(
+        existing=existing,
+        run_summary=summary,
+        run_at="2026-04-29T17:00:00Z",
+        max_attempts=3,
+    )
     assert new_q == []
 
 
@@ -177,7 +234,12 @@ def test_cve_not_in_summary_kept_in_queue() -> None:
     out, or schedule lag), it stays queued for the run after."""
     existing = [_entry("CVE-2024-1", attempts=1), _entry("CVE-2024-2", attempts=1)]
     summary = [{"cve_id": "CVE-2024-1", "action": "fetch-failed", "reason": "x"}]
-    new_q = update_queue(existing=existing, run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3)
+    new_q = update_queue(
+        existing=existing,
+        run_summary=summary,
+        run_at="2026-04-29T17:00:00Z",
+        max_attempts=3,
+    )
     cve_ids = sorted(e.cve_id for e in new_q)
     assert cve_ids == ["CVE-2024-1", "CVE-2024-2"]
 
@@ -186,7 +248,9 @@ def test_error_action_added_to_queue() -> None:
     """batch_cli emits action=error for unexpected exceptions; those
     are also queue-worthy (next run might find a healed upstream)."""
     summary = [{"cve_id": "CVE-2024-1", "action": "error", "reason": "boom"}]
-    new_q = update_queue(existing=[], run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3)
+    new_q = update_queue(
+        existing=[], run_summary=summary, run_at="2026-04-29T17:00:00Z", max_attempts=3
+    )
     assert len(new_q) == 1
     assert new_q[0].cve_id == "CVE-2024-1"
 
@@ -198,9 +262,15 @@ def test_emit_returns_cve_ids_in_first_seen_order() -> None:
     """Older retries get processed first so they have a chance to
     progress through max_attempts before being dropped."""
     queue = [
-        RetryEntry("CVE-2024-2", 1, "2026-04-29T16:00:00Z", "2026-04-29T16:00:00Z", "x"),
-        RetryEntry("CVE-2024-1", 2, "2026-04-29T15:00:00Z", "2026-04-29T16:00:00Z", "x"),
-        RetryEntry("CVE-2024-3", 1, "2026-04-29T17:00:00Z", "2026-04-29T17:00:00Z", "x"),
+        RetryEntry(
+            "CVE-2024-2", 1, "2026-04-29T16:00:00Z", "2026-04-29T16:00:00Z", "x"
+        ),
+        RetryEntry(
+            "CVE-2024-1", 2, "2026-04-29T15:00:00Z", "2026-04-29T16:00:00Z", "x"
+        ),
+        RetryEntry(
+            "CVE-2024-3", 1, "2026-04-29T17:00:00Z", "2026-04-29T17:00:00Z", "x"
+        ),
     ]
     assert cve_ids_for_retry(queue) == ["CVE-2024-1", "CVE-2024-2", "CVE-2024-3"]
 

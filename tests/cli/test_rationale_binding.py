@@ -86,13 +86,15 @@ class TestBoundRationale:
 
     def test_the_flat_payload_shape_binds_the_same_way(self):
         rationale = _rationale(
-            "- [CLAIM-1] Includes <limits>.\n  - Diff Line: `+#include <limits>`\n")
+            "- [CLAIM-1] Includes <limits>.\n  - Diff Line: `+#include <limits>`\n"
+        )
         result = rb.check_binding(rationale, FLAT_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_BOUND
 
     def test_a_citation_written_without_the_plus_prefix_still_binds(self):
         rationale = _rationale(
-            "- [CLAIM-1] Includes <limits>.\n  - Diff Line: `#include <limits>`\n")
+            "- [CLAIM-1] Includes <limits>.\n  - Diff Line: `#include <limits>`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_BOUND
         assert result.claims[0].citations[0].match_kind == "exact"
@@ -100,7 +102,8 @@ class TestBoundRationale:
     def test_a_citation_whose_indentation_drifted_binds_as_normalized(self):
         rationale = _rationale(
             "- [CLAIM-1] Guards the count.\n"
-            "  - Diff Line: `+if (numOrigVerts > std::numeric_limits<size_t>::max() / 3) {`\n")
+            "  - Diff Line: `+if (numOrigVerts > std::numeric_limits<size_t>::max() / 3) {`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_BOUND
         assert result.claims[0].citations[0].match_kind == "whitespace-normalized"
@@ -110,9 +113,9 @@ class TestUnboundRationale:
     def test_the_assimp_phantom_trim_claim_is_caught(self):
         """The claim that sank the canary: a trim the payload never makes."""
         rationale = _rationale(
-            GOOD_CLAIMS
-            + "- [CLAIM-3] Trims mVertices back to the real vertex count.\n"
-              "  - Diff Line: `+    mVertices.resize(iNewIndex);`\n")
+            GOOD_CLAIMS + "- [CLAIM-3] Trims mVertices back to the real vertex count.\n"
+            "  - Diff Line: `+    mVertices.resize(iNewIndex);`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
         assert not result.ok
@@ -121,7 +124,8 @@ class TestUnboundRationale:
 
     def test_a_claim_with_no_citation_is_a_phantom_claim(self):
         rationale = _rationale(
-            GOOD_CLAIMS + "- [CLAIM-3] Also validates every face index.\n")
+            GOOD_CLAIMS + "- [CLAIM-3] Also validates every face index.\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
         assert any("carries no `Diff Line:` citation" in p for p in result.problems)
@@ -129,14 +133,16 @@ class TestUnboundRationale:
     def test_citing_a_context_line_does_not_count_as_a_change(self):
         rationale = _rationale(
             "- [CLAIM-1] Handles the vertex vector.\n"
-            "  - Diff Line: `+    std::vector<aiVector3D> mVertices;`\n")
+            "  - Diff Line: `+    std::vector<aiVector3D> mVertices;`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
 
     def test_citing_a_removed_line_does_not_count_as_a_change(self):
         rationale = _rationale(
             "- [CLAIM-1] Replaces the reserve call.\n"
-            "  - Diff Line: `+    mVertices.reserve(numOrigVerts);`\n")
+            "  - Diff Line: `+    mVertices.reserve(numOrigVerts);`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
 
@@ -144,7 +150,8 @@ class TestUnboundRationale:
         """`package.nix` is recipe metadata, never applied by patchPhase."""
         rationale = _rationale(
             "- [CLAIM-1] Wires the patch in.\n"
-            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n")
+            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
         assert any("cites the `package.nix` wiring" in p for p in result.problems)
@@ -160,7 +167,8 @@ class TestUnboundRationale:
             "- [CLAIM-1] Wires the patch in.\n"
             "  - Diff Line: `+    ./CVE-2026-82591.patch`\n"
             "- [CLAIM-2] Trims the vector back.\n"
-            "  - Diff Line: `+    mVertices.resize(iNewIndex);`\n")
+            "  - Diff Line: `+    mVertices.resize(iNewIndex);`\n"
+        )
         problems = rb.check_binding(rationale, NESTED_PATCH_DIFF).problems
         assert any("claim 1 cites the `package.nix` wiring" in p for p in problems)
         assert any("claim 2 cites a line the patch does not add" in p for p in problems)
@@ -175,10 +183,12 @@ class TestUnboundRationale:
             "@@ -20,6 +20,7 @@\n"
             "   patches = [\n"
             "+    ./CVE-2026-82591.patch\n"
-            "   ];\n")
+            "   ];\n"
+        )
         rationale = _rationale(
             "- [CLAIM-1] Wires the patch in.\n"
-            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n")
+            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n"
+        )
         result = rb.check_binding(rationale, flat)
         assert result.verdict == rb.VERDICT_UNBOUND
         assert any("cites the `package.nix` wiring" in p for p in result.problems)
@@ -187,17 +197,20 @@ class TestUnboundRationale:
         """`diff -u` writes `+++ path\tTIMESTAMP`, which is a valid header."""
         stamped = NESTED_PATCH_DIFF.replace(
             "+++ b/pkgs/by-name/as/assimp/package.nix",
-            "+++ b/pkgs/by-name/as/assimp/package.nix\t2026-09-09 12:00:00.000000000 +0000")
+            "+++ b/pkgs/by-name/as/assimp/package.nix\t2026-09-09 12:00:00.000000000 +0000",
+        )
         rationale = _rationale(
             "- [CLAIM-1] Wires the patch in.\n"
-            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n")
+            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n"
+        )
         result = rb.check_binding(rationale, stamped)
         assert result.verdict == rb.VERDICT_UNBOUND
         assert any("cites the `package.nix` wiring" in p for p in result.problems)
 
     def test_a_payload_with_no_source_patch_at_all_is_unbound(self):
         only_wiring = NESTED_PATCH_DIFF.split(
-            "diff --git a/pkgs/by-name/as/assimp/package.nix")[1]
+            "diff --git a/pkgs/by-name/as/assimp/package.nix"
+        )[1]
         only_wiring = "diff --git a/pkgs/by-name/as/assimp/package.nix" + only_wiring
         result = rb.check_binding(_rationale(GOOD_CLAIMS), only_wiring)
         assert result.verdict == rb.VERDICT_UNBOUND
@@ -220,21 +233,27 @@ class TestPayloadParsing:
     def test_an_added_line_that_starts_with_plus_plus_is_citable(self):
         """`++index;` at column zero renders as `+++index;` in a diff."""
         rationale = _rationale(
-            "- [CLAIM-1] Advances the index.\n  - Diff Line: `+++index;`\n")
+            "- [CLAIM-1] Advances the index.\n  - Diff Line: `+++index;`\n"
+        )
         result = rb.check_binding(rationale, self.PRE_INCREMENT)
         assert result.verdict == rb.VERDICT_BOUND
 
     def test_the_file_header_path_is_not_an_added_line(self):
         rationale = _rationale(
-            "- [CLAIM-1] Touches the file.\n  - Diff Line: `+ b/src/file.c`\n")
-        assert rb.check_binding(rationale, self.PRE_INCREMENT).verdict == rb.VERDICT_UNBOUND
+            "- [CLAIM-1] Touches the file.\n  - Diff Line: `+ b/src/file.c`\n"
+        )
+        assert (
+            rb.check_binding(rationale, self.PRE_INCREMENT).verdict
+            == rb.VERDICT_UNBOUND
+        )
 
 
 class TestMalformedClaimList:
     def test_duplicate_claim_ids_are_refused(self):
         rationale = _rationale(
             "- [CLAIM-1] One.\n  - Diff Line: `+#include <limits>`\n"
-            "- [CLAIM-1] Two.\n  - Diff Line: `+#include <limits>`\n")
+            "- [CLAIM-1] Two.\n  - Diff Line: `+#include <limits>`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
         assert any("duplicate claim ids" in p for p in result.problems)
@@ -242,7 +261,8 @@ class TestMalformedClaimList:
     def test_claim_ids_out_of_order_are_refused(self):
         rationale = _rationale(
             "- [CLAIM-2] One.\n  - Diff Line: `+#include <limits>`\n"
-            "- [CLAIM-3] Two.\n  - Diff Line: `+#include <limits>`\n")
+            "- [CLAIM-3] Two.\n  - Diff Line: `+#include <limits>`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
         assert any("1..N in order" in p for p in result.problems)
@@ -257,7 +277,8 @@ class TestNotApplicable:
         """Every corpus bundle predates v5; the gate does not reach back."""
         rationale = _rationale(
             "Two bundle-level changes only: one new patch file and one edit to\n"
-            "`package.nix` appending it to the existing `patches` list.\n")
+            "`package.nix` appending it to the existing `patches` list.\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_NOT_APPLICABLE
         assert result.ok
@@ -270,7 +291,8 @@ class TestNotApplicable:
     def test_claims_are_read_only_from_why_minimal(self):
         rationale = (
             "## Why minimal\nPlain prose.\n\n"
-            "## Downstream risk\n- [CLAIM-1] Not a claim here.\n")
+            "## Downstream risk\n- [CLAIM-1] Not a claim here.\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_NOT_APPLICABLE
 
@@ -278,7 +300,8 @@ class TestNotApplicable:
 class TestCoverageIsRecordedNotGated:
     def test_added_lines_no_claim_cites_are_recorded_without_failing(self):
         rationale = _rationale(
-            "- [CLAIM-1] Includes <limits>.\n  - Diff Line: `+#include <limits>`\n")
+            "- [CLAIM-1] Includes <limits>.\n  - Diff Line: `+#include <limits>`\n"
+        )
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_BOUND
         assert any("numeric_limits" in line for line in result.uncited_added_lines)
@@ -300,8 +323,11 @@ class TestBundleOnDisk:
         assert rb.check_bundle(tmp_path).verdict == rb.VERDICT_NOT_APPLICABLE
 
     def test_the_serialized_record_carries_the_verdict_and_problems(self, tmp_path):
-        (tmp_path / "patch-rationale.md").write_text(_rationale(
-            "- [CLAIM-1] Trims the vector.\n  - Diff Line: `+    mVertices.resize(iNewIndex);`\n"))
+        (tmp_path / "patch-rationale.md").write_text(
+            _rationale(
+                "- [CLAIM-1] Trims the vector.\n  - Diff Line: `+    mVertices.resize(iNewIndex);`\n"
+            )
+        )
         (tmp_path / "patch.diff").write_text(NESTED_PATCH_DIFF)
         d = rb.check_bundle(tmp_path).to_dict()
         assert d["schema_version"] == rb.SCHEMA_VERSION
@@ -327,15 +353,22 @@ class TestSubcommand:
 
     def test_a_bound_rationale_exits_zero(self, tmp_path, capsys):
         from tools.trace_cli.cli import main
-        code = main(["bundle", "rationale-binding", str(self._bundle(tmp_path, GOOD_CLAIMS))])
+
+        code = main(
+            ["bundle", "rationale-binding", str(self._bundle(tmp_path, GOOD_CLAIMS))]
+        )
         assert code == rb.EXIT_OK
         assert "bound" in capsys.readouterr().out
 
-    def test_an_unbound_rationale_exits_non_zero_and_names_the_claim(self, tmp_path, capsys):
+    def test_an_unbound_rationale_exits_non_zero_and_names_the_claim(
+        self, tmp_path, capsys
+    ):
         from tools.trace_cli.cli import main
+
         bundle = self._bundle(
             tmp_path,
-            "- [CLAIM-1] Trims the vector.\n  - Diff Line: `+    mVertices.resize(iNewIndex);`\n")
+            "- [CLAIM-1] Trims the vector.\n  - Diff Line: `+    mVertices.resize(iNewIndex);`\n",
+        )
         code = main(["bundle", "rationale-binding", str(bundle)])
         assert code == rb.EXIT_UNBOUND
         captured = capsys.readouterr()
@@ -346,8 +379,15 @@ class TestSubcommand:
         import json
 
         from tools.trace_cli.cli import main
-        code = main(["bundle", "rationale-binding", "--json",
-                     str(self._bundle(tmp_path, GOOD_CLAIMS))])
+
+        code = main(
+            [
+                "bundle",
+                "rationale-binding",
+                "--json",
+                str(self._bundle(tmp_path, GOOD_CLAIMS)),
+            ]
+        )
         assert code == rb.EXIT_OK
         doc = json.loads(capsys.readouterr().out)
         assert doc["verdict"] == rb.VERDICT_BOUND
@@ -355,7 +395,11 @@ class TestSubcommand:
 
     def test_a_missing_directory_is_a_usage_error(self, tmp_path):
         from tools.trace_cli.cli import main
-        assert main(["bundle", "rationale-binding", str(tmp_path / "nope")]) == rb.EXIT_USAGE
+
+        assert (
+            main(["bundle", "rationale-binding", str(tmp_path / "nope")])
+            == rb.EXIT_USAGE
+        )
 
 
 class TestLegacyCompatibilityIsKeyedOnThePrompt:
@@ -374,10 +418,25 @@ class TestLegacyCompatibilityIsKeyedOnThePrompt:
         (tmp_path / "patch-rationale.md").write_text(_rationale(why_minimal))
         (tmp_path / "patch.diff").write_text(NESTED_PATCH_DIFF)
         if prompt_path is not None:
-            (tmp_path / "replay.json").write_text(json.dumps({
-                "roles": [{"role": "patcher", "invocations": [
-                    {"prompt": {"path": prompt_path, "sha256": "0" * 64}}]}],
-            }))
+            (tmp_path / "replay.json").write_text(
+                json.dumps(
+                    {
+                        "roles": [
+                            {
+                                "role": "patcher",
+                                "invocations": [
+                                    {
+                                        "prompt": {
+                                            "path": prompt_path,
+                                            "sha256": "0" * 64,
+                                        }
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+            )
         return tmp_path
 
     PROSE = "Two bundle-level changes only: a new patch file and the wiring.\n"
@@ -405,11 +464,31 @@ class TestLegacyCompatibilityIsKeyedOnThePrompt:
         import json
 
         bundle = self._bundle(tmp_path, "prompts/patcher.v4.md", self.PROSE)
-        (bundle / "replay.json").write_text(json.dumps({
-            "roles": [{"role": "patcher", "invocations": [
-                {"prompt": {"path": "prompts/patcher.v4.md", "sha256": "0" * 64}},
-                {"prompt": {"path": "prompts/patcher.v5.md", "sha256": "1" * 64}}]}],
-        }))
+        (bundle / "replay.json").write_text(
+            json.dumps(
+                {
+                    "roles": [
+                        {
+                            "role": "patcher",
+                            "invocations": [
+                                {
+                                    "prompt": {
+                                        "path": "prompts/patcher.v4.md",
+                                        "sha256": "0" * 64,
+                                    }
+                                },
+                                {
+                                    "prompt": {
+                                        "path": "prompts/patcher.v5.md",
+                                        "sha256": "1" * 64,
+                                    }
+                                },
+                            ],
+                        }
+                    ],
+                }
+            )
+        )
         assert rb.check_bundle(bundle).verdict == rb.VERDICT_UNBOUND
 
     def test_an_unreadable_replay_record_does_not_crash_the_gate(self, tmp_path):
@@ -419,4 +498,5 @@ class TestLegacyCompatibilityIsKeyedOnThePrompt:
 
     def test_the_adaptation_lane_prompt_is_the_one_that_contracts_for_claims(self):
         from tools.trace_cli.execute import PATCHER_PROMPT_PATH_ADAPT
+
         assert f"prompts/{PATCHER_PROMPT_PATH_ADAPT.name}" in rb.CLAIM_REQUIRING_PROMPTS

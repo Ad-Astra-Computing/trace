@@ -40,7 +40,9 @@ from tools.trace_cli.execute import execute
 from tests.schema.validate import REPO_ROOT
 
 
-FIXTURE_SRC = REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+FIXTURE_SRC = (
+    REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+)
 REPLAY_SCHEMA_PATH = REPO_ROOT / "policy" / "replay-schema.json"
 
 
@@ -68,8 +70,8 @@ def _patch_response() -> str:
         "--- a/package.nix\n"
         "+++ b/package.nix\n"
         "@@ -5 +5 @@\n"
-        "-  version = \"1.4.7\";\n"
-        "+  version = \"1.4.8\";\n"
+        '-  version = "1.4.7";\n'
+        '+  version = "1.4.8";\n'
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + RATIONALE
@@ -80,6 +82,7 @@ def _patch_response() -> str:
 def _factory(text: str):
     def _make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, text)
+
     return _make
 
 

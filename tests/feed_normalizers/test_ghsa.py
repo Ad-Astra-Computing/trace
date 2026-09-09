@@ -32,7 +32,7 @@ from tests.schema.validate import REPO_ROOT
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GHSA_UNREVIEWED = FIXTURES / "ghsa-GHSA-rxwq-x6h5-x525.json"  # xz, CVE-2024-3094
-GHSA_REVIEWED = FIXTURES / "ghsa-GHSA-c57f-mm3j-27q9.json"   # @astrojs/node
+GHSA_REVIEWED = FIXTURES / "ghsa-GHSA-c57f-mm3j-27q9.json"  # @astrojs/node
 
 
 @pytest.fixture(scope="module")
@@ -79,7 +79,10 @@ def test_unreviewed_advisory_normalizes(scout_input_validator):
     assert out["cve_id"] == "CVE-2024-3094"
     assert out["severity"]["rating"] == "critical"
     assert out["severity"]["cvss_v3_score"] == 10.0
-    assert out["severity"]["cvss_v3_vector"] == "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+    assert (
+        out["severity"]["cvss_v3_vector"]
+        == "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+    )
     # No vulnerabilities[] with package info in this unreviewed record.
     assert "purl_matches" not in out
     assert "pname_hints" not in out
@@ -124,15 +127,17 @@ def test_reviewed_advisory_pipes_to_scout_as_purl_match(scout_input_validator):
     raw = json.loads(GHSA_REVIEWED.read_text())
     out = normalize_ghsa(raw)
 
-    graph = CannedGraphLookup([
-        GraphMatch(
-            attr_path="nodePackages.astrojs-node",
-            drv_path="/nix/store/00000000000000000000000000000009-astrojs-node-10.0.4.drv",
-            pname="@astrojs/node",
-            version="10.0.4",
-            purls=("pkg:npm/%40astrojs/node",),
-        )
-    ])
+    graph = CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path="nodePackages.astrojs-node",
+                drv_path="/nix/store/00000000000000000000000000000009-astrojs-node-10.0.4.drv",
+                pname="@astrojs/node",
+                version="10.0.4",
+                purls=("pkg:npm/%40astrojs/node",),
+            )
+        ]
+    )
     result = scan(out, graph)
     assert result["status"] == "finding"
     finding = result["finding"]
@@ -185,7 +190,10 @@ def test_maven_package_splits_group_artifact():
             {"package": {"ecosystem": "maven", "name": "org.example:libexample"}},
         ],
         "references": [],
-        "cvss": {"vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "score": 7.5},
+        "cvss": {
+            "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+            "score": 7.5,
+        },
     }
     out = normalize_ghsa(synthetic)
     assert out["purl_matches"] == ["pkg:maven/org.example/libexample"]

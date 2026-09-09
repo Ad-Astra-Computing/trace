@@ -31,21 +31,34 @@ let
   };
   lib = pkgs.lib;
 
-  byPath = attrPath:
-    let parts = lib.splitString "." attrPath; in
+  byPath =
+    attrPath:
+    let
+      parts = lib.splitString "." attrPath;
+    in
     lib.attrByPath parts null pkgs;
 
-  safeSrcUrl = src:
-    if src == null then null
-    else if src ? url then src.url
-    else if src ? urls && builtins.isList src.urls && src.urls != [] then builtins.head src.urls
-    else null;
+  safeSrcUrl =
+    src:
+    if src == null then
+      null
+    else if src ? url then
+      src.url
+    else if src ? urls && builtins.isList src.urls && src.urls != [ ] then
+      builtins.head src.urls
+    else
+      null;
 
-  safeSrcHash = src:
-    if src == null then null
-    else if src ? hash then src.hash
-    else if src ? outputHash then src.outputHash
-    else null;
+  safeSrcHash =
+    src:
+    if src == null then
+      null
+    else if src ? hash then
+      src.hash
+    else if src ? outputHash then
+      src.outputHash
+    else
+      null;
 
   asMaintainer = m: {
     github = m.github or null;
@@ -53,17 +66,22 @@ let
     name = m.name or null;
   };
 
-  drvPathOr = x:
-    if x == null then ""
-    else if builtins.isAttrs x && x ? drvPath then x.drvPath
-    else "";
+  drvPathOr =
+    x:
+    if x == null then
+      ""
+    else if builtins.isAttrs x && x ? drvPath then
+      x.drvPath
+    else
+      "";
 
-  buildInputsDrvs = drv:
+  buildInputsDrvs =
+    drv:
     let
       lists = [
-        (drv.buildInputs or [])
-        (drv.nativeBuildInputs or [])
-        (drv.propagatedBuildInputs or [])
+        (drv.buildInputs or [ ])
+        (drv.nativeBuildInputs or [ ])
+        (drv.propagatedBuildInputs or [ ])
       ];
       flat = lib.concatLists lists;
       paths = map drvPathOr flat;
@@ -71,8 +89,11 @@ let
     in
     lib.unique nonEmpty;
 
-  extractOne = attrPath:
-    let drv = byPath attrPath; in
+  extractOne =
+    attrPath:
+    let
+      drv = byPath attrPath;
+    in
     if drv == null || !(builtins.isAttrs drv) || !(drv ? drvPath) then
       null
     else
@@ -84,7 +105,7 @@ let
         src_url = safeSrcUrl (drv.src or null);
         src_hash = safeSrcHash (drv.src or null);
         build_inputs_drvs = buildInputsDrvs drv;
-        maintainers = map asMaintainer (drv.meta.maintainers or []);
+        maintainers = map asMaintainer (drv.meta.maintainers or [ ]);
       };
 
 in

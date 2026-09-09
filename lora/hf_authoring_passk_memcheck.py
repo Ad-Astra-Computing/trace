@@ -30,6 +30,7 @@ Outputs, uploaded to the adapter model repo:
 Env: ADAPTER_REPO, DATASET_REPO (canaries), TRAIN_REPO (train labels), K (default 16),
 TEMP (0.8), TOP_P (0.95), N_MEM (10).
 """
+
 import json
 import os
 import re
@@ -39,9 +40,13 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-ADAPTER_REPO = os.environ.get("ADAPTER_REPO", "adastracomputing/authoring-lora-v10-clean")
+ADAPTER_REPO = os.environ.get(
+    "ADAPTER_REPO", "adastracomputing/authoring-lora-v10-clean"
+)
 DATASET_REPO = os.environ.get("DATASET_REPO", "adastracomputing/authoring-lora-data-v6")
-TRAIN_REPO = os.environ.get("TRAIN_REPO", "adastracomputing/authoring-lora-data-v10-clean")
+TRAIN_REPO = os.environ.get(
+    "TRAIN_REPO", "adastracomputing/authoring-lora-data-v10-clean"
+)
 UPLOAD_REPO = os.environ.get("UPLOAD_REPO", ADAPTER_REPO)
 BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
 MODEL_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
@@ -52,12 +57,17 @@ TOP_P = float(os.environ.get("TOP_P", "0.95"))
 N_MEM = int(os.environ.get("N_MEM", "10"))
 
 CVE_ORDER = ["CVE-2022-37434", "CVE-2026-42250", "CVE-2024-47081", "CVE-2026-48526"]
-FENCE_RE = re.compile(r"^(?P<head>.*?```)(?P<lang>\w+)\n(?P<code>.*?)\n```(?P<tail>.*)$", re.DOTALL)
+FENCE_RE = re.compile(
+    r"^(?P<head>.*?```)(?P<lang>\w+)\n(?P<code>.*?)\n```(?P<tail>.*)$", re.DOTALL
+)
 
 
 def load_canaries(dataset_repo: str) -> dict:
     from huggingface_hub import hf_hub_download
-    path = hf_hub_download(repo_id=dataset_repo, filename="authoring.canary.jsonl", repo_type="dataset")
+
+    path = hf_hub_download(
+        repo_id=dataset_repo, filename="authoring.canary.jsonl", repo_type="dataset"
+    )
     out = {}
     for line in Path(path).read_text().splitlines():
         if not line.strip():
@@ -74,7 +84,10 @@ def load_canaries(dataset_repo: str) -> dict:
 
 def load_train(train_repo: str, n: int) -> list:
     from huggingface_hub import hf_hub_download
-    path = hf_hub_download(repo_id=train_repo, filename="authoring.train.jsonl", repo_type="dataset")
+
+    path = hf_hub_download(
+        repo_id=train_repo, filename="authoring.train.jsonl", repo_type="dataset"
+    )
     rows = [json.loads(l) for l in Path(path).read_text().splitlines() if l.strip()]
     return rows[:n]
 
@@ -90,19 +103,32 @@ def gen(model, tok, system: str, user: str, *, sample: bool):
         kwargs.update(do_sample=False, temperature=None, top_p=None)
     with torch.no_grad():
         out = model.generate(**inputs, **kwargs)
-    return tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+    return tok.decode(
+        out[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+    ).strip()
 
 
 def main():
     canaries = load_canaries(DATASET_REPO)
     train_rows = load_train(TRAIN_REPO, N_MEM)
-    print(f"Loaded {len(canaries)} canaries, {len(train_rows)} train rows for memcheck", flush=True)
+    print(
+        f"Loaded {len(canaries)} canaries, {len(train_rows)} train rows for memcheck",
+        flush=True,
+    )
 
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                             bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+    bnb = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
     tok = AutoTokenizer.from_pretrained(BASE_MODEL_ID, revision=MODEL_REVISION)
-    base = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, revision=MODEL_REVISION,
-                                                quantization_config=bnb, device_map="auto")
+    base = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL_ID,
+        revision=MODEL_REVISION,
+        quantization_config=bnb,
+        device_map="auto",
+    )
     print(f"=== Attaching adapter ({ADAPTER_REPO}) ===", flush=True)
     model = PeftModel.from_pretrained(base, ADAPTER_REPO)
     model.eval()
@@ -129,17 +155,28 @@ def main():
         user = rec["messages"][1]["content"]
         for s in range(K):
             g = gen(model, tok, system, user, sample=True)
-            passk.append({"cve_id": cve, "variant": "original", "sample": s, "generated": g})
+            passk.append(
+                {"cve_id": cve, "variant": "original", "sample": s, "generated": g}
+            )
         print(f"  pass@{K} {cve}: done", flush=True)
 
-    Path("/tmp/passk-responses.jsonl").write_text("\n".join(json.dumps(r) for r in passk) + "\n")
-    Path("/tmp/memcheck-responses.jsonl").write_text("\n".join(json.dumps(r) for r in mem) + "\n")
+    Path("/tmp/passk-responses.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in passk) + "\n"
+    )
+    Path("/tmp/memcheck-responses.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in mem) + "\n"
+    )
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     for fn in ("passk-responses.jsonl", "memcheck-responses.jsonl"):
-        api.upload_file(path_or_fileobj=f"/tmp/{fn}", path_in_repo=fn,
-                        repo_id=UPLOAD_REPO, repo_type="model")
+        api.upload_file(
+            path_or_fileobj=f"/tmp/{fn}",
+            path_in_repo=fn,
+            repo_id=UPLOAD_REPO,
+            repo_type="model",
+        )
         print(f"Uploaded {UPLOAD_REPO}/{fn}", flush=True)
 
 

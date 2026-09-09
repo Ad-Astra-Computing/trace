@@ -138,7 +138,7 @@ def _fetchpatch_scoped_offenders(text: str) -> list[str]:
     they are content-hashes of the fetched patch, not package-source version bumps.
     Tracks brace depth across the added-line window to determine block membership."""
     outside_offenders: list[str] = []
-    depth = 0          # brace nesting inside the innermost fetchpatch block
+    depth = 0  # brace nesting inside the innermost fetchpatch block
     in_fetchpatch = False
     for ln in text.splitlines():
         # Only care about added lines (not file headers, context, removals)
@@ -181,9 +181,7 @@ def _no_version_bump(bundle_dir: Path) -> tuple[bool, str]:
         return False, "patch.diff missing"
     text = patch.read_text()
 
-    offenders = [
-        ln for ln in text.splitlines() if _VERSION_BUMP_RE.match(ln)
-    ]
+    offenders = [ln for ln in text.splitlines() if _VERSION_BUMP_RE.match(ln)]
     if offenders:
         # Fetchpatch overlay: hash = lines inside `fetchpatch { }` blocks are
         # patch content-hashes, not source-version bumps.  Re-check excluding
@@ -191,9 +189,18 @@ def _no_version_bump(bundle_dir: Path) -> tuple[bool, str]:
         if "fetchpatch {" in text and (bundle_dir / "upstream-fix.patch").is_file():
             outside = _fetchpatch_scoped_offenders(text)
             if not outside:
-                return True, "fetchpatch overlay with upstream-fix.patch (source change, no version/hash bump)"
-            return False, f"version/hash change outside fetchpatch block: {outside[0].strip()[:60]!r}"
-        return False, f"version/hash change in patch.diff: {offenders[0].strip()[:60]!r}"
+                return (
+                    True,
+                    "fetchpatch overlay with upstream-fix.patch (source change, no version/hash bump)",
+                )
+            return (
+                False,
+                f"version/hash change outside fetchpatch block: {outside[0].strip()[:60]!r}",
+            )
+        return (
+            False,
+            f"version/hash change in patch.diff: {offenders[0].strip()[:60]!r}",
+        )
 
     # Positive source-change evidence: prefer the Builder's own record of which
     # files the patch touched; fall back to parsing the diff headers.
@@ -204,8 +211,9 @@ def _no_version_bump(bundle_dir: Path) -> tuple[bool, str]:
     adds_patch_file = any(str(f).endswith(".patch") for f in changed)
     touches_source = any(not str(f).endswith(".nix") for f in changed)
     if adds_patch_file or touches_source:
-        ev = next((f for f in changed if str(f).endswith(".patch")), None) or \
-             next((f for f in changed if not str(f).endswith(".nix")), "source")
+        ev = next((f for f in changed if str(f).endswith(".patch")), None) or next(
+            (f for f in changed if not str(f).endswith(".nix")), "source"
+        )
         return True, f"source change, no version/hash bump (e.g. {ev})"
     return False, f"no source-file change found in patch (files={changed})"
 
@@ -215,7 +223,10 @@ def _signal_in_run(build: dict, run: str, marker: str) -> tuple[bool, str]:
     outcome = rec.get("outcome")
     observed = rec.get("stdout_stderr") or ""
     if outcome == "timed-out":
-        return False, f"{run} run timed-out (re-cert with longer builder_timeout_seconds)"
+        return (
+            False,
+            f"{run} run timed-out (re-cert with longer builder_timeout_seconds)",
+        )
     if outcome not in ("succeeded", None) and marker not in observed:
         return False, f"{run} run outcome={outcome!r}, {marker} not observed"
     present = marker in observed
@@ -229,7 +240,9 @@ def validate_backport(bundle_dir: Path) -> BackportValidation:
     name = bundle_dir.name
     if not is_source_backport(bundle_dir):
         return BackportValidation(
-            bundle=name, is_source_backport=False, validated=False,
+            bundle=name,
+            is_source_backport=False,
+            validated=False,
             disposition="not-source-backport",
         )
 
@@ -242,11 +255,16 @@ def validate_backport(bundle_dir: Path) -> BackportValidation:
     checks: list[Assertion] = []
 
     applied = (build.get("patch_apply") or {}).get("applied") is True
-    checks.append(Assertion(
-        "patch-applies", applied, True,
-        "build.json.patch_apply.applied" if applied
-        else "patch did not apply (or no build.json — cert has not run)",
-    ))
+    checks.append(
+        Assertion(
+            "patch-applies",
+            applied,
+            True,
+            "build.json.patch_apply.applied"
+            if applied
+            else "patch did not apply (or no build.json — cert has not run)",
+        )
+    )
 
     fires, fdetail = _signal_in_run(build, "unpatched", "SIGNAL_UNPATCHED")
     checks.append(Assertion("unpatched-reproducer-fires", fires, True, fdetail))
@@ -260,23 +278,33 @@ def validate_backport(bundle_dir: Path) -> BackportValidation:
     has_gt = (bundle_dir / "upstream-fix.patch").is_file()
     accepted = _reviewer_accepted(bundle_dir)
     sem = has_gt and accepted
-    checks.append(Assertion(
-        "semantic-match-upstream-fix", sem, True,
-        "upstream-fix.patch present + Reviewer accept" if sem else
-        f"ground-truth={'present' if has_gt else 'MISSING'}, "
-        f"reviewer-accept={'yes' if accepted else 'no'}",
-    ))
+    checks.append(
+        Assertion(
+            "semantic-match-upstream-fix",
+            sem,
+            True,
+            "upstream-fix.patch present + Reviewer accept"
+            if sem
+            else f"ground-truth={'present' if has_gt else 'MISSING'}, "
+            f"reviewer-accept={'yes' if accepted else 'no'}",
+        )
+    )
 
     # no-proxy-signal: a genuine discriminator defines BOTH a distinct
     # unpatched and patched signal in the reproducer; a proxy emits only the
     # patched/fallback signal. Combined with unpatched-reproducer-fires above,
     # this excludes the "fallback fires the signal" failure mode.
     has_both = "SIGNAL_UNPATCHED" in repro_text and "SIGNAL_PATCHED" in repro_text
-    checks.append(Assertion(
-        "no-proxy-signal", has_both, True,
-        "reproducer defines distinct unpatched + patched signals" if has_both
-        else "reproducer.nix lacks a distinct unpatched discriminator (proxy-shaped)",
-    ))
+    checks.append(
+        Assertion(
+            "no-proxy-signal",
+            has_both,
+            True,
+            "reproducer defines distinct unpatched + patched signals"
+            if has_both
+            else "reproducer.nix lacks a distinct unpatched discriminator (proxy-shaped)",
+        )
+    )
 
     validated = all(a.passed for a in checks if a.load_bearing)
     return BackportValidation(

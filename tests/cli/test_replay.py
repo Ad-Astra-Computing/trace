@@ -48,7 +48,14 @@ def _run(argv: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, str,
 
 def test_replay_by_bundle_id(capsys):
     rc, out, _ = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT), "--format", "json"],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--format",
+            "json",
+        ],
         capsys,
     )
     assert rc == EXIT_OK
@@ -60,7 +67,14 @@ def test_replay_by_bundle_id(capsys):
 
 def test_replay_by_cve_id(capsys):
     rc, out, _ = _run(
-        ["replay", FIXTURE_CVE_ID, "--traces-root", str(TRACES_ROOT), "--format", "json"],
+        [
+            "replay",
+            FIXTURE_CVE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--format",
+            "json",
+        ],
         capsys,
     )
     assert rc == EXIT_OK
@@ -92,7 +106,14 @@ def test_replay_not_found(capsys):
 
 def test_replay_bare_model_rejected(capsys):
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT), "--model", "foo-1"],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--model",
+            "foo-1",
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -101,7 +122,14 @@ def test_replay_bare_model_rejected(capsys):
 
 def test_replay_bare_role_rejected(capsys):
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT), "--role", "patcher"],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--role",
+            "patcher",
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -111,17 +139,24 @@ def test_replay_bare_role_rejected(capsys):
 def test_replay_role_with_model_accepted(capsys):
     rc, out, _ = _run(
         [
-            "replay", FIXTURE_BUNDLE_ID,
-            "--traces-root", str(TRACES_ROOT),
-            "--role", "scout",
-            "--model", "alternate-scout-model",
-            "--format", "json",
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--role",
+            "scout",
+            "--model",
+            "alternate-scout-model",
+            "--format",
+            "json",
         ],
         capsys,
     )
     assert rc == EXIT_OK
     plan = json.loads(out)
-    assert plan["overrides_requested"] == {"scout": {"model_id": "alternate-scout-model"}}
+    assert plan["overrides_requested"] == {
+        "scout": {"model_id": "alternate-scout-model"}
+    }
     scout_invocations = [i for i in plan["invocations"] if i["role"] == "scout"]
     assert scout_invocations, "expected at least one scout invocation in the fixture"
     for inv in scout_invocations:
@@ -130,8 +165,16 @@ def test_replay_role_with_model_accepted(capsys):
 
 def test_replay_role_not_in_enum_rejected(capsys):
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--role", "not-a-role", "--model", "x"],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--role",
+            "not-a-role",
+            "--model",
+            "x",
+        ],
         capsys,
     )
     assert rc != EXIT_OK
@@ -148,13 +191,24 @@ def _write_routing_config(tmp_path: Path, data: dict) -> Path:
 
 
 def test_replay_routing_config_accepted(capsys, tmp_path):
-    rc_path = _write_routing_config(tmp_path, {
-        "patcher": {"model_id": "alt-patcher", "family": "openai"},
-        "reviewer": {"model_id": "alt-reviewer", "family": "anthropic"},
-    })
+    rc_path = _write_routing_config(
+        tmp_path,
+        {
+            "patcher": {"model_id": "alt-patcher", "family": "openai"},
+            "reviewer": {"model_id": "alt-reviewer", "family": "anthropic"},
+        },
+    )
     rc, out, _ = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--routing-config", str(rc_path), "--format", "json"],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--routing-config",
+            str(rc_path),
+            "--format",
+            "json",
+        ],
         capsys,
     )
     assert rc == EXIT_OK
@@ -166,9 +220,18 @@ def test_replay_routing_config_accepted(capsys, tmp_path):
 def test_replay_routing_config_mutually_exclusive_with_role(capsys, tmp_path):
     rc_path = _write_routing_config(tmp_path, {"patcher": {"model_id": "x"}})
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--routing-config", str(rc_path),
-         "--role", "scout", "--model", "y"],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--routing-config",
+            str(rc_path),
+            "--role",
+            "scout",
+            "--model",
+            "y",
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -178,8 +241,14 @@ def test_replay_routing_config_mutually_exclusive_with_role(capsys, tmp_path):
 def test_replay_routing_config_unknown_role_rejected(capsys, tmp_path):
     rc_path = _write_routing_config(tmp_path, {"not-a-role": {"model_id": "x"}})
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--routing-config", str(rc_path)],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--routing-config",
+            str(rc_path),
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -189,8 +258,14 @@ def test_replay_routing_config_unknown_role_rejected(capsys, tmp_path):
 def test_replay_routing_config_missing_model_id_rejected(capsys, tmp_path):
     rc_path = _write_routing_config(tmp_path, {"patcher": {"family": "anthropic"}})
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--routing-config", str(rc_path)],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--routing-config",
+            str(rc_path),
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -198,12 +273,18 @@ def test_replay_routing_config_missing_model_id_rejected(capsys, tmp_path):
 
 
 def test_replay_routing_config_unknown_key_rejected(capsys, tmp_path):
-    rc_path = _write_routing_config(tmp_path, {
-        "patcher": {"model_id": "x", "temperature": 0.0}
-    })
+    rc_path = _write_routing_config(
+        tmp_path, {"patcher": {"model_id": "x", "temperature": 0.0}}
+    )
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--routing-config", str(rc_path)],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--routing-config",
+            str(rc_path),
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -213,8 +294,14 @@ def test_replay_routing_config_unknown_key_rejected(capsys, tmp_path):
 def test_replay_routing_config_empty_rejected(capsys, tmp_path):
     rc_path = _write_routing_config(tmp_path, {})
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--routing-config", str(rc_path)],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--routing-config",
+            str(rc_path),
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -225,8 +312,14 @@ def test_replay_routing_config_not_json_rejected(capsys, tmp_path):
     rc_path = tmp_path / "broken.json"
     rc_path.write_text("{not: json}")
     rc, _, err = _run(
-        ["replay", FIXTURE_BUNDLE_ID, "--traces-root", str(TRACES_ROOT),
-         "--routing-config", str(rc_path)],
+        [
+            "replay",
+            FIXTURE_BUNDLE_ID,
+            "--traces-root",
+            str(TRACES_ROOT),
+            "--routing-config",
+            str(rc_path),
+        ],
         capsys,
     )
     assert rc == EXIT_USAGE
@@ -240,7 +333,9 @@ def test_replay_plan_reflects_frozen_inputs_exactly():
     bundle = json.loads((FIXTURE_BUNDLE_DIR / "bundle.json").read_text())
     replay = json.loads((FIXTURE_BUNDLE_DIR / "replay.json").read_text())
 
-    plan = build_replay_plan(bundle, replay, overrides={}, bundle_dir=FIXTURE_BUNDLE_DIR)
+    plan = build_replay_plan(
+        bundle, replay, overrides={}, bundle_dir=FIXTURE_BUNDLE_DIR
+    )
 
     # Every invocation from replay.json is present with status=stub.
     expected_count = sum(len(r["invocations"]) for r in replay["roles"])

@@ -29,7 +29,9 @@ from tools.trace_cli.execute import execute
 from tests.schema.validate import REPO_ROOT
 
 
-FIXTURE_SRC = REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+FIXTURE_SRC = (
+    REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+)
 SCORER_SCHEMA_PATH = REPO_ROOT / "policy" / "eval-scorer-result-schema.json"
 
 
@@ -69,12 +71,12 @@ def _patch_response() -> str:
         '   pname = "libexample";\n'
         '-  version = "1.4.7";\n'
         '+  version = "1.4.8";\n'
-        ' \n'
+        " \n"
         "@@ -8,3 +8,3 @@\n"
         '     url = "https://example.invalid/libexample-${version}.tar.gz";\n'
         '-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";\n'
         '+    hash = "sha256-NewlyComputedSyntheticHashForTestingPurposes=";\n'
-        '   };\n'
+        "   };\n"
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + RATIONALE
@@ -94,6 +96,7 @@ def _refusal_response() -> str:
 def _factory(text: str):
     def _make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, text)
+
     return _make
 
 
@@ -114,7 +117,9 @@ def _fresh(bundle_dir: Path, response: str) -> tuple[Path, dict]:
         adapter_factory=_factory(response),
     )
     replay = json.loads((bundle_dir / "replay.json").read_text())
-    invocation = [r for r in replay["roles"] if r["role"] == "patcher"][0]["invocations"][-1]
+    invocation = [r for r in replay["roles"] if r["role"] == "patcher"][0][
+        "invocations"
+    ][-1]
     return bundle_dir, invocation
 
 
@@ -214,8 +219,10 @@ def test_run_scorers_refuses_advisory_only_bundle(tmp_path):
     bundle["kind_reason"] = "ineligible-no-fix-available"
     (bundle_dir / "bundle.json").write_text(json.dumps(bundle))
 
-    invocation = {"invocation_id": "00000000-0000-4000-8000-000000000999",
-                  "outputs": [{"path": "patch.diff", "sha256": "0" * 64}]}
+    invocation = {
+        "invocation_id": "00000000-0000-4000-8000-000000000999",
+        "outputs": [{"path": "patch.diff", "sha256": "0" * 64}],
+    }
     with pytest.raises(ScoringRefused, match="advisory-only"):
         run_scorers(bundle_dir=bundle_dir, invocation=invocation)
 
@@ -229,8 +236,10 @@ def test_run_scorers_refuses_ineligible_verdict(tmp_path):
     }
     (bundle_dir / "upstream-ref.json").write_text(json.dumps(upstream_ref))
 
-    invocation = {"invocation_id": "00000000-0000-4000-8000-000000000999",
-                  "outputs": [{"path": "patch.diff", "sha256": "0" * 64}]}
+    invocation = {
+        "invocation_id": "00000000-0000-4000-8000-000000000999",
+        "outputs": [{"path": "patch.diff", "sha256": "0" * 64}],
+    }
     with pytest.raises(ScoringRefused, match="ineligible-"):
         run_scorers(bundle_dir=bundle_dir, invocation=invocation)
 
@@ -390,6 +399,7 @@ def test_historical_fix_similarity_uses_cached_diff_when_present(tmp_path):
 
 def test_canonical_scorer_names_are_the_locked_six():
     from agents.scorers import canonical_scorer_names
+
     assert canonical_scorer_names() == (
         "schema-valid",
         "upstream-ref-compliance",

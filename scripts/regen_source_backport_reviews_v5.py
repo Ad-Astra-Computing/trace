@@ -11,6 +11,7 @@ Usage:
 The script reads the same inputs the CLI executor reads, calls run_reviewer
 with reviewer.v5.md, and atomically writes the new review.md.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -179,7 +180,9 @@ def _atomic_write(path: Path, content: bytes) -> None:
         raise
 
 
-def regen_bundle(bundle_dir: Path, model_id: str, dry_run: bool, force: bool = False) -> bool:
+def regen_bundle(
+    bundle_dir: Path, model_id: str, dry_run: bool, force: bool = False
+) -> bool:
     from agents.patcher import AnthropicAdapter
     from agents.reviewer import ReviewerOutputMalformed, run_reviewer
 
@@ -237,13 +240,24 @@ def regen_bundle(bundle_dir: Path, model_id: str, dry_run: bool, force: bool = F
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true", help="build inputs but don't call API")
-    parser.add_argument("--bundle", help="filter to a single bundle name (partial match)")
-    parser.add_argument("--split", default="train", choices=["train", "dev", "test", "all"],
-                        help="which split to process (default: train)")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="build inputs but don't call API"
+    )
+    parser.add_argument(
+        "--bundle", help="filter to a single bundle name (partial match)"
+    )
+    parser.add_argument(
+        "--split",
+        default="train",
+        choices=["train", "dev", "test", "all"],
+        help="which split to process (default: train)",
+    )
     parser.add_argument("--model", default=REVIEWER_MODEL, help="reviewer model id")
-    parser.add_argument("--force", action="store_true",
-                        help="re-run even if review.md already has ## Patch comparison")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="re-run even if review.md already has ## Patch comparison",
+    )
     args = parser.parse_args()
 
     if not PROMPT_PATH.is_file():

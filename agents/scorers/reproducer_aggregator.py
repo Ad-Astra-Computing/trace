@@ -40,7 +40,11 @@ from typing import Any
 
 
 KNOWN_REPRODUCER_COHORT_LABELS = (
-    "synthetic", "real-single", "inner-loop", "full-corpus", "real-ci-smoke",
+    "synthetic",
+    "real-single",
+    "inner-loop",
+    "full-corpus",
+    "real-ci-smoke",
 )
 
 
@@ -133,7 +137,7 @@ def aggregate_reproducer_reports(
             continue
 
         kind, refusal_rule = _extract_kind(doc)
-        is_refusal = (kind == "refusal")
+        is_refusal = kind == "refusal"
         if is_refusal:
             refusals += 1
 
@@ -143,18 +147,20 @@ def aggregate_reproducer_reports(
             if proxy_reason:
                 proxy_reason_counter[proxy_reason] += 1
 
-        provenance.append(ReproducerProvenanceEntry(
-            file=str(path),
-            bundle_id=_pick(doc, "bundle_id"),
-            invocation_id=_pick(doc, "invocation_id"),
-            patcher_invocation_id=_pick(doc, "patcher_invocation_id"),
-            prompt_sha=_pick(doc, "prompt_sha", "rescored_under_prompt_sha"),
-            model_id=_pick(doc, "model_id"),
-            is_proxy=is_proxy,
-            proxy_reason=proxy_reason,
-            refused=is_refusal,
-            refusal_rule=refusal_rule,
-        ))
+        provenance.append(
+            ReproducerProvenanceEntry(
+                file=str(path),
+                bundle_id=_pick(doc, "bundle_id"),
+                invocation_id=_pick(doc, "invocation_id"),
+                patcher_invocation_id=_pick(doc, "patcher_invocation_id"),
+                prompt_sha=_pick(doc, "prompt_sha", "rescored_under_prompt_sha"),
+                model_id=_pick(doc, "model_id"),
+                is_proxy=is_proxy,
+                proxy_reason=proxy_reason,
+                refused=is_refusal,
+                refusal_rule=refusal_rule,
+            )
+        )
 
         scorers_by_name = _scorers_by_name(doc)
 
@@ -206,11 +212,13 @@ def aggregate_reproducer_reports(
 
     vuln_signal_recovered_rate = (
         (vuln_signal_recovered_count / vuln_signal_eligible_count)
-        if vuln_signal_eligible_count > 0 else None
+        if vuln_signal_eligible_count > 0
+        else None
     )
     proxy_patched_passes_rate = (
         (proxy_patched_passes_count / proxy_eligible_count)
-        if proxy_eligible_count > 0 else None
+        if proxy_eligible_count > 0
+        else None
     )
 
     n_reports = len(report_paths) - parse_errors
@@ -238,7 +246,9 @@ def expand_reproducer_glob(pattern: str, *, root: Path | None = None) -> list[Pa
     base = root or Path.cwd()
     paths = sorted(Path(p) for p in glob.glob(pattern, recursive=True))
     if not paths:
-        paths = sorted((base / p) for p in glob.glob(str(base / pattern), recursive=True))
+        paths = sorted(
+            (base / p) for p in glob.glob(str(base / pattern), recursive=True)
+        )
     return [p for p in paths if p.is_file()]
 
 
@@ -263,11 +273,7 @@ def _extract_kind(doc: dict) -> tuple[str, int | None]:
     kind = doc.get("kind")
     refusal_rule_raw = doc.get("refusal_rule")
     if kind in ("reproducer", "refusal", "unknown"):
-        rule = (
-            int(refusal_rule_raw)
-            if isinstance(refusal_rule_raw, int)
-            else None
-        )
+        rule = int(refusal_rule_raw) if isinstance(refusal_rule_raw, int) else None
         return kind, rule
     # Fallback: examine schema-valid scorer details (the schema-valid
     # scorer records details.refusal_rule on refusal-shape inputs).

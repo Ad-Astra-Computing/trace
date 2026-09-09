@@ -74,7 +74,7 @@ _KERNEL_CGIT_RE = re.compile(
     r"^https://git\.kernel\.org/(?P<repo_path>pub/scm/[^?#]+\.git)/commit/\?id=(?P<sha>[0-9a-f]{7,40})$"
 )
 _KERNEL_TREE_REPO_URL = {
-    "stable":   "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git",
+    "stable": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git",
     "torvalds": "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git",
 }
 
@@ -85,13 +85,19 @@ def match_commit_url(url: str) -> tuple[str, str] | None:
     accidentally fall through to a looser one."""
     m = _GITHUB_COMMIT_RE.match(url)
     if m:
-        return f"https://github.com/{m.group('owner')}/{m.group('repo')}", m.group("sha")
+        return f"https://github.com/{m.group('owner')}/{m.group('repo')}", m.group(
+            "sha"
+        )
     m = _GITLAB_COMMIT_RE.match(url)
     if m:
-        return f"https://gitlab.com/{m.group('owner')}/{m.group('repo')}", m.group("sha")
+        return f"https://gitlab.com/{m.group('owner')}/{m.group('repo')}", m.group(
+            "sha"
+        )
     m = _CODEBERG_COMMIT_RE.match(url)
     if m:
-        return f"https://codeberg.org/{m.group('owner')}/{m.group('repo')}", m.group("sha")
+        return f"https://codeberg.org/{m.group('owner')}/{m.group('repo')}", m.group(
+            "sha"
+        )
     m = _KERNEL_TREE_C_RE.match(url)
     if m:
         return _KERNEL_TREE_REPO_URL[m.group("tree")], m.group("sha")
@@ -131,7 +137,9 @@ def process_entry(
     scan_result = scan(scout_input, graph)
 
     if scan_result["status"] == "mapping-failure":
-        _atomic_write_json(entry_path / "mapping-failure.json", scan_result["mapping_failure"])
+        _atomic_write_json(
+            entry_path / "mapping-failure.json", scan_result["mapping_failure"]
+        )
         _remove_if_present(entry_path / "finding.json")
         _remove_if_present(entry_path / "resolver-input.json")
         _remove_if_present(entry_path / "upstream-ref.json")
@@ -156,7 +164,8 @@ def process_entry(
     if auto_prefetch_fn is not None:
         try:
             auto_prefetch_stats = auto_prefetch_fn(
-                entry_path, finding["affected"][0]["attr_path"],
+                entry_path,
+                finding["affected"][0]["attr_path"],
             )
         except Exception:
             # Auto-prefetch is best-effort. A failure here must NOT
@@ -201,9 +210,7 @@ def _extract_candidate_refs(
     matched_pname: str,
 ) -> list[dict[str, Any]]:
     references = scout_input.get("references") or []
-    advisory_urls = [
-        r["url"] for r in references if r.get("kind") == "advisory"
-    ]
+    advisory_urls = [r["url"] for r in references if r.get("kind") == "advisory"]
     fix_commits: list[dict[str, str]] = []
     first_commit_url: str | None = None
     for ref in references:

@@ -42,7 +42,7 @@ SCHEMA_VERSION = "1.0.0"
 
 # Split thresholds on hash(attr) % 100. Same attr family → same split always.
 _TRAIN_MAX = 70  # [0, 70)   -> train
-_DEV_MAX = 85    # [70, 85)  -> dev ; [85, 100) -> test
+_DEV_MAX = 85  # [70, 85)  -> dev ; [85, 100) -> test
 
 # Redaction patterns: provider API keys and absolute home paths.
 # Covers Anthropic (sk-ant-...), OpenAI legacy + project keys (sk-..., sk-proj-...),
@@ -127,10 +127,18 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "authoring",
         help="export AUTHORING examples: (CVE + pre-fix source) -> the source fix",
     )
-    au.add_argument("--out", type=Path, default=Path("exports/authoring"),
-                    help="output directory (default exports/authoring)")
-    au.add_argument("--traces-root", type=Path, default=Path("traces/example"),
-                    help="root of CVE-* bundles (default traces/example)")
+    au.add_argument(
+        "--out",
+        type=Path,
+        default=Path("exports/authoring"),
+        help="output directory (default exports/authoring)",
+    )
+    au.add_argument(
+        "--traces-root",
+        type=Path,
+        default=Path("traces/example"),
+        help="root of CVE-* bundles (default traces/example)",
+    )
     au.add_argument("--format", choices=["human", "json"], default="human")
     au.add_argument(
         "--split-manifest",
@@ -195,9 +203,9 @@ def _normalize_attr(attr: str) -> str:
     in the same train/dev/test split (no leakage)."""
     comps = []
     for comp in attr.strip().split("."):
-        c = re.sub(r"\d+", "", comp)          # drop version digit runs
-        c = re.sub(r"[_-]+$", "", c)          # tidy trailing separators
-        c = re.sub(r"[_-]{2,}", "_", c)        # collapse doubled separators
+        c = re.sub(r"\d+", "", comp)  # drop version digit runs
+        c = re.sub(r"[_-]+$", "", c)  # tidy trailing separators
+        c = re.sub(r"[_-]{2,}", "_", c)  # collapse doubled separators
         comps.append(c or comp)
     norm = ".".join(comps)
     return norm or attr
@@ -239,7 +247,11 @@ def _model_id_to_family(model_id: str | None) -> str | None:
         return "anthropic-haiku"
     if model_id.startswith("claude-"):
         return "anthropic-other"
-    if model_id.startswith("gpt-") or model_id.startswith("o1") or model_id.startswith("o3"):
+    if (
+        model_id.startswith("gpt-")
+        or model_id.startswith("o1")
+        or model_id.startswith("o3")
+    ):
         return "openai-gpt"
     return None
 
@@ -344,7 +356,8 @@ def _build_user_turn(bundle_dir: Path) -> str | None:
 
 
 def _example_for_bundle(
-    bundle_dir: Path, system_prompt: str,
+    bundle_dir: Path,
+    system_prompt: str,
     split_overrides: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Return (example_or_None, status). status always carries bundle_id/cve/attr
@@ -389,11 +402,15 @@ def _example_for_bundle(
         try:
             parsed = parse_reviewer_output(wrapped)
         except Exception as exc:  # parser raises a typed error; keep the reason
-            status["exclusion_reason"] = f"review.md fails reviewer parser contract: {str(exc)[:120]}"
+            status["exclusion_reason"] = (
+                f"review.md fails reviewer parser contract: {str(exc)[:120]}"
+            )
             return None, status
         verdict = parsed.verdict
         if verdict not in VALID_VERDICTS:
-            status["exclusion_reason"] = f"unsupported verdict {verdict!r} (not in {VALID_VERDICTS})"
+            status["exclusion_reason"] = (
+                f"unsupported verdict {verdict!r} (not in {VALID_VERDICTS})"
+            )
             return None, status
         # Grounding integrity: if we reconstruct an attestation block into the
         # user turn, the review.md's recorded attestation MUST agree with it
@@ -402,7 +419,9 @@ def _example_for_bundle(
         if mac is not None and parsed.cross_family is not None:
             mismatch = _attestation_mismatch(parsed.cross_family, mac)
             if mismatch:
-                status["exclusion_reason"] = f"attestation mismatch (review.md vs replay): {mismatch}"
+                status["exclusion_reason"] = (
+                    f"attestation mismatch (review.md vs replay): {mismatch}"
+                )
                 return None, status
         assistant = wrapped
         label = "positive" if verdict == "accept" else "negative"
@@ -420,12 +439,16 @@ def _example_for_bundle(
         try:
             parse_reviewer_output(candidate)
         except Exception as exc:
-            status["exclusion_reason"] = f"refusal fails reviewer parser contract: {str(exc)[:120]}"
+            status["exclusion_reason"] = (
+                f"refusal fails reviewer parser contract: {str(exc)[:120]}"
+            )
             return None, status
         assistant = candidate
         label = "negative"
     else:
-        status["exclusion_reason"] = "no reviewer target (review.md / review-refusal.json)"
+        status["exclusion_reason"] = (
+            "no reviewer target (review.md / review-refusal.json)"
+        )
         return None, status
 
     if not attr:
@@ -434,7 +457,9 @@ def _example_for_bundle(
 
     user_turn = _build_user_turn(bundle_dir)
     if not user_turn or not user_turn.strip():
-        status["exclusion_reason"] = "could not assemble reviewer input (missing artifact)"
+        status["exclusion_reason"] = (
+            "could not assemble reviewer input (missing artifact)"
+        )
         return None, status
 
     family = _normalize_attr(attr)
@@ -451,7 +476,9 @@ def _example_for_bundle(
         "kind": kind,
         "auto_merge_evidence_path": bundle.get("auto_merge_evidence_path"),
         "has_cert_build": (bundle_dir / "build.json").is_file(),
-        "steward_signed": bool((bundle.get("signed_manifest") or {}).get("rekor_log_index")),
+        "steward_signed": bool(
+            (bundle.get("signed_manifest") or {}).get("rekor_log_index")
+        ),
         "reviewer_invocation_id": models.get("reviewer_invocation_id"),
         "reviewer_model_id": models.get("reviewer_model_id"),
         "reviewer_prompt_sha": models.get("reviewer_prompt_sha"),
@@ -460,7 +487,8 @@ def _example_for_bundle(
         "mutation_type": (mutation or {}).get("mutation_type"),
         "positive_source": (reorg or {}).get("positive_source"),
         "reorg_type": (reorg or {}).get("reorg_type"),
-        "base_bundle_id": (mutation or {}).get("base_bundle_id") or (reorg or {}).get("base_bundle_id"),
+        "base_bundle_id": (mutation or {}).get("base_bundle_id")
+        or (reorg or {}).get("base_bundle_id"),
     }
     status["mutation_type"] = (mutation or {}).get("mutation_type")
     status["reorg_type"] = (reorg or {}).get("reorg_type")
@@ -508,7 +536,9 @@ _AUTHORING_SYSTEM = (
 )
 _REMEDIATION_RE = re.compile(
     r"\b(fixed (in|by|upstream)|the fix|patched? (in|by)|adds? a (bounds|null|length) check|"
-    r"resolved by|remediat\w+|commit [0-9a-f]{7,}|backport|shipped in)\b", re.IGNORECASE)
+    r"resolved by|remediat\w+|commit [0-9a-f]{7,}|backport|shipped in)\b",
+    re.IGNORECASE,
+)
 # Anchored hex-only: injection-safe (no option chars) at any abbreviated length.
 _SAFE_REV_RE = re.compile(r"[0-9a-f]{7,40}\Z")
 
@@ -528,21 +558,21 @@ def _code_only(body: str, in_block: bool = False) -> tuple[str, bool]:
     out: list[str] = []
     i, n = 0, len(body)
     while i < n:
-        if in_block:                         # inside a /* ... */ — drop until */
+        if in_block:  # inside a /* ... */ — drop until */
             end = body.find("*/", i)
             if end == -1:
                 return "".join(out), True
             i, in_block = end + 2, False
             continue
-        two = body[i:i + 2]
+        two = body[i : i + 2]
         if two == "/*":
             in_block = True
             i += 2
             continue
-        if two == "//":                      # line comment -> EOL
+        if two == "//":  # line comment -> EOL
             break
         ch = body[i]
-        if ch in ('"', "'"):                 # skip a string literal (honor escapes)
+        if ch in ('"', "'"):  # skip a string literal (honor escapes)
             j = i + 1
             while j < n and body[j] != ch:
                 j += 2 if body[j] == "\\" else 1
@@ -579,7 +609,7 @@ def _fix_symbols(fix_diff: str) -> set[str]:
             new_blk = old_blk = False
             continue
         side = ln[:1]
-        if side == " ":                      # context: advances both sides' state
+        if side == " ":  # context: advances both sides' state
             _, new_blk = _code_only(ln[1:], new_blk)
             _, old_blk = _code_only(ln[1:], old_blk)
             continue
@@ -596,7 +626,7 @@ def _fix_symbols(fix_diff: str) -> set[str]:
         # scrub on and the touched identifier usually already carries the tell.
         nums = {n for n in re.findall(r"\b\d+\b", body) if len(n) >= 2}
         (plus_nums if side == "+" else minus_nums).update(nums)
-    syms |= (minus_nums ^ plus_nums)  # only the constants the fix actually moved
+    syms |= minus_nums ^ plus_nums  # only the constants the fix actually moved
     return syms
 
 
@@ -624,8 +654,9 @@ def _scrub_summary(summary: str, fix_diff: str) -> str:
 
 
 def _strip_remediation(summary: str) -> str:  # kept for back-compat / tests
-    return " ".join(s for s in re.split(r"(?<=[.])\s+", summary)
-                    if not _REMEDIATION_RE.search(s)).strip()
+    return " ".join(
+        s for s in re.split(r"(?<=[.])\s+", summary) if not _REMEDIATION_RE.search(s)
+    ).strip()
 
 
 def _is_nixpkgs_repo(url: object) -> bool:
@@ -667,8 +698,7 @@ def _strip_ab_prefix(path: str) -> str:
 # (`-- \ncgit v1.3`), and the no-trailing-space `--\n<sig>` variant.
 # Lookbehind on the separator's leading newline so the last real diff line keeps
 # its terminator (strip removes only `-- \n<sig>`, not the `\n` that ends the body).
-_FORMAT_PATCH_TRAILER_RE = re.compile(
-    r"(?<=\n)-- ?\n(?![ +\-])[^\n]{1,30}\s*\Z")
+_FORMAT_PATCH_TRAILER_RE = re.compile(r"(?<=\n)-- ?\n(?![ +\-])[^\n]{1,30}\s*\Z")
 
 
 def _strip_format_patch_trailer(diff_body: str) -> str:
@@ -721,8 +751,14 @@ def _authoring_label_from_patch(patch_text: str) -> dict[str, Any] | None:
         ln = lines[i]
         if ln.startswith("diff --git "):
             _flush()
-            cur = {"path": None, "churn": 0, "starts": [], "hunks": [],
-                   "added": False, "deleted": False}
+            cur = {
+                "path": None,
+                "churn": 0,
+                "starts": [],
+                "hunks": [],
+                "added": False,
+                "deleted": False,
+            }
             i += 1
             continue
         if ln.startswith("--- ") and i + 1 < n and lines[i + 1].startswith("+++ "):
@@ -731,8 +767,14 @@ def _authoring_label_from_patch(patch_text: str) -> dict[str, Any] | None:
             # bare `--- `/`+++ ` pair (no git header) opens a fresh file section.
             if cur is None or cur.get("hunks"):
                 _flush()
-                cur = {"path": None, "churn": 0, "starts": [], "hunks": [],
-                       "added": False, "deleted": False}
+                cur = {
+                    "path": None,
+                    "churn": 0,
+                    "starts": [],
+                    "hunks": [],
+                    "added": False,
+                    "deleted": False,
+                }
             cur["added"] = old_p == "/dev/null"
             cur["deleted"] = new_p == "/dev/null"
             # Deletions name the real file on the `---` side; everything else on
@@ -785,7 +827,12 @@ def _label_file_has_removed(fix_diff: str, fpath: str) -> bool:
         if ln.startswith("diff --git "):
             m = re.match(r"diff --git a/(.+?) b/(.+)$", ln)
             in_file = bool(m) and (m.group(1) == fpath or m.group(2) == fpath)
-        elif in_file and ln.startswith("-") and not ln.startswith("---") and ln[1:].strip():
+        elif (
+            in_file
+            and ln.startswith("-")
+            and not ln.startswith("---")
+            and ln[1:].strip()
+        ):
             return True
     return False
 
@@ -835,11 +882,11 @@ def _parse_fix_diff(fix_diff: str) -> dict:
     lines = fix_diff.splitlines()
     files: list[str] = []
     spans: list[str] = []
-    file_spans: dict[str, list] = {}          # hunk spans grouped by the file they patch
+    file_spans: dict[str, list] = {}  # hunk spans grouped by the file they patch
     removed: dict[str, list] = {}
     added: dict[str, list] = {}
     context: dict[str, list] = {}
-    add_blocks: list[list[str]] = []          # each maximal run of consecutive `+` lines
+    add_blocks: list[list[str]] = []  # each maximal run of consecutive `+` lines
     cur = None
     i, n = 0, len(lines)
     while i < n:
@@ -863,7 +910,7 @@ def _parse_fix_diff(fix_diff: str) -> dict:
         new_n = int(cm.group(2)) if cm and cm.group(2) is not None else 1
         i += 1
         old_seen = new_seen = 0
-        block: list[str] = []                 # current run of consecutive `+` lines
+        block: list[str] = []  # current run of consecutive `+` lines
         while i < n and (old_seen < old_n or new_seen < new_n):
             bl = lines[i]
             # The hunk's own `-old,+new` line counts delimit the body, so a content line
@@ -875,7 +922,8 @@ def _parse_fix_diff(fix_diff: str) -> dict:
                 break
             if bl.startswith("-"):
                 if block:
-                    add_blocks.append(block); block = []
+                    add_blocks.append(block)
+                    block = []
                 if cur and bl[1:].strip():
                     removed.setdefault(cur, []).append(bl[1:].strip())
                 old_seen += 1
@@ -886,7 +934,8 @@ def _parse_fix_diff(fix_diff: str) -> dict:
                 new_seen += 1
             elif bl.startswith(" ") or bl == "":
                 if block:
-                    add_blocks.append(block); block = []
+                    add_blocks.append(block)
+                    block = []
                 if cur and bl[1:].strip():
                     context.setdefault(cur, []).append(bl[1:].strip())
                 old_seen += 1
@@ -896,9 +945,15 @@ def _parse_fix_diff(fix_diff: str) -> dict:
             i += 1
         if block:
             add_blocks.append(block)
-    return {"files": files, "spans": spans, "file_spans": file_spans,
-            "removed": removed, "added": added, "context": context,
-            "add_blocks": add_blocks}
+    return {
+        "files": files,
+        "spans": spans,
+        "file_spans": file_spans,
+        "removed": removed,
+        "added": added,
+        "context": context,
+        "add_blocks": add_blocks,
+    }
 
 
 def _window_sections(pre_fix: str, included_files: list[str] | None) -> dict[str, set]:
@@ -911,15 +966,18 @@ def _window_sections(pre_fix: str, included_files: list[str] | None) -> dict[str
         sections: dict[str, set] = {}
         for part in pre_fix.split(marker)[1:]:
             head, _, body = part.partition(" ==== */\n")
-            sections[head.strip()] = {ln.strip() for ln in body.splitlines() if ln.strip()}
+            sections[head.strip()] = {
+                ln.strip() for ln in body.splitlines() if ln.strip()
+            }
         return sections
     pool = {ln.strip() for ln in pre_fix.splitlines() if ln.strip()}
     key = included_files[0] if included_files and len(included_files) == 1 else "*"
     return {key: pool}
 
 
-def _label_fully_grounded(fix_diff: str, pre_fix: str,
-                          included_files: list[str] | None = None) -> bool:
+def _label_fully_grounded(
+    fix_diff: str, pre_fix: str, included_files: list[str] | None = None
+) -> bool:
     """Whole-label grounding, applied to EVERY emittable pair at export time.
 
     `_patch_grounded` checks a single named file at MINT time; a cached
@@ -937,18 +995,18 @@ def _label_fully_grounded(fix_diff: str, pre_fix: str,
     semantics mirror `_patch_grounded` (removed-primary, context fallback, `.strip()`
     compare). Returns True when every edited file grounds (or nothing to check)."""
     sections = _window_sections(pre_fix, included_files)
-    single = set(sections) == {"*"}          # single-file window with an unknown path
+    single = set(sections) == {"*"}  # single-file window with an unknown path
     p = _parse_fix_diff(fix_diff)
-    edited = p["files"]                        # tracked from headers, incl. pure-addition
+    edited = p["files"]  # tracked from headers, incl. pure-addition
     if single and len(edited) > 1:
-        return False                          # multi-file label, no per-file sections
+        return False  # multi-file label, no per-file sections
     for fp in edited:
         pool = sections["*"] if single else sections.get(fp)
         if pool is None:
-            return False                      # STRUCTURAL: this file was never shown
+            return False  # STRUCTURAL: this file was never shown
         check = p["removed"].get(fp) or p["context"].get(fp)
         if check and not all(c in pool for c in check):
-            return False                      # TEXTUAL: removed/context absent from its section
+            return False  # TEXTUAL: removed/context absent from its section
     return True
 
 
@@ -974,9 +1032,9 @@ def _label_self_leaked(fix_diff: str, pre_fix: str) -> bool:
     win = [ln.strip() for ln in pre_fix.splitlines() if ln.strip()]
 
     def _contiguous(sub: list[str]) -> bool:
-        return any(win[i:i + len(sub)] == sub for i in range(len(win) - len(sub) + 1))
+        return any(win[i : i + len(sub)] == sub for i in range(len(win) - len(sub) + 1))
 
-    return all(_contiguous(b) for b in blocks)   # every block already in the window
+    return all(_contiguous(b) for b in blocks)  # every block already in the window
 
 
 def _pick_authoring_input_file(
@@ -996,7 +1054,11 @@ def _pick_authoring_input_file(
     would fail and skip the whole pair. We pick the max-churn parent-existing file;
     only if none qualify do we fall back to the overall max. Ties break
     alphabetically for deterministic, reproducible caches."""
-    pool = {p: c for p, c in churn.items() if parent_existing is None or p in parent_existing}
+    pool = {
+        p: c
+        for p, c in churn.items()
+        if parent_existing is None or p in parent_existing
+    }
     if not pool:
         pool = churn
     if not pool:
@@ -1013,7 +1075,9 @@ def _hunk_windows(lines: list[str], starts: list[int], radius: int = 20) -> str:
     if not lines:
         return ""
     n = len(lines)
-    ivals = sorted((max(0, s - radius), min(n, s + radius)) for s in set(starts) if s >= 1)
+    ivals = sorted(
+        (max(0, s - radius), min(n, s + radius)) for s in set(starts) if s >= 1
+    )
     if not ivals:
         ivals = [(0, min(n, radius))]
     merged: list[list[int]] = []
@@ -1095,7 +1159,9 @@ def _multi_file_window(fix_diff, files, blob_reader):
         ok = True
         for fp in files:
             blob_lines, exact = blobs[fp]
-            win = _hunk_windows(blob_lines, _file_diff_starts(fix_diff, fp) or [1], radius=radius)
+            win = _hunk_windows(
+                blob_lines, _file_diff_starts(fix_diff, fp) or [1], radius=radius
+            )
             if not win.strip() or not _patch_grounded(fix_diff, fp, win):
                 ok = False
                 break
@@ -1107,14 +1173,23 @@ def _multi_file_window(fix_diff, files, blob_reader):
             sections.append((fp, win))
         if not ok:
             return None  # grounding failed independent of radius -> unfixable
-        total = sum(len(w.splitlines()) for _, w in sections) + len(sections)  # +headers
+        total = sum(len(w.splitlines()) for _, w in sections) + len(
+            sections
+        )  # +headers
         rendered = "\n\n".join(f"/* ==== file: {fp} ==== */\n{w}" for fp, w in sections)
         # Both budgets must hold: the line budget bounds the shrink loop, the char
         # ceiling keeps the rendered window under the training max_seq_len regardless
         # of line width (C vs generated code vary badly per line).
-        if total <= _INPUT_WINDOW_BUDGET_LINES and len(rendered) <= _INPUT_WINDOW_BUDGET_CHARS:
-            return {"window": rendered, "included": list(files),
-                    "truncated": radius != _MULTI_WINDOW_RADII[0], "primary": files[0]}
+        if (
+            total <= _INPUT_WINDOW_BUDGET_LINES
+            and len(rendered) <= _INPUT_WINDOW_BUDGET_CHARS
+        ):
+            return {
+                "window": rendered,
+                "included": list(files),
+                "truncated": radius != _MULTI_WINDOW_RADII[0],
+                "primary": files[0],
+            }
     return None  # cannot fit the budget even at the minimum radius
 
 
@@ -1128,8 +1203,13 @@ def _multi_file_window(fix_diff, files, blob_reader):
 # fixed URL+hash, hash-verified BEFORE use, source-file diff only, curated patch
 # grounded against the real tarball bytes, behavioral validation still mandatory.)
 _ARCHIVE_HOST_ALLOW = (
-    "cpan.metacpan.org", "cpan.org", "backpan.perl.org",
-    "github.com", "codeload.github.com", "ftp.gnu.org", "gitlab.gnome.org",
+    "cpan.metacpan.org",
+    "cpan.org",
+    "backpan.perl.org",
+    "github.com",
+    "codeload.github.com",
+    "ftp.gnu.org",
+    "gitlab.gnome.org",
 )
 
 
@@ -1138,6 +1218,7 @@ def _archive_url_ok(url: object) -> bool:
     Non-string / non-https / off-list URLs are refused — the sha256 verify is the
     integrity backstop, the allowlist limits where export-time fetches can reach."""
     from urllib.parse import urlparse
+
     if not isinstance(url, str):
         return False
     try:
@@ -1150,7 +1231,9 @@ def _archive_url_ok(url: object) -> bool:
     return any(h == d or h.endswith("." + d) for d in _ARCHIVE_HOST_ALLOW)
 
 
-def _fetch_verified(url: str, sha256: str, *, max_bytes: int = 64 * 1024 * 1024) -> bytes:
+def _fetch_verified(
+    url: str, sha256: str, *, max_bytes: int = 64 * 1024 * 1024
+) -> bytes:
     """Fetch `url` and return its bytes IFF the sha256 matches — verified before any
     caller extracts. HTTPS + host-allowlisted (incl. redirect targets) + read-capped
     so a hostile/huge/redirecting response cannot reach internal hosts or exhaust
@@ -1181,13 +1264,16 @@ def _fetch_verified(url: str, sha256: str, *, max_bytes: int = 64 * 1024 * 1024)
     return data
 
 
-def _tar_member_text(data: bytes, member: str, *, max_member_bytes: int = 16 * 1024 * 1024) -> str:
+def _tar_member_text(
+    data: bytes, member: str, *, max_member_bytes: int = 16 * 1024 * 1024
+) -> str:
     """Read ONE declared regular-file member from an in-memory tar archive as text.
     The member name is an EXACT lookup (never a glob/extraction to disk), so there
     is no path-traversal or symlink-write surface; the size cap bounds a zip-bomb
     member. Raises on absent / non-regular / oversize members."""
     import io
     import tarfile
+
     norm = os.path.normpath(member)
     if os.path.isabs(member) or norm.startswith(".."):
         raise ValueError(f"unsafe tar member path: {member!r}")
@@ -1213,13 +1299,16 @@ def _authoring_pair_from_tarballs(
     and use the curated `upstream-fix.patch` as the label, grounding both sides
     against the authentic sha-pinned archives. Single-source-file only (the input
     shows one file). Caches to authoring-example.json exactly like the git path."""
+
     def _skip(reason: str) -> None:
         if skips is not None:
             skips.append({"bundle": bundle_dir.name, "reason": reason})
 
     spec = _load_json(bundle_dir / "source-archives.json") or {}
     if spec.get("label_grounding_source") != "upstream-release-tarball":
-        _skip("source-archives.json present but label_grounding_source != upstream-release-tarball")
+        _skip(
+            "source-archives.json present but label_grounding_source != upstream-release-tarball"
+        )
         return None
     file = spec.get("file")
     pre, fixed = spec.get("pre_fix") or {}, spec.get("fixed") or {}
@@ -1227,10 +1316,15 @@ def _authoring_pair_from_tarballs(
         _skip("source-archives.json missing 'file'")
         return None
     for tag, a in (("pre_fix", pre), ("fixed", fixed)):
-        if not (_archive_url_ok(a.get("url"))
-                and isinstance(a.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", a.get("sha256", ""))
-                and isinstance(a.get("member"), str)):
-            _skip(f"{tag} archive: url not https-allowlisted, or sha256 not 64-hex, or member missing")
+        if not (
+            _archive_url_ok(a.get("url"))
+            and isinstance(a.get("sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", a.get("sha256", ""))
+            and isinstance(a.get("member"), str)
+        ):
+            _skip(
+                f"{tag} archive: url not https-allowlisted, or sha256 not 64-hex, or member missing"
+            )
             return None
 
     ufp = bundle_dir / "upstream-fix.patch"
@@ -1240,13 +1334,19 @@ def _authoring_pair_from_tarballs(
         return None
     # Single-file authoring contract: the label must edit exactly the shown file.
     if list(label_src["churn"]) != [file]:
-        _skip(f"curated patch edits {list(label_src['churn'])} != declared file [{file}]")
+        _skip(
+            f"curated patch edits {list(label_src['churn'])} != declared file [{file}]"
+        )
         return None
     fix_diff = label_src["fix_diff"]
 
     try:
-        pre_text = _tar_member_text(_fetch_verified(pre["url"], pre["sha256"]), pre["member"])
-        fixed_text = _tar_member_text(_fetch_verified(fixed["url"], fixed["sha256"]), fixed["member"])
+        pre_text = _tar_member_text(
+            _fetch_verified(pre["url"], pre["sha256"]), pre["member"]
+        )
+        fixed_text = _tar_member_text(
+            _fetch_verified(fixed["url"], fixed["sha256"]), fixed["member"]
+        )
     except (OSError, ValueError, KeyError) as e:
         _skip(f"tarball fetch/extract failed: {e}")
         return None
@@ -1257,21 +1357,31 @@ def _authoring_pair_from_tarballs(
     # tarball-diff analogue of the git path's parent-tree grounding.
     pre_pool = {l.strip() for l in pre_text.splitlines() if l.strip()}
     fixed_pool = {l.strip() for l in fixed_text.splitlines() if l.strip()}
-    removed = [l[1:].strip() for l in fix_diff.splitlines()
-               if l.startswith("-") and not l.startswith("---") and l[1:].strip()]
-    added = [l[1:].strip() for l in fix_diff.splitlines()
-             if l.startswith("+") and not l.startswith("+++") and l[1:].strip()]
+    removed = [
+        l[1:].strip()
+        for l in fix_diff.splitlines()
+        if l.startswith("-") and not l.startswith("---") and l[1:].strip()
+    ]
+    added = [
+        l[1:].strip()
+        for l in fix_diff.splitlines()
+        if l.startswith("+") and not l.startswith("+++") and l[1:].strip()
+    ]
     if not removed and not added:
         _skip("curated patch has no +/- lines to ground")
         return None
     if not all(r in pre_pool for r in removed):
-        _skip("curated patch removed-lines not all present in the pre-fix tarball member")
+        _skip(
+            "curated patch removed-lines not all present in the pre-fix tarball member"
+        )
         return None
     if not all(a in fixed_pool for a in added):
         _skip("curated patch added-lines not all present in the fixed tarball member")
         return None
 
-    pre_window = _hunk_windows(pre_text.splitlines(), _file_diff_starts(fix_diff, file) or [1], radius=20)
+    pre_window = _hunk_windows(
+        pre_text.splitlines(), _file_diff_starts(fix_diff, file) or [1], radius=20
+    )
     if not pre_window.strip():
         _skip("empty pre-fix window from tarball member")
         return None
@@ -1290,17 +1400,32 @@ def _authoring_pair_from_tarballs(
         "label_source": "upstream-fix.patch",
         "label_grounding_source": "upstream-release-tarball",
         "source_archive_hashes": {
-            "pre_fix": {"url": pre["url"], "sha256": pre["sha256"], "member": pre["member"]},
-            "fixed": {"url": fixed["url"], "sha256": fixed["sha256"], "member": fixed["member"]},
+            "pre_fix": {
+                "url": pre["url"],
+                "sha256": pre["sha256"],
+                "member": pre["member"],
+            },
+            "fixed": {
+                "url": fixed["url"],
+                "sha256": fixed["sha256"],
+                "member": fixed["member"],
+            },
         },
         # No git commit for a CPAN release — record the release URL for provenance.
-        "fix_commit": {"repo_url": spec.get("release_url", fixed["url"]), "commit_sha": ""},
+        "fix_commit": {
+            "repo_url": spec.get("release_url", fixed["url"]),
+            "commit_sha": "",
+        },
     }
-    (bundle_dir / "authoring-example.json").write_text(json.dumps(pair, indent=2) + "\n")
+    (bundle_dir / "authoring-example.json").write_text(
+        json.dumps(pair, indent=2) + "\n"
+    )
     return pair
 
 
-def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dict[str, Any] | None:
+def _authoring_pair(
+    bundle_dir: Path, *, skips: list[dict] | None = None
+) -> dict[str, Any] | None:
     """Build (or load cached) the authoring training pair for a source-backport
     bundle: pre-fix source window (input) + the upstream commit's source diff
     (label). Cached to <bundle>/authoring-example.json for deterministic, offline
@@ -1315,6 +1440,7 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
     manifest can report why a bundle silently vanished, instead of leaving the
     data-fix invisible. EXPECTED skips (not a source-backport, nixpkgs packaging
     commit) are not recorded — they are routine, not anomalies."""
+
     def _skip(reason: str) -> None:
         if skips is not None:
             skips.append({"bundle": bundle_dir.name, "reason": reason})
@@ -1338,7 +1464,10 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
     from tools.trace_cli import backport_patch as bp
 
     commits = ur.get("upstream_fix_commits") or []
-    if not commits or ur.get("eligibility", {}).get("patch_strategy") != "source-backport":
+    if (
+        not commits
+        or ur.get("eligibility", {}).get("patch_strategy") != "source-backport"
+    ):
         return None
     repo_url, sha = commits[0]["repo_url"], commits[0]["commit_sha"]
     # Authoring needs the UPSTREAM-SOURCE fix commit. When the resolver recorded a
@@ -1350,7 +1479,9 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
     if _is_nixpkgs_repo(repo_url):
         return None
     try:
-        repo_url = bp.clone_url(repo_url)  # validate + map cgit browse URL -> clone endpoint
+        repo_url = bp.clone_url(
+            repo_url
+        )  # validate + map cgit browse URL -> clone endpoint
     except bp.BackportError:
         _skip(f"upstream repo url rejected: {repo_url!r}")
         return None
@@ -1371,7 +1502,10 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
         env = {**os.environ, **bp._HARDENED_ENV}
 
         def git(*a):
-            return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, env=env)
+            return subprocess.run(
+                ["git", "-C", str(repo), *a], capture_output=True, text=True, env=env
+            )
+
         git("init", "-q")
         git("remote", "add", "origin", repo_url)
         # Blobless tiered fetch: a shallow sha-want when the server allows it, else
@@ -1379,29 +1513,46 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
         # shas and shas the server refuses as a direct want (cgit/savannah) without
         # a slow full-history transfer — the file blob is pulled lazily below.
         if not bp.blobless_fetch_commit(git, sha):
-            _skip(f"could not fetch upstream commit {sha[:12]} from {repo_url} "
-                  f"(sha not on this repo? try the github-mirror commit)")
+            _skip(
+                f"could not fetch upstream commit {sha[:12]} from {repo_url} "
+                f"(sha not on this repo? try the github-mirror commit)"
+            )
             return None
         parent = git("rev-parse", "-q", "--verify", f"{sha}^").stdout.strip()
         if not parent:
             _skip(f"upstream commit {sha[:12]} has no resolvable parent")
             return None
+
         def _tree_blob(fp: str) -> tuple[list[str], bool] | None:
             """Read fp's parent-tree blob as (lines, exact). `exact` is False when
             the path only resolved via a UNIQUE suffix match (the curated patch may
             use `ps/parser.c` where the tree has `src/ps/parser.c`); the caller
             requires removed-line grounding before trusting a non-exact match."""
-            b = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{fp}"],
-                               capture_output=True, text=True, env=env)
+            b = subprocess.run(
+                ["git", "-C", str(repo), "show", f"{parent}:{fp}"],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
             if b.returncode == 0:
                 return b.stdout.splitlines(), True
-            tree = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r",
-                                   "--name-only", parent], capture_output=True, text=True, env=env)
-            cands = [t for t in tree.stdout.splitlines() if t == fp or t.endswith("/" + fp)]
+            tree = subprocess.run(
+                ["git", "-C", str(repo), "ls-tree", "-r", "--name-only", parent],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            cands = [
+                t for t in tree.stdout.splitlines() if t == fp or t.endswith("/" + fp)
+            ]
             if len(cands) != 1:
                 return None
-            b = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{cands[0]}"],
-                               capture_output=True, text=True, env=env)
+            b = subprocess.run(
+                ["git", "-C", str(repo), "show", f"{parent}:{cands[0]}"],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
             return (b.stdout.splitlines(), False) if b.returncode == 0 else None
 
         def _git_show_label() -> tuple[str, dict[str, int], set[str]] | None:
@@ -1412,17 +1563,29 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
             ch: dict[str, int] = {}
             for ln in ns.stdout.splitlines():
                 parts = ln.split("\t")
-                if len(parts) == 3 and parts[0] != "-" and not bp._NON_SOURCE_RE.search(parts[2]):
+                if (
+                    len(parts) == 3
+                    and parts[0] != "-"
+                    and not bp._NON_SOURCE_RE.search(parts[2])
+                ):
                     ch[parts[2]] = int(parts[0]) + int(parts[1])
             if not ch:
                 return None
             fd = git("show", "--no-color", "--format=", sha, "--", *list(ch)).stdout
             fd = bp._extract_diff(fd) if "diff --git" in fd else fd
-            ad = git("show", "--numstat", "--format=", "--no-color", "--diff-filter=A", sha)
-            apaths = {p.split("\t")[2] for p in ad.stdout.splitlines() if len(p.split("\t")) == 3}
+            ad = git(
+                "show", "--numstat", "--format=", "--no-color", "--diff-filter=A", sha
+            )
+            apaths = {
+                p.split("\t")[2]
+                for p in ad.stdout.splitlines()
+                if len(p.split("\t")) == 3
+            }
             return fd, ch, apaths
 
-        def _windowed(fd: str, churn: dict[str, int], added_paths: set[str]) -> tuple[str, str, bool] | None:
+        def _windowed(
+            fd: str, churn: dict[str, int], added_paths: set[str]
+        ) -> tuple[str, str, bool] | None:
             """(fpath, pre_fix_window, path_exact) for a label, or None when the
             chosen input file has no readable parent blob."""
             srcs = list(churn)
@@ -1437,7 +1600,11 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
             # Window around EACH hunk (±20), merging overlaps and eliding large
             # gaps — keeps every region the label edits present while staying
             # bounded by hunk count rather than file size (relaxng.c ~7k lines).
-            return fp, _hunk_windows(blob_lines, _file_diff_starts(fd, fp) or [1], radius=20), exact
+            return (
+                fp,
+                _hunk_windows(blob_lines, _file_diff_starts(fd, fp) or [1], radius=20),
+                exact,
+            )
 
         # label = the MINIMAL upstream SOURCE fix. Prefer the curated
         # upstream-fix.patch: source-backport bundles author it as the semantic
@@ -1451,7 +1618,9 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
         fix_diff = fpath = pre_fix = label_source = None
         label_churn: dict[str, int] | None = None
         ufp = bundle_dir / "upstream-fix.patch"
-        label_src = _authoring_label_from_patch(ufp.read_text()) if ufp.is_file() else None
+        label_src = (
+            _authoring_label_from_patch(ufp.read_text()) if ufp.is_file() else None
+        )
         if label_src is not None:
             w = _windowed(label_src["fix_diff"], label_src["churn"], label_src["added"])
             if w is not None and _patch_grounded(label_src["fix_diff"], w[0], w[1]):
@@ -1461,18 +1630,27 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
                 # file's deletions must not vouch for it (codex 2026-06-25).
                 fp, pf, exact = w
                 if exact or _label_file_has_removed(label_src["fix_diff"], fp):
-                    fix_diff, fpath, pre_fix, label_source = label_src["fix_diff"], fp, pf, "upstream-fix.patch"
+                    fix_diff, fpath, pre_fix, label_source = (
+                        label_src["fix_diff"],
+                        fp,
+                        pf,
+                        "upstream-fix.patch",
+                    )
                     label_churn = label_src["churn"]
         if fix_diff is None:
             gs = _git_show_label()
             if gs is None:
-                _skip(f"upstream commit {sha[:12]} has no source diff to label "
-                      "(tests/docs only, or empty)")
+                _skip(
+                    f"upstream commit {sha[:12]} has no source diff to label "
+                    "(tests/docs only, or empty)"
+                )
                 return None
             w = _windowed(*gs)
             if w is None:
-                _skip(f"could not window the input file from commit {sha[:12]} "
-                      "(changed file absent from the parent tree)")
+                _skip(
+                    f"could not window the input file from commit {sha[:12]} "
+                    "(changed file absent from the parent tree)"
+                )
                 return None
             fix_diff, (fpath, pre_fix, _exact) = gs[0], w
             label_source = "git-show" if label_src is None else "git-show-fallback"
@@ -1486,16 +1664,20 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
         # (_multi_file_window returns None past the cap). A multi-file label never
         # silently falls back to the single-file path. (codex <redacted-session-id> 2026-06-29,
         # cap raised to budget-based + >cap exclusion 2026-07-13)
-        src_files = sorted(label_churn or {}, key=lambda p: (-(label_churn or {})[p], p))
+        src_files = sorted(
+            label_churn or {}, key=lambda p: (-(label_churn or {})[p], p)
+        )
         included_source_files = [fpath]
         input_window_truncated = False
         if len(src_files) >= 2:
             mw = _multi_file_window(fix_diff, src_files, _tree_blob)
             if mw is None:
-                _skip(f"multi-file label ({len(src_files)} files) for commit "
-                      f"{sha[:12]} could not be fully grounded within the input "
-                      "budget or exceeds the source-file cap — not minting a "
-                      "degraded single-file pair")
+                _skip(
+                    f"multi-file label ({len(src_files)} files) for commit "
+                    f"{sha[:12]} could not be fully grounded within the input "
+                    "budget or exceeds the source-file cap — not minting a "
+                    "degraded single-file pair"
+                )
                 return None
             fpath, pre_fix = mw["primary"], mw["window"]
             included_source_files = mw["included"]
@@ -1504,7 +1686,9 @@ def _authoring_pair(bundle_dir: Path, *, skips: list[dict] | None = None) -> dic
     pair = {
         "cve_id": finding.get("cve_id"),
         "attr_path": (finding.get("affected") or [{}])[0].get("attr_path"),
-        "vuln_raw": finding.get("summary", ""),  # scrubbed against fix_diff at export time
+        "vuln_raw": finding.get(
+            "summary", ""
+        ),  # scrubbed against fix_diff at export time
         "file": fpath,
         "included_source_files": included_source_files,
         "input_window_truncated": input_window_truncated,
@@ -1644,8 +1828,11 @@ def _run_authoring(args: argparse.Namespace) -> int:
             return 2
         sm = json.loads(manifest_path.read_text())
         split_overrides = {k: v["split"] for k, v in sm.get("overrides", {}).items()}
-        split_manifest_meta = {"name": sm.get("name"), "path": str(manifest_path),
-                               "overrides": list(split_overrides.keys())}
+        split_manifest_meta = {
+            "name": sm.get("name"),
+            "path": str(manifest_path),
+            "overrides": list(split_overrides.keys()),
+        }
 
     examples, canaries, excluded, diagnostics, fetch_skips = [], [], [], [], []
     # Pair-identity dedup (codex peer <redacted-session-id>). The base exporter emits one row per
@@ -1685,10 +1872,14 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # emit a pair that would be silently truncated by the tokenizer — consistent
         # with the multi-file exclude-not-degrade policy. (codex <redacted-session-id> 2026-07-13)
         if len(pair["pre_fix_source"]) > _INPUT_WINDOW_BUDGET_CHARS:
-            excluded.append({"bundle": bd.name,
-                             "reason": f"input window {len(pair['pre_fix_source'])} chars "
-                                       f"exceeds the {_INPUT_WINDOW_BUDGET_CHARS}-char "
-                                       "budget (max_seq_len) — not minting a truncated pair"})
+            excluded.append(
+                {
+                    "bundle": bd.name,
+                    "reason": f"input window {len(pair['pre_fix_source'])} chars "
+                    f"exceeds the {_INPUT_WINDOW_BUDGET_CHARS}-char "
+                    "budget (max_seq_len) — not minting a truncated pair",
+                }
+            )
             continue
         # Scrub the CVE summary against the ACTUAL fix: drop remediation language AND
         # any sentence naming a symbol the fix changes (else the summary leaks where
@@ -1697,10 +1888,14 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # Leakage guard: nothing the fix touches may survive into the input.
         fix_syms = _fix_symbols(pair["fix_diff"])
         if not vuln:
-            excluded.append({"bundle": bd.name, "reason": "summary empty after fix-symbol scrub"})
+            excluded.append(
+                {"bundle": bd.name, "reason": "summary empty after fix-symbol scrub"}
+            )
             continue
         if _REMEDIATION_RE.search(vuln) or any(_mentions(vuln, s) for s in fix_syms):
-            excluded.append({"bundle": bd.name, "reason": "fix language survived scrub"})
+            excluded.append(
+                {"bundle": bd.name, "reason": "fix language survived scrub"}
+            )
             continue
         # A fix with 0 extractable symbols (e.g. whitespace-/comment-only, or a
         # leak class the heuristic can't name) passes the gate silently — flag it
@@ -1711,13 +1906,19 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # without this evidence (e.g. a reproducer whose unpatched run fires no
         # signal) is excluded rather than shipped as an unvalidated label.
         from eval.backport_validation import validate_backport
+
         bv = validate_backport(bd)
         bv_by_name = {a.name: a.passed for a in bv.assertions}
-        behavioral_fail = [c for c in _AUTHORING_BEHAVIORAL_CHECKS
-                           if not bv_by_name.get(c, False)]
+        behavioral_fail = [
+            c for c in _AUTHORING_BEHAVIORAL_CHECKS if not bv_by_name.get(c, False)
+        ]
         if behavioral_fail:
-            excluded.append({"bundle": bd.name,
-                             "reason": f"authoring behavioral gate fails: {behavioral_fail}"})
+            excluded.append(
+                {
+                    "bundle": bd.name,
+                    "reason": f"authoring behavioral gate fails: {behavioral_fail}",
+                }
+            )
             continue
         # Integrity gates on the FINAL pair — enforced at export on every emittable
         # dir, cached or freshly minted, so a stale authoring-example.json written
@@ -1727,31 +1928,46 @@ def _run_authoring(args: argparse.Namespace) -> int:
         included = pair.get("included_source_files") or [pair["file"]]
         # (1) Whole-label grounding: the label must only edit code the window shows
         # (both structurally — no omitted edited file — and textually).
-        if not _label_fully_grounded(pair["fix_diff"], pair["pre_fix_source"], included):
-            excluded.append({"bundle": bd.name,
-                             "reason": "label not grounded in window "
-                                       "(removes/edits code absent from the shown source)"})
+        if not _label_fully_grounded(
+            pair["fix_diff"], pair["pre_fix_source"], included
+        ):
+            excluded.append(
+                {
+                    "bundle": bd.name,
+                    "reason": "label not grounded in window "
+                    "(removes/edits code absent from the shown source)",
+                }
+            )
             continue
         # (2) Self-leak: a pure-addition fix already present in the window is an
         # answer key (window cut from a half-patched tree).
         if _label_self_leaked(pair["fix_diff"], pair["pre_fix_source"]):
-            excluded.append({"bundle": bd.name,
-                             "reason": "self-leak: fix already present in the shown window"})
+            excluded.append(
+                {
+                    "bundle": bd.name,
+                    "reason": "self-leak: fix already present in the shown window",
+                }
+            )
             continue
         # Pair-identity dedup key, computed after every eligibility gate so only
         # EMITTABLE dirs contend (a sibling that failed a gate never wins). Winner
         # selection is deferred to after the loop; here we only build the record.
         identity = _authoring_pair_identity(pair)
-        diagnostic = {"bundle": bd.name, "cve_id": pair["cve_id"],
-                      "fix_symbols": len(fix_syms), "low_signal": not fix_syms,
-                      "label_source": pair.get("label_source")}
+        diagnostic = {
+            "bundle": bd.name,
+            "cve_id": pair["cve_id"],
+            "fix_symbols": len(fix_syms),
+            "low_signal": not fix_syms,
+            "label_source": pair.get("label_source"),
+        }
         bundle = _load_json(bd / "bundle.json") or {}
         # Tier tag: cert-green (Tier A — also a Reviewer/Builder corpus member) when
         # the bundle is signed AND fully validated (incl. Reviewer accept); else
         # behavioral-only (Tier B). Recorded in provenance so the distinction is
         # auditable and the integrity claim stays honest.
         signed = (bd / "bundle.sig").is_file() or bool(
-            (bundle.get("signed_manifest") or {}).get("rekor_log_index"))
+            (bundle.get("signed_manifest") or {}).get("rekor_log_index")
+        )
         cert_green = bool(signed and bv.validated)
         tier = "cert-green" if cert_green else "behavioral-only"
         attr = pair["attr_path"] or bd.name
@@ -1764,14 +1980,17 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # grounding gate.
         src_header = ", ".join(included)
         fence_lang = _fence_lang_for(included)
-        user = (f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
-                f"# Vulnerable source ({src_header})\n```{fence_lang}\n{pair['pre_fix_source']}\n```")
+        user = (
+            f"# CVE\n{pair['cve_id']}: {vuln}\n\n"
+            f"# Vulnerable source ({src_header})\n```{fence_lang}\n{pair['pre_fix_source']}\n```"
+        )
         # How many files the LABEL changes: a multi-file fix is a harder, auditable
         # pair. label_file_count > len(included) means part of the label edits a
         # file NOT shown in the input (a >3-file label grandfathered onto the
         # single-file path); included == label means the whole label is authorable.
         label_file_count = sum(
-            1 for ln in pair["fix_diff"].splitlines() if ln.startswith("+++ "))
+            1 for ln in pair["fix_diff"].splitlines() if ln.startswith("+++ ")
+        )
         # fix_diff already carries source files only (both the curated-patch and
         # git-show label paths drop tests/docs/generated), so every `+++ ` path not
         # in the input window is a genuine omitted source file. Normalize the diff
@@ -1780,9 +1999,14 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # --no-prefix) header spelling — never hardcode the `b/` width.
         included_set = set(included)
         omitted_source_files = sorted(
-            {p for ln in pair["fix_diff"].splitlines() if ln.startswith("+++ ")
-             for p in [_strip_ab_prefix(ln[4:])]
-             if p and p != "/dev/null" and p not in included_set})
+            {
+                p
+                for ln in pair["fix_diff"].splitlines()
+                if ln.startswith("+++ ")
+                for p in [_strip_ab_prefix(ln[4:])]
+                if p and p != "/dev/null" and p not in included_set
+            }
+        )
         record = {
             "messages": [
                 {"role": "system", "content": _redact(_AUTHORING_SYSTEM)},
@@ -1793,10 +2017,13 @@ def _run_authoring(args: argparse.Namespace) -> int:
             "split": split,
             "provenance": {
                 "bundle_id": bundle.get("bundle_id"),
-                "cve_id": pair["cve_id"], "attr_path": attr,
+                "cve_id": pair["cve_id"],
+                "attr_path": attr,
                 "split_family": family,
                 "fix_commit": pair["fix_commit"]["commit_sha"],
-                "steward_signed": bool((bundle.get("signed_manifest") or {}).get("rekor_log_index")),
+                "steward_signed": bool(
+                    (bundle.get("signed_manifest") or {}).get("rekor_log_index")
+                ),
                 "kind": bundle.get("kind"),
                 "authoring_validation_tier": tier,
                 "cert_green": cert_green,
@@ -1811,7 +2038,9 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 # stay-under-max_seq_len budget is auditable.
                 "included_source_files": included,
                 "omitted_source_files": omitted_source_files,
-                "input_window_truncated": bool(pair.get("input_window_truncated", False)),
+                "input_window_truncated": bool(
+                    pair.get("input_window_truncated", False)
+                ),
                 "input_window_chars": len(pair["pre_fix_source"]),
                 # Multi-file status: a pair is eligible when its whole label is
                 # authorable from the input (no omitted source file, label within the
@@ -1821,19 +2050,35 @@ def _run_authoring(args: argparse.Namespace) -> int:
                 # grandfathered_degraded_input record is never emitted; the branch is
                 # kept only so the status stays computable for any diagnostic caller.
                 "authoring_multifile_status": (
-                    "single-file" if label_file_count <= 1
-                    else "multifile-v1" if label_file_count <= _MAX_MULTI_SOURCE_FILES
+                    "single-file"
+                    if label_file_count <= 1
+                    else "multifile-v1"
+                    if label_file_count <= _MAX_MULTI_SOURCE_FILES
                     and not omitted_source_files
-                    else "grandfathered_degraded_input"),
+                    else "grandfathered_degraded_input"
+                ),
                 "eligible_under_multifile_v1": (
-                    label_file_count <= _MAX_MULTI_SOURCE_FILES and not omitted_source_files),
-                "label_grounding_source": pair.get("label_grounding_source", "upstream-commit"),
+                    label_file_count <= _MAX_MULTI_SOURCE_FILES
+                    and not omitted_source_files
+                ),
+                "label_grounding_source": pair.get(
+                    "label_grounding_source", "upstream-commit"
+                ),
             },
         }
-        emittable.append({"identity": identity, "bd": bd, "pair": pair,
-                          "record": record, "split": split, "diagnostic": diagnostic,
-                          "signed": signed, "cert_green": cert_green,
-                          "vuln_len": len(vuln)})
+        emittable.append(
+            {
+                "identity": identity,
+                "bd": bd,
+                "pair": pair,
+                "record": record,
+                "split": split,
+                "diagnostic": diagnostic,
+                "signed": signed,
+                "cert_green": cert_green,
+                "vuln_len": len(vuln),
+            }
+        )
 
     # Phase 2 — canonical selection per pair identity (codex peer <redacted-session-id> Q2).
     # Group the emittable records by identity; within each group keep the one the
@@ -1854,10 +2099,19 @@ def _run_authoring(args: argparse.Namespace) -> int:
         for loser in ranked[1:]:
             kept = winner["bd"].name
             authoring_dedup_skips.append(
-                {"bundle": loser["bd"].name, "cve_id": loser["pair"]["cve_id"],
-                 "kept": kept, "reason": f"duplicate authoring pair; kept {kept}"})
-            excluded.append({"bundle": loser["bd"].name,
-                             "reason": f"duplicate authoring pair; kept {kept}"})
+                {
+                    "bundle": loser["bd"].name,
+                    "cve_id": loser["pair"]["cve_id"],
+                    "kept": kept,
+                    "reason": f"duplicate authoring pair; kept {kept}",
+                }
+            )
+            excluded.append(
+                {
+                    "bundle": loser["bd"].name,
+                    "reason": f"duplicate authoring pair; kept {kept}",
+                }
+            )
         diagnostics.append(winner["diagnostic"])
         # Canary families are held out of the training JSONL (gate-pilot only).
         (canaries if winner["split"] == "canary" else examples).append(winner["record"])
@@ -1877,13 +2131,21 @@ def _run_authoring(args: argparse.Namespace) -> int:
     for e in examples:
         splits[e["split"]] = splits.get(e["split"], 0) + 1
     manifest = {
-        "scope": "authoring", "schema_version": "1.0.0",
-        "eligible_examples": len(examples), "splits": splits,
+        "scope": "authoring",
+        "schema_version": "1.0.0",
+        "eligible_examples": len(examples),
+        "splits": splits,
         "tiers": {
-            "cert-green": sum(1 for e in examples + canaries
-                              if e["provenance"]["authoring_validation_tier"] == "cert-green"),
-            "behavioral-only": sum(1 for e in examples + canaries
-                                   if e["provenance"]["authoring_validation_tier"] == "behavioral-only"),
+            "cert-green": sum(
+                1
+                for e in examples + canaries
+                if e["provenance"]["authoring_validation_tier"] == "cert-green"
+            ),
+            "behavioral-only": sum(
+                1
+                for e in examples + canaries
+                if e["provenance"]["authoring_validation_tier"] == "behavioral-only"
+            ),
         },
         "families": sorted({e["provenance"]["split_family"] for e in examples}),
         "canary_examples": len(canaries),
@@ -1906,29 +2168,41 @@ def _run_authoring(args: argparse.Namespace) -> int:
         # fully shown in the input (multifile-v1); a >3-file label is grandfathered
         # with a degraded single-file input until v2 (grandfathered_degraded_input).
         "multi_file_label_bundles": sorted(
-            e["provenance"]["cve_id"] for e in examples + canaries
-            if e["provenance"].get("label_file_count", 1) > 1),
+            e["provenance"]["cve_id"]
+            for e in examples + canaries
+            if e["provenance"].get("label_file_count", 1) > 1
+        ),
         "grandfathered_degraded_bundles": sorted(
-            e["provenance"]["cve_id"] for e in examples + canaries
-            if e["provenance"].get("authoring_multifile_status") == "grandfathered_degraded_input"),
+            e["provenance"]["cve_id"]
+            for e in examples + canaries
+            if e["provenance"].get("authoring_multifile_status")
+            == "grandfathered_degraded_input"
+        ),
         "diagnostics": diagnostics,
         "low_signal_bundles": [d["bundle"] for d in diagnostics if d["low_signal"]],
-        "git_show_fallback_bundles": [d["bundle"] for d in diagnostics
-                                      if d.get("label_source") == "git-show-fallback"],
+        "git_show_fallback_bundles": [
+            d["bundle"]
+            for d in diagnostics
+            if d.get("label_source") == "git-show-fallback"
+        ],
         "note": "label = validated upstream source fix; input = CVE (vuln-only) + pre-fix source. "
-                "Eligibility = behavioral gate (unpatched fires, backported clean, real "
-                "discriminator) + upstream-grounded label + leak scrub; cert-green is NOT required "
-                "(provenance.authoring_validation_tier records cert-green vs behavioral-only). "
-                "Leakage-partitioned: these CVEs are the author-from-vuln task; exclude them from "
-                "any transcription/backport-package export to avoid answer-key leakage. "
-                "low_signal_bundles produced 0 scrub symbols — review their inputs by hand.",
+        "Eligibility = behavioral gate (unpatched fires, backported clean, real "
+        "discriminator) + upstream-grounded label + leak scrub; cert-green is NOT required "
+        "(provenance.authoring_validation_tier records cert-green vs behavioral-only). "
+        "Leakage-partitioned: these CVEs are the author-from-vuln task; exclude them from "
+        "any transcription/backport-package export to avoid answer-key leakage. "
+        "low_signal_bundles produced 0 scrub symbols — review their inputs by hand.",
     }
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (out_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
     if args.format == "json":
         print(json.dumps(manifest, indent=2, sort_keys=True))
     else:
         print(f"authoring export -> {jsonl}")
-        print(f"  examples: {len(examples)}  splits: {splits}  excluded: {len(excluded)}")
+        print(
+            f"  examples: {len(examples)}  splits: {splits}  excluded: {len(excluded)}"
+        )
     return 0
 
 
@@ -1958,14 +2232,18 @@ def run(args: argparse.Namespace) -> int:
             return 2
         sm = json.loads(manifest_path.read_text())
         split_overrides = {k: v["split"] for k, v in sm.get("overrides", {}).items()}
-        split_manifest_meta = {"name": sm.get("name"), "path": str(manifest_path),
-                               "overrides": list(split_overrides.keys())}
+        split_manifest_meta = {
+            "name": sm.get("name"),
+            "path": str(manifest_path),
+            "overrides": list(split_overrides.keys()),
+        }
 
     # Enumerate real-CVE positives (traces/example, skip synthetic CVE-0000-*) +
     # mutation-based negatives (traces/negatives). Deterministic order.
     negatives_root: Path = args.negatives_root
     bundle_dirs = sorted(
-        d for d in traces_root.glob("CVE-*")
+        d
+        for d in traces_root.glob("CVE-*")
         if d.is_dir() and not d.name.startswith("CVE-0000")
     )
     negative_dirs: set[Path] = set()
@@ -1997,7 +2275,10 @@ def run(args: argparse.Namespace) -> int:
         # Otherwise it would train a deliberately-defective patch as a positive
         # (e.g. a mutation the Reviewer mistakenly accepted, or a stray bundle).
         if ex is not None and bd in negative_dirs:
-            if ex["provenance"].get("negative_source") != "mutation" or ex["label"] != "negative":
+            if (
+                ex["provenance"].get("negative_source") != "mutation"
+                or ex["label"] != "negative"
+            ):
                 status["eligibility_for_training"] = False
                 status["exclusion_reason"] = (
                     f"negatives-root bundle is not a kept mutation reject "
@@ -2010,7 +2291,10 @@ def run(args: argparse.Namespace) -> int:
         # REJECTED is a correct fix wrongly rejected (the very failure we train
         # against) — it must NOT enter the corpus as a negative; exclude entirely.
         if ex is not None and bd in reorg_dirs:
-            if ex["provenance"].get("positive_source") != "reorg" or ex["label"] != "positive":
+            if (
+                ex["provenance"].get("positive_source") != "reorg"
+                or ex["label"] != "positive"
+            ):
                 status["eligibility_for_training"] = False
                 status["exclusion_reason"] = (
                     f"reorg-positives-root bundle is not a kept reorg accept "
@@ -2019,8 +2303,12 @@ def run(args: argparse.Namespace) -> int:
                 statuses.append(status)
                 continue
         # Defensive: a positives-root bundle must NOT carry mutation provenance.
-        if ex is not None and bd not in negative_dirs and bd not in reorg_dirs \
-                and ex["provenance"].get("negative_source"):
+        if (
+            ex is not None
+            and bd not in negative_dirs
+            and bd not in reorg_dirs
+            and ex["provenance"].get("negative_source")
+        ):
             status["eligibility_for_training"] = False
             status["exclusion_reason"] = "mutation provenance in positives root"
             statuses.append(status)
@@ -2029,17 +2317,25 @@ def run(args: argparse.Namespace) -> int:
             # Canary split: excluded from training entirely (held-out for gate pilot only).
             if ex["split"] == "canary":
                 status["eligibility_for_training"] = False
-                status["exclusion_reason"] = "canary split (held-out for gate pilot only)"
+                status["exclusion_reason"] = (
+                    "canary split (held-out for gate pilot only)"
+                )
                 statuses.append(status)
                 continue
             # Include mutation_type AND reorg_type so a mutated negative or a
             # reorganized positive is NOT deduped against its base positive
             # (same cve+attr, legitimately distinct example).
-            dedup_key = (status["cve_id"], status["attr_path"],
-                         status.get("mutation_type"), status.get("reorg_type"))
+            dedup_key = (
+                status["cve_id"],
+                status["attr_path"],
+                status.get("mutation_type"),
+                status.get("reorg_type"),
+            )
             if dedup_key in seen:
                 status["eligibility_for_training"] = False
-                status["exclusion_reason"] = "duplicate (cve_id, attr_path, mutation_type)"
+                status["exclusion_reason"] = (
+                    "duplicate (cve_id, attr_path, mutation_type)"
+                )
                 statuses.append(status)
                 continue
             seen.add(dedup_key)
@@ -2047,11 +2343,15 @@ def run(args: argparse.Namespace) -> int:
         statuses.append(status)
 
     # Deterministic order: by split, label, then bundle_id + mutation_type.
-    examples.sort(key=lambda e: (
-        e["split"], e["label"], e["provenance"]["bundle_id"] or "",
-        e["provenance"].get("mutation_type") or "",
-        e["provenance"].get("reorg_type") or "",
-    ))
+    examples.sort(
+        key=lambda e: (
+            e["split"],
+            e["label"],
+            e["provenance"]["bundle_id"] or "",
+            e["provenance"].get("mutation_type") or "",
+            e["provenance"].get("reorg_type") or "",
+        )
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = out_dir / "reviewer.jsonl"
@@ -2076,9 +2376,12 @@ def run(args: argparse.Namespace) -> int:
                 "attr_path": s["attr_path"],
                 # exclusion_reason can echo raw artifact text from a parser
                 # exception; redact it like every other exported field.
-                "exclusion_reason": _redact(s["exclusion_reason"]) if s["exclusion_reason"] else s["exclusion_reason"],
+                "exclusion_reason": _redact(s["exclusion_reason"])
+                if s["exclusion_reason"]
+                else s["exclusion_reason"],
             }
-            for s in statuses if not s["eligibility_for_training"]
+            for s in statuses
+            if not s["eligibility_for_training"]
         ],
         "splits": {
             sp: _count(lambda e, sp=sp: e["split"] == sp)
@@ -2091,7 +2394,9 @@ def run(args: argparse.Namespace) -> int:
         "families": sorted({e["provenance"]["split_family"] for e in examples}),
         "leakage_check_ok": _leakage_ok(examples),
     }
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (out_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
 
     if args.format == "json":
         print(json.dumps(manifest, indent=2, sort_keys=True))

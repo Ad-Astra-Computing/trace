@@ -71,8 +71,13 @@ def assemble_user_content(inputs: dict[str, Any]) -> str:
                                                    compat. See execute._collect_bundle_local_pocs)
     """
     required = {
-        "finding", "upstream_ref", "impact", "maintainers",
-        "package_source", "patch_diff", "patch_rationale_md",
+        "finding",
+        "upstream_ref",
+        "impact",
+        "maintainers",
+        "package_source",
+        "patch_diff",
+        "patch_rationale_md",
     }
     missing = required - set(inputs)
     if missing:

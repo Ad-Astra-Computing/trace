@@ -46,17 +46,45 @@ def _bundle_dir(
         },
     }
     import hashlib
-    patch_text = ("--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n"
-                  "-version = \"4.7.0\";\n+version = \"4.7.1\";\n")
+
+    patch_text = (
+        "--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n"
+        '-version = "4.7.0";\n+version = "4.7.1";\n'
+    )
     if with_patch_diff:
         # a finalized bundle lists patch.diff in the signed manifest (trace pr verifies it)
-        bundle["files"] = {"patch.diff": {"sha256": hashlib.sha256(patch_text.encode()).hexdigest()}}
+        bundle["files"] = {
+            "patch.diff": {"sha256": hashlib.sha256(patch_text.encode()).hexdigest()}
+        }
     (d / "bundle.json").write_text(json.dumps(bundle))
     (d / "resolver-input.json").write_text(
-        json.dumps({"cve_id": "CVE-2025-8176", "attr_path": "libtiff", "current_version": "4.7.0", "candidate_refs": []})
+        json.dumps(
+            {
+                "cve_id": "CVE-2025-8176",
+                "attr_path": "libtiff",
+                "current_version": "4.7.0",
+                "candidate_refs": [],
+            }
+        )
     )
     (d / "upstream-ref.json").write_text(
-        json.dumps({"schema_version": "1.0.0", "cve_id": "CVE-2025-8176", "current_version": "4.7.0", "target_version": "4.7.1", "delta": {}, "tag": None, "release_url": None, "advisory_urls": [], "upstream_fix_commits": [], "eligibility": {}, "prefetch_hashes": [], "fix_tier": "patch", "replay_critical": True})
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": "CVE-2025-8176",
+                "current_version": "4.7.0",
+                "target_version": "4.7.1",
+                "delta": {},
+                "tag": None,
+                "release_url": None,
+                "advisory_urls": [],
+                "upstream_fix_commits": [],
+                "eligibility": {},
+                "prefetch_hashes": [],
+                "fix_tier": "patch",
+                "replay_critical": True,
+            }
+        )
     )
     if with_patch_diff:
         (d / "patch.diff").write_text(patch_text)
@@ -73,7 +101,11 @@ def _policy_dir(tmp_path: Path) -> Path:
             "repo": "nixpkgs",
             "url": "https://github.com/Ad-Astra-Computing/nixpkgs",
             "ssh_url": "git@github.com:Ad-Astra-Computing/nixpkgs.git",
-            "upstream": {"owner": "NixOS", "repo": "nixpkgs", "url": "https://github.com/NixOS/nixpkgs"},
+            "upstream": {
+                "owner": "NixOS",
+                "repo": "nixpkgs",
+                "url": "https://github.com/NixOS/nixpkgs",
+            },
             "default_branch": "master",
             "tracked_channels": ["nixos-unstable"],
         },
@@ -253,7 +285,9 @@ def test_dry_run_aborts_if_apply_check_fails(tmp_path: Path, capsys) -> None:
     (pkg_dir / "package.nix").write_text('{ version = "4.7.0"; }')
 
     with mock.patch("subprocess.run") as mock_run:
-        mock_run.return_value = mock.MagicMock(returncode=1, stdout="", stderr="hunk failed")
+        mock_run.return_value = mock.MagicMock(
+            returncode=1, stdout="", stderr="hunk failed"
+        )
 
         rc = pr_mod.run(_args(bd, pp, dry_run=True, nixpkgs_checkout=nixpkgs_dir))
 
@@ -274,23 +308,37 @@ def test_push_uses_ssh_url_from_policy(tmp_path: Path) -> None:
     pkg_dir.mkdir(parents=True)
     (pkg_dir / "package.nix").write_text('{ version = "4.7.0"; }')
 
-    with mock.patch("tools.trace_cli.pr._commit_is_only_the_patch", return_value=(True, "mocked")), \
-         mock.patch("tools.trace_cli.pr._resolve_base", return_value="master"), \
-         mock.patch("subprocess.run") as mock_run:
+    with (
+        mock.patch(
+            "tools.trace_cli.pr._commit_is_only_the_patch",
+            return_value=(True, "mocked"),
+        ),
+        mock.patch("tools.trace_cli.pr._resolve_base", return_value="master"),
+        mock.patch("subprocess.run") as mock_run,
+    ):
         # git ops + gh return 0; gh pr create returns a PR url on stdout.
         def _fake(cmd, *a, **k):
-            stdout = "https://github.com/Ad-Astra-Computing/nixpkgs/pull/1" if cmd[:2] == ["gh", "pr"] else ""
+            stdout = (
+                "https://github.com/Ad-Astra-Computing/nixpkgs/pull/1"
+                if cmd[:2] == ["gh", "pr"]
+                else ""
+            )
             return mock.MagicMock(returncode=0, stdout=stdout, stderr="")
+
         mock_run.side_effect = _fake
         rc = pr_mod.run(_args(bd, pp, nixpkgs_checkout=nixpkgs_dir))
 
     assert rc == 0
-    push_calls = [c.args[0] for c in mock_run.call_args_list
-                  if c.args and c.args[0][:2] == ["git", "push"]]
+    push_calls = [
+        c.args[0]
+        for c in mock_run.call_args_list
+        if c.args and c.args[0][:2] == ["git", "push"]
+    ]
     assert push_calls, "expected a git push"
     # the push target must be the SSH url, never the https fork url
-    assert any("git@github.com:Ad-Astra-Computing/nixpkgs.git" in arg
-               for arg in push_calls[0]), push_calls[0]
+    assert any(
+        "git@github.com:Ad-Astra-Computing/nixpkgs.git" in arg for arg in push_calls[0]
+    ), push_calls[0]
     assert not any("https://github.com" in arg for arg in push_calls[0])
 
 
@@ -311,18 +359,28 @@ def test_push_url_flag_overrides_ssh_default(tmp_path: Path) -> None:
     nixpkgs_dir = _mk_nixpkgs(tmp_path)
     custom = "https://github.com/Ad-Astra-Computing/nixpkgs.git"
 
-    with mock.patch("tools.trace_cli.pr._commit_is_only_the_patch", return_value=(True, "mocked")), \
-         mock.patch("tools.trace_cli.pr._resolve_base", return_value="master"), \
-         mock.patch("subprocess.run") as mock_run:
+    with (
+        mock.patch(
+            "tools.trace_cli.pr._commit_is_only_the_patch",
+            return_value=(True, "mocked"),
+        ),
+        mock.patch("tools.trace_cli.pr._resolve_base", return_value="master"),
+        mock.patch("subprocess.run") as mock_run,
+    ):
+
         def _fake(cmd, *a, **k):
             stdout = "https://github.com/x/y/pull/2" if cmd[:2] == ["gh", "pr"] else ""
             return mock.MagicMock(returncode=0, stdout=stdout, stderr="")
+
         mock_run.side_effect = _fake
         rc = pr_mod.run(_args(bd, pp, nixpkgs_checkout=nixpkgs_dir, push_url=custom))
 
     assert rc == 0
-    push_calls = [c.args[0] for c in mock_run.call_args_list
-                  if c.args and c.args[0][:2] == ["git", "push"]]
+    push_calls = [
+        c.args[0]
+        for c in mock_run.call_args_list
+        if c.args and c.args[0][:2] == ["git", "push"]
+    ]
     assert push_calls and any(custom in arg for arg in push_calls[0])
     # the override beat the ssh default
     assert not any("git@github.com" in arg for arg in push_calls[0])
@@ -332,24 +390,22 @@ def test_push_url_flag_overrides_ssh_default(tmp_path: Path) -> None:
     "bad",
     [
         # --- upstream, every spelling git would accept ---
-        "git@github.com:NixOS/nixpkgs.git",            # scp-form ssh
-        "https://github.com/nixos/NixPkgs.git",        # https, case-folded
-        "ssh://git@github.com:22/NixOS/nixpkgs.git",   # explicit port
-        "https://github.com/NixOS/nixpkgs.git#x",      # client-side fragment
-        "https://github.com/NixOS/nixpkgs?foo=1",      # query string
-        "https://github.com/Ad-Astra-Computing/nixpkgs;foo",    # path params
+        "git@github.com:NixOS/nixpkgs.git",  # scp-form ssh
+        "https://github.com/nixos/NixPkgs.git",  # https, case-folded
+        "ssh://git@github.com:22/NixOS/nixpkgs.git",  # explicit port
+        "https://github.com/NixOS/nixpkgs.git#x",  # client-side fragment
+        "https://github.com/NixOS/nixpkgs?foo=1",  # query string
+        "https://github.com/Ad-Astra-Computing/nixpkgs;foo",  # path params
         # --- other destinations the fork-only boundary forbids ---
-        "origin",                                       # bare remote alias
-        "https://git.example.com/group/nixpkgs",       # non-GitHub mirror
-        "https://git.example.com/g/sub/nixpkgs.git",   # nested-path mirror
+        "origin",  # bare remote alias
+        "https://git.example.com/group/nixpkgs",  # non-GitHub mirror
+        "https://git.example.com/g/sub/nixpkgs.git",  # nested-path mirror
         "https://x:tok@github.com/Ad-Astra-Computing/nixpkgs",  # creds in URL
-        "https://github.com/Other-Owner/nixpkgs",      # wrong owner
-        "https://github.com:443/Ad-Astra-Computing/nixpkgs",    # explicit port
+        "https://github.com/Other-Owner/nixpkgs",  # wrong owner
+        "https://github.com:443/Ad-Astra-Computing/nixpkgs",  # explicit port
     ],
 )
-def test_push_url_rejects_non_fork_targets(
-    tmp_path: Path, capsys, bad: str
-) -> None:
+def test_push_url_rejects_non_fork_targets(tmp_path: Path, capsys, bad: str) -> None:
     """--push-url is a transport override for the configured fork, not a
     destination override. Anything that doesn't normalize to a plain
     https://github.com/<fork> is rejected fail-closed, and nothing is pushed."""
@@ -362,8 +418,11 @@ def test_push_url_rejects_non_fork_targets(
 
     assert rc != 0, f"{bad!r} should be rejected"
     assert "trust boundary" in capsys.readouterr().err.lower()
-    assert not [c for c in mock_run.call_args_list
-                if c.args and c.args[0][:2] == ["git", "push"]]
+    assert not [
+        c
+        for c in mock_run.call_args_list
+        if c.args and c.args[0][:2] == ["git", "push"]
+    ]
 
 
 # ─── helper unit tests ────────────────────────────────────────────────────────
@@ -385,8 +444,17 @@ def test_resolve_attr_package_dir_returns_none_when_missing(tmp_path: Path) -> N
 
 def test_resolve_attr_package_dir_rejects_unsafe_attr(tmp_path: Path) -> None:
     """Attrs that fail _ATTR_SAFE_RE return None without invoking nix eval."""
-    for bad in ["ruby}; builtins.readFile /etc/passwd; ({", "a b", "1start", ".leading", "a..b", ""]:
-        assert pr_mod._resolve_attr_package_dir(tmp_path, bad) is None, f"expected None for {bad!r}"
+    for bad in [
+        "ruby}; builtins.readFile /etc/passwd; ({",
+        "a b",
+        "1start",
+        ".leading",
+        "a..b",
+        "",
+    ]:
+        assert pr_mod._resolve_attr_package_dir(tmp_path, bad) is None, (
+            f"expected None for {bad!r}"
+        )
 
 
 def test_build_pr_body_includes_cve_and_rekor(tmp_path: Path) -> None:
@@ -431,7 +499,16 @@ def test_build_pr_body_includes_cert_run_url(tmp_path: Path) -> None:
 
 def test_load_attr_returns_attr_path(tmp_path: Path) -> None:
     ri = tmp_path / "resolver-input.json"
-    ri.write_text(json.dumps({"attr_path": "mruby", "cve_id": "CVE-2025-7207", "current_version": "3.3.0", "candidate_refs": []}))
+    ri.write_text(
+        json.dumps(
+            {
+                "attr_path": "mruby",
+                "cve_id": "CVE-2025-7207",
+                "current_version": "3.3.0",
+                "candidate_refs": [],
+            }
+        )
+    )
     attr, err = pr_mod._load_attr(tmp_path)
     assert attr == "mruby"
     assert err is None
@@ -446,19 +523,36 @@ def test_load_attr_fails_when_missing(tmp_path: Path) -> None:
 
 # ─── review-PR mode ───────────────────────────────────────────────────────────
 
-def _backport_bundle(tmp_path: Path, *, rekor_log_index=9999999, with_build=True) -> Path:
-    d = _bundle_dir(tmp_path, kind="human-review-required", rekor_log_index=rekor_log_index)
+
+def _backport_bundle(
+    tmp_path: Path, *, rekor_log_index=9999999, with_build=True
+) -> Path:
+    d = _bundle_dir(
+        tmp_path, kind="human-review-required", rekor_log_index=rekor_log_index
+    )
     b = json.loads((d / "bundle.json").read_text())
     b["kind_reason"] = "source-backport-experimental"
     if with_build:
-        b.setdefault("files", {})["build.json"] = {"sha256": "0" * 64, "bytes": 1,
-                                                   "producer_role": "builder", "replay_critical": False}
+        b.setdefault("files", {})["build.json"] = {
+            "sha256": "0" * 64,
+            "bytes": 1,
+            "producer_role": "builder",
+            "replay_critical": False,
+        }
     (d / "bundle.json").write_text(json.dumps(b))
-    (d / "upstream-ref.json").write_text(json.dumps({
-        "cve_id": "CVE-2025-8176", "current_version": "4.7.0", "target_version": "4.7.0",
-        "upstream_fix_commits": [{"repo_url": "https://github.com/x/y", "commit_sha": "deadbeef"}],
-        "eligibility": {"patch_strategy": "source-backport"},
-    }))
+    (d / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-2025-8176",
+                "current_version": "4.7.0",
+                "target_version": "4.7.0",
+                "upstream_fix_commits": [
+                    {"repo_url": "https://github.com/x/y", "commit_sha": "deadbeef"}
+                ],
+                "eligibility": {"patch_strategy": "source-backport"},
+            }
+        )
+    )
     return d
 
 
@@ -531,18 +625,29 @@ def test_auto_merge_body_names_a_version_bump_as_a_bump(tmp_path):
     every auto-merge PR carried a patch, which is false for the bump lane."""
     bd = tmp_path / "b"
     bd.mkdir()
-    bundle = {"cve_id": "CVE-2025-1", "bundle_id": "ab", "nixpkgs_rev": "d" * 40,
-              "signed_manifest": {}}
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"current_version": "1.4.7", "target_version": "1.4.8"}))
+    bundle = {
+        "cve_id": "CVE-2025-1",
+        "bundle_id": "ab",
+        "nixpkgs_rev": "d" * 40,
+        "signed_manifest": {},
+    }
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"current_version": "1.4.7", "target_version": "1.4.8"})
+    )
     body = pr_mod._build_pr_body(bundle, bd, None)
     assert "1.4.8" in body
     assert "backport" not in body
     _assert_reads_as_prose(body)
 
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"current_version": "1.4.7", "target_version": "1.4.7",
-         "eligibility": {"patch_strategy": "source-backport"}}))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "current_version": "1.4.7",
+                "target_version": "1.4.7",
+                "eligibility": {"patch_strategy": "source-backport"},
+            }
+        )
+    )
     backport = pr_mod._build_pr_body(bundle, bd, None)
     assert "backports the fix as an in-tree patch" in backport
     _assert_reads_as_prose(backport)
@@ -554,10 +659,16 @@ def test_same_version_bundle_without_a_strategy_reads_as_a_backport(tmp_path):
     calling it a bump would claim the PR moves a package to its own version."""
     bd = tmp_path / "b"
     bd.mkdir()
-    bundle = {"cve_id": "CVE-2026-1998", "kind": "auto-merge", "bundle_id": "ab",
-              "nixpkgs_rev": "d" * 40, "signed_manifest": {}}
-    (bd / "upstream-ref.json").write_text(json.dumps(
-        {"current_version": "1.27.0", "target_version": "1.27.0"}))
+    bundle = {
+        "cve_id": "CVE-2026-1998",
+        "kind": "auto-merge",
+        "bundle_id": "ab",
+        "nixpkgs_rev": "d" * 40,
+        "signed_manifest": {},
+    }
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"current_version": "1.27.0", "target_version": "1.27.0"})
+    )
     body = pr_mod._build_pr_body(bundle, bd, None)
     assert "backports the fix as an in-tree patch" in body
     assert "moves the package to" not in body
@@ -567,8 +678,12 @@ def test_same_version_bundle_without_a_strategy_reads_as_a_backport(tmp_path):
 def test_auto_merge_body_survives_a_missing_upstream_ref(tmp_path):
     bd = tmp_path / "b"
     bd.mkdir()
-    bundle = {"cve_id": "CVE-2025-1", "bundle_id": "ab", "nixpkgs_rev": "d" * 40,
-              "signed_manifest": {}}
+    bundle = {
+        "cve_id": "CVE-2025-1",
+        "bundle_id": "ab",
+        "nixpkgs_rev": "d" * 40,
+        "signed_manifest": {},
+    }
     body = pr_mod._build_pr_body(bundle, bd, None)
     assert "carries the fix" in body
     _assert_reads_as_prose(body)
@@ -590,7 +705,7 @@ def test_pr_body_satisfies_the_fork_policy(tmp_path):
         "signed_manifest": {
             "rekor_log_index": 9999999,
             "identity_subject": "https://github.com/Ad-Astra-Computing/trace/"
-                                ".github/workflows/steward.yml@refs/heads/main",
+            ".github/workflows/steward.yml@refs/heads/main",
             "identity_issuer": "https://token.actions.githubusercontent.com",
         },
     }
@@ -602,10 +717,10 @@ def test_pr_body_satisfies_the_fork_policy(tmp_path):
         # two halves: the bundle id AND the pinned commit, in full. An
         # abbreviated rev does not identify a commit unambiguously.
         "link to the trace bundle ID + commit": ("abcd1234ef567890", "d" * 40),
-        "Steward verdict (auto-merge / human-review-required / advisory-only)":
-            "human-review-required",
-        "the bundle's signed_manifest.identity_subject for verifiability":
-            bundle["signed_manifest"]["identity_subject"],
+        "Steward verdict (auto-merge / human-review-required / advisory-only)": "human-review-required",
+        "the bundle's signed_manifest.identity_subject for verifiability": bundle[
+            "signed_manifest"
+        ]["identity_subject"],
         "the Rekor log entry link": "rekor.sigstore.dev",
     }
     for item in required:
@@ -614,7 +729,7 @@ def test_pr_body_satisfies_the_fork_policy(tmp_path):
             "know how to check it; add a check rather than widening the list"
         )
         expected = checks[item]
-        for fragment in (expected if isinstance(expected, tuple) else (expected,)):
+        for fragment in expected if isinstance(expected, tuple) else (expected,):
             assert fragment in body, f"body omits {fragment!r}, required by {item!r}"
     _assert_reads_as_prose(body)
 
@@ -627,8 +742,9 @@ def test_the_posted_body_is_the_built_body(tmp_path):
 
     bd = _backport_bundle(tmp_path)
     bundle = json.loads((bd / "bundle.json").read_text())
-    body = pr_mod._build_pr_body(bundle, bd, None, review=True,
-                                 base_branch="trace/base/abc123")
+    body = pr_mod._build_pr_body(
+        bundle, bd, None, review=True, base_branch="trace/base/abc123"
+    )
     assert "trace/base/abc123" in body
     assert "the diff is this change alone" in body
     _assert_reads_as_prose(body)
@@ -640,7 +756,8 @@ def test_the_posted_body_is_the_built_body(tmp_path):
 
     src = inspect.getsource(pr_mod.run)
     calls = [
-        node for node in ast.walk(ast.parse(textwrap.dedent(src)))
+        node
+        for node in ast.walk(ast.parse(textwrap.dedent(src)))
         if isinstance(node, ast.Call)
         and getattr(node.func, "id", None) == "_build_pr_body"
     ]
@@ -670,16 +787,29 @@ def test_preview_resolves_the_base_without_pushing_it(tmp_path):
 
     rev = "a" * 40
     base = pr_mod._resolve_base(
-        "o", "r", "master", rev, tmp_path, "url",
-        compare=lambda *a: "ahead", push=never, push_missing_base=False,
+        "o",
+        "r",
+        "master",
+        rev,
+        tmp_path,
+        "url",
+        compare=lambda *a: "ahead",
+        push=never,
+        push_missing_base=False,
     )
     assert base == f"trace/base/{rev}"
     assert not pushed, "a preview must not create a branch on the fork"
 
     # the executing path still creates it
     base = pr_mod._resolve_base(
-        "o", "r", "master", rev, tmp_path, "url",
-        compare=lambda *a: "ahead", push=never,
+        "o",
+        "r",
+        "master",
+        rev,
+        tmp_path,
+        "url",
+        compare=lambda *a: "ahead",
+        push=never,
     )
     assert base == f"trace/base/{rev}"
     assert pushed, "the executing path pushes the base it targets"
@@ -698,41 +828,58 @@ def test_git_add_includes_new_files_then_commit(tmp_path):
     include it (the old `git commit -a` dropped untracked new files, shipping a
     package.nix referencing a file absent from the PR)."""
     import subprocess
+
     repo = tmp_path / "repo"
     repo.mkdir()
     pkgdir = repo / "pkgs" / "by-name" / "xx" / "foo"
     pkgdir.mkdir(parents=True)
     (pkgdir / "package.nix").write_text("{ }: { patches = []; }\n")
-    for c in (["git", "init", "-q"], ["git", "add", "-A"],
-              ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]):
+    for c in (
+        ["git", "init", "-q"],
+        ["git", "add", "-A"],
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+    ):
         subprocess.run(c, cwd=repo, check=True, capture_output=True)
     # simulate `git apply`: a NEW patch file + a modified tracked file
     (pkgdir / "CVE-2026-0001.patch").write_text("--- a/x\n+++ b/x\n")
-    (pkgdir / "package.nix").write_text("{ }: { patches = [ ./CVE-2026-0001.patch ]; }\n")
+    (pkgdir / "package.nix").write_text(
+        "{ }: { patches = [ ./CVE-2026-0001.patch ]; }\n"
+    )
     assert pr_mod._git_add(repo, "pkgs/by-name/xx/foo") == 0
     assert pr_mod._git_commit(repo, "foo: fix") == 0
-    files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"],
-                           cwd=repo, capture_output=True, text=True).stdout.split()
-    assert "pkgs/by-name/xx/foo/CVE-2026-0001.patch" in files   # the new file IS in the commit
+    files = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    assert (
+        "pkgs/by-name/xx/foo/CVE-2026-0001.patch" in files
+    )  # the new file IS in the commit
     assert "pkgs/by-name/xx/foo/package.nix" in files
 
 
 def test_nixfmt_modified_targets_nix_not_patch(tmp_path, monkeypatch):
     """nixfmt runs on the modified .nix file, never the authored <CVE>.patch."""
     import subprocess as sp
+
     pkgdir = tmp_path / "pkgs" / "by-name" / "xx" / "foo"
     pkgdir.mkdir(parents=True)
     (pkgdir / "package.nix").write_text("{ }: { }\n")
     (pkgdir / "CVE-2026-0001.patch").write_text("--- a/x\n+++ b/x\n")
-    patch = ("diff --git a/CVE-2026-0001.patch b/CVE-2026-0001.patch\n--- /dev/null\n"
-             "+++ b/CVE-2026-0001.patch\n@@ -0,0 +1 @@\n+x\n"
-             "diff --git a/package.nix b/package.nix\n--- a/package.nix\n+++ b/package.nix\n@@\n+ patches=[];\n")
+    patch = (
+        "diff --git a/CVE-2026-0001.patch b/CVE-2026-0001.patch\n--- /dev/null\n"
+        "+++ b/CVE-2026-0001.patch\n@@ -0,0 +1 @@\n+x\n"
+        "diff --git a/package.nix b/package.nix\n--- a/package.nix\n+++ b/package.nix\n@@\n+ patches=[];\n"
+    )
     monkeypatch.setattr(pr_mod, "_find_nixfmt", lambda: ["true"])  # no-op formatter
     calls = []
     real_run = sp.run
+
     def spy(cmd, *a, **k):
         calls.append(cmd)
         return real_run(["true"], *a, **k)
+
     monkeypatch.setattr(pr_mod.subprocess, "run", spy)
     pr_mod._nixfmt_modified(tmp_path, "pkgs/by-name/xx/foo", patch)
     formatted = [c[-1] for c in calls]
@@ -748,28 +895,42 @@ def test_nixfmt_missing_warns_not_fails(tmp_path, monkeypatch, capsys):
 
 # ── apply-plan from the signed build.json (by-name / remap / repo-root) ──────
 
+
 def _bundle_with_build(tmp_path: Path, build_json: dict) -> tuple[Path, dict]:
     import hashlib
+
     bd = tmp_path / "bundle"
     bd.mkdir()
     bj_bytes = json.dumps(build_json).encode()
     (bd / "build.json").write_bytes(bj_bytes)
-    manifest = {"files": {"build.json": {"sha256": hashlib.sha256(bj_bytes).hexdigest()}}}
+    manifest = {
+        "files": {"build.json": {"sha256": hashlib.sha256(bj_bytes).hexdigest()}}
+    }
     return bd, manifest
 
 
 def test_verify_build_json_rejects_tampered(tmp_path: Path) -> None:
-    bd, manifest = _bundle_with_build(tmp_path, {"patch_apply": {"files_changed": ["pkgs/x/package.nix"]}})
-    (bd / "build.json").write_text('{"patch_apply": {"files_changed": ["pkgs/EVIL/package.nix"]}}')
+    bd, manifest = _bundle_with_build(
+        tmp_path, {"patch_apply": {"files_changed": ["pkgs/x/package.nix"]}}
+    )
+    (bd / "build.json").write_text(
+        '{"patch_apply": {"files_changed": ["pkgs/EVIL/package.nix"]}}'
+    )
     bj, err = pr_mod._verify_build_json(bd, manifest)
     assert bj is None and "does not match the signed manifest" in err
 
 
 def test_derive_plan_canonical_remap(tmp_path: Path) -> None:
-    bj = {"patch_apply": {"files_changed": ["pkgs/applications/x/putty/default.nix"],
-                          "package_file_remap": "package.nix -> .../default.nix (content-match)"}}
+    bj = {
+        "patch_apply": {
+            "files_changed": ["pkgs/applications/x/putty/default.nix"],
+            "package_file_remap": "package.nix -> .../default.nix (content-match)",
+        }
+    }
     patch = tmp_path / "p.diff"
-    patch.write_text("diff --git a/package.nix b/package.nix\n--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n-a\n+b\n")
+    patch.write_text(
+        "diff --git a/package.nix b/package.nix\n--- a/package.nix\n+++ b/package.nix\n@@ -1 +1 @@\n-a\n+b\n"
+    )
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert err is None and plan["mode"] == "canonical-package-remap"
     assert plan["package_dir"] == "pkgs/applications/x/putty"
@@ -780,7 +941,8 @@ def test_derive_plan_canonical_remap(tmp_path: Path) -> None:
 
 def test_derive_plan_by_name(tmp_path: Path) -> None:
     bj = {"patch_apply": {"files_changed": ["pkgs/by-name/ex/example/package.nix"]}}
-    patch = tmp_path / "p.diff"; patch.write_text("x")
+    patch = tmp_path / "p.diff"
+    patch.write_text("x")
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert err is None and plan["mode"] == "by-name"
     assert plan["package_dir"] == "pkgs/by-name/ex/example"
@@ -794,8 +956,11 @@ _MULTIFILE_DIFF = (
 
 
 def test_derive_plan_repo_root_multifile(tmp_path: Path) -> None:
-    bj = {"patch_apply": {"files_changed": ["pkgs/a/default.nix", "pkgs/b/thing.patch"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_MULTIFILE_DIFF)
+    bj = {
+        "patch_apply": {"files_changed": ["pkgs/a/default.nix", "pkgs/b/thing.patch"]}
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_MULTIFILE_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert err is None and plan["mode"] == "repo-root" and plan["package_dir"] == ""
     # the verified file list rides along so staging is exact, not `git add -- pkgs`
@@ -812,9 +977,17 @@ def test_derive_plan_by_name_package_nix_backport(tmp_path: Path) -> None:
     """A by-name source-backport: bundle-relative diff (package.nix + authored
     <CVE>.patch) applied with --directory into one package dir. The record carries
     repo paths; the plan replays the Builder's --directory apply."""
-    bj = {"patch_apply": {"apply_mode": "by-name-package-nix", "files_changed": [
-        "pkgs/by-name/ex/example/CVE-2025-0001.patch", "pkgs/by-name/ex/example/package.nix"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    bj = {
+        "patch_apply": {
+            "apply_mode": "by-name-package-nix",
+            "files_changed": [
+                "pkgs/by-name/ex/example/CVE-2025-0001.patch",
+                "pkgs/by-name/ex/example/package.nix",
+            ],
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_BY_NAME_BACKPORT_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert err is None and plan["mode"] == "by-name-package-nix"
     assert plan["package_dir"] == "pkgs/by-name/ex/example"
@@ -822,43 +995,73 @@ def test_derive_plan_by_name_package_nix_backport(tmp_path: Path) -> None:
     assert plan["files_changed"] == bj["patch_apply"]["files_changed"]
 
 
-def test_derive_plan_by_name_package_nix_rejects_unlisted_basename(tmp_path: Path) -> None:
+def test_derive_plan_by_name_package_nix_rejects_unlisted_basename(
+    tmp_path: Path,
+) -> None:
     """The record lists a different authored patch than the one patch.diff adds:
     staging the recorded set would drop the real file, so refuse."""
-    bj = {"patch_apply": {"apply_mode": "by-name-package-nix", "files_changed": [
-        "pkgs/by-name/ex/example/other.patch", "pkgs/by-name/ex/example/package.nix"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    bj = {
+        "patch_apply": {
+            "apply_mode": "by-name-package-nix",
+            "files_changed": [
+                "pkgs/by-name/ex/example/other.patch",
+                "pkgs/by-name/ex/example/package.nix",
+            ],
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_BY_NAME_BACKPORT_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None and "CVE-2025-0001.patch" in err and "inconsistent" in err
 
 
-def test_derive_plan_by_name_package_nix_rejects_nested_patch_paths(tmp_path: Path) -> None:
+def test_derive_plan_by_name_package_nix_rejects_nested_patch_paths(
+    tmp_path: Path,
+) -> None:
     """The record says --directory apply, but the patch names repo paths: the
     coordinate systems disagree, so refuse rather than guess."""
-    bj = {"patch_apply": {"apply_mode": "by-name-package-nix", "files_changed": [
-        "pkgs/a/default.nix", "pkgs/a/thing.patch"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(
-        "--- a/pkgs/a/default.nix\n+++ b/pkgs/a/default.nix\n@@ -1 +1 @@\n-a\n+b\n")
+    bj = {
+        "patch_apply": {
+            "apply_mode": "by-name-package-nix",
+            "files_changed": ["pkgs/a/default.nix", "pkgs/a/thing.patch"],
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(
+        "--- a/pkgs/a/default.nix\n+++ b/pkgs/a/default.nix\n@@ -1 +1 @@\n-a\n+b\n"
+    )
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None and "nested paths" in err
 
 
-def test_derive_plan_multifile_without_by_name_mode_stays_repo_root(tmp_path: Path) -> None:
+def test_derive_plan_multifile_without_by_name_mode_stays_repo_root(
+    tmp_path: Path,
+) -> None:
     """Without the by-name apply_mode marker a same-dir multi-file record keeps the
     repo-root rule (patch paths must be the recorded repo paths)."""
-    bj = {"patch_apply": {"files_changed": [
-        "pkgs/by-name/ex/example/CVE-2025-0001.patch", "pkgs/by-name/ex/example/package.nix"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    bj = {
+        "patch_apply": {
+            "files_changed": [
+                "pkgs/by-name/ex/example/CVE-2025-0001.patch",
+                "pkgs/by-name/ex/example/package.nix",
+            ]
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_BY_NAME_BACKPORT_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None and "inconsistent" in err
 
 
-def test_derive_plan_repo_root_rejects_record_missing_patched_file(tmp_path: Path) -> None:
+def test_derive_plan_repo_root_rejects_record_missing_patched_file(
+    tmp_path: Path,
+) -> None:
     """Fail closed when files_changed omits a path the patch actually modifies —
     staging only the listed subset would silently ship an incomplete PR (audit
     2026-07-20). files_changed here lacks pkgs/b/thing.patch."""
     bj = {"patch_apply": {"files_changed": ["pkgs/a/default.nix"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_MULTIFILE_DIFF)
+    patch = tmp_path / "p.diff"
+    patch.write_text(_MULTIFILE_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None
     assert err is not None and "pkgs/b/thing.patch" in err and "inconsistent" in err
@@ -867,9 +1070,17 @@ def test_derive_plan_repo_root_rejects_record_missing_patched_file(tmp_path: Pat
 def test_derive_plan_repo_root_allows_superset_record(tmp_path: Path) -> None:
     """A files_changed superset (a listed path the patch doesn't touch) is fine —
     staging an unchanged path is a no-op, not a dropped change."""
-    bj = {"patch_apply": {"files_changed":
-                          ["pkgs/a/default.nix", "pkgs/b/thing.patch", "pkgs/c/extra.nix"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_MULTIFILE_DIFF)
+    bj = {
+        "patch_apply": {
+            "files_changed": [
+                "pkgs/a/default.nix",
+                "pkgs/b/thing.patch",
+                "pkgs/c/extra.nix",
+            ]
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_MULTIFILE_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert err is None and plan["mode"] == "repo-root"
 
@@ -879,28 +1090,43 @@ def test_git_add_repo_root_stages_only_verified_files(tmp_path):
     subtree — a dirty --nixpkgs-checkout with unrelated WIP under pkgs/ must not leak
     that WIP into the PR (M2 / audit 2026-07-20)."""
     import subprocess
+
     repo = tmp_path / "repo"
     (repo / "pkgs" / "a").mkdir(parents=True)
     (repo / "pkgs" / "wip").mkdir(parents=True)
     (repo / "pkgs" / "a" / "default.nix").write_text("{ }: { }\n")
-    for c in (["git", "init", "-q"], ["git", "add", "-A"],
-              ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]):
+    for c in (
+        ["git", "init", "-q"],
+        ["git", "add", "-A"],
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+    ):
         subprocess.run(c, cwd=repo, check=True, capture_output=True)
     # the patch touched pkgs/a/default.nix; an unrelated dirty file sits under pkgs/wip
     (repo / "pkgs" / "a" / "default.nix").write_text("{ }: { patched = true; }\n")
     (repo / "pkgs" / "wip" / "SECRET.nix").write_text("operator WIP, must not ship\n")
     assert pr_mod._git_add(repo, "", ["pkgs/a/default.nix"]) == 0
     assert pr_mod._git_commit(repo, "a: fix") == 0
-    files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"],
-                           cwd=repo, capture_output=True, text=True).stdout.split()
-    assert files == ["pkgs/a/default.nix"]           # ONLY the verified file
-    assert "pkgs/wip/SECRET.nix" not in files          # WIP stayed out of the PR
+    files = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    assert files == ["pkgs/a/default.nix"]  # ONLY the verified file
+    assert "pkgs/wip/SECRET.nix" not in files  # WIP stayed out of the PR
 
 
 def test_derive_plan_rejects_traversal(tmp_path: Path) -> None:
-    for bad in ["../etc/passwd.nix", "/abs/package.nix", "pkgs/../x.nix", "notpkgs/x.nix", "pkgs/a/..\\b.nix"]:
+    for bad in [
+        "../etc/passwd.nix",
+        "/abs/package.nix",
+        "pkgs/../x.nix",
+        "notpkgs/x.nix",
+        "pkgs/a/..\\b.nix",
+    ]:
         bj = {"patch_apply": {"files_changed": [bad]}}
-        patch = tmp_path / "p.diff"; patch.write_text("x")
+        patch = tmp_path / "p.diff"
+        patch.write_text("x")
         plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
         assert plan is None and err is not None, bad
 
@@ -913,22 +1139,30 @@ def test_derive_plan_no_record_falls_back(tmp_path: Path) -> None:
 def test_verify_manifest_missing_on_disk_is_error(tmp_path: Path) -> None:
     # M1: a file listed in the signed manifest but absent on disk must ERROR,
     # never silently fall back (that would re-enable attr-steering by deletion).
-    bd = tmp_path / "b"; bd.mkdir()
-    manifest = {"files": {"build.json": {"sha256": "a" * 64}}}  # listed, but no file written
+    bd = tmp_path / "b"
+    bd.mkdir()
+    manifest = {
+        "files": {"build.json": {"sha256": "a" * 64}}
+    }  # listed, but no file written
     bj, err = pr_mod._verify_build_json(bd, manifest)
     assert bj is None and "missing on disk" in err
 
 
 def test_verify_manifest_absent_and_unlisted_falls_back(tmp_path: Path) -> None:
-    bd = tmp_path / "b"; bd.mkdir()
-    bj, err = pr_mod._verify_build_json(bd, {"files": {}})  # legacy: not listed, not present
+    bd = tmp_path / "b"
+    bd.mkdir()
+    bj, err = pr_mod._verify_build_json(
+        bd, {"files": {}}
+    )  # legacy: not listed, not present
     assert bj is None and err is None
 
 
 def test_verify_manifest_hashes_and_parses_same_bytes(tmp_path: Path) -> None:
     # M3: no TOCTOU — verified bytes are the parsed bytes.
     import hashlib
-    bd = tmp_path / "b"; bd.mkdir()
+
+    bd = tmp_path / "b"
+    bd.mkdir()
     raw = b'{"patch_apply": {"files_changed": ["pkgs/x/package.nix"]}}'
     (bd / "build.json").write_bytes(raw)
     manifest = {"files": {"build.json": {"sha256": hashlib.sha256(raw).hexdigest()}}}
@@ -939,7 +1173,9 @@ def test_verify_manifest_hashes_and_parses_same_bytes(tmp_path: Path) -> None:
 def test_review_title_is_not_bump_shaped():
     """A review-mode (source-backport) PR keeps the package at its current version;
     its title must say so rather than reading `attr -> version` like a bump."""
-    policy = {"pr_convention": {"title_format": "{cve_id}: {attr_path} -> {target_version}"}}
+    policy = {
+        "pr_convention": {"title_format": "{cve_id}: {attr_path} -> {target_version}"}
+    }
     bump = pr_mod._pr_title(policy, False, "CVE-2026-1", "foo", "1.2.3")
     review = pr_mod._pr_title(policy, True, "CVE-2026-1", "foo", "1.2.3")
     assert bump == "CVE-2026-1: foo -> 1.2.3"
@@ -947,7 +1183,10 @@ def test_review_title_is_not_bump_shaped():
     assert "->" not in review and "1.2.3" not in review
     # policy may override the review format
     policy["pr_convention"]["review_title_format"] = "{cve_id}: {attr_path} [backport]"
-    assert pr_mod._pr_title(policy, True, "CVE-2026-1", "foo", None) == "CVE-2026-1: foo [backport]"
+    assert (
+        pr_mod._pr_title(policy, True, "CVE-2026-1", "foo", None)
+        == "CVE-2026-1: foo [backport]"
+    )
 
 
 def test_derive_plan_canonical_source_backport_remap(tmp_path: Path) -> None:
@@ -955,11 +1194,18 @@ def test_derive_plan_canonical_source_backport_remap(tmp_path: Path) -> None:
     onto default.nix by content match and applied the two-file diff with
     --directory. The plan rewrites the package.nix basename in a temp copy and
     replays the --directory apply, staging exactly the recorded files."""
-    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
-          "package_file_remap": "package.nix -> pkgs/tools/misc/tmux/default.nix (content-match)",
-          "files_changed": ["pkgs/tools/misc/tmux/default.nix",
-                            "pkgs/tools/misc/tmux/CVE-2025-0001.patch"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+    bj = {
+        "patch_apply": {
+            "apply_mode": "canonical-source-backport-remap",
+            "package_file_remap": "package.nix -> pkgs/tools/misc/tmux/default.nix (content-match)",
+            "files_changed": [
+                "pkgs/tools/misc/tmux/default.nix",
+                "pkgs/tools/misc/tmux/CVE-2025-0001.patch",
+            ],
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_BY_NAME_BACKPORT_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert err is None and plan["mode"] == "canonical-source-backport-remap"
     assert plan["package_dir"] == "pkgs/tools/misc/tmux"
@@ -969,31 +1215,55 @@ def test_derive_plan_canonical_source_backport_remap(tmp_path: Path) -> None:
     assert "+++ b/CVE-2025-0001.patch" in text
 
 
-def test_derive_plan_canonical_source_backport_remap_rejects_unlisted(tmp_path: Path) -> None:
-    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
-          "package_file_remap": "package.nix -> pkgs/tools/misc/tmux/default.nix (content-match)",
-          "files_changed": ["pkgs/tools/misc/tmux/default.nix",
-                            "pkgs/tools/misc/tmux/other.patch"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+def test_derive_plan_canonical_source_backport_remap_rejects_unlisted(
+    tmp_path: Path,
+) -> None:
+    bj = {
+        "patch_apply": {
+            "apply_mode": "canonical-source-backport-remap",
+            "package_file_remap": "package.nix -> pkgs/tools/misc/tmux/default.nix (content-match)",
+            "files_changed": [
+                "pkgs/tools/misc/tmux/default.nix",
+                "pkgs/tools/misc/tmux/other.patch",
+            ],
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_BY_NAME_BACKPORT_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None and "CVE-2025-0001.patch" in err and "inconsistent" in err
 
 
-def test_derive_plan_canonical_source_backport_remap_rejects_nested_paths(tmp_path: Path) -> None:
-    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
-          "package_file_remap": "package.nix -> pkgs/a/default.nix (content-match)",
-          "files_changed": ["pkgs/a/default.nix", "pkgs/a/thing.patch"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(
-        "--- a/pkgs/a/default.nix\n+++ b/pkgs/a/default.nix\n@@ -1 +1 @@\n-a\n+b\n")
+def test_derive_plan_canonical_source_backport_remap_rejects_nested_paths(
+    tmp_path: Path,
+) -> None:
+    bj = {
+        "patch_apply": {
+            "apply_mode": "canonical-source-backport-remap",
+            "package_file_remap": "package.nix -> pkgs/a/default.nix (content-match)",
+            "files_changed": ["pkgs/a/default.nix", "pkgs/a/thing.patch"],
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(
+        "--- a/pkgs/a/default.nix\n+++ b/pkgs/a/default.nix\n@@ -1 +1 @@\n-a\n+b\n"
+    )
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None and "nested paths" in err
 
 
-def test_derive_plan_canonical_source_backport_remap_requires_single_dir(tmp_path: Path) -> None:
-    bj = {"patch_apply": {"apply_mode": "canonical-source-backport-remap",
-          "package_file_remap": "package.nix -> pkgs/a/default.nix (content-match)",
-          "files_changed": ["pkgs/a/default.nix", "pkgs/b/CVE-2025-0001.patch"]}}
-    patch = tmp_path / "p.diff"; patch.write_text(_BY_NAME_BACKPORT_DIFF)
+def test_derive_plan_canonical_source_backport_remap_requires_single_dir(
+    tmp_path: Path,
+) -> None:
+    bj = {
+        "patch_apply": {
+            "apply_mode": "canonical-source-backport-remap",
+            "package_file_remap": "package.nix -> pkgs/a/default.nix (content-match)",
+            "files_changed": ["pkgs/a/default.nix", "pkgs/b/CVE-2025-0001.patch"],
+        }
+    }
+    patch = tmp_path / "p.diff"
+    patch.write_text(_BY_NAME_BACKPORT_DIFF)
     plan, err = pr_mod._derive_apply_plan(bj, patch, tmp_path)
     assert plan is None and "one pkgs/ dir" in err
 
@@ -1007,9 +1277,15 @@ def test_derive_plan_canonical_source_backport_remap_requires_single_dir(tmp_pat
 
 def test_resolve_base_keeps_master_when_it_contains_the_rev():
     from tools.trace_cli.pr import _resolve_base
+
     pushed = []
     base = _resolve_base(
-        "Ad-Astra-Computing", "nixpkgs", "master", "c" * 40, Path("/x"), "git@github.com:o/r.git",
+        "Ad-Astra-Computing",
+        "nixpkgs",
+        "master",
+        "c" * 40,
+        Path("/x"),
+        "git@github.com:o/r.git",
         compare=lambda owner, repo, base, rev: "behind",
         push=lambda nixpkgs, url, refspec: pushed.append(refspec) or 0,
     )
@@ -1019,10 +1295,16 @@ def test_resolve_base_keeps_master_when_it_contains_the_rev():
 
 def test_resolve_base_pushes_the_pinned_rev_when_master_does_not_contain_it():
     from tools.trace_cli.pr import _resolve_base
+
     pushed = []
     rev = "17de0b976395537756f30a3e78f2f06e5cec89ed"
     base = _resolve_base(
-        "Ad-Astra-Computing", "nixpkgs", "master", rev, Path("/x"), "git@github.com:o/r.git",
+        "Ad-Astra-Computing",
+        "nixpkgs",
+        "master",
+        rev,
+        Path("/x"),
+        "git@github.com:o/r.git",
         compare=lambda owner, repo, base, rev: "diverged",
         push=lambda nixpkgs, url, refspec: pushed.append(refspec) or 0,
     )
@@ -1032,31 +1314,77 @@ def test_resolve_base_pushes_the_pinned_rev_when_master_does_not_contain_it():
 
 def test_resolve_base_refuses_when_the_comparison_cannot_run():
     from tools.trace_cli.pr import _resolve_base
+
     with pytest.raises(RuntimeError, match="cannot decide the PR base"):
-        _resolve_base("o", "r", "master", "c" * 40, Path("/x"), "u",
-                      compare=lambda *a: None, push=lambda *a: 0)
+        _resolve_base(
+            "o",
+            "r",
+            "master",
+            "c" * 40,
+            Path("/x"),
+            "u",
+            compare=lambda *a: None,
+            push=lambda *a: 0,
+        )
 
 
 def _git_repo_with_base(tmp_path: Path) -> tuple[Path, str]:
     import subprocess
+
     repo = tmp_path / "nixpkgs"
     (repo / "pkgs/by-name/ma/mailpit").mkdir(parents=True)
     (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ }\n")
     (repo / "pkgs/other.nix").write_text("x\n")
-    g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
-                                  check=True, capture_output=True, text=True).stdout.strip()
-    g("init", "-q"); g("add", "."); g("commit", "-qm", "base")
+    g = lambda *a: subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    g("init", "-q")
+    g("add", ".")
+    g("commit", "-qm", "base")
     return repo, g("rev-parse", "HEAD")
 
 
 def test_commit_guard_accepts_one_commit_inside_the_package_dir(tmp_path: Path):
     import subprocess
     from tools.trace_cli.pr import _commit_is_only_the_patch
+
     repo, rev = _git_repo_with_base(tmp_path)
     (repo / "pkgs/by-name/ma/mailpit/CVE-1.patch").write_text("p\n")
-    (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ patches = [ ./CVE-1.patch ]; }\n")
-    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "add", "."], check=True)
-    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "fix"], check=True)
+    (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text(
+        "{ patches = [ ./CVE-1.patch ]; }\n"
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "add",
+            ".",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "fix",
+        ],
+        check=True,
+    )
     ok, why = _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")
     assert ok, why
 
@@ -1064,9 +1392,24 @@ def test_commit_guard_accepts_one_commit_inside_the_package_dir(tmp_path: Path):
 def test_commit_guard_refuses_files_outside_the_package_dir(tmp_path: Path):
     import subprocess
     from tools.trace_cli.pr import _commit_is_only_the_patch
+
     repo, rev = _git_repo_with_base(tmp_path)
     (repo / "pkgs/other.nix").write_text("changed\n")
-    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "oops"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qam",
+            "oops",
+        ],
+        check=True,
+    )
     ok, why = _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")
     assert not ok and "pkgs/other.nix" in why
 
@@ -1074,10 +1417,19 @@ def test_commit_guard_refuses_files_outside_the_package_dir(tmp_path: Path):
 def test_commit_guard_refuses_a_branch_not_cut_from_the_pinned_rev(tmp_path: Path):
     import subprocess
     from tools.trace_cli.pr import _commit_is_only_the_patch
+
     repo, rev = _git_repo_with_base(tmp_path)
-    g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
-    (repo / "pkgs/by-name/ma/mailpit/a").write_text("a\n"); g("add", "."); g("commit", "-qm", "one")
-    (repo / "pkgs/by-name/ma/mailpit/b").write_text("b\n"); g("add", "."); g("commit", "-qm", "two")
+    g = lambda *a: subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+        check=True,
+        capture_output=True,
+    )
+    (repo / "pkgs/by-name/ma/mailpit/a").write_text("a\n")
+    g("add", ".")
+    g("commit", "-qm", "one")
+    (repo / "pkgs/by-name/ma/mailpit/b").write_text("b\n")
+    g("add", ".")
+    g("commit", "-qm", "two")
     ok, why = _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")
     assert not ok and "pinned" in why
 
@@ -1087,8 +1439,15 @@ def test_shallow_clone_adds_no_anchor_commit():
     added, then the patch. The guard requires the patch's parent to be the
     pinned revision, so the clone must leave HEAD exactly there."""
     from tools.trace_cli.pr import _shallow_clone
+
     seen = []
-    with mock.patch("subprocess.run", side_effect=lambda cmd, **kw: (seen.append(cmd), mock.Mock(returncode=0, stdout="", stderr=""))[1]):
+    with mock.patch(
+        "subprocess.run",
+        side_effect=lambda cmd, **kw: (
+            seen.append(cmd),
+            mock.Mock(returncode=0, stdout="", stderr=""),
+        )[1],
+    ):
         assert _shallow_clone("https://x/y.git", "c" * 40, Path("/tmp/dest")) == 0
     assert not any("commit" in cmd for cmd in seen)
     assert any("FETCH_HEAD" in cmd for cmd in seen)
@@ -1099,12 +1458,31 @@ def test_commit_guard_uses_the_plan_files_in_repo_root_mode(tmp_path: Path):
     guard then compares against the plan's own file list instead of a prefix."""
     import subprocess
     from tools.trace_cli.pr import _commit_is_only_the_patch
+
     repo, rev = _git_repo_with_base(tmp_path)
     (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ changed = true; }\n")
-    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "fix"], check=True)
-    ok, why = _commit_is_only_the_patch(repo, rev, "", allowed_files=["pkgs/by-name/ma/mailpit/package.nix"])
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qam",
+            "fix",
+        ],
+        check=True,
+    )
+    ok, why = _commit_is_only_the_patch(
+        repo, rev, "", allowed_files=["pkgs/by-name/ma/mailpit/package.nix"]
+    )
     assert ok, why
-    ok, why = _commit_is_only_the_patch(repo, rev, "", allowed_files=["pkgs/by-name/ma/mailpit/other.nix"])
+    ok, why = _commit_is_only_the_patch(
+        repo, rev, "", allowed_files=["pkgs/by-name/ma/mailpit/other.nix"]
+    )
     assert not ok
 
 
@@ -1113,9 +1491,24 @@ def test_commit_guard_requires_exact_revision_equality(tmp_path: Path):
     full 40-character revision or the guard refuses."""
     import subprocess
     from tools.trace_cli.pr import _commit_is_only_the_patch
+
     repo, rev = _git_repo_with_base(tmp_path)
     (repo / "pkgs/by-name/ma/mailpit/package.nix").write_text("{ changed = true; }\n")
-    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "fix"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qam",
+            "fix",
+        ],
+        check=True,
+    )
     assert _commit_is_only_the_patch(repo, rev, "pkgs/by-name/ma/mailpit")[0]
     assert not _commit_is_only_the_patch(repo, rev[:12], "pkgs/by-name/ma/mailpit")[0]
     assert not _commit_is_only_the_patch(repo, "", "pkgs/by-name/ma/mailpit")[0]
@@ -1123,6 +1516,7 @@ def test_commit_guard_requires_exact_revision_equality(tmp_path: Path):
 
 def test_run_rejects_a_malformed_nixpkgs_rev(tmp_path: Path, capsys) -> None:
     from tools.trace_cli.pr import _validate_nixpkgs_rev
+
     assert _validate_nixpkgs_rev("c" * 40) is None
     assert "40" in _validate_nixpkgs_rev("c" * 12)
     assert "40" in _validate_nixpkgs_rev("")

@@ -25,6 +25,7 @@ Usage:
 Each responses file is {cve_id, variant?, sample?, generated} per line. Labels come from
 the file's basename. Writes a JSON report next to the first responses file's dir.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,8 +38,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.trace_cli.export import _fix_symbols, _parse_fix_diff  # noqa: E402
 
 CANARY_NAMES = {
-    "CVE-2022-37434": "zlib", "CVE-2026-42250": "bzip2recover",
-    "CVE-2024-47081": "requests", "CVE-2026-48526": "pyjwt",
+    "CVE-2022-37434": "zlib",
+    "CVE-2026-42250": "bzip2recover",
+    "CVE-2024-47081": "requests",
+    "CVE-2026-48526": "pyjwt",
 }
 
 
@@ -46,7 +49,10 @@ def _sr_to_diff(sr_text: str) -> str:
     """Convert search/replace blocks -> a pseudo unified diff (+/- lines via ndiff), so
     the SR-format adapter's output scores on the same graded ladder as diff-format output."""
     import difflib
-    blocks = re.findall(r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE", sr_text, re.DOTALL)
+
+    blocks = re.findall(
+        r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE", sr_text, re.DOTALL
+    )
     out = ["--- a/f", "+++ b/f", "@@ -1,1 +1,1 @@"]
     for search, replace in blocks:
         for line in difflib.ndiff(search.split("\n"), replace.split("\n")):
@@ -77,7 +83,11 @@ def grade(gen: str, ref: str, ref_syms: set[str]) -> dict:
     add_recall = len(ga & ra) / len(ra) if ra else 1.0
     rem_recall = len(gr & rr) / len(rr) if rr else 1.0
     gen_toks = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", gen))
-    key_frac = (len([s for s in ref_syms if s in gen_toks]) / len(ref_syms)) if ref_syms else 0.0
+    key_frac = (
+        (len([s for s in ref_syms if s in gen_toks]) / len(ref_syms))
+        if ref_syms
+        else 0.0
+    )
     return {
         "byte_exact": gen.strip() == ref.strip(),
         "add_recall": round(add_recall, 3),
@@ -140,7 +150,9 @@ def main(argv: list[str]) -> int:
 
     # print table
     metrics = ["byte_exact", "norm_exact", "rem_recall", "add_recall", "key_token_frac"]
-    print(f"\n{'model':22}{'canary':14}{'K':>3} " + " ".join(f"{m:>13}" for m in metrics))
+    print(
+        f"\n{'model':22}{'canary':14}{'K':>3} " + " ".join(f"{m:>13}" for m in metrics)
+    )
     for label, mr in report["models"].items():
         for cve, g in sorted(mr.items()):
             name = CANARY_NAMES.get(cve, cve)
@@ -154,7 +166,9 @@ def main(argv: list[str]) -> int:
         rr = sum(g["rem_recall"] for g in mr.values()) / n if n else 0
         be = sum(1 for g in mr.values() if g["byte_exact"])
         ne = sum(1 for g in mr.values() if g["norm_exact"])
-        print(f"  {label[:30]:30} byte {be}/{n}  norm {ne}/{n}  mean_add_recall {ar:.2f}  mean_rem_recall {rr:.2f}")
+        print(
+            f"  {label[:30]:30} byte {be}/{n}  norm {ne}/{n}  mean_add_recall {ar:.2f}  mean_rem_recall {rr:.2f}"
+        )
 
     out = rp.parent / "canary-graded-report.json"
     out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")

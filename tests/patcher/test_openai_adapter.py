@@ -111,7 +111,8 @@ def test_invoke_returns_model_response_with_text(monkeypatch) -> None:
     a._client = fake_client
 
     result = a.invoke(
-        system_prompt="sys", user_content="user",
+        system_prompt="sys",
+        user_content="user",
         sampling={"temperature": 0.0, "top_p": 1.0, "max_tokens": 8192},
     )
     assert isinstance(result, ModelResponse)
@@ -144,10 +145,13 @@ def test_invoke_handles_empty_choices_gracefully(monkeypatch) -> None:
     a = OpenAIAdapter("gpt-4o")
     a._client = MagicMock()
     a._client.chat.completions.create.return_value = MagicMock(
-        choices=[], usage=None,
+        choices=[],
+        usage=None,
     )
     result = a.invoke(
-        system_prompt="sys", user_content="user", sampling={},
+        system_prompt="sys",
+        user_content="user",
+        sampling={},
     )
     assert result.text == ""
     assert result.input_tokens is None
@@ -167,13 +171,16 @@ def test_dispatch_helper_routes_claude_to_anthropic(monkeypatch) -> None:
     assert isinstance(a, AnthropicAdapter)
 
 
-@pytest.mark.parametrize("model_id", [
-    "gpt-4o",
-    "gpt-4-turbo",
-    "gpt-oss-120b",          # OpenRouter / vLLM-served gpt-oss
-    "o1-preview",            # OpenAI o1 family
-    "o3-mini",               # OpenAI o3 family
-])
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "gpt-4o",
+        "gpt-4-turbo",
+        "gpt-oss-120b",  # OpenRouter / vLLM-served gpt-oss
+        "o1-preview",  # OpenAI o1 family
+        "o3-mini",  # OpenAI o3 family
+    ],
+)
 def test_dispatch_helper_routes_openai_family(model_id: str, monkeypatch) -> None:
     """gpt-* / o1-* / o3-* model ids route to OpenAIAdapter."""
     from tools.trace_cli.execute import _build_adapter_from_model_id

@@ -15,7 +15,9 @@ from agents.scout.feed_client import FeedRateLimit, FeedTransientError
 
 
 def test_lookback_hours_default_24(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch.object(discover_cli, "list_recent_cves", return_value=["CVE-2026-1"]) as mock_list:
+    with patch.object(
+        discover_cli, "list_recent_cves", return_value=["CVE-2026-1"]
+    ) as mock_list:
         rc = discover_cli.main([])
     assert rc == 0
     assert capsys.readouterr().out.strip() == "CVE-2026-1"
@@ -26,10 +28,14 @@ def test_lookback_hours_default_24(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_explicit_since_until_window() -> None:
     with patch.object(discover_cli, "list_recent_cves", return_value=[]) as mock_list:
-        rc = discover_cli.main([
-            "--since", "2026-04-28T00:00:00Z",
-            "--until", "2026-04-29T00:00:00Z",
-        ])
+        rc = discover_cli.main(
+            [
+                "--since",
+                "2026-04-28T00:00:00Z",
+                "--until",
+                "2026-04-29T00:00:00Z",
+            ]
+        )
     assert rc == 0
     kwargs = mock_list.call_args.kwargs
     assert kwargs["since"] == datetime(2026, 4, 28, tzinfo=timezone.utc)
@@ -45,14 +51,22 @@ def test_lookback_hours_explicit() -> None:
     assert 5.9 < diff.total_seconds() / 3600 < 6.1
 
 
-def test_since_and_lookback_mutually_exclusive(capsys: pytest.CaptureFixture[str]) -> None:
-    rc = discover_cli.main(["--since", "2026-04-28T00:00:00Z", "--lookback-hours", "24"])
+def test_since_and_lookback_mutually_exclusive(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = discover_cli.main(
+        ["--since", "2026-04-28T00:00:00Z", "--lookback-hours", "24"]
+    )
     assert rc == 64
     assert "mutually exclusive" in capsys.readouterr().err
 
 
-def test_naive_datetime_rejected_with_usage_exit(capsys: pytest.CaptureFixture[str]) -> None:
-    rc = discover_cli.main(["--since", "2026-04-28T00:00:00", "--until", "2026-04-29T00:00:00Z"])
+def test_naive_datetime_rejected_with_usage_exit(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = discover_cli.main(
+        ["--since", "2026-04-28T00:00:00", "--until", "2026-04-29T00:00:00Z"]
+    )
     assert rc == 64
     assert "timezone" in capsys.readouterr().err.lower()
 
@@ -70,7 +84,9 @@ def test_rate_limit_exits_twenty(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_transient_error_exits_ten() -> None:
-    with patch.object(discover_cli, "list_recent_cves", side_effect=FeedTransientError("nope")):
+    with patch.object(
+        discover_cli, "list_recent_cves", side_effect=FeedTransientError("nope")
+    ):
         rc = discover_cli.main([])
     assert rc == 10
 
@@ -90,7 +106,9 @@ def test_no_api_key_passes_none(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_multi_cve_output_one_per_line(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch.object(discover_cli, "list_recent_cves", return_value=["CVE-2026-1", "CVE-2026-2"]):
+    with patch.object(
+        discover_cli, "list_recent_cves", return_value=["CVE-2026-1", "CVE-2026-2"]
+    ):
         discover_cli.main([])
     out = capsys.readouterr().out.strip().splitlines()
     assert out == ["CVE-2026-1", "CVE-2026-2"]

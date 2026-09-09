@@ -89,20 +89,30 @@ def _bundle(
     (b / "reproducer.nix").write_text(nix)
     (b / "reproducer-log.txt").write_text(log)
     (b / "passthru-tests.json").write_text(passthru)
-    (b / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "summary": finding_summary,
-    }))
-    (b / "upstream-ref.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "current_version": "1.0.0",
-        "target_version": "1.0.1",
-        "upstream_fix_commits": [{
-            "repo_url": "https://github.com/example/demo",
-            "commit_sha": "deadbeef",
-            "message": fix_commit_message,
-        }],
-    }))
+    (b / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "summary": finding_summary,
+            }
+        )
+    )
+    (b / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "current_version": "1.0.0",
+                "target_version": "1.0.1",
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://github.com/example/demo",
+                        "commit_sha": "deadbeef",
+                        "message": fix_commit_message,
+                    }
+                ],
+            }
+        )
+    )
     return b
 
 
@@ -139,20 +149,24 @@ def _write_build_json(
             {"name": "passthru.tests.basic", "kind": "passthru.tests"},
             {"name": "nixosTests.demo-smoke", "kind": "nixosTests"},
         ]
-    sig_u = "vuln-triggered: out-of-bounds-read in deserialise() on malformed length-prefix"
+    sig_u = (
+        "vuln-triggered: out-of-bounds-read in deserialise() on malformed length-prefix"
+    )
     sig_p = "rejected-malformed-length-prefix-as-expected-from-CVE-0000-0001"
     build = {
         "unpatched": {
             "exit_code": 1,
             "stdout_stderr": (
-                f"+ run unpatched\n{sig_u}\n" if unpatched_signal_present
+                f"+ run unpatched\n{sig_u}\n"
+                if unpatched_signal_present
                 else "+ run unpatched\n(no specific signal observed)\n"
             ),
         },
         "patched": {
             "exit_code": 0,
             "stdout_stderr": (
-                f"+ run patched\n{sig_p}\n" if patched_signal_present
+                f"+ run patched\n{sig_p}\n"
+                if patched_signal_present
                 else "+ run patched\n(no specific signal observed)\n"
             ),
         },
@@ -181,7 +195,8 @@ def test_reproducer_scorer_names_locked() -> None:
 def test_schema_valid_score_one_for_well_formed(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     res = ReproSchemaValidScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 1.0
@@ -193,7 +208,8 @@ def test_schema_valid_score_zero_when_passthru_malformed(tmp_path: Path) -> None
     bad = '[{"name": "x", "kind": "checkPhase"}]\n'  # invalid kind
     b = _bundle(tmp_path, passthru=bad)
     res = ReproSchemaValidScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 0.0
@@ -202,12 +218,17 @@ def test_schema_valid_score_zero_when_passthru_malformed(tmp_path: Path) -> None
 def test_schema_valid_handles_refusal_path(tmp_path: Path) -> None:
     b = tmp_path / "bundle"
     b.mkdir()
-    (b / "reproducer-refusal.json").write_text(json.dumps({
-        "rule": 3,
-        "reason": "vuln class is not locally-reproducible (CAP_SYS_ADMIN required)",
-    }))
+    (b / "reproducer-refusal.json").write_text(
+        json.dumps(
+            {
+                "rule": 3,
+                "reason": "vuln class is not locally-reproducible (CAP_SYS_ADMIN required)",
+            }
+        )
+    )
     res = ReproSchemaValidScorer().score(
-        bundle_dir=b, invocation=_invocation_for("refusal"),
+        bundle_dir=b,
+        invocation=_invocation_for("refusal"),
     )
     assert res.applies is True
     assert res.score == 1.0
@@ -215,14 +236,22 @@ def test_schema_valid_handles_refusal_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("rule", [0, 9, 99])
-def test_schema_valid_rejects_refusal_rule_out_of_range(tmp_path: Path, rule: int) -> None:
+def test_schema_valid_rejects_refusal_rule_out_of_range(
+    tmp_path: Path, rule: int
+) -> None:
     b = tmp_path / "bundle"
     b.mkdir()
-    (b / "reproducer-refusal.json").write_text(json.dumps({
-        "rule": rule, "reason": "out of range probe",
-    }))
+    (b / "reproducer-refusal.json").write_text(
+        json.dumps(
+            {
+                "rule": rule,
+                "reason": "out of range probe",
+            }
+        )
+    )
     res = ReproSchemaValidScorer().score(
-        bundle_dir=b, invocation=_invocation_for("refusal"),
+        bundle_dir=b,
+        invocation=_invocation_for("refusal"),
     )
     assert res.applies is True
     assert res.score == 0.0
@@ -232,7 +261,8 @@ def test_schema_valid_returns_na_for_unknown_outputs(tmp_path: Path) -> None:
     b = tmp_path / "bundle"
     b.mkdir()
     res = ReproSchemaValidScorer().score(
-        bundle_dir=b, invocation=_invocation_for("unknown"),
+        bundle_dir=b,
+        invocation=_invocation_for("unknown"),
     )
     assert res.applies is False
     assert res.score is None
@@ -274,7 +304,8 @@ expected_limitations: Verifies parser rejection only, not the privilege-escalati
 """
     b = _bundle(tmp_path, nix=proxy_nix, log=proxy_log, passthru="[]\n")
     res = ReproSchemaValidScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.score == 1.0
     assert res.details and res.details.get("is_proxy") is True
@@ -288,7 +319,8 @@ def test_unpatched_fails_score_one_when_signal_present(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     _write_build_json(b, unpatched_signal_present=True)
     res = ReproUnpatchedFailsScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 1.0
@@ -299,7 +331,8 @@ def test_unpatched_fails_score_zero_when_signal_absent(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     _write_build_json(b, unpatched_signal_present=False)
     res = ReproUnpatchedFailsScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 0.0
@@ -309,7 +342,8 @@ def test_unpatched_fails_na_pre_builder(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     # No build.json written
     res = ReproUnpatchedFailsScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is False
     assert res.score is None
@@ -353,7 +387,8 @@ expected_limitations: Verifies parser rejection only.
     b = _bundle(tmp_path, nix=proxy_nix, log=proxy_log, passthru="[]\n")
     _write_build_json(b)
     res = ReproUnpatchedFailsScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is False
     assert res.score is None
@@ -365,7 +400,8 @@ def test_unpatched_fails_na_for_refusal(tmp_path: Path) -> None:
     b.mkdir()
     (b / "reproducer-refusal.json").write_text(json.dumps({"rule": 3, "reason": "x"}))
     res = ReproUnpatchedFailsScorer().score(
-        bundle_dir=b, invocation=_invocation_for("refusal"),
+        bundle_dir=b,
+        invocation=_invocation_for("refusal"),
     )
     assert res.applies is False
     assert res.score is None
@@ -378,7 +414,8 @@ def test_patched_passes_score_one_when_signal_present(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     _write_build_json(b, patched_signal_present=True)
     res = ReproPatchedPassesScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 1.0
@@ -388,7 +425,8 @@ def test_patched_passes_score_zero_when_signal_absent(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     _write_build_json(b, patched_signal_present=False)
     res = ReproPatchedPassesScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 0.0
@@ -434,7 +472,8 @@ expected_limitations: Verifies parser rejection only.
     b = _bundle(tmp_path, nix=proxy_nix, log=proxy_log, passthru="[]\n")
     _write_build_json(b)
     res = ReproPatchedPassesScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 1.0
@@ -444,7 +483,8 @@ expected_limitations: Verifies parser rejection only.
 def test_patched_passes_na_pre_builder(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     res = ReproPatchedPassesScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is False
     assert res.score is None
@@ -457,19 +497,31 @@ def test_passthru_recorded_full_match(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     _write_build_json(b)  # default ground-truth matches the model's two entries
     res = ReproPassthruRecordedScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 1.0
 
 
 def test_passthru_recorded_partial_recall(tmp_path: Path) -> None:
-    b = _bundle(tmp_path, passthru=json.dumps([
-        {"name": "passthru.tests.basic", "drv_path": None, "kind": "passthru.tests"},
-    ]) + "\n")
+    b = _bundle(
+        tmp_path,
+        passthru=json.dumps(
+            [
+                {
+                    "name": "passthru.tests.basic",
+                    "drv_path": None,
+                    "kind": "passthru.tests",
+                },
+            ]
+        )
+        + "\n",
+    )
     _write_build_json(b)  # 2 ground-truth, model lists 1
     res = ReproPassthruRecordedScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 0.5
@@ -479,7 +531,8 @@ def test_passthru_recorded_empty_both_sides(tmp_path: Path) -> None:
     b = _bundle(tmp_path, passthru="[]\n")
     _write_build_json(b, passthru_ground_truth=[])
     res = ReproPassthruRecordedScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 1.0
@@ -489,7 +542,8 @@ def test_passthru_recorded_invented_entries_score_zero(tmp_path: Path) -> None:
     b = _bundle(tmp_path)  # model lists 2 entries
     _write_build_json(b, passthru_ground_truth=[])  # ground truth is empty
     res = ReproPassthruRecordedScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.score == 0.0
@@ -499,7 +553,8 @@ def test_passthru_recorded_invented_entries_score_zero(tmp_path: Path) -> None:
 def test_passthru_recorded_na_pre_builder(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     res = ReproPassthruRecordedScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is False
     assert res.score is None
@@ -512,7 +567,8 @@ def test_signal_specificity_full_score(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     _write_build_json(b)
     res = ReproSignalSpecificityScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     assert res.advisory is True
@@ -534,7 +590,8 @@ def test_signal_specificity_misses_keyword_axis(tmp_path: Path) -> None:
     b = _bundle(tmp_path, log=log)
     _write_build_json(b)
     res = ReproSignalSpecificityScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is True
     # length ok, not generic, but no CVE keyword
@@ -544,7 +601,8 @@ def test_signal_specificity_misses_keyword_axis(tmp_path: Path) -> None:
 def test_signal_specificity_na_pre_builder(tmp_path: Path) -> None:
     b = _bundle(tmp_path)
     res = ReproSignalSpecificityScorer().score(
-        bundle_dir=b, invocation=_invocation_for("reproducer"),
+        bundle_dir=b,
+        invocation=_invocation_for("reproducer"),
     )
     assert res.applies is False
     assert res.score is None

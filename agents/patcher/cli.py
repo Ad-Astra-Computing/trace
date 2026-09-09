@@ -86,6 +86,7 @@ _CHARS_PER_TOKEN = 3.5
 @dataclass(frozen=True)
 class BudgetEstimate:
     """Pre-flight estimate vs configured caps."""
+
     input_tokens_est: int
     max_output_tokens: int
     input_cost_est: float
@@ -111,7 +112,9 @@ def estimate_budget(
     hard_cap_usd: float,
 ) -> BudgetEstimate:
     prices = prices_for(model_id)
-    input_tokens = _estimate_tokens_from_chars(system_prompt) + _estimate_tokens_from_chars(user_content)
+    input_tokens = _estimate_tokens_from_chars(
+        system_prompt
+    ) + _estimate_tokens_from_chars(user_content)
     input_cost = input_tokens * prices["input"] / 1_000_000.0
     max_output_cost = max_tokens * prices["output"] / 1_000_000.0
     total = input_cost + max_output_cost
@@ -159,6 +162,7 @@ def _build_default_adapter(model_id: str) -> ModelAdapter:
     keep the import local so the CLI can run without those modules
     being on the path during isolated tests."""
     from agents.patcher.adapter import AnthropicAdapter, OpenAIAdapter
+
     if model_id.startswith("claude-"):
         return AnthropicAdapter(model_id)
     if model_id.startswith(("gpt-", "o1-", "o3-")):
@@ -185,45 +189,80 @@ def main(
 ) -> int:
     """Entry point. Tests pass adapter_factory + skip_env_gate=True."""
     parser = argparse.ArgumentParser(prog="trace-patcher")
-    parser.add_argument("entry", type=Path,
-                        help="Path to an inbox/<CVE-ID> directory.")
-    parser.add_argument("--nixpkgs-root", type=Path, required=True,
-                        help="Path to the nixpkgs checkout containing package.nix.")
-    parser.add_argument("--nixpkgs-rev", required=True,
-                        help="nixpkgs rev hash; recorded in invocation.")
-    parser.add_argument("--model", default="claude-opus-4-7",
-                        help="Model id (default: claude-opus-4-7).")
-    parser.add_argument("--soft-budget", type=float, default=1.00,
-                        help="USD soft cap per CVE (warn + require --force-budget).")
-    parser.add_argument("--hard-budget", type=float, default=3.00,
-                        help="USD hard cap per CVE (refuse).")
-    parser.add_argument("--force-budget", action="store_true",
-                        help="Allow exceeding the soft cap up to the hard cap.")
-    parser.add_argument("--use-nix-eval", action="store_true",
-                        help="Allow path resolver to fall back to `nix eval`.")
-    parser.add_argument("--analysis-status", default="skipped-v0",
-                        choices=("complete", "skipped-v0"),
-                        help="Cartographer analysis_status. v0 default is "
-                             "'skipped-v0' to match the snapshot graph adapter.")
-    parser.add_argument("--analysis-reason", default="snapshot-backend-unimplemented",
-                        help="Cartographer analysis_reason.")
-    parser.add_argument("--max-tokens", type=int,
-                        default=DEFAULT_SAMPLING["max_tokens"],
-                        help="max_tokens passed to the model adapter.")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Estimate budget and exit without invoking the model.")
+    parser.add_argument("entry", type=Path, help="Path to an inbox/<CVE-ID> directory.")
+    parser.add_argument(
+        "--nixpkgs-root",
+        type=Path,
+        required=True,
+        help="Path to the nixpkgs checkout containing package.nix.",
+    )
+    parser.add_argument(
+        "--nixpkgs-rev", required=True, help="nixpkgs rev hash; recorded in invocation."
+    )
+    parser.add_argument(
+        "--model",
+        default="claude-opus-4-7",
+        help="Model id (default: claude-opus-4-7).",
+    )
+    parser.add_argument(
+        "--soft-budget",
+        type=float,
+        default=1.00,
+        help="USD soft cap per CVE (warn + require --force-budget).",
+    )
+    parser.add_argument(
+        "--hard-budget", type=float, default=3.00, help="USD hard cap per CVE (refuse)."
+    )
+    parser.add_argument(
+        "--force-budget",
+        action="store_true",
+        help="Allow exceeding the soft cap up to the hard cap.",
+    )
+    parser.add_argument(
+        "--use-nix-eval",
+        action="store_true",
+        help="Allow path resolver to fall back to `nix eval`.",
+    )
+    parser.add_argument(
+        "--analysis-status",
+        default="skipped-v0",
+        choices=("complete", "skipped-v0"),
+        help="Cartographer analysis_status. v0 default is "
+        "'skipped-v0' to match the snapshot graph adapter.",
+    )
+    parser.add_argument(
+        "--analysis-reason",
+        default="snapshot-backend-unimplemented",
+        help="Cartographer analysis_reason.",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=DEFAULT_SAMPLING["max_tokens"],
+        help="max_tokens passed to the model adapter.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Estimate budget and exit without invoking the model.",
+    )
     args = parser.parse_args(argv)
 
     if not args.entry.is_dir():
         print(f"error: not a directory: {args.entry}", file=sys.stderr)
         return _EXIT_USAGE
     if not args.nixpkgs_root.is_dir():
-        print(f"error: --nixpkgs-root not a directory: {args.nixpkgs_root}",
-              file=sys.stderr)
+        print(
+            f"error: --nixpkgs-root not a directory: {args.nixpkgs_root}",
+            file=sys.stderr,
+        )
         return _EXIT_USAGE
     if args.hard_budget < args.soft_budget:
-        print(f"error: --hard-budget ({args.hard_budget}) must be >= "
-              f"--soft-budget ({args.soft_budget})", file=sys.stderr)
+        print(
+            f"error: --hard-budget ({args.hard_budget}) must be >= "
+            f"--soft-budget ({args.soft_budget})",
+            file=sys.stderr,
+        )
         return _EXIT_USAGE
 
     # Live-call env gate. Bypassed when an adapter_factory is injected
@@ -271,9 +310,9 @@ def main(
     # Step 3: pre-flight budget. We need the assembled prompt to estimate
     # input tokens, so render it the same way the runner will.
     from agents.patcher.runner import assemble_user_content
+
     prompt_path_resolved = (
-        prompt_path
-        or Path(__file__).resolve().parents[2] / "prompts" / "patcher.v1.md"
+        prompt_path or Path(__file__).resolve().parents[2] / "prompts" / "patcher.v1.md"
     )
     if not prompt_path_resolved.is_file():
         print(f"error: prompt not at {prompt_path_resolved}", file=sys.stderr)
@@ -308,12 +347,17 @@ def main(
         return _EXIT_BUDGET
 
     if args.dry_run:
-        print(json.dumps({
-            "kind": "dry-run",
-            "estimate": asdict(estimate),
-            "model": args.model,
-            "entry": args.entry.name,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "kind": "dry-run",
+                    "estimate": asdict(estimate),
+                    "model": args.model,
+                    "entry": args.entry.name,
+                },
+                indent=2,
+            )
+        )
         return _EXIT_OK
 
     # Step 4: invoke the patcher.
@@ -342,14 +386,17 @@ def main(
         _atomic_write_bytes(args.entry / "patch.diff", diff_bytes)
         _atomic_write_bytes(args.entry / "patch-rationale.md", rat_bytes)
     else:  # refusal
-        refusal_body = json.dumps(
-            {
-                "rule": result.parsed.refusal_rule,
-                "reason": result.parsed.refusal_reason,
-            },
-            indent=2,
-            sort_keys=True,
-        ).encode("utf-8") + b"\n"
+        refusal_body = (
+            json.dumps(
+                {
+                    "rule": result.parsed.refusal_rule,
+                    "reason": result.parsed.refusal_reason,
+                },
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
         _atomic_write_bytes(args.entry / "refusal.json", refusal_body)
 
     # Step 6: invocation record.
@@ -387,12 +434,8 @@ def main(
             "force_budget": args.force_budget,
             "estimate": asdict(estimate),
             "actual_cost_usd": actual,
-            "actual_exceeded_hard": (
-                actual is not None and actual > args.hard_budget
-            ),
-            "actual_exceeded_soft": (
-                actual is not None and actual > args.soft_budget
-            ),
+            "actual_exceeded_hard": (actual is not None and actual > args.hard_budget),
+            "actual_exceeded_soft": (actual is not None and actual > args.soft_budget),
         },
         "nixpkgs_rev": args.nixpkgs_rev,
         "package_source_path": assembled.inputs.get("package_source_path"),
@@ -400,13 +443,17 @@ def main(
     }
     _atomic_write_json(args.entry / "patcher-invocation.json", invocation)
 
-    print(json.dumps({
-        "kind": result.kind,
-        "entry": args.entry.name,
-        "model": args.model,
-        "actual_cost_usd": actual,
-        "estimate_cost_usd": estimate.total_cost_est,
-    }))
+    print(
+        json.dumps(
+            {
+                "kind": result.kind,
+                "entry": args.entry.name,
+                "model": args.model,
+                "actual_cost_usd": actual,
+                "estimate_cost_usd": estimate.total_cost_est,
+            }
+        )
+    )
     return _EXIT_OK
 
 

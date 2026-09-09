@@ -7,24 +7,30 @@ import pytest
 from agents.reproducer.signal_hygiene import describe, refuses, scan_arm
 
 
-@pytest.mark.parametrize("text", [
-    "grep: namespaced-out.svg: No such file or directory",
-    "cat: out.json: No such file or directory",
-    "  stat: /tmp/result.bin: No such file or directory",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "grep: namespaced-out.svg: No such file or directory",
+        "cat: out.json: No such file or directory",
+        "  stat: /tmp/result.bin: No such file or directory",
+    ],
+)
 def test_a_predicate_helper_reading_a_missing_file_is_a_mark(text):
     assert scan_arm(text).missing_read, text
     # Alone it is shown, not gated on: a healthy fixture may cat an optional file.
     assert not refuses({"patched": scan_arm(text)}), text
 
 
-@pytest.mark.parametrize("text", [
-    "error: unknown option '--enable=removeScripts'",
-    "foo: unrecognized option '--metadata'",
-    "wget2: invalid option -- 'z'",
-    "usage: svgo [options] [INPUT...]",
-    "sh: line 1: svgo: command not found",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "error: unknown option '--enable=removeScripts'",
+        "foo: unrecognized option '--metadata'",
+        "wget2: invalid option -- 'z'",
+        "usage: svgo [options] [INPUT...]",
+        "sh: line 1: svgo: command not found",
+    ],
+)
 def test_a_refused_invocation_alone_is_a_mark_but_does_not_gate(text):
     """A tool may print help while doing its work, and rejecting a bad option may
     be the behaviour under test."""
@@ -34,17 +40,20 @@ def test_a_refused_invocation_alone_is_a_mark_but_does_not_gate(text):
     assert not refuses({"patched": marks}), text
 
 
-@pytest.mark.parametrize("text", [
-    "",
-    "parsed 2 files\nSIGNAL_PATCHED: sanitised both payloads\n",
-    "wrote out.svg (412 bytes)\n",
-    # The package under test complaining about a fixture it was MEANT to reject
-    # is not a mark: the tool ran, which is exactly what we are checking for.
-    "svgo: could not parse evil.svg: unexpected token at line 3\n",
-    # A traversal target the patched arm expects to be absent is checked with
-    # `test -e`, which prints nothing; nothing here should match.
-    "checking /tmp/owned-by-cve: absent\n",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "parsed 2 files\nSIGNAL_PATCHED: sanitised both payloads\n",
+        "wrote out.svg (412 bytes)\n",
+        # The package under test complaining about a fixture it was MEANT to reject
+        # is not a mark: the tool ran, which is exactly what we are checking for.
+        "svgo: could not parse evil.svg: unexpected token at line 3\n",
+        # A traversal target the patched arm expects to be absent is checked with
+        # `test -e`, which prints nothing; nothing here should match.
+        "checking /tmp/owned-by-cve: absent\n",
+    ],
+)
 def test_an_honest_run_is_clean(text):
     assert not scan_arm(text), text
 
@@ -71,9 +80,13 @@ def test_describe_separates_a_refusal_from_an_advisory():
     assert "never happened" not in describe({})
     lone = describe({"patched": scan_arm("grep: x: No such file or directory")})
     assert "advisory" in lone and "never happened" not in lone
-    pair = describe({"patched": scan_arm(
-        "demo: unknown option '--nope'\ngrep: x: No such file or directory\n"
-    )})
+    pair = describe(
+        {
+            "patched": scan_arm(
+                "demo: unknown option '--nope'\ngrep: x: No such file or directory\n"
+            )
+        }
+    )
     assert "never happened" in pair
 
 
@@ -83,8 +96,12 @@ def test_one_mark_of_each_kind_in_DIFFERENT_arms_does_not_gate():
     from agents.reproducer.signal_hygiene import scan_build
 
     build = {
-        "unpatched": {"stdout_stderr": "cat: optional.txt: No such file or directory\nSIGNAL_UNPATCHED: x\n"},
-        "patched": {"stdout_stderr": "usage: demo [opts]\nprocessed\nSIGNAL_PATCHED: y\n"},
+        "unpatched": {
+            "stdout_stderr": "cat: optional.txt: No such file or directory\nSIGNAL_UNPATCHED: x\n"
+        },
+        "patched": {
+            "stdout_stderr": "usage: demo [opts]\nprocessed\nSIGNAL_PATCHED: y\n"
+        },
     }
     marks = scan_build(build, signals={"unpatched": True, "patched": True})
     assert marks, "both arms carry a mark worth showing"
@@ -118,7 +135,9 @@ def test_a_missing_read_in_a_truncated_log_gates_on_its_own():
         "patched": {
             "stdout_stderr": tail,
             # the digest of the FULL log, which we were not given
-            "stdout_stderr_log_sha256": hashlib.sha256(b"...much more output...").hexdigest(),
+            "stdout_stderr_log_sha256": hashlib.sha256(
+                b"...much more output..."
+            ).hexdigest(),
         }
     }
     marks = scan_build(build, signals={"patched": True})

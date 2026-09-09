@@ -55,8 +55,8 @@ def _fake_patch_response() -> str:
         "--- a/pkgs/by-name/ra/radare2/package.nix\n"
         "+++ b/pkgs/by-name/ra/radare2/package.nix\n"
         "@@ -1 +1 @@\n"
-        "-version = \"6.1.2\";\n"
-        "+version = \"6.1.4\";\n"
+        '-version = "6.1.2";\n'
+        '+version = "6.1.4";\n'
         "=== END patch.diff ===\n"
         "=== BEGIN patch-rationale.md ===\n"
         + _RATIONALE
@@ -95,13 +95,15 @@ def _seed(
     finding = {
         "schema_version": "1.0.0",
         "cve_id": cve_id,
-        "affected": [{
-            "attr_path": "radare2",
-            "drv_path": "/nix/store/aaa-radare2.drv",
-            "pname": "radare2",
-            "version": "6.1.2",
-            "confidence": "high",
-        }],
+        "affected": [
+            {
+                "attr_path": "radare2",
+                "drv_path": "/nix/store/aaa-radare2.drv",
+                "pname": "radare2",
+                "version": "6.1.2",
+                "confidence": "high",
+            }
+        ],
         "mapping": {"method": "cpe-exact", "mapping_notes": "test"},
         "published_at": "2026-04-30T00:00:00Z",
         "references": [],
@@ -125,16 +127,20 @@ def _seed(
     }
     (entry / "finding.json").write_text(json.dumps(finding))
     (entry / "upstream-ref.json").write_text(json.dumps(upstream_ref))
-    (entry / "steward-decision.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": cve_id,
-        "decided_at": "2026-04-30T00:00:00Z",
-        "state": state,
-        "reason_codes": ["eligible-high-confidence"],
-        "evaluator": "opa-rego/data.trace.steward.route",
-        "policy_sha256": "0" * 64,
-        "inputs_summary": {"finding_status": "finding"},
-    }))
+    (entry / "steward-decision.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": cve_id,
+                "decided_at": "2026-04-30T00:00:00Z",
+                "state": state,
+                "reason_codes": ["eligible-high-confidence"],
+                "evaluator": "opa-rego/data.trace.steward.route",
+                "policy_sha256": "0" * 64,
+                "inputs_summary": {"finding_status": "finding"},
+            }
+        )
+    )
     return entry
 
 
@@ -149,9 +155,12 @@ def _mk_nixpkgs(root: Path) -> Path:
 def _argv(entry: Path, nixpkgs: Path, *extra: str) -> list[str]:
     return [
         str(entry),
-        "--nixpkgs-root", str(nixpkgs),
-        "--nixpkgs-rev", "0" * 40,
-        "--analysis-status", "complete",  # canned graph IS complete
+        "--nixpkgs-root",
+        str(nixpkgs),
+        "--nixpkgs-rev",
+        "0" * 40,
+        "--analysis-status",
+        "complete",  # canned graph IS complete
         *extra,
     ]
 
@@ -294,9 +303,12 @@ def test_hard_cap_refuses_unconditionally(tmp_path: Path) -> None:
     nixpkgs = _mk_nixpkgs(tmp_path / "nixpkgs")
     rc = main(
         _argv(
-            entry, nixpkgs,
-            "--soft-budget", "0.0001",
-            "--hard-budget", "0.0002",
+            entry,
+            nixpkgs,
+            "--soft-budget",
+            "0.0001",
+            "--hard-budget",
+            "0.0002",
             "--force-budget",
         ),
         adapter_factory=_patch_factory,
@@ -325,9 +337,11 @@ def test_dry_run_does_not_invoke_adapter(tmp_path: Path) -> None:
         adapter = FakeAdapter(model_id, _fake_patch_response())
         # Wrap to record calls.
         original = adapter.invoke
+
         def spy(**kw):  # type: ignore[no-untyped-def]
             invoked.append(model_id)
             return original(**kw)
+
         adapter.invoke = spy  # type: ignore[method-assign]
         return adapter
 
@@ -343,7 +357,8 @@ def test_dry_run_does_not_invoke_adapter(tmp_path: Path) -> None:
 
 
 def test_env_gate_blocks_when_no_adapter_factory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Production path: without TRACE_REAL_PATCHER=1, refuse before
     constructing a real adapter. The adapter_factory test path bypasses

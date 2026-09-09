@@ -31,13 +31,16 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "exports" / "reviewer" / "reviewer.jsonl"
 OUT = REPO / "exports" / "lora"
-BASE_MODEL = "Qwen2.5-Coder-14B"   # per docs/.../trace-finetuning-plan; LoRA target
-_CHARS_PER_TOK = 4                 # rough estimate; no HF tokenizer in this env
+BASE_MODEL = "Qwen2.5-Coder-14B"  # per docs/.../trace-finetuning-plan; LoRA target
+_CHARS_PER_TOK = 4  # rough estimate; no HF tokenizer in this env
 SPLITS = ("train", "dev", "test")
 
 
 def _est_tokens(record: dict) -> int:
-    return math.ceil(sum(len(m.get("content", "")) for m in record.get("messages", [])) / _CHARS_PER_TOK)
+    return math.ceil(
+        sum(len(m.get("content", "")) for m in record.get("messages", []))
+        / _CHARS_PER_TOK
+    )
 
 
 def _validate(record: dict) -> list[str]:
@@ -62,7 +65,10 @@ def package(seq_len: int) -> dict:
 
     errors: list[str] = []
     for i, r in enumerate(rows):
-        errors += [f"row {i} ({(r.get('provenance') or {}).get('cve_id')}): {e}" for e in _validate(r)]
+        errors += [
+            f"row {i} ({(r.get('provenance') or {}).get('cve_id')}): {e}"
+            for e in _validate(r)
+        ]
 
     OUT.mkdir(parents=True, exist_ok=True)
     per_split: dict[str, list[dict]] = {s: [] for s in SPLITS}
@@ -78,8 +84,13 @@ def package(seq_len: int) -> dict:
             for r in recs:
                 fh.write(json.dumps({"messages": r["messages"]}, sort_keys=True) + "\n")
                 if _est_tokens(r) > seq_len:
-                    over_len.append({"cve": (r.get("provenance") or {}).get("cve_id"),
-                                     "split": s, "est_tokens": _est_tokens(r)})
+                    over_len.append(
+                        {
+                            "cve": (r.get("provenance") or {}).get("cve_id"),
+                            "split": s,
+                            "est_tokens": _est_tokens(r),
+                        }
+                    )
 
     # prompt sha + leakage are shared provenance across rows
     prompt_shas = {(r.get("provenance") or {}).get("reviewer_prompt_sha") for r in rows}
@@ -91,7 +102,9 @@ def package(seq_len: int) -> dict:
         "seq_len_budget": seq_len,
         "total": len(rows),
         "splits": {s: len(per_split[s]) for s in SPLITS},
-        "label_balance": {s: dict(Counter(r["label"] for r in per_split[s])) for s in SPLITS},
+        "label_balance": {
+            s: dict(Counter(r["label"] for r in per_split[s])) for s in SPLITS
+        },
         "reviewer_prompt_shas": sorted(prompt_shas),
         "est_token_stats": {
             "max": max((_est_tokens(r) for r in rows), default=0),
@@ -101,24 +114,37 @@ def package(seq_len: int) -> dict:
         "validation_errors": errors,
         "files": [f"reviewer.{s}.jsonl" for s in SPLITS],
     }
-    (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (OUT / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
     return manifest
 
 
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(description="Package Reviewer LoRA train/dev/test JSONL")
-    ap.add_argument("--seq-len", type=int, default=8192, help="token budget to flag over-length records")
+    ap = argparse.ArgumentParser(
+        description="Package Reviewer LoRA train/dev/test JSONL"
+    )
+    ap.add_argument(
+        "--seq-len",
+        type=int,
+        default=8192,
+        help="token budget to flag over-length records",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     m = package(args.seq_len)
     if args.json:
         print(json.dumps(m, indent=2, sort_keys=True))
     else:
-        print(f"LoRA package -> {OUT}/reviewer.{{train,dev,test}}.jsonl  (base {m['base_model']})")
+        print(
+            f"LoRA package -> {OUT}/reviewer.{{train,dev,test}}.jsonl  (base {m['base_model']})"
+        )
         print(f"  total {m['total']}  splits {m['splits']}")
         print(f"  label balance {m['label_balance']}")
-        print(f"  est tokens: max {m['est_token_stats']['max']} mean {m['est_token_stats']['mean']}"
-              f"  over {args.seq_len}: {len(m['over_seq_len'])}")
+        print(
+            f"  est tokens: max {m['est_token_stats']['max']} mean {m['est_token_stats']['mean']}"
+            f"  over {args.seq_len}: {len(m['over_seq_len'])}"
+        )
         print(f"  reviewer prompt sha(s): {m['reviewer_prompt_shas']}")
         if m["validation_errors"]:
             print(f"  VALIDATION ERRORS ({len(m['validation_errors'])}):")

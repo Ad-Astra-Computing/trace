@@ -67,17 +67,25 @@ def _scaffold_bundle(
 ) -> Path:
     b = tmp_path / "bundle"
     b.mkdir()
-    (b / "bundle.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": bundle_id,
-        "cve_id": cve_id,
-        "nixpkgs_rev": nixpkgs_rev,
-        "kind": "auto-merge",
-    }))
-    (b / "finding.json").write_text(json.dumps({
-        "cve_id": cve_id,
-        "affected": [{"attr_path": attr, "version": "1.0.0"}],
-    }))
+    (b / "bundle.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": bundle_id,
+                "cve_id": cve_id,
+                "nixpkgs_rev": nixpkgs_rev,
+                "kind": "auto-merge",
+            }
+        )
+    )
+    (b / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": cve_id,
+                "affected": [{"attr_path": attr, "version": "1.0.0"}],
+            }
+        )
+    )
     (b / "package.nix").write_text('version = "1.0.0";\n')
     if include_patch:
         (b / "patch.diff").write_text(
@@ -106,22 +114,29 @@ def _scaffold_bundle(
 
 def _ok_outcome(stdout: str = "+ ok\n") -> BuildOutcome:
     return BuildOutcome(
-        exit_code=0, drv_path="/nix/store/abc.drv",
-        out_path="/nix/store/abc-result", stdout_stderr=stdout,
+        exit_code=0,
+        drv_path="/nix/store/abc.drv",
+        out_path="/nix/store/abc-result",
+        stdout_stderr=stdout,
         elapsed_seconds=1.0,
     )
 
 
 def _failure_outcome(stdout: str = "+ fail\nerror!\n") -> BuildOutcome:
     return BuildOutcome(
-        exit_code=1, drv_path="/nix/store/abc.drv", out_path=None,
-        stdout_stderr=stdout, elapsed_seconds=2.0,
+        exit_code=1,
+        drv_path="/nix/store/abc.drv",
+        out_path=None,
+        stdout_stderr=stdout,
+        elapsed_seconds=2.0,
     )
 
 
 def _infra_outcome() -> BuildOutcome:
     return BuildOutcome(
-        exit_code=None, drv_path=None, out_path=None,
+        exit_code=None,
+        drv_path=None,
+        out_path=None,
         stdout_stderr="nix-build not on PATH",
         elapsed_seconds=0.0,
         extras={"reason": "nix-build-not-available"},
@@ -137,18 +152,22 @@ def test_happy_path_dispatch_outcome_ok(tmp_path: Path) -> None:
     # but checkout=None` → skipped reason). For the happy-path test we
     # explicitly pass apply_patch=False so patch_apply is recorded as
     # skipped-by-orchestrator.
-    runner = FakeBuildRunner(responses=[
-        # Builder runs phases in this order: unpatched.test (pre-patch),
-        # then patched-build (post-patch), then patched.test (post-patch).
-        # See DECISIONS 2026-05-17 (F7) for why unpatched.test runs before
-        # patch-apply.
-        _ok_outcome("vuln-triggered: out-of-bounds-read in deserialise()\n"),
-        _ok_outcome("patched-build ok\n"),
-        _ok_outcome("rejected-malformed-length-prefix-as-expected-from-CVE-0000-0001\n"),
-        # passthru-tests enumeration: returns 0 because we don't have a
-        # real nixpkgs checkout for the test runner to enumerate against
-        # — and run_builder skips enumeration when nixpkgs_checkout=None.
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            # Builder runs phases in this order: unpatched.test (pre-patch),
+            # then patched-build (post-patch), then patched.test (post-patch).
+            # See DECISIONS 2026-05-17 (F7) for why unpatched.test runs before
+            # patch-apply.
+            _ok_outcome("vuln-triggered: out-of-bounds-read in deserialise()\n"),
+            _ok_outcome("patched-build ok\n"),
+            _ok_outcome(
+                "rejected-malformed-length-prefix-as-expected-from-CVE-0000-0001\n"
+            ),
+            # passthru-tests enumeration: returns 0 because we don't have a
+            # real nixpkgs checkout for the test runner to enumerate against
+            # and run_builder skips enumeration when nixpkgs_checkout=None.
+        ]
+    )
     result = run_builder(
         bundle_dir=bundle,
         build_runner=runner,
@@ -175,15 +194,19 @@ def test_happy_path_dispatch_outcome_ok(tmp_path: Path) -> None:
 
 def test_happy_path_records_three_full_logs(tmp_path: Path) -> None:
     bundle = _scaffold_bundle(tmp_path)
-    runner = FakeBuildRunner(responses=[
-        # Order: unpatched, patched-build, patched. See DECISIONS F7.
-        _ok_outcome("unpatched run\n"),
-        _ok_outcome("patched-build ok\n"),
-        _ok_outcome("patched run\n"),
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            # Order: unpatched, patched-build, patched. See DECISIONS F7.
+            _ok_outcome("unpatched run\n"),
+            _ok_outcome("patched-build ok\n"),
+            _ok_outcome("patched run\n"),
+        ]
+    )
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     # full_logs records the untruncated stdout per phase. For inputs
     # under the inline cap, the value matches stdout_stderr verbatim.
@@ -199,8 +222,10 @@ def test_refused_when_patch_diff_missing(tmp_path: Path) -> None:
     bundle = _scaffold_bundle(tmp_path, include_patch=False)
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=True,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=True,
     )
     assert result.dispatch_outcome == "refused-no-patch"
     bj = result.build_json
@@ -216,12 +241,16 @@ def test_refused_when_patch_diff_missing(tmp_path: Path) -> None:
 
 def test_refused_when_patcher_refused(tmp_path: Path) -> None:
     bundle = _scaffold_bundle(
-        tmp_path, include_patch=False, include_patcher_refusal=True,
+        tmp_path,
+        include_patch=False,
+        include_patcher_refusal=True,
     )
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=True,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=True,
     )
     assert result.dispatch_outcome == "refused-no-patch"
 
@@ -233,8 +262,10 @@ def test_refused_no_reproducer_runs_patched_build_only(tmp_path: Path) -> None:
     bundle = _scaffold_bundle(tmp_path, include_reproducer=False)
     runner = FakeBuildRunner(responses=[_ok_outcome("patched build ok\n")])
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "refused-no-reproducer"
     bj = result.build_json
@@ -250,12 +281,16 @@ def test_refused_no_reproducer_runs_patched_build_only(tmp_path: Path) -> None:
 
 def test_refused_no_reproducer_when_reproducer_refused(tmp_path: Path) -> None:
     bundle = _scaffold_bundle(
-        tmp_path, include_reproducer=False, include_reproducer_refusal=True,
+        tmp_path,
+        include_reproducer=False,
+        include_reproducer_refusal=True,
     )
     runner = FakeBuildRunner(responses=[_ok_outcome()])
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "refused-no-reproducer"
 
@@ -267,12 +302,21 @@ def _init_git_checkout(checkout: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=str(checkout), check=True)
     subprocess.run(["git", "add", "-A"], cwd=str(checkout), check=True)
     subprocess.run(
-        ["git",
-         "-c", "user.email=t@example.com",
-         "-c", "user.name=t",
-         "-c", "commit.gpgsign=false",
-         "commit", "-q", "-m", "init"],
-        cwd=str(checkout), check=True,
+        [
+            "git",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+        cwd=str(checkout),
+        check=True,
     )
 
 
@@ -296,8 +340,10 @@ def test_patch_apply_failed_when_package_dir_unresolvable(tmp_path: Path) -> Non
     bundle = _scaffold_bundle(tmp_path)
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=checkout, apply_patch=True,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=checkout,
+        apply_patch=True,
     )
     assert result.dispatch_outcome == "patch-apply-failed"
     bj = result.build_json
@@ -329,8 +375,10 @@ def test_patch_apply_failed_when_diff_mismatches_real_git(tmp_path: Path) -> Non
     bundle = _scaffold_bundle(tmp_path)
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=checkout, apply_patch=True,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=checkout,
+        apply_patch=True,
     )
     assert result.dispatch_outcome == "patch-apply-failed"
     bj = result.build_json
@@ -338,7 +386,10 @@ def test_patch_apply_failed_when_diff_mismatches_real_git(tmp_path: Path) -> Non
     # git apply exited non-zero (real git failure, not a resolution miss).
     assert isinstance(bj["patch_apply"]["git_apply_exit_code"], int)
     assert bj["patch_apply"]["git_apply_exit_code"] != 0
-    assert "git apply --check --directory=pkgs/by-name/de/demo" in bj["patch_apply"]["reason"]
+    assert (
+        "git apply --check --directory=pkgs/by-name/de/demo"
+        in bj["patch_apply"]["reason"]
+    )
     # unpatched.test ran first against the pre-patch tree and succeeded (per F7).
     assert bj["unpatched"]["outcome"] == "succeeded"
     assert bj["patched_build"]["outcome"] == "skipped"
@@ -363,17 +414,21 @@ def test_patch_apply_succeeds_against_pkgs_by_name_structure(tmp_path: Path) -> 
     _init_git_checkout(checkout)
 
     bundle = _scaffold_bundle(tmp_path)
-    runner = FakeBuildRunner(responses=[
-        # Order (per F7): unpatched, patched_build, patched, then
-        # passthru-tests enumeration.
-        _ok_outcome(),  # unpatched reproducer (pre-patch)
-        _ok_outcome(),  # patched_build (post-patch)
-        _ok_outcome(),  # patched reproducer (post-patch)
-        _ok_outcome(),  # passthru-tests enumeration
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            # Order (per F7): unpatched, patched_build, patched, then
+            # passthru-tests enumeration.
+            _ok_outcome(),  # unpatched reproducer (pre-patch)
+            _ok_outcome(),  # patched_build (post-patch)
+            _ok_outcome(),  # patched reproducer (post-patch)
+            _ok_outcome(),  # passthru-tests enumeration
+        ]
+    )
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=checkout, apply_patch=True,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=checkout,
+        apply_patch=True,
     )
     bj = result.build_json
     assert bj["patch_apply"]["applied"] is True, bj["patch_apply"]
@@ -388,6 +443,7 @@ def test_patch_apply_succeeds_against_pkgs_by_name_structure(tmp_path: Path) -> 
 def test_resolve_attr_package_dir_returns_none_for_missing_attr(tmp_path: Path) -> None:
     """Direct unit test of the resolver helper: missing attr → None."""
     from agents.builder.runner import _resolve_attr_package_dir
+
     checkout = tmp_path / "checkout"
     checkout.mkdir()
     # No nix on PATH guaranteed in this scenario, but even if there is,
@@ -443,13 +499,16 @@ def test_paths_contained_in_guard() -> None:
     """The path-traversal guard for direct-package-dir apply: contained paths pass;
     absolute, '..', '.', empty, backslash, and outside-dir paths are rejected."""
     from agents.builder.runner import _paths_contained_in
+
     d = "pkgs/development/python-modules/requests"
     assert _paths_contained_in([f"{d}/default.nix", f"{d}/CVE-2024-47081.patch"], d)
     assert _paths_contained_in([d], d)  # the dir itself
     assert not _paths_contained_in([f"{d}/../evil.nix"], d)
     assert not _paths_contained_in(["/etc/passwd"], d)
     assert not _paths_contained_in([f"{d}/sub/../../escape.nix"], d)
-    assert not _paths_contained_in(["pkgs/development/python-modules/requests-evil/x"], d)
+    assert not _paths_contained_in(
+        ["pkgs/development/python-modules/requests-evil/x"], d
+    )
     assert not _paths_contained_in([""], d)
     assert not _paths_contained_in([f"{d}/a\\b"], d)
 
@@ -458,7 +517,8 @@ def _perl_wiring_diff(*patch_basenames: str) -> str:
     """A minimal perl-packages.nix diff section that wires in the given patch
     basenames (an added `patches = [ ./perl-modules/<name> ]` line per patch)."""
     added = "".join(
-        f"+    patches = [ ../development/perl-modules/{b} ];\n" for b in patch_basenames
+        f"+    patches = [ ../development/perl-modules/{b} ];\n"
+        for b in patch_basenames
     )
     return (
         "diff --git a/pkgs/top-level/perl-packages.nix b/pkgs/top-level/perl-packages.nix\n"
@@ -498,6 +558,7 @@ def test_canonical_source_backport_eligible_valid() -> None:
     """A package.nix edit + a wired-in new *.patch payload, both bare basenames,
     is the eligible canonical source-backport shape (perl-core-interpreter case)."""
     from agents.builder.runner import _canonical_source_backport_eligible
+
     paths = ["CVE-2026-8376.patch", "package.nix"]
     diff = _canonical_backport_diff("CVE-2026-8376.patch")
     assert _canonical_source_backport_eligible(paths, diff)
@@ -507,12 +568,14 @@ def test_canonical_source_backport_rejects_single_file() -> None:
     """A lone package.nix (no payload) is NOT this shape (it's the single-file
     remap handled separately)."""
     from agents.builder.runner import _canonical_source_backport_eligible
+
     assert not _canonical_source_backport_eligible(["package.nix"], "")
 
 
 def test_canonical_source_backport_rejects_unreferenced_payload() -> None:
     """A payload the package.nix diff never wires in is rejected."""
     from agents.builder.runner import _canonical_source_backport_eligible
+
     paths = ["CVE-2026-8376.patch", "package.nix"]
     diff = _canonical_backport_diff("CVE-2026-8376.patch", wire=False)
     assert not _canonical_source_backport_eligible(paths, diff)
@@ -521,6 +584,7 @@ def test_canonical_source_backport_rejects_unreferenced_payload() -> None:
 def test_canonical_source_backport_rejects_non_patch_payload() -> None:
     """A non-.patch sibling (e.g. a second .nix) is rejected."""
     from agents.builder.runner import _canonical_source_backport_eligible
+
     paths = ["common.nix", "package.nix"]
     diff = _canonical_backport_diff("common.nix")
     assert not _canonical_source_backport_eligible(paths, diff)
@@ -530,18 +594,23 @@ def test_canonical_source_backport_rejects_traversal() -> None:
     """Any path component (slash / '..' / absolute / backslash) in a payload
     breaks the bare-basename containment guard and makes the patch ineligible."""
     from agents.builder.runner import _canonical_source_backport_eligible
+
     diff = _canonical_backport_diff("CVE.patch")
     assert not _canonical_source_backport_eligible(
-        ["sub/CVE.patch", "package.nix"], diff)
+        ["sub/CVE.patch", "package.nix"], diff
+    )
     assert not _canonical_source_backport_eligible(
-        ["../../etc/evil.patch", "package.nix"], diff)
+        ["../../etc/evil.patch", "package.nix"], diff
+    )
     assert not _canonical_source_backport_eligible(
-        ["/etc/evil.patch", "package.nix"], diff)
-    assert not _canonical_source_backport_eligible(
-        ["a\\b.patch", "package.nix"], diff)
+        ["/etc/evil.patch", "package.nix"], diff
+    )
+    assert not _canonical_source_backport_eligible(["a\\b.patch", "package.nix"], diff)
 
 
-def test_apply_patch_core_interpreter_source_backport(tmp_path: Path, monkeypatch) -> None:
+def test_apply_patch_core_interpreter_source_backport(
+    tmp_path: Path, monkeypatch
+) -> None:
     """The perl-core-interpreter case end to end: a canonical source-backport
     (package.nix edit wiring ./CVE.patch + a new CVE.patch) authored against a
     package whose real file is default.nix. The Builder remaps package.nix ->
@@ -551,6 +620,7 @@ def test_apply_patch_core_interpreter_source_backport(tmp_path: Path, monkeypatc
     if not _git_on_path():
         pytest.skip("git not on PATH")
     from agents.builder import runner as R
+
     checkout = tmp_path / "checkout"
     pkg = checkout / "pkgs" / "development" / "interpreters" / "perl"
     pkg.mkdir(parents=True)
@@ -558,8 +628,11 @@ def test_apply_patch_core_interpreter_source_backport(tmp_path: Path, monkeypatc
     (pkg / "default.nix").write_text(default_nix)
     (pkg / "old.patch").write_text("# pre-existing\n")
     _init_git_checkout(checkout)
-    monkeypatch.setattr(R, "_resolve_attr_package_dir",
-                        lambda co, attr: "pkgs/development/interpreters/perl")
+    monkeypatch.setattr(
+        R,
+        "_resolve_attr_package_dir",
+        lambda co, attr: "pkgs/development/interpreters/perl",
+    )
     patch = tmp_path / "patch.diff"
     diff = _canonical_backport_diff("CVE-2026-8376.patch")
     patch.write_text(diff)
@@ -585,6 +658,7 @@ def test_split_package_perl_eligible_valid() -> None:
     """Codex case 1: perl-packages.nix wiring + a referenced perl-modules/*.patch
     is the eligible split-package shape."""
     from agents.builder.runner import _split_package_perl_eligible
+
     paths = [
         "pkgs/top-level/perl-packages.nix",
         "pkgs/development/perl-modules/FileFindRule-CVE-2011-10007.patch",
@@ -596,6 +670,7 @@ def test_split_package_perl_eligible_valid() -> None:
 def test_split_package_perl_rejects_other_toplevel_file() -> None:
     """Codex case 2: touching any other top-level (or non-allowlisted) file is rejected."""
     from agents.builder.runner import _split_package_perl_eligible
+
     diff = _perl_wiring_diff("FileFindRule-CVE-2011-10007.patch")
     paths = [
         "pkgs/top-level/perl-packages.nix",
@@ -608,6 +683,7 @@ def test_split_package_perl_rejects_other_toplevel_file() -> None:
 def test_split_package_perl_rejects_traversal() -> None:
     """Codex case 3: a '..' traversal in any path makes the patch ineligible."""
     from agents.builder.runner import _split_package_perl_eligible
+
     diff = _perl_wiring_diff("FileFindRule-CVE-2011-10007.patch")
     paths = [
         "pkgs/top-level/perl-packages.nix",
@@ -616,22 +692,35 @@ def test_split_package_perl_rejects_traversal() -> None:
     assert not _split_package_perl_eligible(paths, diff)
     # absolute + backslash payloads also rejected
     assert not _split_package_perl_eligible(
-        ["pkgs/top-level/perl-packages.nix", "/etc/evil.patch"], diff)
+        ["pkgs/top-level/perl-packages.nix", "/etc/evil.patch"], diff
+    )
     assert not _split_package_perl_eligible(
-        ["pkgs/top-level/perl-packages.nix", "pkgs/development/perl-modules/a\\b.patch"], diff)
+        [
+            "pkgs/top-level/perl-packages.nix",
+            "pkgs/development/perl-modules/a\\b.patch",
+        ],
+        diff,
+    )
 
 
 def test_split_package_perl_rejects_non_patch_payload() -> None:
     """Codex case 4: a payload that is not a *.patch (or is nested) is rejected."""
     from agents.builder.runner import _split_package_perl_eligible
+
     diff = _perl_wiring_diff("evil.nix")
     # non-.patch extension
     assert not _split_package_perl_eligible(
-        ["pkgs/top-level/perl-packages.nix", "pkgs/development/perl-modules/evil.nix"], diff)
+        ["pkgs/top-level/perl-packages.nix", "pkgs/development/perl-modules/evil.nix"],
+        diff,
+    )
     # nested subdir under perl-modules/ is not allowed
     assert not _split_package_perl_eligible(
-        ["pkgs/top-level/perl-packages.nix", "pkgs/development/perl-modules/sub/x.patch"],
-        _perl_wiring_diff("x.patch"))
+        [
+            "pkgs/top-level/perl-packages.nix",
+            "pkgs/development/perl-modules/sub/x.patch",
+        ],
+        _perl_wiring_diff("x.patch"),
+    )
     # wiring file alone (no payload) is not a split-package
     assert not _split_package_perl_eligible(["pkgs/top-level/perl-packages.nix"], diff)
 
@@ -640,6 +729,7 @@ def test_split_package_perl_rejects_unreferenced_payload() -> None:
     """Codex case 5: a perl-modules/*.patch not referenced by the wiring diff is rejected
     (the model must actually wire in the patch it adds)."""
     from agents.builder.runner import _split_package_perl_eligible
+
     paths = [
         "pkgs/top-level/perl-packages.nix",
         "pkgs/development/perl-modules/FileFindRule-CVE-2011-10007.patch",
@@ -649,7 +739,9 @@ def test_split_package_perl_rejects_unreferenced_payload() -> None:
     assert not _split_package_perl_eligible(paths, diff)
 
 
-def test_apply_patch_direct_package_dir_multifile_source_backport(tmp_path: Path, monkeypatch) -> None:
+def test_apply_patch_direct_package_dir_multifile_source_backport(
+    tmp_path: Path, monkeypatch
+) -> None:
     """A non-by-name source-backport: full nixpkgs paths contained in the package
     dir (a new CVE.patch + a default.nix edit) apply at the repo root with NO remap
     and NO --directory. This is the legacy-package source-backport path that the
@@ -657,14 +749,18 @@ def test_apply_patch_direct_package_dir_multifile_source_backport(tmp_path: Path
     if not _git_on_path():
         pytest.skip("git not on PATH")
     from agents.builder import runner as R
+
     checkout = tmp_path / "checkout"
     pkg = checkout / "pkgs" / "development" / "python-modules" / "demo"
     pkg.mkdir(parents=True)
-    (pkg / "default.nix").write_text('  patches = [\n    ./old.patch\n  ];\n')
+    (pkg / "default.nix").write_text("  patches = [\n    ./old.patch\n  ];\n")
     (pkg / "old.patch").write_text("# pre-existing\n")
     _init_git_checkout(checkout)
-    monkeypatch.setattr(R, "_resolve_attr_package_dir",
-                        lambda co, attr: "pkgs/development/python-modules/demo")
+    monkeypatch.setattr(
+        R,
+        "_resolve_attr_package_dir",
+        lambda co, attr: "pkgs/development/python-modules/demo",
+    )
     patch = tmp_path / "patch.diff"
     rel = "pkgs/development/python-modules/demo"
     patch.write_text(
@@ -683,17 +779,24 @@ def test_apply_patch_direct_package_dir_multifile_source_backport(tmp_path: Path
         "+    ./CVE-2099-1.patch\n"
         "   ];\n"
     )
-    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="python3Packages.demo")
+    res = R._apply_patch(
+        patch_diff_path=patch, nixpkgs_checkout=checkout, attr="python3Packages.demo"
+    )
     assert res["applied"] is True, res
     assert res["apply_mode"] == "direct-package-dir"
     assert "package_file_remap" not in res
-    assert set(res["files_changed"]) == {f"{rel}/CVE-2099-1.patch", f"{rel}/default.nix"}
+    assert set(res["files_changed"]) == {
+        f"{rel}/CVE-2099-1.patch",
+        f"{rel}/default.nix",
+    }
     assert (pkg / "CVE-2099-1.patch").read_text() == "the authored upstream fix\n"
     assert "./CVE-2099-1.patch" in (pkg / "default.nix").read_text()
     assert patch.read_text().startswith("diff --git")  # committed patch untouched
 
 
-def test_apply_patch_direct_mode_rejects_path_escape(tmp_path: Path, monkeypatch) -> None:
+def test_apply_patch_direct_mode_rejects_path_escape(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Security: a non-by-name patch that touches a file OUTSIDE the resolved package
     dir (path traversal) must NOT take the direct-package-dir mode — it falls through
     to the canonical remap, which refuses the multi-file shape. The outside file is
@@ -701,6 +804,7 @@ def test_apply_patch_direct_mode_rejects_path_escape(tmp_path: Path, monkeypatch
     if not _git_on_path():
         pytest.skip("git not on PATH")
     from agents.builder import runner as R
+
     checkout = tmp_path / "checkout"
     pkg = checkout / "pkgs" / "development" / "python-modules" / "demo"
     pkg.mkdir(parents=True)
@@ -709,8 +813,11 @@ def test_apply_patch_direct_mode_rejects_path_escape(tmp_path: Path, monkeypatch
     victim_dir.mkdir(parents=True)
     (victim_dir / "secret.nix").write_text("# do not touch\n")
     _init_git_checkout(checkout)
-    monkeypatch.setattr(R, "_resolve_attr_package_dir",
-                        lambda co, attr: "pkgs/development/python-modules/demo")
+    monkeypatch.setattr(
+        R,
+        "_resolve_attr_package_dir",
+        lambda co, attr: "pkgs/development/python-modules/demo",
+    )
     rel = "pkgs/development/python-modules/demo"
     patch = tmp_path / "patch.diff"
     patch.write_text(
@@ -721,7 +828,9 @@ def test_apply_patch_direct_mode_rejects_path_escape(tmp_path: Path, monkeypatch
         "--- a/pkgs/stdenv/secret.nix\n+++ b/pkgs/stdenv/secret.nix\n"
         "@@ -1 +1 @@\n-# do not touch\n+# pwned\n"
     )
-    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="python3Packages.demo")
+    res = R._apply_patch(
+        patch_diff_path=patch, nixpkgs_checkout=checkout, attr="python3Packages.demo"
+    )
     assert res["applied"] is False, res
     assert res.get("apply_mode") != "direct-package-dir"
     assert (victim_dir / "secret.nix").read_text() == "# do not touch\n"  # untouched
@@ -731,6 +840,7 @@ def test_remap_diff_basename_rewrites_only_headers() -> None:
     """The remap helper rewrites exactly the three git path headers and leaves
     hunk bodies untouched — even context lines that mention 'package.nix'."""
     from agents.builder.runner import _remap_diff_basename
+
     out = _remap_diff_basename(_PKG_DIFF, "package.nix", "default.nix")
     assert "diff --git a/default.nix b/default.nix\n" in out
     assert "--- a/default.nix\n" in out
@@ -748,7 +858,9 @@ def _multivariant_checkout(tmp_path: Path):
     checkout = tmp_path / "checkout"
     pkg_dir = checkout / "pkgs" / "tools" / "networking" / "openssh"
     pkg_dir.mkdir(parents=True)
-    (pkg_dir / "default.nix").write_text('version = "10.0p2"; # see package.nix notes\n')
+    (pkg_dir / "default.nix").write_text(
+        'version = "10.0p2"; # see package.nix notes\n'
+    )
     # a sibling .nix the patch must NOT match (the `common` helper)
     (pkg_dir / "common.nix").write_text("{ lib }: { }\n")
     return checkout, pkg_dir
@@ -761,57 +873,78 @@ def test_apply_patch_remaps_via_content_match(tmp_path: Path, monkeypatch) -> No
     if not _git_on_path():
         pytest.skip("git not on PATH")
     from agents.builder import runner as R
+
     checkout, pkg_dir = _multivariant_checkout(tmp_path)
     _init_git_checkout(checkout)
     patch = tmp_path / "patch.diff"
     patch.write_text(_PKG_DIFF)
     # bundled package.nix == default.nix bytes => unique content-match
-    (tmp_path / "package.nix").write_text('version = "10.0p2"; # see package.nix notes\n')
-    monkeypatch.setattr(
-        R, "_resolve_attr_package_file",
-        lambda co, attr: "pkgs/tools/networking/openssh/common.nix",  # meta.position lies
+    (tmp_path / "package.nix").write_text(
+        'version = "10.0p2"; # see package.nix notes\n'
     )
-    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    monkeypatch.setattr(
+        R,
+        "_resolve_attr_package_file",
+        lambda co, attr: (
+            "pkgs/tools/networking/openssh/common.nix"
+        ),  # meta.position lies
+    )
+    res = R._apply_patch(
+        patch_diff_path=patch, nixpkgs_checkout=checkout, attr="openssh_gssapi"
+    )
     assert res["applied"] is True, res
     assert res["files_changed"] == ["pkgs/tools/networking/openssh/default.nix"]
     assert res["package_file_remap"] == (
         "package.nix -> pkgs/tools/networking/openssh/default.nix (content-match)"
     )
-    assert (pkg_dir / "default.nix").read_text() == 'version = "10.1p1"; # see package.nix notes\n'
+    assert (
+        pkg_dir / "default.nix"
+    ).read_text() == 'version = "10.1p1"; # see package.nix notes\n'
     assert (pkg_dir / "common.nix").read_text() == "{ lib }: { }\n"  # sibling untouched
     assert patch.read_text() == _PKG_DIFF
 
 
-def test_apply_patch_remaps_via_apply_check_fallback(tmp_path: Path, monkeypatch) -> None:
+def test_apply_patch_remaps_via_apply_check_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
     """When no bundled package.nix byte-matches, the Builder falls back to a unique
     git-apply --check hit among *.nix candidates (default.nix applies, common.nix does
     not), and records method=apply-check."""
     if not _git_on_path():
         pytest.skip("git not on PATH")
     from agents.builder import runner as R
+
     checkout, pkg_dir = _multivariant_checkout(tmp_path)
     _init_git_checkout(checkout)
     patch = tmp_path / "patch.diff"
     patch.write_text(_PKG_DIFF)
     # no bundled package.nix => content-match stage is skipped
     monkeypatch.setattr(
-        R, "_resolve_attr_package_file",
+        R,
+        "_resolve_attr_package_file",
         lambda co, attr: "pkgs/tools/networking/openssh/common.nix",
     )
-    res = R._apply_patch(patch_diff_path=patch, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    res = R._apply_patch(
+        patch_diff_path=patch, nixpkgs_checkout=checkout, attr="openssh_gssapi"
+    )
     assert res["applied"] is True, res
     assert res["package_file_remap"] == (
         "package.nix -> pkgs/tools/networking/openssh/default.nix (apply-check)"
     )
-    assert (pkg_dir / "default.nix").read_text() == 'version = "10.1p1"; # see package.nix notes\n'
+    assert (
+        pkg_dir / "default.nix"
+    ).read_text() == 'version = "10.1p1"; # see package.nix notes\n'
 
 
-def test_apply_patch_refuses_remap_for_multifile_patch(tmp_path: Path, monkeypatch) -> None:
+def test_apply_patch_refuses_remap_for_multifile_patch(
+    tmp_path: Path, monkeypatch
+) -> None:
     """When the resolved file is non-by-name (default.nix) but the patch touches more
     than the canonical package.nix, the Builder refuses to remap (codex constraint)."""
     if not _git_on_path():
         pytest.skip("git not on PATH")
     from agents.builder import runner as R
+
     checkout = tmp_path / "checkout"
     pkg_dir = checkout / "pkgs" / "tools" / "networking" / "openssh"
     pkg_dir.mkdir(parents=True)
@@ -819,15 +952,17 @@ def test_apply_patch_refuses_remap_for_multifile_patch(tmp_path: Path, monkeypat
     _init_git_checkout(checkout)
     multi = tmp_path / "patch.diff"
     multi.write_text(
-        _PKG_DIFF
-        + "diff --git a/common.nix b/common.nix\n"
+        _PKG_DIFF + "diff --git a/common.nix b/common.nix\n"
         "--- a/common.nix\n+++ b/common.nix\n@@ -1 +1 @@\n-a\n+b\n"
     )
     monkeypatch.setattr(
-        R, "_resolve_attr_package_file",
+        R,
+        "_resolve_attr_package_file",
         lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
     )
-    res = R._apply_patch(patch_diff_path=multi, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    res = R._apply_patch(
+        patch_diff_path=multi, nixpkgs_checkout=checkout, attr="openssh_gssapi"
+    )
     # common.nix is a top-level bundle-relative path NOT contained in the resolved
     # package dir, so direct-package-dir apply is ineligible and (being multi-file)
     # the canonical remap refuses too.
@@ -835,7 +970,9 @@ def test_apply_patch_refuses_remap_for_multifile_patch(tmp_path: Path, monkeypat
     assert "refusing to apply onto a non-by-name package" in res["reason"]
 
 
-def test_apply_patch_refuses_remap_for_sibling_deletion(tmp_path: Path, monkeypatch) -> None:
+def test_apply_patch_refuses_remap_for_sibling_deletion(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Security regression: a patch that edits package.nix AND deletes a sibling file
     (via `+++ /dev/null`) must be refused. The `+++ b/`-only extractor is blind to
     deletions; the gate enforces the single-file invariant via `git apply --numstat`,
@@ -843,16 +980,18 @@ def test_apply_patch_refuses_remap_for_sibling_deletion(tmp_path: Path, monkeypa
     if not _git_on_path():
         pytest.skip("git not on PATH")
     from agents.builder import runner as R
+
     checkout = tmp_path / "checkout"
     pkg_dir = checkout / "pkgs" / "tools" / "networking" / "openssh"
     pkg_dir.mkdir(parents=True)
-    (pkg_dir / "default.nix").write_text('version = "10.0p2"; # see package.nix notes\n')
+    (pkg_dir / "default.nix").write_text(
+        'version = "10.0p2"; # see package.nix notes\n'
+    )
     (pkg_dir / "victim.nix").write_text("# load-bearing sibling\n")
     _init_git_checkout(checkout)
     sneaky = tmp_path / "patch.diff"
     sneaky.write_text(
-        _PKG_DIFF
-        + "diff --git a/victim.nix b/victim.nix\n"
+        _PKG_DIFF + "diff --git a/victim.nix b/victim.nix\n"
         "deleted file mode 100644\n"
         "--- a/victim.nix\n"
         "+++ /dev/null\n"
@@ -860,10 +999,13 @@ def test_apply_patch_refuses_remap_for_sibling_deletion(tmp_path: Path, monkeypa
         "-# load-bearing sibling\n"
     )
     monkeypatch.setattr(
-        R, "_resolve_attr_package_file",
+        R,
+        "_resolve_attr_package_file",
         lambda co, attr: "pkgs/tools/networking/openssh/default.nix",
     )
-    res = R._apply_patch(patch_diff_path=sneaky, nixpkgs_checkout=checkout, attr="openssh_gssapi")
+    res = R._apply_patch(
+        patch_diff_path=sneaky, nixpkgs_checkout=checkout, attr="openssh_gssapi"
+    )
     # The sibling deletion makes the diff "unsafe" (deleted file mode), so
     # direct-package-dir apply is refused; the multi-file shape also fails the
     # canonical remap. The victim file is never mutated.
@@ -877,16 +1019,27 @@ def test_apply_patch_refuses_remap_for_sibling_deletion(tmp_path: Path, monkeypa
 def test_resolve_attr_package_dir_rejects_unsafe_attr(tmp_path: Path) -> None:
     """Attrs that fail _ATTR_SAFE_RE must return None without calling nix eval."""
     from agents.builder.runner import _resolve_attr_package_dir
+
     checkout = tmp_path / "checkout"
     checkout.mkdir()
-    for bad in ["ruby}; builtins.readFile /etc/passwd; ({", "a b", "1start", ".leading", "a..b", ""]:
-        assert _resolve_attr_package_dir(checkout, bad) is None, f"expected None for {bad!r}"
+    for bad in [
+        "ruby}; builtins.readFile /etc/passwd; ({",
+        "a b",
+        "1start",
+        ".leading",
+        "a..b",
+        "",
+    ]:
+        assert _resolve_attr_package_dir(checkout, bad) is None, (
+            f"expected None for {bad!r}"
+        )
 
 
 def test_resolve_attr_package_dir_finds_pkgs_by_name(tmp_path: Path) -> None:
     """Direct unit test: pkgs/by-name/<aa>/<attr>/package.nix → returns
     the relative directory path."""
     from agents.builder.runner import _resolve_attr_package_dir
+
     checkout = tmp_path / "checkout"
     pkg_dir = checkout / "pkgs" / "by-name" / "tr" / "traefik"
     pkg_dir.mkdir(parents=True)
@@ -911,14 +1064,18 @@ def test_infra_failure_records_patched_build_skipped_outcome(tmp_path: Path) -> 
     still treats `applied=True` because the orchestrator DID try; the
     reason field surfaces the runner's diagnostic)."""
     bundle = _scaffold_bundle(tmp_path)
-    runner = FakeBuildRunner(responses=[
-        _infra_outcome(),
-        _infra_outcome(),
-        _infra_outcome(),
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            _infra_outcome(),
+            _infra_outcome(),
+            _infra_outcome(),
+        ]
+    )
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     # We don't bubble infra failure to dispatch_outcome at this layer
     # (the orchestrator can't tell the difference between a slow
@@ -943,8 +1100,10 @@ def test_instrumentation_absent_records_null_and_no_asan_flag(
     bundle = _scaffold_bundle(tmp_path)
     runner = FakeBuildRunner(responses=[_ok_outcome(), _ok_outcome(), _ok_outcome()])
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.build_json["instrumentation"] is None
     _assert_valid(result.build_json)
@@ -962,15 +1121,19 @@ def test_instrumentation_asan_true_propagates_to_reproducer_phases(
     (bundle / "reproducer-instrumentation.json").write_text(
         json.dumps({"schema_version": "1.0.0", "asan": True})
     )
-    runner = FakeBuildRunner(responses=[
-        # Order (per F7): unpatched, patched_build, patched.
-        _ok_outcome("unpatched repro\n"),
-        _ok_outcome("patched-build ok\n"),
-        _ok_outcome("patched repro\n"),
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            # Order (per F7): unpatched, patched_build, patched.
+            _ok_outcome("unpatched repro\n"),
+            _ok_outcome("patched-build ok\n"),
+            _ok_outcome("patched repro\n"),
+        ]
+    )
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "ok"
     assert result.build_json["instrumentation"] == "asan"
@@ -981,7 +1144,7 @@ def test_instrumentation_asan_true_propagates_to_reproducer_phases(
     # The patched_build sanity check is intentionally NOT instrumented.
     assert len(runner.calls) == 3
     assert runner.calls[0]["instrumentation"] == "asan"  # unpatched repro
-    assert runner.calls[1]["instrumentation"] is None    # patched_build
+    assert runner.calls[1]["instrumentation"] is None  # patched_build
     assert runner.calls[2]["instrumentation"] == "asan"  # patched repro
 
 
@@ -995,8 +1158,10 @@ def test_instrumentation_asan_false_records_null(tmp_path: Path) -> None:
     )
     runner = FakeBuildRunner(responses=[_ok_outcome(), _ok_outcome(), _ok_outcome()])
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "ok"
     assert result.build_json["instrumentation"] is None
@@ -1011,8 +1176,10 @@ def test_instrumentation_invalid_json_is_structured_refusal(
     (bundle / "reproducer-instrumentation.json").write_text("{ this is not json")
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "instrumentation-malformed"
     bj = result.build_json
@@ -1032,8 +1199,10 @@ def test_instrumentation_wrong_schema_version_is_refusal(
     )
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "instrumentation-malformed"
     assert "schema_version" in result.build_json["patch_apply"]["reason"]
@@ -1048,8 +1217,10 @@ def test_instrumentation_asan_not_bool_is_refusal(tmp_path: Path) -> None:
     )
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "instrumentation-malformed"
     assert "asan" in result.build_json["patch_apply"]["reason"]
@@ -1068,8 +1239,10 @@ def test_instrumentation_unknown_keys_is_refusal(tmp_path: Path) -> None:
     )
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "instrumentation-malformed"
     assert "unknown keys" in result.build_json["patch_apply"]["reason"]
@@ -1086,8 +1259,10 @@ def test_instrumentation_only_schema_version_is_noop(tmp_path: Path) -> None:
     )
     runner = FakeBuildRunner(responses=[_ok_outcome(), _ok_outcome(), _ok_outcome()])
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "ok"
     assert result.build_json["instrumentation"] is None
@@ -1104,15 +1279,19 @@ def test_instrumentation_disable_doCheck_true_wraps_patched_build(
     (bundle / "reproducer-instrumentation.json").write_text(
         json.dumps({"schema_version": "1.0.0", "disable_doCheck": True})
     )
-    runner = FakeBuildRunner(responses=[
-        # Order (per F7): unpatched, patched_build, patched.
-        _ok_outcome("unpatched repro ok\n"),
-        _ok_outcome("patched-build ok\n"),
-        _ok_outcome("patched repro ok\n"),
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            # Order (per F7): unpatched, patched_build, patched.
+            _ok_outcome("unpatched repro ok\n"),
+            _ok_outcome("patched-build ok\n"),
+            _ok_outcome("patched repro ok\n"),
+        ]
+    )
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "ok"
     # patched-build phase (runner.calls[1] under F7 ordering):
@@ -1135,12 +1314,18 @@ def test_instrumentation_disable_doCheck_false_keeps_attr_mode(
     (bundle / "reproducer-instrumentation.json").write_text(
         json.dumps({"schema_version": "1.0.0", "disable_doCheck": False})
     )
-    runner = FakeBuildRunner(responses=[
-        _ok_outcome(), _ok_outcome(), _ok_outcome(),
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            _ok_outcome(),
+            _ok_outcome(),
+            _ok_outcome(),
+        ]
+    )
     run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     # patched-build phase is calls[1] under F7 ordering (unpatched runs first).
     pb_call = runner.calls[1]
@@ -1157,8 +1342,10 @@ def test_instrumentation_disable_doCheck_not_bool_is_refusal(
     )
     runner = FakeBuildRunner(response=_ok_outcome())
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     assert result.dispatch_outcome == "instrumentation-malformed"
     assert "disable_doCheck" in result.build_json["patch_apply"]["reason"]
@@ -1170,17 +1357,26 @@ def test_instrumentation_disable_doCheck_not_bool_is_refusal(
 
 def test_oversize_log_truncated_with_sha256_recorded(tmp_path: Path) -> None:
     huge_log = "x" * 80000  # > 64 KiB
-    runner = FakeBuildRunner(responses=[
-        # Order (per F7): unpatched, patched_build (HUGE log), patched.
-        _ok_outcome(),
-        BuildOutcome(exit_code=0, drv_path=None, out_path=None,
-                     stdout_stderr=huge_log, elapsed_seconds=1.0),
-        _ok_outcome(),
-    ])
+    runner = FakeBuildRunner(
+        responses=[
+            # Order (per F7): unpatched, patched_build (HUGE log), patched.
+            _ok_outcome(),
+            BuildOutcome(
+                exit_code=0,
+                drv_path=None,
+                out_path=None,
+                stdout_stderr=huge_log,
+                elapsed_seconds=1.0,
+            ),
+            _ok_outcome(),
+        ]
+    )
     bundle = _scaffold_bundle(tmp_path)
     result = run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=None, apply_patch=False,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=None,
+        apply_patch=False,
     )
     pb = result.build_json["patched_build"]
     assert len(pb["stdout_stderr"].encode("utf-8")) <= 65536
@@ -1199,7 +1395,9 @@ def test_repro_nix_expression_unpinned_uses_system_nixpkgs(tmp_path: Path) -> No
     from agents.builder.runner import _repro_nix_expression
 
     repro = tmp_path / "reproducer.nix"
-    repro.write_text("{ pkgs ? import <nixpkgs> {} }: { unpatched = {}; patched = {}; }")
+    repro.write_text(
+        "{ pkgs ? import <nixpkgs> {} }: { unpatched = {}; patched = {}; }"
+    )
     expr = _repro_nix_expression(repro, attr_in_repro="unpatched.test")
     assert "(import" in expr
     assert ".unpatched.test)" in expr
@@ -1235,20 +1433,32 @@ def test_unpatched_test_runs_before_patch_apply(tmp_path: Path) -> None:
         is_available = True
         calls: list[dict[str, Any]] = []
 
-        def run(self, *, nix_expression=None, attr=None, cwd, timeout_seconds,
-                instrumentation=None):
+        def run(
+            self,
+            *,
+            nix_expression=None,
+            attr=None,
+            cwd,
+            timeout_seconds,
+            instrumentation=None,
+        ):
             seen_content.append(pkg_path.read_text())
-            self.calls.append({
-                "attr": attr, "nix_expression": nix_expression,
-                "instrumentation": instrumentation,
-            })
+            self.calls.append(
+                {
+                    "attr": attr,
+                    "nix_expression": nix_expression,
+                    "instrumentation": instrumentation,
+                }
+            )
             return _ok_outcome()
 
     runner = RecordingRunner()
     bundle = _scaffold_bundle(tmp_path)
     run_builder(
-        bundle_dir=bundle, build_runner=runner,
-        nixpkgs_checkout=checkout, apply_patch=True,
+        bundle_dir=bundle,
+        build_runner=runner,
+        nixpkgs_checkout=checkout,
+        apply_patch=True,
     )
     # First BuildRunner call is unpatched.test against the PRE-patch tree.
     assert seen_content[0] == 'version = "1.0.0";\n', seen_content
@@ -1267,11 +1477,15 @@ def test_repro_nix_expression_pinned_passes_nixpkgs_path(tmp_path: Path) -> None
     from agents.builder.runner import _repro_nix_expression
 
     repro = tmp_path / "reproducer.nix"
-    repro.write_text("{ pkgs ? import <nixpkgs> {} }: { unpatched = {}; patched = {}; }")
+    repro.write_text(
+        "{ pkgs ? import <nixpkgs> {} }: { unpatched = {}; patched = {}; }"
+    )
     pin = tmp_path / "nixpkgs-checkout"
     pin.mkdir()
     expr = _repro_nix_expression(
-        repro, attr_in_repro="patched.test", nixpkgs_pin=pin,
+        repro,
+        attr_in_repro="patched.test",
+        nixpkgs_pin=pin,
     )
     assert f"pkgs = import {pin.resolve()}" in expr
     assert ".patched.test)" in expr

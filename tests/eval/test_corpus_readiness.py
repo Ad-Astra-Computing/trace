@@ -20,21 +20,37 @@ cr = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(cr)
 
 
-def _manifests(monkeypatch, reviewer: dict, authoring: dict | None = None,
-               dirty: list | None = None, uncerted: list | None = None) -> None:
+def _manifests(
+    monkeypatch,
+    reviewer: dict,
+    authoring: dict | None = None,
+    dirty: list | None = None,
+    uncerted: list | None = None,
+) -> None:
     def fake_export(scope: str):
-        return reviewer if scope == "reviewer" else (authoring or {"eligible_examples": 0, "splits": {}})
+        return (
+            reviewer
+            if scope == "reviewer"
+            else (authoring or {"eligible_examples": 0, "splits": {}})
+        )
+
     monkeypatch.setattr(cr, "_export", fake_export)
     # the disk cross-checks hit real disk; mock them (default: clean)
-    monkeypatch.setattr(cr, "_schema_invalid_bundles", lambda: (dirty or []))
-    monkeypatch.setattr(cr, "_uncerted_auto_merge_positives", lambda: (uncerted or []))
+    monkeypatch.setattr(cr, "_schema_invalid_bundles", lambda: dirty or [])
+    monkeypatch.setattr(cr, "_uncerted_auto_merge_positives", lambda: uncerted or [])
 
 
 def test_not_ready_below_positive_threshold(monkeypatch):
-    _manifests(monkeypatch, {
-        "labels": {"positive": 28, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 38}, "families": [], "excluded": [],
-    })
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 28, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 38},
+            "families": [],
+            "excluded": [],
+        },
+    )
     r = cr.build_report(50, 25)
     assert r["pilot_ready"] is False
     assert r["reviewer"]["positive_gap"] == 22
@@ -43,10 +59,16 @@ def test_not_ready_below_positive_threshold(monkeypatch):
 
 
 def test_ready_when_thresholds_met_and_no_leakage(monkeypatch):
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
-    })
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 50},
+            "families": [],
+            "excluded": [],
+        },
+    )
     r = cr.build_report(50, 25)
     assert r["pilot_ready"] is True
     assert r["blocking"] == []
@@ -55,10 +77,17 @@ def test_ready_when_thresholds_met_and_no_leakage(monkeypatch):
 def test_schema_invalid_bundles_block_readiness_even_at_threshold(monkeypatch):
     """A nominal 50/25 with schema-invalid/uncerted bundles is NOT ready — the gate
     must not report READY while review-accept counts hide dirty bundles (codex 2026-06-15)."""
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
-    }, dirty=[{"bundle": "CVE-X--foo", "error": "missing expect.json"}])
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 50},
+            "families": [],
+            "excluded": [],
+        },
+        dirty=[{"bundle": "CVE-X--foo", "error": "missing expect.json"}],
+    )
     r = cr.build_report(50, 25)
     assert r["pilot_ready"] is False
     assert r["schema_invalid"]["broken"][0]["bundle"] == "CVE-X--foo"
@@ -73,10 +102,17 @@ def test_authoring_only_pairs_excluded_from_schema_block(monkeypatch, tmp_path):
     ex.mkdir(parents=True)
     (ex / "authoring-example.json").write_text("{}")
     monkeypatch.setattr(cr, "REPO", tmp_path)
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
-    }, dirty=[{"bundle": "CVE-Z--authoring", "error": "missing expect.json"}])
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 50},
+            "families": [],
+            "excluded": [],
+        },
+        dirty=[{"bundle": "CVE-Z--authoring", "error": "missing expect.json"}],
+    )
     r = cr.build_report(50, 25)
     assert r["schema_invalid"]["broken"] == []
     assert r["schema_invalid"]["authoring_only_excluded"] == 1
@@ -84,13 +120,15 @@ def test_authoring_only_pairs_excluded_from_schema_block(monkeypatch, tmp_path):
     assert r["blocking"] == []
 
 
-def _write_expected_invalid_fixture(root, name, *, with_bundle_json=False,
-                                    overall="invalid", doc="upstream-ref.json"):
+def _write_expected_invalid_fixture(
+    root, name, *, with_bundle_json=False, overall="invalid", doc="upstream-ref.json"
+):
     bd = root / "traces" / "example" / name
     bd.mkdir(parents=True)
     (bd / "authoring-example.json").write_text("{}")
-    (bd / "expect.json").write_text(json.dumps(
-        {"overall": overall, "expected_failure": {"doc": doc}}))
+    (bd / "expect.json").write_text(
+        json.dumps({"overall": overall, "expected_failure": {"doc": doc}})
+    )
     if with_bundle_json:
         (bd / "bundle.json").write_text("{}")
     return bd
@@ -103,15 +141,28 @@ def test_expected_invalid_authoring_fixture_excluded_and_ready(monkeypatch, tmp_
     True (codex 2026-07-27)."""
     _write_expected_invalid_fixture(tmp_path, "CVE-2022-28805--lua-fixture")
     monkeypatch.setattr(cr, "REPO", tmp_path)
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
-    }, dirty=[{"bundle": "CVE-2022-28805--lua-fixture",
-               "error": "upstream-ref.json: commit_sha 'nixpkgs-backport-no-sha' does not match"}])
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 50},
+            "families": [],
+            "excluded": [],
+        },
+        dirty=[
+            {
+                "bundle": "CVE-2022-28805--lua-fixture",
+                "error": "upstream-ref.json: commit_sha 'nixpkgs-backport-no-sha' does not match",
+            }
+        ],
+    )
     r = cr.build_report(50, 25)
     assert r["schema_invalid"]["non_git_provenance"] == []
     assert r["schema_invalid"]["broken"] == []
-    assert r["schema_invalid"]["expected_invalid_fixtures"] == ["CVE-2022-28805--lua-fixture"]
+    assert r["schema_invalid"]["expected_invalid_fixtures"] == [
+        "CVE-2022-28805--lua-fixture"
+    ]
     assert r["pilot_ready"] is True
     assert r["blocking"] == []
 
@@ -121,13 +172,26 @@ def test_expected_invalid_guard_is_fail_closed(monkeypatch, tmp_path):
     bundle, NOT a fixture, so non-git provenance still blocks even if expect.json says
     overall=invalid (codex 2026-07-27 — don't let a broad overall=invalid skip hide a
     malformed evidence bundle)."""
-    _write_expected_invalid_fixture(tmp_path, "CVE-W--realbundle", with_bundle_json=True)
+    _write_expected_invalid_fixture(
+        tmp_path, "CVE-W--realbundle", with_bundle_json=True
+    )
     monkeypatch.setattr(cr, "REPO", tmp_path)
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
-    }, dirty=[{"bundle": "CVE-W--realbundle",
-               "error": "upstream-ref.json: commit_sha 'debian-bts-1' does not match"}])
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 50},
+            "families": [],
+            "excluded": [],
+        },
+        dirty=[
+            {
+                "bundle": "CVE-W--realbundle",
+                "error": "upstream-ref.json: commit_sha 'debian-bts-1' does not match",
+            }
+        ],
+    )
     r = cr.build_report(50, 25)
     assert r["schema_invalid"]["expected_invalid_fixtures"] == []
     assert r["schema_invalid"]["non_git_provenance"][0]["bundle"] == "CVE-W--realbundle"
@@ -138,11 +202,22 @@ def test_non_git_provenance_backports_still_block(monkeypatch):
     """Backports whose upstream-fix provenance is a distro tracker id (not a git sha)
     are surfaced as a named bucket but STILL block — relaxing that is an eval-gate
     loosening that needs peer sign-off, not a unilateral flip."""
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
-    }, dirty=[{"bundle": "CVE-W--unzip",
-               "error": "commit_sha 'debian-bts-847485' does not match ^[0-9a-f]{7,40}$"}])
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 50},
+            "families": [],
+            "excluded": [],
+        },
+        dirty=[
+            {
+                "bundle": "CVE-W--unzip",
+                "error": "commit_sha 'debian-bts-847485' does not match ^[0-9a-f]{7,40}$",
+            }
+        ],
+    )
     r = cr.build_report(50, 25)
     assert r["schema_invalid"]["non_git_provenance"][0]["bundle"] == "CVE-W--unzip"
     assert r["schema_invalid"]["broken"] == []
@@ -154,44 +229,74 @@ def test_uncerted_auto_merge_blocks_readiness_even_at_threshold(monkeypatch):
     """A nominal 50/25 where some auto-merge positives are review-accept but NOT
     cert-green+signed is NOT ready: those don't count toward the 50, and they appear
     in the uncerted-auto-merge blocking bucket (codex 2026-06-15)."""
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": True, "splits": {"train": 50}, "families": [], "excluded": [],
-    }, uncerted=[{"bundle": "CVE-Y--bar", "subreason": "missing-bundle-sig"}])
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {"train": 50},
+            "families": [],
+            "excluded": [],
+        },
+        uncerted=[{"bundle": "CVE-Y--bar", "subreason": "missing-bundle-sig"}],
+    )
     r = cr.build_report(50, 25)
     assert r["pilot_ready"] is False
-    assert r["reviewer"]["positive_cert_green"] == 49      # 50 - 1 uncerted
+    assert r["reviewer"]["positive_cert_green"] == 49  # 50 - 1 uncerted
     assert r["reviewer"]["positive_gap"] == 1
     assert r["uncerted_auto_merge"][0]["bundle"] == "CVE-Y--bar"
     assert any("uncerted-auto-merge" in b for b in r["blocking"])
 
 
 def test_leakage_blocks_readiness_even_at_threshold(monkeypatch):
-    _manifests(monkeypatch, {
-        "labels": {"positive": 50, "negative": 25},
-        "leakage_check_ok": False, "splits": {}, "families": [], "excluded": [],
-    })
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 50, "negative": 25},
+            "leakage_check_ok": False,
+            "splits": {},
+            "families": [],
+            "excluded": [],
+        },
+    )
     r = cr.build_report(50, 25)
     assert r["pilot_ready"] is False
     assert any("leakage" in b for b in r["blocking"])
 
 
 def test_exclusions_classified_recoverable_vs_structural(monkeypatch):
-    _manifests(monkeypatch, {
-        "labels": {"positive": 30, "negative": 25}, "leakage_check_ok": True,
-        "splits": {}, "families": [],
-        "excluded": [
-            {"bundle": "CVE-A", "reason": "attestation mismatch (review.md vs replay): x"},
-            {"bundle": "CVE-B", "reason": "no reviewer target (review.md / review-refusal.json)"},
-            {"bundle": "CVE-C", "reason": "duplicate (cve_id, attr_path, mutation_type)"},
-            {"bundle": "CVE-D", "reason": "review.md fails reviewer parser contract: ..."},
-        ],
-    })
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 30, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {},
+            "families": [],
+            "excluded": [
+                {
+                    "bundle": "CVE-A",
+                    "reason": "attestation mismatch (review.md vs replay): x",
+                },
+                {
+                    "bundle": "CVE-B",
+                    "reason": "no reviewer target (review.md / review-refusal.json)",
+                },
+                {
+                    "bundle": "CVE-C",
+                    "reason": "duplicate (cve_id, attr_path, mutation_type)",
+                },
+                {
+                    "bundle": "CVE-D",
+                    "reason": "review.md fails reviewer parser contract: ...",
+                },
+            ],
+        },
+    )
     r = cr.build_report(50, 25)
     rec = {e["bundle"] for e in r["exclusions"]["recoverable"]}
     struct = {e["bundle"] for e in r["exclusions"]["structural"]}
-    assert rec == {"CVE-A", "CVE-B"}        # attestation + no-review → triage candidates
-    assert struct == {"CVE-C", "CVE-D"}     # dupe + parser-fail → structural
+    assert rec == {"CVE-A", "CVE-B"}  # attestation + no-review → triage candidates
+    assert struct == {"CVE-C", "CVE-D"}  # dupe + parser-fail → structural
     assert r["exclusions"]["total"] == 4
 
 
@@ -202,6 +307,7 @@ def test_schema_invalid_flags_placeholder_nixpkgs_rev(monkeypatch, tmp_path):
     the corpus (codex 2026-06-15, salvage-backport placeholder-rev bundles)."""
     import json
     import types
+
     ex = tmp_path / "traces" / "example"
     good = ex / "CVE-2026-1111--foo"
     bad = ex / "CVE-2026-2222--bar"
@@ -215,9 +321,13 @@ def test_schema_invalid_flags_placeholder_nixpkgs_rev(monkeypatch, tmp_path):
     # stub the schema validator so the good bundle isn't flagged for unrelated
     # reasons — we're testing the explicit placeholder-rev check, which runs first.
     import tests.schema.validate as v
+
     monkeypatch.setattr(
-        v, "validate_fixture",
-        lambda bd: types.SimpleNamespace(any_errors=False, per_doc_errors={}, hash_errors=[]),
+        v,
+        "validate_fixture",
+        lambda bd: types.SimpleNamespace(
+            any_errors=False, per_doc_errors={}, hash_errors=[]
+        ),
     )
     flagged = {d["bundle"]: d["error"] for d in cr._schema_invalid_bundles()}
     assert "CVE-2026-2222--bar" in flagged
@@ -226,9 +336,15 @@ def test_schema_invalid_flags_placeholder_nixpkgs_rev(monkeypatch, tmp_path):
 
 
 def test_main_exit_code_reflects_readiness(monkeypatch, capsys):
-    _manifests(monkeypatch, {
-        "labels": {"positive": 10, "negative": 25}, "leakage_check_ok": True,
-        "splits": {}, "families": [], "excluded": [],
-    })
-    assert cr.main([]) == 1          # not ready → nonzero (CI-gatable)
-    assert cr.main(["--pos", "10"]) == 0   # lower the bar → ready
+    _manifests(
+        monkeypatch,
+        {
+            "labels": {"positive": 10, "negative": 25},
+            "leakage_check_ok": True,
+            "splits": {},
+            "families": [],
+            "excluded": [],
+        },
+    )
+    assert cr.main([]) == 1  # not ready → nonzero (CI-gatable)
+    assert cr.main(["--pos", "10"]) == 0  # lower the bar → ready

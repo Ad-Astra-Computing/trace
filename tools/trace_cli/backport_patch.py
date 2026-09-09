@@ -80,12 +80,19 @@ _HARDENED_ENV = {
 }
 
 
-def _default_runner(cmd: Sequence[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+def _default_runner(
+    cmd: Sequence[str], cwd: Path | None = None
+) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env.update(_HARDENED_ENV)
     return subprocess.run(
-        list(cmd), cwd=str(cwd) if cwd else None, env=env,
-        capture_output=True, text=True, check=False, timeout=600,
+        list(cmd),
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=600,
     )
 
 
@@ -119,8 +126,11 @@ def _validate_repo_url(repo_url: str) -> str:
 
 
 def _validate_tag(version_tag: str) -> str:
-    if (not isinstance(version_tag, str) or not _SAFE_TAG_RE.match(version_tag)
-            or ".." in version_tag):
+    if (
+        not isinstance(version_tag, str)
+        or not _SAFE_TAG_RE.match(version_tag)
+        or ".." in version_tag
+    ):
         raise BackportError(f"refusing unsafe version tag {version_tag!r}")
     return version_tag
 
@@ -131,7 +141,9 @@ def _validate_tag(version_tag: str) -> str:
 # endpoint. Host-pinned + anchored so normalization can never widen the trust
 # boundary: _validate_repo_url runs FIRST (rejects ext::/fd:: transport helpers),
 # and we rewrite ONLY this exact single-host pattern.
-_CGIT_BROWSE_RE = re.compile(r"\A(https://git\.savannah\.gnu\.org)/cgit/([^?#\s]+?\.git)\Z")
+_CGIT_BROWSE_RE = re.compile(
+    r"\A(https://git\.savannah\.gnu\.org)/cgit/([^?#\s]+?\.git)\Z"
+)
 
 
 def clone_url(repo_url: str) -> str:
@@ -142,7 +154,9 @@ def clone_url(repo_url: str) -> str:
     return f"{m.group(1)}/git/{m.group(2)}" if m else safe
 
 
-def blobless_fetch_commit(git: Callable[..., subprocess.CompletedProcess], sha: str) -> bool:
+def blobless_fetch_commit(
+    git: Callable[..., subprocess.CompletedProcess], sha: str
+) -> bool:
     """Make commit `sha` (full or git-abbreviated) resolvable in the repo behind
     the bound `git(*args)` callable, fetching as little as possible:
 
@@ -167,8 +181,11 @@ def blobless_fetch_commit(git: Callable[..., subprocess.CompletedProcess], sha: 
     def _present() -> bool:
         return git("rev-parse", "-q", "--verify", f"{sha}^{{commit}}").returncode == 0
 
-    if git("fetch", "--filter=blob:none", "--depth", "2", "origin", sha).returncode == 0 \
-            and _present():
+    if (
+        git("fetch", "--filter=blob:none", "--depth", "2", "origin", sha).returncode
+        == 0
+        and _present()
+    ):
         return True
     # Fall back to a complete (but still blobless) fetch of every branch + tag.
     git("fetch", "--filter=blob:none", "origin")
@@ -282,7 +299,9 @@ def retarget_fix(
     # blobs as the merge base (content-based; immune to whitespace/line drift).
     patch_file = workdir / "fix.diff"
     patch_file.write_text(fix_diff)
-    applied = _git(runner, repo, "apply", "--3way", "--whitespace=nowarn", str(patch_file))
+    applied = _git(
+        runner, repo, "apply", "--3way", "--whitespace=nowarn", str(patch_file)
+    )
     if applied.returncode != 0:
         raise BackportReject(
             "fix does not cleanly 3-way apply onto the current version "
@@ -434,7 +453,9 @@ def extract_fix_fixtures(
         _git(runner, repo, "fetch", "origin")
     have = _git(runner, repo, "rev-parse", "--verify", "-q", f"{commit_sha}^{{commit}}")
     if have.returncode != 0:
-        raise BackportError(f"fix commit {commit_sha} not found in {repo_url} after fetch")
+        raise BackportError(
+            f"fix commit {commit_sha} not found in {repo_url} after fetch"
+        )
 
     ns = _git(runner, repo, "show", "--numstat", "--format=", "--no-color", commit_sha)
     if ns.returncode != 0:
@@ -472,7 +493,7 @@ def extract_fix_fixtures(
         if mode not in ("100644", "100755"):
             print(f"  (skipped {path}: non-regular git mode {mode})", flush=True)
             continue
-        dest = (out_dir / path)
+        dest = out_dir / path
         # Containment AFTER creating parents as real dirs (no symlink got written —
         # they're mode-filtered — so no TOCTOU redirect). Use is_relative_to, not a
         # string prefix.
@@ -486,7 +507,10 @@ def extract_fix_fixtures(
         except ValueError:
             nbytes = 0
         if nbytes > _MAX_FIXTURE_BYTES:
-            print(f"  (skipped {path}: {nbytes} bytes > {_MAX_FIXTURE_BYTES} cap)", flush=True)
+            print(
+                f"  (skipped {path}: {nbytes} bytes > {_MAX_FIXTURE_BYTES} cap)",
+                flush=True,
+            )
             continue
         _extract_blob(repo, commit_sha, path, dest)
         kept.append(path)
@@ -500,7 +524,10 @@ def _extract_blob(repo: Path, commit_sha: str, path: str, dest: Path) -> None:
     env.update(_HARDENED_ENV)
     proc = subprocess.run(
         ["git", "-C", str(repo), "show", f"{commit_sha}:{path}"],
-        capture_output=True, check=False, timeout=180, env=env,
+        capture_output=True,
+        check=False,
+        timeout=180,
+        env=env,
     )
     if proc.returncode != 0:
         raise BackportError(
@@ -528,7 +555,9 @@ def _tag_candidates(version_tag: str, repo_url: str) -> list[str]:
     return [c for c in cands if not (c in seen or seen.add(c))]
 
 
-def _resolve_tag(runner: Runner, repo: Path, version_tag: str, repo_url: str) -> str | None:
+def _resolve_tag(
+    runner: Runner, repo: Path, version_tag: str, repo_url: str
+) -> str | None:
     for cand in _tag_candidates(version_tag, repo_url):
         for ref in (cand, f"tags/{cand}", f"refs/tags/{cand}"):
             rp = _git(runner, repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}")
@@ -581,10 +610,10 @@ def to_plain_unified(diff_text: str, *, strip_level: int) -> str:
                 i += 1
             path = _norm_path(new_path or old_path or (m.group(2) if m else ""))
             if strip_level <= 0:
-                out.append(f"--- {path}")          # bare, applied with -p0
+                out.append(f"--- {path}")  # bare, applied with -p0
                 out.append(f"+++ {path}")
             else:
-                out.append(f"--- a/{path}")        # applied with -p1 (strips a/ b/)
+                out.append(f"--- a/{path}")  # applied with -p1 (strips a/ b/)
                 out.append(f"+++ b/{path}")
             continue
         out.append(line)
@@ -621,7 +650,8 @@ def ensure_ends_on_content(diff_text: str) -> str:
         body: list[str] = []
         j = i + 1
         while j < len(lines) and not (
-            lines[j].startswith("@@") or lines[j].startswith("--- ")
+            lines[j].startswith("@@")
+            or lines[j].startswith("--- ")
             or lines[j].startswith("diff --git")
         ):
             body.append(lines[j])
@@ -633,7 +663,7 @@ def ensure_ends_on_content(diff_text: str) -> str:
         old_c = sum(1 for b in body if b[:1] in (" ", "-"))
         new_c = sum(1 for b in body if b[:1] in (" ", "+"))
         os_, ns = m.group(1), m.group(3)
-        tail = line[m.end():]
+        tail = line[m.end() :]
         out.append(f"@@ -{os_},{old_c} +{ns},{new_c} @@{tail}")
         out.extend(body)
         i = j
@@ -646,22 +676,30 @@ def ensure_ends_on_content(diff_text: str) -> str:
 # ── patchFlags via nix eval (never grep) ─────────────────────────────────────
 
 
-def eval_patch_flags(attr: str, nixpkgs: Path, runner: Runner = _default_runner) -> list[str]:
+def eval_patch_flags(
+    attr: str, nixpkgs: Path, runner: Runner = _default_runner
+) -> list[str]:
     """Resolve `pkgs.<attr>.patchFlags` via nix eval (overlay-proof). Returns
     [] when the attr has no patchFlags (nixpkgs default = ["-p1"])."""
     if not re.match(r"^[A-Za-z_][A-Za-z0-9_.\-]*$", attr):
         raise BackportError(f"unsafe attr for nix eval: {attr!r}")
     expr = (
         f"let p = (import {json.dumps(str(nixpkgs.resolve()))} {{}}).{attr}; "
-        f"in p.patchFlags or [ \"-p1\" ]"
+        f'in p.patchFlags or [ "-p1" ]'
     )
-    proc = runner(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr], None)
+    proc = runner(
+        ["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr], None
+    )
     if proc.returncode != 0:
-        raise BackportError(f"nix eval patchFlags failed for {attr}: {proc.stderr.strip()[:300]}")
+        raise BackportError(
+            f"nix eval patchFlags failed for {attr}: {proc.stderr.strip()[:300]}"
+        )
     try:
         flags = json.loads(proc.stdout.strip())
     except json.JSONDecodeError:
-        raise BackportError(f"nix eval patchFlags returned non-JSON: {proc.stdout[:120]!r}")
+        raise BackportError(
+            f"nix eval patchFlags returned non-JSON: {proc.stdout[:120]!r}"
+        )
     return [str(f) for f in flags] if isinstance(flags, list) else ["-p1"]
 
 
@@ -699,9 +737,14 @@ def verify_apply(
     environment — the only thing that catches tag≠tarball drift."""
     if not shutil.which("nix-build"):
         return VerifyResult(False, "nix-build not on PATH; cannot verify-apply")
-    src = runner(["nix-build", str(nixpkgs.resolve()), "-A", f"{attr}.src", "--no-out-link"], None)
+    src = runner(
+        ["nix-build", str(nixpkgs.resolve()), "-A", f"{attr}.src", "--no-out-link"],
+        None,
+    )
     if src.returncode != 0:
-        return VerifyResult(False, f"nix-build {attr}.src failed: {src.stderr.strip()[:200]}")
+        return VerifyResult(
+            False, f"nix-build {attr}.src failed: {src.stderr.strip()[:200]}"
+        )
     src_path = src.stdout.strip().splitlines()[-1]
     unpack = workdir / "src"
     if unpack.exists():
@@ -717,7 +760,9 @@ def verify_apply(
         tree.mkdir()
         cp = runner(["cp", "-rL", f"{src_path}/.", str(tree)], None)
         if cp.returncode != 0:
-            return VerifyResult(False, f"copy src dir failed: {cp.stderr.strip()[:200]}")
+            return VerifyResult(
+                False, f"copy src dir failed: {cp.stderr.strip()[:200]}"
+            )
         runner(["chmod", "-R", "u+w", str(tree)], None)
         root = tree
     else:
@@ -769,8 +814,12 @@ def produce_backport_patch(
     with tempfile.TemporaryDirectory(prefix="trace-backport-") as td:
         workdir = Path(td)
         raw = retarget_fix(
-            repo_url=repo_url, commit_sha=commit_sha, version_tag=version_tag,
-            paths=paths, workdir=workdir, runner=runner,
+            repo_url=repo_url,
+            commit_sha=commit_sha,
+            version_tag=version_tag,
+            paths=paths,
+            workdir=workdir,
+            runner=runner,
         )
 
         eval_nixpkgs, wt = _nixpkgs_at_rev(nixpkgs, nixpkgs_rev, workdir, runner)
@@ -783,14 +832,26 @@ def produce_backport_patch(
             # Deterministic gate: prove the candidate applies under the exact
             # patchFlags. Try the derived strip level first, then the other
             # format (trap c3: -pN doesn't fully encode path format).
-            res = verify_apply(patch_text=candidate, attr=attr, nixpkgs=eval_nixpkgs,
-                               patch_flags=flags, workdir=workdir, runner=runner)
+            res = verify_apply(
+                patch_text=candidate,
+                attr=attr,
+                nixpkgs=eval_nixpkgs,
+                patch_flags=flags,
+                workdir=workdir,
+                runner=runner,
+            )
             if res.applied:
                 return candidate
             alt_level = 0 if level == 1 else 1
             alt = ensure_ends_on_content(to_plain_unified(raw, strip_level=alt_level))
-            res2 = verify_apply(patch_text=alt, attr=attr, nixpkgs=eval_nixpkgs,
-                                patch_flags=flags, workdir=workdir, runner=runner)
+            res2 = verify_apply(
+                patch_text=alt,
+                attr=attr,
+                nixpkgs=eval_nixpkgs,
+                patch_flags=flags,
+                workdir=workdir,
+                runner=runner,
+            )
             if res2.applied:
                 return alt
             raise BackportReject(
@@ -801,11 +862,25 @@ def produce_backport_patch(
             )
         finally:
             if wt is not None:
-                runner(["git", "-C", str(nixpkgs), "worktree", "remove", "--force", str(wt)], None)
+                runner(
+                    [
+                        "git",
+                        "-C",
+                        str(nixpkgs),
+                        "worktree",
+                        "remove",
+                        "--force",
+                        str(wt),
+                    ],
+                    None,
+                )
 
 
 def _nixpkgs_at_rev(
-    nixpkgs: Path, rev: str | None, workdir: Path, runner: Runner,
+    nixpkgs: Path,
+    rev: str | None,
+    workdir: Path,
+    runner: Runner,
 ) -> tuple[Path, Path | None]:
     """Return (path-to-use, worktree-or-None). If `rev` is set and differs from
     the checkout HEAD, add a detached git worktree at `rev` (fetching it if
@@ -823,15 +898,25 @@ def _nixpkgs_at_rev(
     head = runner(["git", "-C", str(nixpkgs), "rev-parse", "HEAD"], None)
     if head.returncode == 0 and head.stdout.strip() == rev:
         return nixpkgs, None
-    have = runner(["git", "-C", str(nixpkgs), "cat-file", "-e", f"{rev}^{{commit}}"], None)
+    have = runner(
+        ["git", "-C", str(nixpkgs), "cat-file", "-e", f"{rev}^{{commit}}"], None
+    )
     if have.returncode != 0:
-        runner(["git", "-C", str(nixpkgs), "fetch", "--depth", "1", "origin", rev], None)
-        have = runner(["git", "-C", str(nixpkgs), "cat-file", "-e", f"{rev}^{{commit}}"], None)
+        runner(
+            ["git", "-C", str(nixpkgs), "fetch", "--depth", "1", "origin", rev], None
+        )
+        have = runner(
+            ["git", "-C", str(nixpkgs), "cat-file", "-e", f"{rev}^{{commit}}"], None
+        )
         if have.returncode != 0:
             return nixpkgs, None  # can't obtain the rev; verify against HEAD
-    runner(["git", "-C", str(nixpkgs), "worktree", "prune"], None)  # clear stale temp worktrees
+    runner(
+        ["git", "-C", str(nixpkgs), "worktree", "prune"], None
+    )  # clear stale temp worktrees
     wt = workdir / "nixpkgs-wt"
-    add = runner(["git", "-C", str(nixpkgs), "worktree", "add", "--detach", str(wt), rev], None)
+    add = runner(
+        ["git", "-C", str(nixpkgs), "worktree", "add", "--detach", str(wt), rev], None
+    )
     if add.returncode != 0:
         return nixpkgs, None
     return wt, wt
@@ -842,16 +927,33 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "backport-patch",
         help="produce a version-adapted upstream-fix.patch for a source-backport bundle",
     )
-    p.add_argument("--bundle-dir", required=True, type=Path,
-                   help="bundle dir with upstream-ref.json (fix commit + version tag) + finding.json")
-    p.add_argument("--nixpkgs", type=Path, default=Path("."),
-                   help="nixpkgs checkout for patchFlags eval + src unpack (default: .)")
-    p.add_argument("--paths", default=None,
-                   help="comma-separated source paths to scope the fix to (default: all commit files)")
-    p.add_argument("--write", action="store_true",
-                   help="write upstream-fix.patch into the bundle dir (default: stdout)")
-    p.add_argument("--skip-verify", action="store_true",
-                   help="skip the patch --dry-run gate (NOT recommended; loses the 'applies' guarantee)")
+    p.add_argument(
+        "--bundle-dir",
+        required=True,
+        type=Path,
+        help="bundle dir with upstream-ref.json (fix commit + version tag) + finding.json",
+    )
+    p.add_argument(
+        "--nixpkgs",
+        type=Path,
+        default=Path("."),
+        help="nixpkgs checkout for patchFlags eval + src unpack (default: .)",
+    )
+    p.add_argument(
+        "--paths",
+        default=None,
+        help="comma-separated source paths to scope the fix to (default: all commit files)",
+    )
+    p.add_argument(
+        "--write",
+        action="store_true",
+        help="write upstream-fix.patch into the bundle dir (default: stdout)",
+    )
+    p.add_argument(
+        "--skip-verify",
+        action="store_true",
+        help="skip the patch --dry-run gate (NOT recommended; loses the 'applies' guarantee)",
+    )
     return p
 
 
@@ -860,10 +962,18 @@ def add_fixtures_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentPa
         "backport-fixtures",
         help="extract a fix commit's co-landed regression-test fixtures (reproducer oracle)",
     )
-    p.add_argument("--bundle-dir", required=True, type=Path,
-                   help="bundle dir with upstream-ref.json (the fix commit)")
-    p.add_argument("--out", type=Path, default=None,
-                   help="output dir for fixtures (default: <bundle-dir>/reproducer-fixtures)")
+    p.add_argument(
+        "--bundle-dir",
+        required=True,
+        type=Path,
+        help="bundle dir with upstream-ref.json (the fix commit)",
+    )
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output dir for fixtures (default: <bundle-dir>/reproducer-fixtures)",
+    )
     return p
 
 
@@ -882,15 +992,20 @@ def run_fixtures(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="trace-fixtures-") as td:
         try:
             fixtures = extract_fix_fixtures(
-                repo_url=commits[0]["repo_url"], commit_sha=commits[0]["commit_sha"],
-                out_dir=out_dir, workdir=Path(td),
+                repo_url=commits[0]["repo_url"],
+                commit_sha=commits[0]["commit_sha"],
+                out_dir=out_dir,
+                workdir=Path(td),
             )
         except BackportError as exc:
             print(f"error: {exc}", flush=True)
             return EXIT_USAGE
     if not fixtures:
-        print("no co-landed regression-test fixtures in the fix commit "
-              "(reproducer oracle must be constructed by hand)", flush=True)
+        print(
+            "no co-landed regression-test fixtures in the fix commit "
+            "(reproducer oracle must be constructed by hand)",
+            flush=True,
+        )
         return EXIT_REJECT
     print(f"extracted {len(fixtures)} oracle fixture(s) to {out_dir}:", flush=True)
     for f in fixtures:
@@ -906,7 +1021,9 @@ def run(args: argparse.Namespace) -> int:
     paths = [s.strip() for s in args.paths.split(",")] if args.paths else None
     try:
         patch = produce_backport_patch(
-            bundle_dir=bundle_dir, nixpkgs=args.nixpkgs, paths=paths,
+            bundle_dir=bundle_dir,
+            nixpkgs=args.nixpkgs,
+            paths=paths,
             skip_verify=args.skip_verify,
         )
     except BackportReject as exc:
@@ -917,7 +1034,10 @@ def run(args: argparse.Namespace) -> int:
         return EXIT_USAGE
     if args.write:
         (bundle_dir / "upstream-fix.patch").write_text(patch)
-        print(f"wrote {bundle_dir}/upstream-fix.patch ({len(patch.splitlines())} lines)", flush=True)
+        print(
+            f"wrote {bundle_dir}/upstream-fix.patch ({len(patch.splitlines())} lines)",
+            flush=True,
+        )
     else:
         print(patch, end="", flush=True)
     return EXIT_OK

@@ -201,7 +201,13 @@ def _collect_exact_hits(
                     # Unknown scope (no range info) -> conservative cpe-vendor-product.
                     hits.append((m, "cpe-vendor-product"))
                 total_vp += 1
-        tried.append({"method": "cpe-exact", "identifiers_tried": cpes, "hits": total_exact + total_vp})
+        tried.append(
+            {
+                "method": "cpe-exact",
+                "identifiers_tried": cpes,
+                "hits": total_exact + total_vp,
+            }
+        )
 
     if purls:
         total = 0
@@ -212,7 +218,9 @@ def _collect_exact_hits(
                 if m.attr_path not in seen:
                     seen.add(m.attr_path)
                     hits.append((m, "purl-exact"))
-        tried.append({"method": "purl-exact", "identifiers_tried": purls, "hits": total})
+        tried.append(
+            {"method": "purl-exact", "identifiers_tried": purls, "hits": total}
+        )
 
     return hits, tried, rejected_attr_paths
 
@@ -336,12 +344,17 @@ def _classify_exact(
         confidence = "medium" if method == "cpe-vendor-product" else "high"
         notes = (
             "vendor+product match without verifiable version range"
-            if method == "cpe-vendor-product" else None
+            if method == "cpe-vendor-product"
+            else None
         )
         return method, confidence, notes
     # Multi-hit: ambiguous. Pick the dominant method; fall back to cpe-exact.
     methods = [h[1] for h in hits]
-    method = "cpe-exact" if methods.count("cpe-exact") >= methods.count("purl-exact") else "purl-exact"
+    method = (
+        "cpe-exact"
+        if methods.count("cpe-exact") >= methods.count("purl-exact")
+        else "purl-exact"
+    )
     note = f"ambiguous {len(hits)}-way exact match across {sorted(set(m.attr_path for m, _ in hits))}"
     return method, "low", note
 
@@ -359,7 +372,7 @@ def _pname_from_cpe(cpe: str) -> str | None:
 
 def _pname_from_purl(purl: str) -> str | None:
     # pkg:<type>/<namespace>/<name>@<version>  OR  pkg:<type>/<name>@<version>
-    body = purl[len("pkg:"):]
+    body = purl[len("pkg:") :]
     # Strip query + version
     body = body.split("?", 1)[0]
     body = body.split("@", 1)[0]
@@ -412,7 +425,13 @@ def _collect_pname_hits(
 
     tried: list[dict[str, Any]] = []
     if candidates:
-        tried.append({"method": "pname-heuristic", "identifiers_tried": candidates, "hits": total})
+        tried.append(
+            {
+                "method": "pname-heuristic",
+                "identifiers_tried": candidates,
+                "hits": total,
+            }
+        )
     return hits, tried
 
 
@@ -462,8 +481,7 @@ def _build_finding(
         finding["summary"] = feed_record["summary"]
     if feed_record.get("references"):
         finding["references"] = [
-            {"url": r["url"], "kind": r["kind"]}
-            for r in feed_record["references"]
+            {"url": r["url"], "kind": r["kind"]} for r in feed_record["references"]
         ]
     return finding
 
@@ -504,11 +522,13 @@ def _build_mapping_failure(
         reason = "no-match"
     else:
         reason = "empty-identifier-set"
-        attempted = [{
-            "method": "cpe-exact",
-            "identifiers_tried": ["(none supplied)"],
-            "hits": 0,
-        }]
+        attempted = [
+            {
+                "method": "cpe-exact",
+                "identifiers_tried": ["(none supplied)"],
+                "hits": 0,
+            }
+        ]
     return {
         "schema_version": MAPPING_FAILURE_SCHEMA_VERSION,
         "cve_id": cve_id,

@@ -93,8 +93,8 @@ def test_parse_ignores_removed_line_that_looks_like_header() -> None:
         "--- a/mod.lua\n"
         "+++ b/mod.lua\n"
         "@@ -1,2 +1,2 @@\n"
-        "--- old behavior\n"     # removed line whose content is "-- old behavior"
-        "+-- new behavior\n"     # added line whose content is "-- new behavior"
+        "--- old behavior\n"  # removed line whose content is "-- old behavior"
+        "+-- new behavior\n"  # added line whose content is "-- new behavior"
         " context\n"
     )
     assert sc.parse_touched_paths(patch) == ["mod.lua"]
@@ -113,6 +113,7 @@ def test_parse_multi_file_git_diff() -> None:
 
 # ─── write_source_context ────────────────────────────────────────────────────
 
+
 def _tree(root: Path, files: dict[str, str]) -> Path:
     for rel, content in files.items():
         p = root / rel
@@ -122,11 +123,14 @@ def _tree(root: Path, files: dict[str, str]) -> Path:
 
 
 def test_write_copies_touched_files(tmp_path: Path) -> None:
-    src = _tree(tmp_path / "src", {
-        "src/foo.c": "int foo;\n",
-        "include/foo.h": "extern int foo;\n",
-        "src/unrelated.c": "int bar;\n",
-    })
+    src = _tree(
+        tmp_path / "src",
+        {
+            "src/foo.c": "int foo;\n",
+            "include/foo.h": "extern int foo;\n",
+            "src/unrelated.c": "int bar;\n",
+        },
+    )
     dest = tmp_path / "bundle" / "source-context"
     written = sc.write_source_context(_MULTI_FILE, src, dest)
     assert written == ["include/foo.h", "src/foo.c"]

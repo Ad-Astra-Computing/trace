@@ -77,7 +77,9 @@ def resolve_package_source(
             raise PackageSourceNotFound(
                 f"attr_path {attr_path!r} too short for by-name shard"
             )
-        by_name_relative = f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix"
+        by_name_relative = (
+            f"pkgs/by-name/{attr_path[:2].lower()}/{attr_path}/package.nix"
+        )
         by_name_path = nixpkgs_root / by_name_relative
         if by_name_path.is_file():
             return PackageSource(
@@ -149,9 +151,7 @@ def resolve_package_source(
             # is_file check below catches the phantom case.
             strategy = "nix-eval-alt-source"
     if not path.is_file():
-        raise PackageSourceNotFound(
-            f"nix eval position {path!r} is not a file"
-        )
+        raise PackageSourceNotFound(f"nix eval position {path!r} is not a file")
     return PackageSource(
         path=path,
         relative=str(relative),

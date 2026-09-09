@@ -169,7 +169,9 @@ def write_source_context(
         # dst.parent may not exist yet; resolve() still normalizes it. Confirm the
         # normalized destination stays under dst_root before creating anything.
         if not _is_within(resolved_parent, dst_root) and resolved_parent != dst_root:
-            raise SourceContextError(f"destination path escapes source-context: {rel!r}")
+            raise SourceContextError(
+                f"destination path escapes source-context: {rel!r}"
+            )
         dst.parent.mkdir(parents=True, exist_ok=True)
         # The leaf itself may already be a symlink (pre-existing / feed-influenced
         # output dir) even though its parent resolves inside dst_root; copyfile
@@ -177,7 +179,8 @@ def write_source_context(
         # follow — this runs before the finalize-time guard can reject the bundle.
         if dst.is_symlink():
             raise SourceContextError(
-                f"destination is a symlink, refusing to write through it: {rel!r}")
+                f"destination is a symlink, refusing to write through it: {rel!r}"
+            )
         shutil.copyfile(resolved_src, dst)
         written.append(rel)
     return sorted(written)

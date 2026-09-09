@@ -84,11 +84,19 @@ def extract_prereqs_available() -> tuple[str, str] | None:
 def _extract(rev: str, nixpkgs_store: str, attrs: list[str]) -> dict:
     proc = subprocess.run(
         [
-            "cargo", "run", "--quiet", "--manifest-path", str(GRAPH_MANIFEST),
-            "--", "extract",
-            "--rev", rev,
-            "--nixpkgs", nixpkgs_store,
-            "--attrs", ",".join(attrs),
+            "cargo",
+            "run",
+            "--quiet",
+            "--manifest-path",
+            str(GRAPH_MANIFEST),
+            "--",
+            "extract",
+            "--rev",
+            rev,
+            "--nixpkgs",
+            nixpkgs_store,
+            "--attrs",
+            ",".join(attrs),
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -192,12 +200,25 @@ def test_extract_output_feeds_scout_canned_lookup(validator, extract_prereqs_ava
 def test_extract_rejects_bad_rev(extract_prereqs_available):
     """CLI-level guard: --rev must be 40-hex. Doesn't actually launch nix."""
     proc = subprocess.run(
-        ["cargo", "run", "--quiet", "--manifest-path", str(GRAPH_MANIFEST),
-         "--", "extract",
-         "--rev", "notahash",
-         "--nixpkgs", "/does/not/matter",
-         "--attrs", "hello"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "--manifest-path",
+            str(GRAPH_MANIFEST),
+            "--",
+            "extract",
+            "--rev",
+            "notahash",
+            "--nixpkgs",
+            "/does/not/matter",
+            "--attrs",
+            "hello",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert proc.returncode == 2
     assert "--rev" in proc.stderr

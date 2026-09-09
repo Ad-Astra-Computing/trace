@@ -47,51 +47,65 @@ _LIBTIFF = GraphMatch(
 )
 
 
-_DOSSIER_BODY = json.dumps({
-    "success": True,
-    "data": {
-        "cveId": "CVE-2024-13978",
-        "canonical": {
-            "id": "CVE-2024-13978",
-            "publishedAt": "2025-08-01T21:32:07Z",
-            "description": "LibTIFF null deref",
-            "severity": "low",
+_DOSSIER_BODY = json.dumps(
+    {
+        "success": True,
+        "data": {
+            "cveId": "CVE-2024-13978",
+            "canonical": {
+                "id": "CVE-2024-13978",
+                "publishedAt": "2025-08-01T21:32:07Z",
+                "description": "LibTIFF null deref",
+                "severity": "low",
+            },
+            "sources": {
+                "nvd": {
+                    "cpeMatches": [
+                        {
+                            "cpe": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*",
+                            "versionEnd": "4.7.0",
+                        }
+                    ]
+                }
+            },
+            "provenance": [],
         },
-        "sources": {
-            "nvd": {
-                "cpeMatches": [
-                    {"cpe": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*",
-                     "versionEnd": "4.7.0"}
-                ]
+        "timestamp": "2026-04-29T00:00:00Z",
+    }
+).encode()
+
+
+_NVD_BODY = json.dumps(
+    {
+        "vulnerabilities": [
+            {
+                "cve": {
+                    "id": "CVE-2024-13978",
+                    "published": "2025-08-01T21:32:07.000",
+                    "descriptions": [{"lang": "en", "value": "LibTIFF null deref"}],
+                    "configurations": [
+                        {
+                            "nodes": [
+                                {
+                                    "operator": "OR",
+                                    "negate": False,
+                                    "cpeMatch": [
+                                        {
+                                            "vulnerable": True,
+                                            "criteria": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                    "references": [],
+                },
             }
-        },
-        "provenance": [],
-    },
-    "timestamp": "2026-04-29T00:00:00Z",
-}).encode()
-
-
-_NVD_BODY = json.dumps({
-    "vulnerabilities": [{
-        "cve": {
-            "id": "CVE-2024-13978",
-            "published": "2025-08-01T21:32:07.000",
-            "descriptions": [{"lang": "en", "value": "LibTIFF null deref"}],
-            "configurations": [{
-                "nodes": [{
-                    "operator": "OR",
-                    "negate": False,
-                    "cpeMatch": [{
-                        "vulnerable": True,
-                        "criteria": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*",
-                    }],
-                }],
-            }],
-            "references": [],
-        },
-    }],
-    "totalResults": 1,
-}).encode()
+        ],
+        "totalResults": 1,
+    }
+).encode()
 
 
 def _http_returning(status: int, body: bytes) -> Any:
@@ -231,30 +245,43 @@ def test_outcome_carries_cve_id_for_logging(tmp_path: Path) -> None:
     assert out.cve_id == "CVE-2024-13978"
 
 
-_NVD_BODY_WITH_PATCH = json.dumps({
-    "vulnerabilities": [{
-        "cve": {
-            "id": "CVE-2024-13978",
-            "published": "2025-08-01T21:32:07.000",
-            "descriptions": [{"lang": "en", "value": "LibTIFF null deref"}],
-            "configurations": [{
-                "nodes": [{
-                    "operator": "OR",
-                    "negate": False,
-                    "cpeMatch": [{
-                        "vulnerable": True,
-                        "criteria": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*",
-                    }],
-                }],
-            }],
-            "references": [
-                {"url": "https://gitlab.com/libtiff/libtiff/-/commit/" + "c" * 40,
-                 "tags": ["Patch"]},
-            ],
-        },
-    }],
-    "totalResults": 1,
-}).encode()
+_NVD_BODY_WITH_PATCH = json.dumps(
+    {
+        "vulnerabilities": [
+            {
+                "cve": {
+                    "id": "CVE-2024-13978",
+                    "published": "2025-08-01T21:32:07.000",
+                    "descriptions": [{"lang": "en", "value": "LibTIFF null deref"}],
+                    "configurations": [
+                        {
+                            "nodes": [
+                                {
+                                    "operator": "OR",
+                                    "negate": False,
+                                    "cpeMatch": [
+                                        {
+                                            "vulnerable": True,
+                                            "criteria": "cpe:2.3:a:libtiff:libtiff:*:*:*:*:*:*:*:*",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                    "references": [
+                        {
+                            "url": "https://gitlab.com/libtiff/libtiff/-/commit/"
+                            + "c" * 40,
+                            "tags": ["Patch"],
+                        },
+                    ],
+                },
+            }
+        ],
+        "totalResults": 1,
+    }
+).encode()
 
 
 def _dossier_with_refs(refs: list[dict[str, str]]) -> bytes:
@@ -282,6 +309,7 @@ def test_dossier_without_fix_commit_is_enriched_from_nvd(tmp_path: Path) -> None
     assert len(enriched["response_sha256"]) == 64
     # the merged fields must be reconstructible from stored bytes, not a hash alone
     import hashlib
+
     stored = (out.entry_path / "raw-nvd-enrichment.json").read_bytes()
     assert hashlib.sha256(stored).hexdigest() == enriched["response_sha256"]
     meta = json.loads((out.entry_path / "fetch-meta.json").read_text())

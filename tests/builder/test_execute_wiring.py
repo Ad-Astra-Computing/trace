@@ -44,17 +44,25 @@ def _build_post_reproducer_bundle(
 ) -> Path:
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
-    (bundle_dir / "bundle.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": "0000000000000001",
-        "cve_id": "CVE-0000-0001",
-        "nixpkgs_rev": "0" * 40,
-        "kind": "auto-merge",
-    }))
-    (bundle_dir / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "affected": [{"attr_path": "demo", "version": "1.0.0"}],
-    }))
+    (bundle_dir / "bundle.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": "0000000000000001",
+                "cve_id": "CVE-0000-0001",
+                "nixpkgs_rev": "0" * 40,
+                "kind": "auto-merge",
+            }
+        )
+    )
+    (bundle_dir / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "affected": [{"attr_path": "demo", "version": "1.0.0"}],
+            }
+        )
+    )
     (bundle_dir / "package.nix").write_text('version = "1.0.0";\n')
     if include_patch:
         (bundle_dir / "patch.diff").write_text(
@@ -72,54 +80,73 @@ def _build_post_reproducer_bundle(
 
     roles = []
     if include_patcher_invocation:
-        roles.append({
-            "role": "patcher",
-            "invocations": [{
-                "invocation_id": "11111111-1111-4111-8111-111111111111",
+        roles.append(
+            {
                 "role": "patcher",
-                "started_at": "2026-04-27T00:00:00Z",
-                "ended_at": "2026-04-27T00:00:05Z",
-                "model": {
-                    "family": "anthropic",
-                    "vendor": "anthropic",
-                    "model_id": "claude-opus-4-7",
-                    "version": "test",
-                    "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 8192},
-                },
-                "prompt": {"path": "prompts/patcher.v2.md", "sha256": "a" * 64},
-                "inputs": [],
-                "outputs": [],
-                "rng_seed": None,
-                "validators_passed": ["schema-valid-output"],
-                "network_policy_applied": "none",
-            }],
-        })
+                "invocations": [
+                    {
+                        "invocation_id": "11111111-1111-4111-8111-111111111111",
+                        "role": "patcher",
+                        "started_at": "2026-04-27T00:00:00Z",
+                        "ended_at": "2026-04-27T00:00:05Z",
+                        "model": {
+                            "family": "anthropic",
+                            "vendor": "anthropic",
+                            "model_id": "claude-opus-4-7",
+                            "version": "test",
+                            "sampling": {
+                                "temperature": 0,
+                                "top_p": 1,
+                                "max_tokens": 8192,
+                            },
+                        },
+                        "prompt": {"path": "prompts/patcher.v2.md", "sha256": "a" * 64},
+                        "inputs": [],
+                        "outputs": [],
+                        "rng_seed": None,
+                        "validators_passed": ["schema-valid-output"],
+                        "network_policy_applied": "none",
+                    }
+                ],
+            }
+        )
     if include_reproducer_invocation:
-        roles.append({
-            "role": "reproducer",
-            "invocations": [{
-                "invocation_id": "22222222-2222-4222-8222-222222222222",
+        roles.append(
+            {
                 "role": "reproducer",
-                "started_at": "2026-04-28T00:00:00Z",
-                "ended_at": "2026-04-28T00:00:05Z",
-                "model": {
-                    "family": "anthropic",
-                    "vendor": "anthropic",
-                    "model_id": "claude-sonnet-4-6",
-                    "version": "test",
-                    "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 8192},
-                },
-                "prompt": {"path": "prompts/reproducer.v1.md", "sha256": "b" * 64},
-                "inputs": [],
-                "outputs": [],
-                "patcher_invocation_id": "11111111-1111-4111-8111-111111111111",
-                "patcher_family_recorded": "anthropic-opus",
-                "cross_family_rule_honored": True,
-                "rng_seed": None,
-                "validators_passed": ["schema-valid-output"],
-                "network_policy_applied": "none",
-            }],
-        })
+                "invocations": [
+                    {
+                        "invocation_id": "22222222-2222-4222-8222-222222222222",
+                        "role": "reproducer",
+                        "started_at": "2026-04-28T00:00:00Z",
+                        "ended_at": "2026-04-28T00:00:05Z",
+                        "model": {
+                            "family": "anthropic",
+                            "vendor": "anthropic",
+                            "model_id": "claude-sonnet-4-6",
+                            "version": "test",
+                            "sampling": {
+                                "temperature": 0,
+                                "top_p": 1,
+                                "max_tokens": 8192,
+                            },
+                        },
+                        "prompt": {
+                            "path": "prompts/reproducer.v1.md",
+                            "sha256": "b" * 64,
+                        },
+                        "inputs": [],
+                        "outputs": [],
+                        "patcher_invocation_id": "11111111-1111-4111-8111-111111111111",
+                        "patcher_family_recorded": "anthropic-opus",
+                        "cross_family_rule_honored": True,
+                        "rng_seed": None,
+                        "validators_passed": ["schema-valid-output"],
+                        "network_policy_applied": "none",
+                    }
+                ],
+            }
+        )
     replay = {
         "schema_version": "1.0.0",
         "bundle_id": "0000000000000001",
@@ -141,20 +168,25 @@ def _build_post_reproducer_bundle(
 
 def _ok(stdout: str = "+ ok\n") -> BuildOutcome:
     return BuildOutcome(
-        exit_code=0, drv_path=None, out_path="/nix/store/x-result",
-        stdout_stderr=stdout, elapsed_seconds=1.0,
+        exit_code=0,
+        drv_path=None,
+        out_path="/nix/store/x-result",
+        stdout_stderr=stdout,
+        elapsed_seconds=1.0,
     )
 
 
 def _factory_for(*outcomes: BuildOutcome):
     def make() -> FakeBuildRunner:
         return FakeBuildRunner(responses=list(outcomes))
+
     return make
 
 
 def _factory_single(outcome: BuildOutcome):
     def make() -> FakeBuildRunner:
         return FakeBuildRunner(response=outcome)
+
     return make
 
 
@@ -186,7 +218,9 @@ def test_builder_happy_path_writes_build_json(tmp_path: Path) -> None:
     assert bj["patched"]["outcome"] == "succeeded"
 
 
-def test_builder_appends_replay_invocation_with_cross_references(tmp_path: Path) -> None:
+def test_builder_appends_replay_invocation_with_cross_references(
+    tmp_path: Path,
+) -> None:
     bundle = _build_post_reproducer_bundle(tmp_path)
     factory = _factory_for(_ok(), _ok(), _ok())
     result = execute(
@@ -284,8 +318,13 @@ def test_builder_writes_build_log_sidecar_on_oversize(tmp_path: Path) -> None:
     bundle = _build_post_reproducer_bundle(tmp_path)
     huge = "z" * 80000  # > 64 KiB
     factory = _factory_for(
-        BuildOutcome(exit_code=0, drv_path=None, out_path=None,
-                     stdout_stderr=huge, elapsed_seconds=1.0),
+        BuildOutcome(
+            exit_code=0,
+            drv_path=None,
+            out_path=None,
+            stdout_stderr=huge,
+            elapsed_seconds=1.0,
+        ),
         _ok(),
         _ok(),
     )

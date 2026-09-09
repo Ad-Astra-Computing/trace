@@ -1,4 +1,5 @@
 """Tests for eval/pr_accuracy — the corpus PR-accuracy harness."""
+
 from __future__ import annotations
 
 from eval.pr_accuracy import (

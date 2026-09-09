@@ -111,6 +111,7 @@ def _build_looks_infra_broken(build_json: dict[str, Any]) -> bool:
          (binary cache host, store path) — qualified so fixture output that
          merely mentions a download error is not misread as infra.
     """
+
     def _arm(name: str) -> dict[str, Any]:
         v = build_json.get(name)
         return v if isinstance(v, dict) else {}
@@ -123,11 +124,15 @@ def _build_looks_infra_broken(build_json: dict[str, Any]) -> bool:
         # timeout records an empty log). "timed-out" is checked explicitly too.
         if arm.get("exit_code") is None or arm.get("outcome") == "timed-out":
             return True
-        if any(m in (arm.get("stdout_stderr") or "").lower() for m in _RUNNER_INFRA_MARKERS):
+        if any(
+            m in (arm.get("stdout_stderr") or "").lower() for m in _RUNNER_INFRA_MARKERS
+        ):
             return True
     for name in ("unpatched", "patched", "patched_build"):
         for line in (_arm(name).get("stdout_stderr") or "").lower().splitlines():
-            if any(m in line for m in _BUILD_INFRA_MARKERS) and any(t in line for t in _NIX_CONTEXT_TOKENS):
+            if any(m in line for m in _BUILD_INFRA_MARKERS) and any(
+                t in line for t in _NIX_CONTEXT_TOKENS
+            ):
                 return True
     return False
 
@@ -233,16 +238,18 @@ class SamplingResult:
 # Anthropic and OpenAI SDKs raise. Matched by name across the exception's MRO so
 # we neither import the SDKs into this fake-testable core nor absorb programming
 # errors (TypeError, AttributeError, ...) that must surface as tracebacks.
-_TRANSIENT_ADAPTER_ERROR_NAMES = frozenset({
-    "APIConnectionError",
-    "APITimeoutError",
-    "APIStatusError",
-    "APIError",
-    "RateLimitError",
-    "InternalServerError",
-    "ServiceUnavailableError",
-    "OverloadedError",
-})
+_TRANSIENT_ADAPTER_ERROR_NAMES = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "APIStatusError",
+        "APIError",
+        "RateLimitError",
+        "InternalServerError",
+        "ServiceUnavailableError",
+        "OverloadedError",
+    }
+)
 
 
 def _is_transient_adapter_error(exc: BaseException) -> bool:
@@ -352,7 +359,9 @@ def build_probe_fn(
         ]
     }
 
-    def _probe(probe_dir: Path, nix_bytes: bytes, log_bytes: bytes, json_bytes: bytes) -> ProbeVerdict:
+    def _probe(
+        probe_dir: Path, nix_bytes: bytes, log_bytes: bytes, json_bytes: bytes
+    ) -> ProbeVerdict:
         _seed_probe_workspace(bundle_dir, probe_dir)
         for name, buf in (
             ("reproducer.nix", nix_bytes),
@@ -396,9 +405,15 @@ def build_probe_fn(
                 "disk), not on the fixture; treating as a probe error"
             )
 
-        unpatched = ReproUnpatchedFailsScorer().score(bundle_dir=probe_dir, invocation=invocation)
-        patched = ReproPatchedPassesScorer().score(bundle_dir=probe_dir, invocation=invocation)
-        specificity = ReproSignalSpecificityScorer().score(bundle_dir=probe_dir, invocation=invocation)
+        unpatched = ReproUnpatchedFailsScorer().score(
+            bundle_dir=probe_dir, invocation=invocation
+        )
+        patched = ReproPatchedPassesScorer().score(
+            bundle_dir=probe_dir, invocation=invocation
+        )
+        specificity = ReproSignalSpecificityScorer().score(
+            bundle_dir=probe_dir, invocation=invocation
+        )
         u_present = bool(unpatched.applies and unpatched.score == 1.0)
         p_present = bool(patched.applies and patched.score == 1.0)
         marks = scan_build(
@@ -410,7 +425,9 @@ def build_probe_fn(
         return ProbeVerdict(
             signal_unpatched_present=u_present,
             signal_patched_present=p_present,
-            signal_specificity_ok=bool(specificity.applies and specificity.score == 1.0),
+            signal_specificity_ok=bool(
+                specificity.applies and specificity.score == 1.0
+            ),
             detail=detail,
             signal_hygiene_ok=not hygiene_refuses(marks),
         )
@@ -449,7 +466,9 @@ def sample_reproducer(
     """
     if k < 1:
         raise ValueError(f"k must be >= 1, got {k}")
-    temps = temperatures if temperatures is not None else default_temperature_schedule(k)
+    temps = (
+        temperatures if temperatures is not None else default_temperature_schedule(k)
+    )
     if len(temps) != k:
         raise ValueError(f"temperatures length {len(temps)} != k {k}")
 
@@ -469,12 +488,19 @@ def sample_reproducer(
                 prompt_path=prompt_path,
             )
         except ReproducerOutputMalformed as exc:
-            draws.append(DrawResult(
-                index=i, temperature=temp, kind="malformed",
-                signal_unpatched_present=None, signal_patched_present=None,
-                discriminates=False, signal_specificity_ok=None,
-                reproducer_nix_sha256=None, detail=f"output malformed: {exc}",
-            ))
+            draws.append(
+                DrawResult(
+                    index=i,
+                    temperature=temp,
+                    kind="malformed",
+                    signal_unpatched_present=None,
+                    signal_patched_present=None,
+                    discriminates=False,
+                    signal_specificity_ok=None,
+                    reproducer_nix_sha256=None,
+                    detail=f"output malformed: {exc}",
+                )
+            )
             continue
         except Exception as exc:
             # A transient model-call failure on one draw must not crash the whole
@@ -484,13 +510,19 @@ def sample_reproducer(
             # as a traceback rather than be laundered into an infra result.
             if not _is_transient_adapter_error(exc):
                 raise
-            draws.append(DrawResult(
-                index=i, temperature=temp, kind="model-error",
-                signal_unpatched_present=None, signal_patched_present=None,
-                discriminates=False, signal_specificity_ok=None,
-                reproducer_nix_sha256=None,
-                detail=f"model call failed: {type(exc).__name__}: {exc}",
-            ))
+            draws.append(
+                DrawResult(
+                    index=i,
+                    temperature=temp,
+                    kind="model-error",
+                    signal_unpatched_present=None,
+                    signal_patched_present=None,
+                    discriminates=False,
+                    signal_specificity_ok=None,
+                    reproducer_nix_sha256=None,
+                    detail=f"model call failed: {type(exc).__name__}: {exc}",
+                )
+            )
             continue
 
         # The model responded (may be a refusal / proxy / later a probe-error);
@@ -498,16 +530,22 @@ def sample_reproducer(
         billed_runs.append(run)
 
         if run.kind != "reproducer":
-            draws.append(DrawResult(
-                index=i, temperature=temp, kind="refusal",
-                signal_unpatched_present=None, signal_patched_present=None,
-                discriminates=False, signal_specificity_ok=None,
-                reproducer_nix_sha256=None,
-                detail=(
-                    f"refusal rule={run.parsed.refusal_rule!r} "
-                    f"reason={run.parsed.refusal_reason!r}"
-                ),
-            ))
+            draws.append(
+                DrawResult(
+                    index=i,
+                    temperature=temp,
+                    kind="refusal",
+                    signal_unpatched_present=None,
+                    signal_patched_present=None,
+                    discriminates=False,
+                    signal_specificity_ok=None,
+                    reproducer_nix_sha256=None,
+                    detail=(
+                        f"refusal rule={run.parsed.refusal_rule!r} "
+                        f"reason={run.parsed.refusal_reason!r}"
+                    ),
+                )
+            )
             continue
 
         nix_bytes = (run.parsed.raw_reproducer_nix or "").encode("utf-8")
@@ -522,39 +560,56 @@ def sample_reproducer(
         # visible rather than being silently miscounted as a failed draw.
         if run.parsed.is_proxy:
             reason = run.parsed.proxy.proxy_reason if run.parsed.proxy else "unknown"
-            draws.append(DrawResult(
-                index=i, temperature=temp, kind="proxy",
-                signal_unpatched_present=None, signal_patched_present=None,
-                discriminates=False, signal_specificity_ok=None,
-                reproducer_nix_sha256=nix_sha,
-                detail=(
-                    f"proxy reproducer (proxy_reason={reason!r}); unpatched-arm "
-                    "evidence out of scope by contract, not a behavioral winner"
-                ),
-            ))
+            draws.append(
+                DrawResult(
+                    index=i,
+                    temperature=temp,
+                    kind="proxy",
+                    signal_unpatched_present=None,
+                    signal_patched_present=None,
+                    discriminates=False,
+                    signal_specificity_ok=None,
+                    reproducer_nix_sha256=nix_sha,
+                    detail=(
+                        f"proxy reproducer (proxy_reason={reason!r}); unpatched-arm "
+                        "evidence out of scope by contract, not a behavioral winner"
+                    ),
+                )
+            )
             continue
 
         probe_dir = probe_root / f"draw-{i}"
         try:
             verdict = probe_fn(probe_dir, nix_bytes, log_bytes, json_bytes)
         except Exception as exc:  # probe infra failure — record, keep sampling
-            draws.append(DrawResult(
-                index=i, temperature=temp, kind="probe-error",
-                signal_unpatched_present=None, signal_patched_present=None,
-                discriminates=False, signal_specificity_ok=None,
-                reproducer_nix_sha256=nix_sha,
-                detail=f"probe raised: {type(exc).__name__}: {exc}",
-            ))
+            draws.append(
+                DrawResult(
+                    index=i,
+                    temperature=temp,
+                    kind="probe-error",
+                    signal_unpatched_present=None,
+                    signal_patched_present=None,
+                    discriminates=False,
+                    signal_specificity_ok=None,
+                    reproducer_nix_sha256=nix_sha,
+                    detail=f"probe raised: {type(exc).__name__}: {exc}",
+                )
+            )
             continue
 
-        draws.append(DrawResult(
-            index=i, temperature=temp, kind="reproducer",
-            signal_unpatched_present=verdict.signal_unpatched_present,
-            signal_patched_present=verdict.signal_patched_present,
-            discriminates=verdict.discriminates,
-            signal_specificity_ok=verdict.signal_specificity_ok,
-            reproducer_nix_sha256=nix_sha, detail=verdict.detail,
-        ))
+        draws.append(
+            DrawResult(
+                index=i,
+                temperature=temp,
+                kind="reproducer",
+                signal_unpatched_present=verdict.signal_unpatched_present,
+                signal_patched_present=verdict.signal_patched_present,
+                discriminates=verdict.discriminates,
+                signal_specificity_ok=verdict.signal_specificity_ok,
+                reproducer_nix_sha256=nix_sha,
+                detail=verdict.detail,
+            )
+        )
 
         if verdict.discriminates and winner_index is None:
             winner_index = i

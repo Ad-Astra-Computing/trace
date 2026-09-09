@@ -81,6 +81,7 @@ def _adapted_patch_response() -> str:
 def _factory(text: str):
     def _make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, text)
+
     return _make
 
 
@@ -91,28 +92,52 @@ def _fresh() -> dict:
 def _build_source_context_bundle(tmp_path: Path) -> Path:
     bd = tmp_path / "bundle"
     bd.mkdir()
-    (bd / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0002",
-        "affected": [{"attr_path": "libexample", "version": "1.0.0"}],
-    }))
-    (bd / "upstream-ref.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0002",
-        "current_version": "1.0.0",
-        "target_version": "1.0.0",
-        "fix_tier": "security-patch-release",
-        "release_url": "https://example.invalid/rel",
-        "upstream_fix_commits": [
-            {"repo_url": "https://github.com/libarchive/libarchive", "commit_sha": "c161620"}
-        ],
-        "eligibility": {"verdict": "eligible", "patch_strategy": "source-backport"},
-    }))
-    (bd / "impact.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0002", "reverse_closure_count": 42, "exceeds_threshold": False,
-    }))
-    (bd / "maintainers.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0002",
-        "attr_paths": {"libexample": {"maintainers": [{"github": "alice"}]}},
-    }))
+    (bd / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0002",
+                "affected": [{"attr_path": "libexample", "version": "1.0.0"}],
+            }
+        )
+    )
+    (bd / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0002",
+                "current_version": "1.0.0",
+                "target_version": "1.0.0",
+                "fix_tier": "security-patch-release",
+                "release_url": "https://example.invalid/rel",
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://github.com/libarchive/libarchive",
+                        "commit_sha": "c161620",
+                    }
+                ],
+                "eligibility": {
+                    "verdict": "eligible",
+                    "patch_strategy": "source-backport",
+                },
+            }
+        )
+    )
+    (bd / "impact.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0002",
+                "reverse_closure_count": 42,
+                "exceeds_threshold": False,
+            }
+        )
+    )
+    (bd / "maintainers.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0002",
+                "attr_paths": {"libexample": {"maintainers": [{"github": "alice"}]}},
+            }
+        )
+    )
     (bd / "package.nix").write_text('version = "1.0.0";\n')
     (bd / "upstream-fix.patch").write_text(
         "diff --git a/foo.c b/foo.c\n--- a/foo.c\n+++ b/foo.c\n"
@@ -122,43 +147,72 @@ def _build_source_context_bundle(tmp_path: Path) -> Path:
     # bootstrap-produced: source-context/ (pinned pre-patch source) + preflight.json
     (bd / "source-context").mkdir()
     (bd / "source-context" / "foo.c").write_text("    l = l * base;\n")
-    (bd / "preflight.json").write_text(json.dumps({
-        "applies_verbatim": False,
-        "patch": "upstream-fix.patch",
-        "patch_flags": ["-p1"],
-        "diagnostics": "Hunk #1 FAILED: archive_ckd_mul_i64 absent from pinned base",
-    }))
+    (bd / "preflight.json").write_text(
+        json.dumps(
+            {
+                "applies_verbatim": False,
+                "patch": "upstream-fix.patch",
+                "patch_flags": ["-p1"],
+                "diagnostics": "Hunk #1 FAILED: archive_ckd_mul_i64 absent from pinned base",
+            }
+        )
+    )
     # seed replay so the patcher metadata writer has a schema-valid file to append to
-    (bd / "replay.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": "0000000000000002",
-        "cve_id": "CVE-0000-0002",
-        "nixpkgs_rev": "a" * 40,
-        "policy_version": "0" * 64,
-        "bundle_schema_sha256": "1" * 64,
-        "routing_config_sha256": "2" * 64,
-        "tool_manifest": {"flake_lock_sha256": "3" * 64,
-                          "tools": [{"name": "python", "version": "3.13"}]},
-        "cross_family_rule_honored": True,
-        "roles": [{
-            "role": "upstream-ref-resolver",
-            "invocations": [{
-                "invocation_id": "00000000-0000-4000-8000-000000000002",
-                "role": "upstream-ref-resolver",
-                "started_at": "2026-07-27T00:00:00Z",
-                "ended_at": "2026-07-27T00:00:01Z",
-                "model": {"family": "deterministic-no-model", "vendor": "internal",
-                          "model_id": "x", "version": "1.0.0",
-                          "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1}},
-                "prompt": {"path": "prompts/upstream-ref-resolver.v1.md", "sha256": "7" * 64},
-                "inputs": [{"path": "finding.json", "sha256": "6" * 64}],
-                "outputs": [{"path": "upstream-ref.json", "sha256": "8" * 64}],
-                "rng_seed": None,
-                "validators_passed": ["eligibility-verdict-present"],
-                "network_policy_applied": "feeds-only",
-            }],
-        }],
-    }))
+    (bd / "replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": "0000000000000002",
+                "cve_id": "CVE-0000-0002",
+                "nixpkgs_rev": "a" * 40,
+                "policy_version": "0" * 64,
+                "bundle_schema_sha256": "1" * 64,
+                "routing_config_sha256": "2" * 64,
+                "tool_manifest": {
+                    "flake_lock_sha256": "3" * 64,
+                    "tools": [{"name": "python", "version": "3.13"}],
+                },
+                "cross_family_rule_honored": True,
+                "roles": [
+                    {
+                        "role": "upstream-ref-resolver",
+                        "invocations": [
+                            {
+                                "invocation_id": "00000000-0000-4000-8000-000000000002",
+                                "role": "upstream-ref-resolver",
+                                "started_at": "2026-07-27T00:00:00Z",
+                                "ended_at": "2026-07-27T00:00:01Z",
+                                "model": {
+                                    "family": "deterministic-no-model",
+                                    "vendor": "internal",
+                                    "model_id": "x",
+                                    "version": "1.0.0",
+                                    "sampling": {
+                                        "temperature": 0,
+                                        "top_p": 1,
+                                        "max_tokens": 1,
+                                    },
+                                },
+                                "prompt": {
+                                    "path": "prompts/upstream-ref-resolver.v1.md",
+                                    "sha256": "7" * 64,
+                                },
+                                "inputs": [
+                                    {"path": "finding.json", "sha256": "6" * 64}
+                                ],
+                                "outputs": [
+                                    {"path": "upstream-ref.json", "sha256": "8" * 64}
+                                ],
+                                "rng_seed": None,
+                                "validators_passed": ["eligibility-verdict-present"],
+                                "network_policy_applied": "feeds-only",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
     # impact.json needs nixpkgs_rev for finalize; put a real-looking one
     imp = json.loads((bd / "impact.json").read_text())
     imp["nixpkgs_rev"] = "a" * 40
@@ -168,16 +222,22 @@ def _build_source_context_bundle(tmp_path: Path) -> Path:
 
 # ── prompt selection + rendered content ────────────────────────────────────
 
+
 def test_assemble_user_content_renders_source_context_and_verdict():
-    content = assemble_user_content({
-        "finding": {}, "upstream_ref": {}, "impact": {}, "maintainers": {},
-        "package_source": "x",
-        "patch_strategy": "source-backport",
-        "upstream_fix_patch": "diff --git a/foo.c b/foo.c\n",
-        "source_context": {"foo.c": "    l = l * base;\n"},
-        "applies_verbatim": False,
-        "preflight_diagnostics": "Hunk #1 FAILED",
-    })
+    content = assemble_user_content(
+        {
+            "finding": {},
+            "upstream_ref": {},
+            "impact": {},
+            "maintainers": {},
+            "package_source": "x",
+            "patch_strategy": "source-backport",
+            "upstream_fix_patch": "diff --git a/foo.c b/foo.c\n",
+            "source_context": {"foo.c": "    l = l * base;\n"},
+            "applies_verbatim": False,
+            "preflight_diagnostics": "Hunk #1 FAILED",
+        }
+    )
     assert "applies_verbatim: false" in content
     assert "SEMANTIC ADAPTATION" in content
     assert "### source-context/foo.c" in content
@@ -185,25 +245,35 @@ def test_assemble_user_content_renders_source_context_and_verdict():
 
 
 def test_verbatim_true_directs_transcription():
-    content = assemble_user_content({
-        "finding": {}, "upstream_ref": {}, "impact": {}, "maintainers": {},
-        "package_source": "x",
-        "patch_strategy": "source-backport",
-        "upstream_fix_patch": "diff --git a/foo.c b/foo.c\n",
-        "source_context": {"foo.c": "x\n"},
-        "applies_verbatim": True,
-    })
+    content = assemble_user_content(
+        {
+            "finding": {},
+            "upstream_ref": {},
+            "impact": {},
+            "maintainers": {},
+            "package_source": "x",
+            "patch_strategy": "source-backport",
+            "upstream_fix_patch": "diff --git a/foo.c b/foo.c\n",
+            "source_context": {"foo.c": "x\n"},
+            "applies_verbatim": True,
+        }
+    )
     assert "applies_verbatim: true" in content
     assert "VERBATIM" in content
 
 
 # ── execute end-to-end ──────────────────────────────────────────────────────
 
+
 def test_execute_routes_to_v4_and_declares_source_context_inputs(tmp_path):
     bd = _build_source_context_bundle(tmp_path)
     result = execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="fake-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_adapted_patch_response()),
     )
     assert result["kind"] == "patch"
     inv = result["replay_invocation"]
@@ -220,15 +290,23 @@ def test_execute_routes_to_v4_and_declares_source_context_inputs(tmp_path):
 def test_execute_verify_mode_hash_checks_source_context(tmp_path):
     bd = _build_source_context_bundle(tmp_path)
     fresh = execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="fake-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_adapted_patch_response()),
     )
     recorded = fresh["replay_invocation"]
     # Re-run in verify mode against the recorded invocation → the generic input
     # loop hash-verifies every declared input, including source-context/foo.c.
     verified = execute(
-        role="patcher", bundle_dir=bd, invocation=recorded, verify=True,
-        model_id="fake-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=recorded,
+        verify=True,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_adapted_patch_response()),
     )
     vpaths = {v["path"] for v in verified["input_verification"] if v.get("verified")}
     assert "source-context/foo.c" in vpaths
@@ -246,7 +324,7 @@ def _wrong_header_response() -> str:
         "@@ -0,0 +1,5 @@\n"
         "+--- a/foo.c\n"
         "++++ b/foo.c\n"
-        "+@@ -812,5 +812,9 @@\n"          # WRONG: source is line 1, single line
+        "+@@ -812,5 +812,9 @@\n"  # WRONG: source is line 1, single line
         "+-    l = l * base;\n"
         "++    if (l > limit) return -1;\n"
         "diff --git a/package.nix b/package.nix\n"
@@ -293,8 +371,12 @@ def _ungroundable_response() -> str:
 def test_execute_canonicalizes_wrong_inner_header_and_records_provenance(tmp_path):
     bd = _build_source_context_bundle(tmp_path)
     result = execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="fake-opus-4-7", adapter_factory=_factory(_wrong_header_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_wrong_header_response()),
     )
     assert result["kind"] == "patch"
     written = (bd / "patch.diff").read_text()
@@ -318,6 +400,7 @@ def test_execute_canonicalizes_wrong_inner_header_and_records_provenance(tmp_pat
     assert sidecar["hunk_normalization"]["applied"] is True
     # The recorded output sha matches the canonicalized bytes on disk.
     from tools.trace_cli.execute import sha256_hex  # local import; test-only
+
     out_sha = {o["path"]: o["sha256"] for o in result["replay_invocation"]["outputs"]}
     assert out_sha["patch.diff"] == sha256_hex(written.encode("utf-8"))
 
@@ -325,10 +408,15 @@ def test_execute_canonicalizes_wrong_inner_header_and_records_provenance(tmp_pat
 def test_execute_emits_applicability_attestation(tmp_path):
     import json
     from tools.trace_cli.hunk_normalizer import CANONICALIZER_VERSION
+
     bd = _build_source_context_bundle(tmp_path)
     result = execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="fake-opus-4-7", adapter_factory=_factory(_wrong_header_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_wrong_header_response()),
     )
     att_path = bd / "patch-applicability.json"
     assert att_path.exists()
@@ -344,6 +432,7 @@ def test_execute_emits_applicability_attestation(tmp_path):
     out_paths = {o["path"] for o in result["replay_invocation"]["outputs"]}
     assert "patch-applicability.json" in out_paths
     from tools.trace_cli.execute import sha256_hex
+
     out_sha = {o["path"]: o["sha256"] for o in result["replay_invocation"]["outputs"]}
     assert out_sha["patch-applicability.json"] == sha256_hex(att_path.read_bytes())
 
@@ -352,10 +441,15 @@ def test_execute_canonicalization_is_idempotent_fixpoint(tmp_path):
     # Canonicalizing a patch is a fixpoint: the written (already-canonical) patch,
     # fed back through the compiler, produces no further change.
     from tools.trace_cli.hunk_normalizer import canonicalize_backport_patch
+
     bd = _build_source_context_bundle(tmp_path)
     result = execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="fake-opus-4-7", adapter_factory=_factory(_wrong_header_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="fake-opus-4-7",
+        adapter_factory=_factory(_wrong_header_response()),
     )
     assert result["patcher_run"]["hunk_normalization"]["applied"] is True
     written = (bd / "patch.diff").read_text()
@@ -369,8 +463,12 @@ def test_execute_ungroundable_body_fails_and_persists_raw(tmp_path):
     bd = _build_source_context_bundle(tmp_path)
     with pytest.raises(Exception, match="hunk-header canonicalization failed"):
         execute(
-            role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-            model_id="fake-opus-4-7", adapter_factory=_factory(_ungroundable_response()),
+            role="patcher",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
+            model_id="fake-opus-4-7",
+            adapter_factory=_factory(_ungroundable_response()),
         )
     # Nothing signed: no patch.diff written; raw persisted for debugging.
     assert not (bd / "patch.diff").exists()
@@ -383,26 +481,42 @@ def _build_from_zlib(tmp_path: Path) -> Path:
     overlay the bootstrap-produced source-context/ + preflight.json so finalize
     exercises the true guard path (not hand-built minimal JSON)."""
     import shutil
+
     bd = tmp_path / "zbundle"
     bd.mkdir()
-    for f in ("finding.json", "impact.json", "maintainers.json", "upstream-ref.json",
-              "package.nix", "upstream-fix.patch"):
+    for f in (
+        "finding.json",
+        "impact.json",
+        "maintainers.json",
+        "upstream-ref.json",
+        "package.nix",
+        "upstream-fix.patch",
+    ):
         src = _ZLIB / f
         if src.is_file():
             shutil.copyfile(src, bd / f)
     (bd / "source-context").mkdir()
     (bd / "source-context" / "gzread.c").write_text("    /* pinned pre-patch */\n")
-    (bd / "preflight.json").write_text(json.dumps({
-        "applies_verbatim": False, "patch": "upstream-fix.patch",
-        "patch_flags": ["-p1"], "diagnostics": "base divergence",
-    }))
+    (bd / "preflight.json").write_text(
+        json.dumps(
+            {
+                "applies_verbatim": False,
+                "patch": "upstream-fix.patch",
+                "patch_flags": ["-p1"],
+                "diagnostics": "base divergence",
+            }
+        )
+    )
     return bd
 
 
 def test_finalize_produces_schema_valid_1_1_0(tmp_path):
     bd = _build_from_zlib(tmp_path)
-    finalize_bundle(bundle_dir=bd, bundle_kind="human-review-required",
-                    created_at="2026-07-27T00:00:00Z")
+    finalize_bundle(
+        bundle_dir=bd,
+        bundle_kind="human-review-required",
+        created_at="2026-07-27T00:00:00Z",
+    )
     b = json.loads((bd / "bundle.json").read_text())
     assert b["schema_version"] == "1.1.0"
     assert b["patch_strategy"] == "source-backport"

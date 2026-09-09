@@ -32,7 +32,10 @@ SPLITS = ("train", "dev", "test")
 
 
 def _est_tokens(record: dict) -> int:
-    return math.ceil(sum(len(m.get("content", "")) for m in record.get("messages", [])) / _CHARS_PER_TOK)
+    return math.ceil(
+        sum(len(m.get("content", "")) for m in record.get("messages", []))
+        / _CHARS_PER_TOK
+    )
 
 
 def _validate(record: dict) -> list[str]:
@@ -80,11 +83,13 @@ def package(seq_len: int, src: Path | None = None, out: Path | None = None) -> d
             for r in recs:
                 fh.write(json.dumps({"messages": r["messages"]}, sort_keys=True) + "\n")
                 if _est_tokens(r) > seq_len:
-                    over_len.append({
-                        "cve": (r.get("provenance") or {}).get("cve_id"),
-                        "split": s,
-                        "est_tokens": _est_tokens(r),
-                    })
+                    over_len.append(
+                        {
+                            "cve": (r.get("provenance") or {}).get("cve_id"),
+                            "split": s,
+                            "est_tokens": _est_tokens(r),
+                        }
+                    )
 
     # Tier breakdown — cert-green vs behavioral-only is load-bearing provenance
     # for the model card and any downstream gate pilot.
@@ -107,24 +112,40 @@ def package(seq_len: int, src: Path | None = None, out: Path | None = None) -> d
         "tiers_by_split": {s: _tier_counts(per_split[s]) for s in SPLITS},
         "est_token_stats": {
             "max": max((_est_tokens(r) for r in all_rows), default=0),
-            "mean": round(sum(_est_tokens(r) for r in all_rows) / len(all_rows)) if all_rows else 0,
+            "mean": round(sum(_est_tokens(r) for r in all_rows) / len(all_rows))
+            if all_rows
+            else 0,
         },
         "over_seq_len": over_len,
         "validation_errors": errors,
         "files": [f"authoring.{s}.jsonl" for s in SPLITS],
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (out / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
     return manifest
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="Package Authoring LoRA train/dev JSONL")
-    ap.add_argument("--seq-len", type=int, default=16384,
-                    help="token budget to flag over-length records (default 16384)")
-    ap.add_argument("--export-dir", type=Path, default=None,
-                    help="path to authoring.jsonl export dir (default: exports/authoring/)")
-    ap.add_argument("--out-dir", type=Path, default=None,
-                    help="output directory for packaged JSONL (default: exports/authoring-lora/)")
+    ap.add_argument(
+        "--seq-len",
+        type=int,
+        default=16384,
+        help="token budget to flag over-length records (default 16384)",
+    )
+    ap.add_argument(
+        "--export-dir",
+        type=Path,
+        default=None,
+        help="path to authoring.jsonl export dir (default: exports/authoring/)",
+    )
+    ap.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="output directory for packaged JSONL (default: exports/authoring-lora/)",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     src = (args.export_dir / "authoring.jsonl") if args.export_dir else None
@@ -133,11 +154,15 @@ def main(argv: list[str]) -> int:
     if args.json:
         print(json.dumps(m, indent=2, sort_keys=True))
     else:
-        print(f"Authoring LoRA package -> {out_dir}/authoring.{{train,dev}}.jsonl  (base {m['base_model']})")
+        print(
+            f"Authoring LoRA package -> {out_dir}/authoring.{{train,dev}}.jsonl  (base {m['base_model']})"
+        )
         print(f"  total {m['total']}  splits {m['splits']}")
         print(f"  tiers: {m['tiers']}")
-        print(f"  est tokens: max {m['est_token_stats']['max']} mean {m['est_token_stats']['mean']}"
-              f"  over {args.seq_len}: {len(m['over_seq_len'])}")
+        print(
+            f"  est tokens: max {m['est_token_stats']['max']} mean {m['est_token_stats']['mean']}"
+            f"  over {args.seq_len}: {len(m['over_seq_len'])}"
+        )
         if m["validation_errors"]:
             print(f"  VALIDATION ERRORS ({len(m['validation_errors'])}):")
             for e in m["validation_errors"][:10]:

@@ -80,51 +80,59 @@ SIGNAL_LENGTH_MAX = 200
 # Per `docs/REPRODUCER_V1.md` §3.2: forbidden generic tokens. Matched
 # case-insensitively against the *entire* signal content (after strip).
 # Anything in this set is too generic to discriminate vuln from non-vuln.
-SIGNAL_GENERIC_TOKEN_FORBIDDEN: frozenset[str] = frozenset({
-    "error",
-    "error:",
-    "failed",
-    "failure",
-    "assertion failed",
-    "aborted",
-    "core dumped",
-    "success",
-    "ok",
-    "passed",
-    "done",
-    "complete",
-    "exit code 0",
-    "exit code 1",
-    "exit status 0",
-    "exit status 1",
-    "",
-})
+SIGNAL_GENERIC_TOKEN_FORBIDDEN: frozenset[str] = frozenset(
+    {
+        "error",
+        "error:",
+        "failed",
+        "failure",
+        "assertion failed",
+        "aborted",
+        "core dumped",
+        "success",
+        "ok",
+        "passed",
+        "done",
+        "complete",
+        "exit code 0",
+        "exit code 1",
+        "exit status 0",
+        "exit status 1",
+        "",
+    }
+)
 
 
 # Per `docs/REPRODUCER_V1.md` §7. The contract does not allow proxies
 # with reasons outside this set; out-of-enum reasons MUST refuse instead.
-PROXY_REASON_ENUM: frozenset[str] = frozenset({
-    "sandbox-cannot-trigger",
-    "chain-requires-public-poc",
-    "pre-fix-build-uncrashable-in-sandbox",
-    "attack-surface-not-locally-instrumentable",
-    "cve-class-needs-fixture-corpus",
-})
+PROXY_REASON_ENUM: frozenset[str] = frozenset(
+    {
+        "sandbox-cannot-trigger",
+        "chain-requires-public-poc",
+        "pre-fix-build-uncrashable-in-sandbox",
+        "attack-surface-not-locally-instrumentable",
+        "cve-class-needs-fixture-corpus",
+    }
+)
 
 
 # Per `docs/specs/stub-harness-fixtures.md`. One value for now; a stub
 # harness that stands in for the ambient environment a live service or GUI
 # would have supplied is the only class the contract allows.
-HARNESS_CLASS_ENUM: frozenset[str] = frozenset({
-    "stub-ambient",
-})
+HARNESS_CLASS_ENUM: frozenset[str] = frozenset(
+    {
+        "stub-ambient",
+    }
+)
 
 
 # Per `docs/REPRODUCER_V1.md` §3.3.
-PASSTHRU_KIND_ENUM: frozenset[str] = frozenset({
-    "passthru.tests",
-    "nixosTests",
-})
+PASSTHRU_KIND_ENUM: frozenset[str] = frozenset(
+    {
+        "passthru.tests",
+        "nixosTests",
+    }
+)
 
 
 class ReproducerOutputMalformed(Exception):
@@ -256,8 +264,12 @@ class ReproducerParseResult:
             "schema_version": SCHEMA_VERSION,
             "is_proxy": self.is_proxy,
             "is_stub_harness": self.is_stub_harness,
-            "log_unpatched": self.log_unpatched.to_schema_dict() if self.log_unpatched else None,
-            "log_patched": self.log_patched.to_schema_dict() if self.log_patched else None,
+            "log_unpatched": self.log_unpatched.to_schema_dict()
+            if self.log_unpatched
+            else None,
+            "log_patched": self.log_patched.to_schema_dict()
+            if self.log_patched
+            else None,
             "proxy": self.proxy.to_schema_dict() if self.proxy else None,
             "harness": self.harness.to_schema_dict() if self.harness else None,
             "passthru_tests": [e.to_schema_dict() for e in self.passthru_tests],
@@ -385,21 +397,21 @@ def _parse_reproducer(text: str) -> ReproducerParseResult:
             "reproducer.nix, reproducer-log.txt, passthru-tests.json"
         )
     # Nothing after the last block.
-    after = text[json_match.end():].strip()
+    after = text[json_match.end() :].strip()
     if after:
         raise ReproducerOutputMalformed(
             "content after '=== END passthru-tests.json ===' is forbidden; "
             f"found {len(after)} chars of trailing prose"
         )
     # Nothing between the closing markers and the next opening marker.
-    between_nix_log = text[nix_match.end():log_match.start()].strip()
+    between_nix_log = text[nix_match.end() : log_match.start()].strip()
     if between_nix_log:
         raise ReproducerOutputMalformed(
             "content between '=== END reproducer.nix ===' and "
             f"'=== BEGIN reproducer-log.txt ===' is forbidden; found "
             f"{len(between_nix_log)} chars of inter-block prose"
         )
-    between_log_json = text[log_match.end():json_match.start()].strip()
+    between_log_json = text[log_match.end() : json_match.start()].strip()
     if between_log_json:
         raise ReproducerOutputMalformed(
             "content between '=== END reproducer-log.txt ===' and "
@@ -415,7 +427,9 @@ def _parse_reproducer(text: str) -> ReproducerParseResult:
     nix_proxy_claim = _detect_meta_proxy_in_nix(nix_body)
 
     log_unpatched, log_patched, log_proxy, harness = parse_log_sections(log_body)
-    nix_proxy_meta = _extract_meta_proxy_fields_from_nix(nix_body) if nix_proxy_claim else None
+    nix_proxy_meta = (
+        _extract_meta_proxy_fields_from_nix(nix_body) if nix_proxy_claim else None
+    )
 
     proxy: ProxyMetadata | None = None
     log_has_proxy = log_proxy is not None
@@ -444,9 +458,9 @@ def _parse_reproducer(text: str) -> ReproducerParseResult:
         proxy = log_proxy
 
     passthru = _parse_passthru_tests_json(json_body)
-    canonicalised_json = json.dumps(
-        [e.to_schema_dict() for e in passthru], indent=2
-    ) + "\n"
+    canonicalised_json = (
+        json.dumps([e.to_schema_dict() for e in passthru], indent=2) + "\n"
+    )
 
     return ReproducerParseResult(
         kind="reproducer",
@@ -519,9 +533,7 @@ _FLOATING_REF_RE = re.compile(
     r'\b(?P<key>rev|tag|ref)\s*=\s*"(?P<value>master|main|HEAD|refs/heads/[A-Za-z0-9._/-]+)"'
 )
 
-_META_PROXY_TRUE_RE = re.compile(
-    r"\bproxy\s*=\s*true\b"
-)
+_META_PROXY_TRUE_RE = re.compile(r"\bproxy\s*=\s*true\b")
 
 
 def _extract_function_header(nix_body: str) -> str | None:
@@ -600,7 +612,7 @@ _EXIT_CAPTURE_ANTI_PATTERN_RE = re.compile(
     # within a few lines of whitespace/comments, by a bash exit-code capture
     # `rc=$?` or `EXIT=$?` or similar identifier=$?.
     # We allow trailing whitespace + up to two blank/comment lines between.
-    r"\|\|\s*true\s*\n"      # `|| true` line ends
+    r"\|\|\s*true\s*\n"  # `|| true` line ends
     r"(?:[ \t]*#[^\n]*\n|[ \t]*\n){0,2}"  # 0-2 blank/comment lines
     r"[ \t]*[A-Za-z_][A-Za-z0-9_]*\s*=\s*\$\?",  # `<name>=$?`
     re.MULTILINE,
@@ -626,7 +638,7 @@ def _validate_exit_capture_pattern(nix_body: str) -> None:
     m = _EXIT_CAPTURE_ANTI_PATTERN_RE.search(nix_body)
     if m:
         # Find the line number for the offending `|| true` for diagnostic.
-        line_no = nix_body[:m.start()].count("\n") + 1
+        line_no = nix_body[: m.start()].count("\n") + 1
         raise ReproducerOutputMalformed(
             f"reproducer.nix uses the broken `|| true; <name>=$?` exit-capture "
             f"pattern at line {line_no}. `|| true` makes the pipeline succeed "
@@ -696,7 +708,7 @@ def _validate_fetcher_usage(nix_body: str) -> None:
                 f"reproducer.nix uses forbidden network fetcher {fetcher!r}. "
                 "The v0.1 hash-pinned carve-out (docs/REPRODUCER_V1.md §4.3) "
                 "allows fetcher calls ONLY when a literal "
-                "`hash = \"sha256-...\"` or `hash = \"sha512-...\"` is present "
+                '`hash = "sha256-..."` or `hash = "sha512-..."` is present '
                 "at the call site (SRI form, base64-encoded). Found no such "
                 "literal in this fetcher's argument block. For inline "
                 "fixtures use `pkgs.writeText` / `pkgs.writeScript`; for "
@@ -747,9 +759,7 @@ def _detect_meta_proxy_in_nix(nix_body: str) -> bool:
     return bool(_META_PROXY_TRUE_RE.search(nix_body))
 
 
-_META_PROXY_REASON_RE = re.compile(
-    r"\bproxy_reason\s*=\s*\"(?P<value>[^\"]+)\""
-)
+_META_PROXY_REASON_RE = re.compile(r"\bproxy_reason\s*=\s*\"(?P<value>[^\"]+)\"")
 _META_WHY_NOT_FULL_REPRO_RE = re.compile(
     r"\bwhy_not_full_repro\s*=\s*\"(?P<value>(?:[^\"\\]|\\.)*)\"",
     re.DOTALL,
@@ -933,7 +943,10 @@ def _build_log_section(
         )
 
     return LogSection(
-        name=name, signal=signal, exit_code=exit_code, body=body.strip("\n"),
+        name=name,
+        signal=signal,
+        exit_code=exit_code,
+        body=body.strip("\n"),
     )
 
 
@@ -994,7 +1007,8 @@ def _parse_proxy_section(body: str) -> ProxyMetadata:
     for m in _PROXY_KEY_LINE_RE.finditer(body):
         fields[m.group("key")] = m.group("value").strip()
     missing = [
-        k for k in ("proxy_reason", "why_not_full_repro", "expected_limitations")
+        k
+        for k in ("proxy_reason", "why_not_full_repro", "expected_limitations")
         if k not in fields or not fields[k]
     ]
     if missing:
@@ -1036,7 +1050,8 @@ def _parse_harness_section(body: str) -> HarnessMetadata:
     for m in _HARNESS_KEY_LINE_RE.finditer(body):
         fields[m.group("key")] = m.group("value").strip()
     missing = [
-        k for k in ("harness_class", "target_files", "stubbed", "effect")
+        k
+        for k in ("harness_class", "target_files", "stubbed", "effect")
         if k not in fields or not fields[k]
     ]
     if missing:
@@ -1078,9 +1093,7 @@ def _parse_passthru_tests_json(body: str) -> list[PassthruEntry]:
     try:
         parsed = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise ReproducerOutputMalformed(
-            f"passthru-tests.json is not valid JSON: {exc}"
-        )
+        raise ReproducerOutputMalformed(f"passthru-tests.json is not valid JSON: {exc}")
     if not isinstance(parsed, list):
         raise ReproducerOutputMalformed(
             f"passthru-tests.json must be a JSON array; got {type(parsed).__name__}"
@@ -1135,7 +1148,7 @@ def _parse_refusal(text: str) -> ReproducerParseResult:
         raise ReproducerOutputMalformed(
             "refusal output malformed: expected '=== BEGIN refusal === ... === END refusal ==='"
         )
-    after = stripped[match.end():].strip()
+    after = stripped[match.end() :].strip()
     if after:
         raise ReproducerOutputMalformed(
             f"content after '=== END refusal ===' is forbidden; "

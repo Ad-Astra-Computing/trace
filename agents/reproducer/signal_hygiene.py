@@ -48,7 +48,10 @@ _MISSING_READ = re.compile(
 )
 
 _REFUSED_INVOCATION = (
-    re.compile(r"\b(?:unknown|unrecognized|unrecognised|invalid|illegal) (?:option|flag)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:unknown|unrecognized|unrecognised|invalid|illegal) (?:option|flag)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"^\s*usage: ", re.IGNORECASE | re.MULTILINE),
     re.compile(r"\bcommand not found\b", re.IGNORECASE),
 )

@@ -56,14 +56,54 @@ def _bundle_skeleton(cve: str, bundle_id: str) -> dict[str, Any]:
         "policy_version": "0" * 64,
         "bundle_schema_version": "1" * 64,
         "files": {
-            "bundle.json": {"sha256": "a" * 64, "bytes": 1, "producer_role": "steward", "replay_critical": True},
-            "finding.json": {"sha256": "b" * 64, "bytes": 1, "producer_role": "scout", "replay_critical": True},
-            "impact.json": {"sha256": "d" * 64, "bytes": 1, "producer_role": "cartographer", "replay_critical": True},
-            "maintainers.json": {"sha256": "e" * 64, "bytes": 1, "producer_role": "cartographer", "replay_critical": True},
-            "upstream-ref.json": {"sha256": "c" * 64, "bytes": 1, "producer_role": "upstream-ref-resolver", "replay_critical": True},
-            "replay.json": {"sha256": "f" * 64, "bytes": 1, "producer_role": "steward", "replay_critical": True},
-            "provenance.jsonl": {"sha256": "0" * 64, "bytes": 1, "producer_role": "steward", "replay_critical": False},
-            "bundle.sig": {"sha256": "9" * 64, "bytes": 1, "producer_role": "steward", "replay_critical": False},
+            "bundle.json": {
+                "sha256": "a" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": True,
+            },
+            "finding.json": {
+                "sha256": "b" * 64,
+                "bytes": 1,
+                "producer_role": "scout",
+                "replay_critical": True,
+            },
+            "impact.json": {
+                "sha256": "d" * 64,
+                "bytes": 1,
+                "producer_role": "cartographer",
+                "replay_critical": True,
+            },
+            "maintainers.json": {
+                "sha256": "e" * 64,
+                "bytes": 1,
+                "producer_role": "cartographer",
+                "replay_critical": True,
+            },
+            "upstream-ref.json": {
+                "sha256": "c" * 64,
+                "bytes": 1,
+                "producer_role": "upstream-ref-resolver",
+                "replay_critical": True,
+            },
+            "replay.json": {
+                "sha256": "f" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": True,
+            },
+            "provenance.jsonl": {
+                "sha256": "0" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": False,
+            },
+            "bundle.sig": {
+                "sha256": "9" * 64,
+                "bytes": 1,
+                "producer_role": "steward",
+                "replay_critical": False,
+            },
         },
         "signed_manifest": {
             "algorithm": "sigstore-cosign-v1",
@@ -73,7 +113,9 @@ def _bundle_skeleton(cve: str, bundle_id: str) -> dict[str, Any]:
     }
 
 
-def _replay_skeleton(cve: str, bundle_id: str, role_entries: list[dict[str, Any]]) -> dict[str, Any]:
+def _replay_skeleton(
+    cve: str, bundle_id: str, role_entries: list[dict[str, Any]]
+) -> dict[str, Any]:
     return {
         "schema_version": "1.0.0",
         "bundle_id": bundle_id,
@@ -91,7 +133,9 @@ def _replay_skeleton(cve: str, bundle_id: str, role_entries: list[dict[str, Any]
     }
 
 
-def _make_invocation(role: str, inputs: list[dict], outputs: list[dict]) -> dict[str, Any]:
+def _make_invocation(
+    role: str, inputs: list[dict], outputs: list[dict]
+) -> dict[str, Any]:
     return {
         "invocation_id": str(uuid.uuid4()),
         "role": role,
@@ -113,7 +157,9 @@ def _make_invocation(role: str, inputs: list[dict], outputs: list[dict]) -> dict
     }
 
 
-def _build_bundle(tmp_path: Path, cve: str, bundle_id: str, role_entries: list[dict]) -> Path:
+def _build_bundle(
+    tmp_path: Path, cve: str, bundle_id: str, role_entries: list[dict]
+) -> Path:
     bundle_dir = tmp_path / cve
     bundle_dir.mkdir(parents=True)
     bundle = _bundle_skeleton(cve, bundle_id)
@@ -152,7 +198,7 @@ def _build_scout_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
                 "cpes": ["cpe:2.3:a:example:libexample:1.4.7:*:*:*:*:*:*:*"],
                 "purls": [],
             }
-        ]
+        ],
     }
     feed_name, feed_sha = _write_json(bundle_dir / "feed.json", feed)
     graph_name, graph_sha = _write_json(bundle_dir / "graph.json", graph_src)
@@ -174,8 +220,11 @@ def _build_scout_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
         outputs=[{"path": finding_name, "sha256": finding_sha}],
     )
 
-    replay = _replay_skeleton("CVE-0000-7001", "0000000000007001",
-                              [{"role": "scout", "invocations": [invocation]}])
+    replay = _replay_skeleton(
+        "CVE-0000-7001",
+        "0000000000007001",
+        [{"role": "scout", "invocations": [invocation]}],
+    )
     bundle = _bundle_skeleton("CVE-0000-7001", "0000000000007001")
     (bundle_dir / "bundle.json").write_text(json.dumps(bundle, indent=2))
     (bundle_dir / "replay.json").write_text(json.dumps(replay, indent=2))
@@ -184,7 +233,10 @@ def _build_scout_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
 
 def _build_cartographer_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     from agents.cartographer import (
-        CannedCartographerGraph, CannedNode, Maintainer, analyze,
+        CannedCartographerGraph,
+        CannedNode,
+        Maintainer,
+        analyze,
     )
 
     bundle_dir = tmp_path / "cartographer-bundle"
@@ -226,15 +278,17 @@ def _build_cartographer_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     f_name, f_sha = _write_json(bundle_dir / "finding.json", finding)
     g_name, g_sha = _write_json(bundle_dir / "graph.json", graph_src)
 
-    nodes = [CannedNode(
-        attr_path=graph_src["nodes"][0]["attr_path"],
-        drv_path=graph_src["nodes"][0]["drv_path"],
-        pname=graph_src["nodes"][0]["pname"],
-        version=graph_src["nodes"][0]["version"],
-        reverse_closure=tuple(graph_src["nodes"][0]["reverse_closure"]),
-        critical_downstreams=tuple(graph_src["nodes"][0]["critical_downstreams"]),
-        maintainers=(Maintainer(github="alice"),),
-    )]
+    nodes = [
+        CannedNode(
+            attr_path=graph_src["nodes"][0]["attr_path"],
+            drv_path=graph_src["nodes"][0]["drv_path"],
+            pname=graph_src["nodes"][0]["pname"],
+            version=graph_src["nodes"][0]["version"],
+            reverse_closure=tuple(graph_src["nodes"][0]["reverse_closure"]),
+            critical_downstreams=tuple(graph_src["nodes"][0]["critical_downstreams"]),
+            maintainers=(Maintainer(github="alice"),),
+        )
+    ]
     out = analyze(finding, CannedCartographerGraph(nodes), nixpkgs_rev="0" * 40)
     impact_sha = sha256_hex(canonical_json_bytes(out["impact"]))
     maint_sha = sha256_hex(canonical_json_bytes(out["maintainers"]))
@@ -250,8 +304,11 @@ def _build_cartographer_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
             {"path": "maintainers.json", "sha256": maint_sha},
         ],
     )
-    replay = _replay_skeleton("CVE-0000-7002", "0000000000007002",
-                              [{"role": "cartographer", "invocations": [invocation]}])
+    replay = _replay_skeleton(
+        "CVE-0000-7002",
+        "0000000000007002",
+        [{"role": "cartographer", "invocations": [invocation]}],
+    )
     bundle = _bundle_skeleton("CVE-0000-7002", "0000000000007002")
     (bundle_dir / "bundle.json").write_text(json.dumps(bundle, indent=2))
     (bundle_dir / "replay.json").write_text(json.dumps(replay, indent=2))
@@ -274,8 +331,19 @@ def _build_resolver_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
                 "release_url": "https://example.invalid/libexample/releases/1.4.8",
                 "changelog_url": "https://example.invalid/libexample/CHANGELOG#v1.4.8",
                 "advisory_urls": ["https://example.invalid/advisory/LIBEXAMPLE"],
-                "upstream_fix_commits": [{"repo_url": "https://example.invalid/libexample", "commit_sha": "abc1234"}],
-                "delta": {"transitive_package_changes": 0, "new_direct_deps": [], "removed_direct_deps": [], "crosses_large_delta_threshold": False, "threshold_policy": "v0-default"},
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://example.invalid/libexample",
+                        "commit_sha": "abc1234",
+                    }
+                ],
+                "delta": {
+                    "transitive_package_changes": 0,
+                    "new_direct_deps": [],
+                    "removed_direct_deps": [],
+                    "crosses_large_delta_threshold": False,
+                    "threshold_policy": "v0-default",
+                },
                 "tier_hint": "security-patch-release",
             }
         ],
@@ -289,8 +357,11 @@ def _build_resolver_fixture(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
         inputs=[{"path": in_name, "sha256": in_sha}],
         outputs=[{"path": "upstream-ref.json", "sha256": out_sha}],
     )
-    replay = _replay_skeleton("CVE-0000-7003", "0000000000007003",
-                              [{"role": "upstream-ref-resolver", "invocations": [invocation]}])
+    replay = _replay_skeleton(
+        "CVE-0000-7003",
+        "0000000000007003",
+        [{"role": "upstream-ref-resolver", "invocations": [invocation]}],
+    )
     bundle = _bundle_skeleton("CVE-0000-7003", "0000000000007003")
     (bundle_dir / "bundle.json").write_text(json.dumps(bundle, indent=2))
     (bundle_dir / "replay.json").write_text(json.dumps(replay, indent=2))
@@ -331,7 +402,15 @@ def test_execute_scout(tmp_path, capsys):
 def test_execute_cartographer(tmp_path, capsys):
     bundle_dir, _ = _build_cartographer_fixture(tmp_path)
     rc, out, err = _run(
-        ["replay", str(bundle_dir), "--execute", "--role", "cartographer", "--format", "json"],
+        [
+            "replay",
+            str(bundle_dir),
+            "--execute",
+            "--role",
+            "cartographer",
+            "--format",
+            "json",
+        ],
         capsys,
     )
     assert rc == EXIT_OK, f"stderr: {err}"
@@ -345,7 +424,15 @@ def test_execute_cartographer(tmp_path, capsys):
 def test_execute_upstream_ref_resolver(tmp_path, capsys):
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
     rc, out, err = _run(
-        ["replay", str(bundle_dir), "--execute", "--role", "upstream-ref-resolver", "--format", "json"],
+        [
+            "replay",
+            str(bundle_dir),
+            "--execute",
+            "--role",
+            "upstream-ref-resolver",
+            "--format",
+            "json",
+        ],
         capsys,
     )
     assert rc == EXIT_OK, f"stderr: {err}"
@@ -424,7 +511,8 @@ def test_execute_builder_runs_via_runner_backed_path(tmp_path, capsys):
 
 
 def test_execute_builder_synthesises_invocation_when_replay_lacks_entry(
-    tmp_path, capsys,
+    tmp_path,
+    capsys,
 ):
     """Builder is RUNNER_BACKED and may run against a bundle that has
     no pre-recorded builder invocation in replay.json (the typical
@@ -447,7 +535,9 @@ def test_execute_builder_synthesises_invocation_when_replay_lacks_entry(
 
 
 def test_execute_builder_passes_nixpkgs_checkout_through(
-    tmp_path, capsys, monkeypatch,
+    tmp_path,
+    capsys,
+    monkeypatch,
 ):
     """The --nixpkgs-checkout CLI flag must reach execute() unchanged.
 
@@ -456,6 +546,7 @@ def test_execute_builder_passes_nixpkgs_checkout_through(
     canonical consumer; downstream behaviour is already covered by the
     Builder runner tests."""
     from pathlib import Path as _Path
+
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
     replay_path = bundle_dir / "replay.json"
     replay = json.loads(replay_path.read_text())
@@ -468,6 +559,7 @@ def test_execute_builder_passes_nixpkgs_checkout_through(
 
     captured: dict = {}
     import tools.trace_cli.execute as exec_mod
+
     real_execute = exec_mod.execute
 
     def spy_execute(**kwargs):
@@ -477,13 +569,18 @@ def test_execute_builder_passes_nixpkgs_checkout_through(
     monkeypatch.setattr(exec_mod, "execute", spy_execute)
     # _do_execute imports execute as a name in its own module; patch there too.
     import tools.trace_cli.cli as cli_mod
+
     monkeypatch.setattr(cli_mod, "_do_execute", cli_mod._do_execute)  # noqa: SLF001
 
     _run(
         [
-            "replay", str(bundle_dir),
-            "--execute", "--role", "builder",
-            "--nixpkgs-checkout", str(fake_checkout),
+            "replay",
+            str(bundle_dir),
+            "--execute",
+            "--role",
+            "builder",
+            "--nixpkgs-checkout",
+            str(fake_checkout),
         ],
         capsys,
     )
@@ -496,7 +593,9 @@ def test_execute_builder_passes_nixpkgs_checkout_through(
 
 
 def test_execute_builder_nixpkgs_checkout_defaults_to_none(
-    tmp_path, capsys, monkeypatch,
+    tmp_path,
+    capsys,
+    monkeypatch,
 ):
     """When --nixpkgs-checkout is omitted, execute() receives None
     (current darwin-side / FakeBuildRunner-driven behaviour)."""
@@ -509,6 +608,7 @@ def test_execute_builder_nixpkgs_checkout_defaults_to_none(
 
     captured: dict = {}
     import tools.trace_cli.execute as exec_mod
+
     real_execute = exec_mod.execute
 
     def spy_execute(**kwargs):
@@ -551,7 +651,9 @@ def test_execute_rejects_role_not_in_replay(tmp_path, capsys):
 def test_input_hash_mismatch_fails(tmp_path, capsys):
     bundle_dir, _ = _build_resolver_fixture(tmp_path)
     # Mutate the input file so its bytes no longer match the recorded sha.
-    (bundle_dir / "resolver-input.json").write_bytes(b"{\"cve_id\":\"CVE-0000-9999\",\"current_version\":\"0\",\"candidate_refs\":[]}")
+    (bundle_dir / "resolver-input.json").write_bytes(
+        b'{"cve_id":"CVE-0000-9999","current_version":"0","candidate_refs":[]}'
+    )
 
     rc, _out, err = _run(
         ["replay", str(bundle_dir), "--execute", "--role", "upstream-ref-resolver"],
@@ -587,8 +689,16 @@ def test_no_verify_skips_hash_check(tmp_path, capsys):
     replay_path.write_text(json.dumps(replay, indent=2))
 
     rc, out, err = _run(
-        ["replay", str(bundle_dir), "--execute", "--role", "upstream-ref-resolver",
-         "--no-verify", "--format", "json"],
+        [
+            "replay",
+            str(bundle_dir),
+            "--execute",
+            "--role",
+            "upstream-ref-resolver",
+            "--no-verify",
+            "--format",
+            "json",
+        ],
         capsys,
     )
     assert rc == EXIT_OK, f"stderr: {err}"

@@ -36,16 +36,22 @@ class HistoricalFixSimilarityScorer:
         out_paths = {o["path"] for o in invocation.get("outputs") or []}
         if "refusal.json" in out_paths:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=True, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=True,
+                score=None,
                 notes="refusal: similarity is not applicable",
             )
 
         diff_path = bundle_dir / "patch.diff"
         if not diff_path.is_file():
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=True, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=True,
+                score=0.0,
                 notes="patch.diff not on disk",
             )
 
@@ -56,8 +62,11 @@ class HistoricalFixSimilarityScorer:
         historical_diff = _try_load_historical_diff(bundle_dir, finding_path)
         if historical_diff is None:
             return ScorerResult(
-                self.name, self.version,
-                applies=False, advisory=True, score=None,
+                self.name,
+                self.version,
+                applies=False,
+                advisory=True,
+                score=None,
                 notes=(
                     "historical-fix diff is not reachable from the bundle in v0. "
                     "Advisory scorer; not gating. Upgrade once historical diffs "
@@ -69,15 +78,21 @@ class HistoricalFixSimilarityScorer:
         hist_lines = _changed_lines(historical_diff)
         if not patch_lines or not hist_lines:
             return ScorerResult(
-                self.name, self.version,
-                applies=True, advisory=True, score=0.0,
+                self.name,
+                self.version,
+                applies=True,
+                advisory=True,
+                score=0.0,
                 notes="one of the diffs has no changed lines",
             )
 
         ratio = SequenceMatcher(a=patch_lines, b=hist_lines).ratio()
         return ScorerResult(
-            self.name, self.version,
-            applies=True, advisory=True, score=ratio,
+            self.name,
+            self.version,
+            applies=True,
+            advisory=True,
+            score=ratio,
             notes=(
                 f"difflib SequenceMatcher ratio over changed lines: {ratio:.3f}. "
                 f"Advisory only; not gating."

@@ -91,11 +91,14 @@ def test_bind_url_matches_run2_prefetch_url() -> None:
     bundle = _bundle("CVE-2025-13878--bind")
     upstream_ref, package_source = _read_bundle_inputs(bundle)
     out = derive_prefetch_targets(
-        upstream_ref=upstream_ref, package_source=package_source,
+        upstream_ref=upstream_ref,
+        package_source=package_source,
     )
     derived_url = out.targets[0].url
     recorded_url = upstream_ref["prefetch_hashes"][0]["url"]
-    assert derived_url == recorded_url, f"derived={derived_url!r} recorded={recorded_url!r}"
+    assert derived_url == recorded_url, (
+        f"derived={derived_url!r} recorded={recorded_url!r}"
+    )
 
 
 def test_traefik_skips_vendor_hash() -> None:
@@ -103,7 +106,8 @@ def test_traefik_skips_vendor_hash() -> None:
     upstream_ref, package_source = _read_bundle_inputs(bundle)
 
     out = derive_prefetch_targets(
-        upstream_ref=upstream_ref, package_source=package_source,
+        upstream_ref=upstream_ref,
+        package_source=package_source,
         attr_path="traefik",
     )
     # src.hash should be derived (traefik uses fetchzip with a github
@@ -111,7 +115,8 @@ def test_traefik_skips_vendor_hash() -> None:
     src_targets = [t for t in out.targets if t.name == "src.hash"]
     assert len(src_targets) == 1, out
     assert src_targets[0].derivation_rule in (
-        "package-url-template", "github-release-archive",
+        "package-url-template",
+        "github-release-archive",
     )
     # vendorHash MUST be in skipped[] with reason ecosystem-not-url-derivable
     # AND required_for_patch=True.
@@ -148,7 +153,8 @@ def test_skipped_target_serialised_validates_against_schema() -> None:
     bundle = _bundle("CVE-2026-25949--traefik")
     upstream_ref, package_source = _read_bundle_inputs(bundle)
     out = derive_prefetch_targets(
-        upstream_ref=upstream_ref, package_source=package_source,
+        upstream_ref=upstream_ref,
+        package_source=package_source,
         attr_path="traefik",
     )
     schema_path = REPO_ROOT / "policy" / "upstream-ref-schema.json"
@@ -158,8 +164,10 @@ def test_skipped_target_serialised_validates_against_schema() -> None:
         "prefetch_skips": [s.to_schema_dict() for s in out.skipped],
     }
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(enriched)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(enriched)
+    ]
     assert not errors, errors
 
 
@@ -170,31 +178,35 @@ def test_closure_captured_version_skips_fetchzip() -> None:
     src.hash MUST be skipped with reason `closure-captured-version`,
     not derived as a high-confidence URL target."""
     pkg = (
-        '{ stdenv, fetchurl, ... }:\n'
-        'let\n'
-        '  common = { version, hash, ... }: stdenv.mkDerivation {\n'
+        "{ stdenv, fetchurl, ... }:\n"
+        "let\n"
+        "  common = { version, hash, ... }: stdenv.mkDerivation {\n"
         '    pname = "openssl"; inherit version;\n'
-        '    src = fetchurl {\n'
+        "    src = fetchurl {\n"
         '      url = "https://example.invalid/openssl-${version}.tar.gz";\n'
-        '      inherit hash;\n'
-        '    };\n'
-        '  };\n'
-        'in {\n'
+        "      inherit hash;\n"
+        "    };\n"
+        "  };\n"
+        "in {\n"
         '  openssl_3 = common { version = "3.0.17"; hash = "sha256-…"; };\n'
-        '}\n'
+        "}\n"
     )
     upstream_ref = {
         **_MIN_UPSTREAM_REF,
         "current_version": "3.0.17",
         "target_version": "3.0.18",
         "tag": "openssl-3.0.18",
-        "upstream_fix_commits": [{
-            "repo_url": "https://github.com/openssl/openssl",
-            "commit_sha": "deadbeef" * 5,
-        }],
+        "upstream_fix_commits": [
+            {
+                "repo_url": "https://github.com/openssl/openssl",
+                "commit_sha": "deadbeef" * 5,
+            }
+        ],
     }
     out = derive_prefetch_targets(
-        upstream_ref=upstream_ref, package_source=pkg, attr_path="openssl_3",
+        upstream_ref=upstream_ref,
+        package_source=pkg,
+        attr_path="openssl_3",
     )
     # No src.hash target: the closure-captured detector displaced any.
     assert not any(t.name == "src.hash" for t in out.targets), out
@@ -225,13 +237,16 @@ def test_systemd_let_binding_version_capture_skips_fetchzip() -> None:
         "current_version": "257.5",
         "target_version": "257.6",
         "tag": "v257.6",
-        "upstream_fix_commits": [{
-            "repo_url": "https://github.com/systemd/systemd",
-            "commit_sha": "00a12c234e2506f5cab683460199575f13c454db",
-        }],
+        "upstream_fix_commits": [
+            {
+                "repo_url": "https://github.com/systemd/systemd",
+                "commit_sha": "00a12c234e2506f5cab683460199575f13c454db",
+            }
+        ],
     }
     out = derive_prefetch_targets(
-        upstream_ref=upstream_ref, package_source=package_source,
+        upstream_ref=upstream_ref,
+        package_source=package_source,
         attr_path="systemd",
     )
     # The github-release-archive rule would otherwise fire from the
@@ -253,17 +268,17 @@ def test_let_version_detector_synthetic_shape() -> None:
     `let version = "..."; in stdenv.mkDerivation { src = fetchFromGitHub
     { rev = "v${version}"; }; }`."""
     pkg = (
-        '{ stdenv, fetchFromGitHub }:\n'
-        'let\n'
+        "{ stdenv, fetchFromGitHub }:\n"
+        "let\n"
         '  version = "1.2.3";\n'
-        'in\n'
-        'stdenv.mkDerivation (finalAttrs: {\n'
+        "in\n"
+        "stdenv.mkDerivation (finalAttrs: {\n"
         '  pname = "demo"; inherit version;\n'
-        '  src = fetchFromGitHub {\n'
+        "  src = fetchFromGitHub {\n"
         '    owner = "demo"; repo = "demo"; rev = "v${version}";\n'
         '    hash = "sha256-DUMMY";\n'
-        '  };\n'
-        '})\n'
+        "  };\n"
+        "})\n"
     )
     upstream_ref = {
         **_MIN_UPSTREAM_REF,
@@ -272,7 +287,9 @@ def test_let_version_detector_synthetic_shape() -> None:
         "tag": "v1.2.4",
     }
     out = derive_prefetch_targets(
-        upstream_ref=upstream_ref, package_source=pkg, attr_path="demo",
+        upstream_ref=upstream_ref,
+        package_source=pkg,
+        attr_path="demo",
     )
     assert not any(t.name == "src.hash" for t in out.targets), out
     src_skip = next((s for s in out.skipped if s.name == "src.hash"), None)
@@ -285,15 +302,17 @@ def test_simple_package_does_not_trigger_closure_detector() -> None:
     """A package without a `helper = { version, ... }:` closure must
     NOT be skipped — the detector should be conservative-but-not-paranoid."""
     pkg = (
-        '{ stdenv, fetchurl }:\n'
-        'stdenv.mkDerivation rec {\n'
+        "{ stdenv, fetchurl }:\n"
+        "stdenv.mkDerivation rec {\n"
         '  pname = "lib";\n'
         '  version = "1.0.0";\n'
         '  src = fetchurl { url = "https://x.invalid/${version}.tar"; hash = "..."; };\n'
-        '}\n'
+        "}\n"
     )
     out = derive_prefetch_targets(
-        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg, attr_path="lib",
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
+        attr_path="lib",
     )
     src_targets = [t for t in out.targets if t.name == "src.hash"]
     assert len(src_targets) == 1, out
@@ -352,7 +371,8 @@ def test_multiple_fetchurl_blocks_too_complex() -> None:
         'src = fetchurl { url = "https://b.invalid/${version}.tar"; };\n'
     )
     out = derive_prefetch_targets(
-        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg,
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
     )
     skipped_reasons = [s.reason for s in out.skipped]
     assert "url-template-too-complex" in skipped_reasons
@@ -406,15 +426,11 @@ def test_systemd_shape_ignores_non_src_fetchzip() -> None:
             assert "openembedded" not in (skip.detail or "").lower(), skip
     # And confirm the github fallback URL or skip detail is what
     # references systemd, not openembedded.
-    relevant = [
-        t.url for t in out.targets if t.name == "src.hash"
-    ] + [
+    relevant = [t.url for t in out.targets if t.name == "src.hash"] + [
         (s.detail or "") for s in out.skipped if s.name == "src.hash"
     ]
     assert relevant, out
-    assert any(
-        "systemd" in s or "let" in s for s in relevant
-    ), relevant
+    assert any("systemd" in s or "let" in s for s in relevant), relevant
 
 
 def test_non_src_fetchzip_alone_does_not_become_src_hash() -> None:
@@ -424,11 +440,11 @@ def test_non_src_fetchzip_alone_does_not_become_src_hash() -> None:
     rule. Without an upstream github fallback, src.hash records a
     no-derivable-rule skip."""
     pkg = (
-        'patches-archive = fetchzip {\n'
+        "patches-archive = fetchzip {\n"
         '  url = "https://git.openembedded.org/openembedded-core/snapshot/'
         'openembedded-core-deadbeef.tar.gz";\n'
         '  hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";\n'
-        '};\n'
+        "};\n"
     )
     out = derive_prefetch_targets(
         upstream_ref=_MIN_UPSTREAM_REF,
@@ -456,7 +472,7 @@ def test_gitlab_fallback_when_repo_url_is_gitlab() -> None:
     # rule should fire.
     out = derive_prefetch_targets(
         upstream_ref=upstream_ref,
-        package_source='src = mkDerivation { /* no fetcher block here */ };',
+        package_source="src = mkDerivation { /* no fetcher block here */ };",
     )
     targets = [t for t in out.targets if t.derivation_rule == "gitlab-release-archive"]
     assert len(targets) == 1
@@ -479,7 +495,8 @@ def test_no_derivable_rule_records_skip() -> None:
 def test_concrete_url_no_interpolation_high_confidence() -> None:
     pkg = 'src = fetchurl { url = "https://example.invalid/literal.tar.gz"; };'
     out = derive_prefetch_targets(
-        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg,
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
     )
     assert len(out.targets) == 1
     t = out.targets[0]
@@ -493,7 +510,9 @@ def test_pname_interpolation_lowers_confidence_to_medium() -> None:
         'src = fetchurl { url = "https://x.invalid/${pname}-${version}.tar.gz"; };\n'
     )
     out = derive_prefetch_targets(
-        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg, attr_path="wibble",
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
+        attr_path="wibble",
     )
     assert len(out.targets) == 1
     t = out.targets[0]
@@ -504,7 +523,8 @@ def test_pname_interpolation_lowers_confidence_to_medium() -> None:
 def test_url_with_unresolved_interpolation_skipped() -> None:
     pkg = 'src = fetchurl { url = "https://x.invalid/${some_other_var}/x.tar"; };'
     out = derive_prefetch_targets(
-        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg,
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
     )
     assert out.targets == []
     reasons = [s.reason for s in out.skipped]
@@ -513,14 +533,15 @@ def test_url_with_unresolved_interpolation_skipped() -> None:
 
 def test_vendor_hash_alone_in_pkg_skipped_even_if_no_src() -> None:
     pkg = (
-        '{ buildGoModule }: buildGoModule {\n'
+        "{ buildGoModule }: buildGoModule {\n"
         '  pname = "myapp";\n'
         '  version = "1.2.3";\n'
         '  vendorHash = "sha256-existing-vendor=";\n'
-        '}\n'
+        "}\n"
     )
     out = derive_prefetch_targets(
-        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg,
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
     )
     skipped_names = [s.name for s in out.skipped]
     assert "vendorHash" in skipped_names
@@ -554,7 +575,9 @@ def test_auto_prefetch_filters_to_high_confidence_only() -> None:
         prefetch_url_fn=fake_prefetcher,
     )
     # mbedtls's only target is medium-confidence; nothing gets auto-prefetched.
-    assert seen_calls == [], f"mbedtls medium-confidence target was auto-prefetched: {seen_calls}"
+    assert seen_calls == [], (
+        f"mbedtls medium-confidence target was auto-prefetched: {seen_calls}"
+    )
     assert prefetch.hashes == []
     assert prefetch.failures == []
     assert high_subset == []
@@ -585,7 +608,10 @@ def test_auto_prefetch_runs_high_confidence_targets() -> None:
         prefetch_url_fn=fake_prefetcher,
     )
     assert len(seen_calls) == 1
-    assert seen_calls[0][0] == "https://downloads.isc.org/isc/bind9/9.20.18/bind-9.20.18.tar.xz"
+    assert (
+        seen_calls[0][0]
+        == "https://downloads.isc.org/isc/bind9/9.20.18/bind-9.20.18.tar.xz"
+    )
     assert seen_calls[0][1] == "sha256"
     assert len(prefetch.hashes) == 1
     assert prefetch.hashes[0].name == "src.hash"
@@ -597,12 +623,16 @@ def test_outcome_feeds_directly_into_prefetch_targets() -> None:
     """The DerivedTargets must round-trip into PrefetchTarget without
     an adapter layer — same field names, compatible types."""
     from agents.upstream_ref_resolver import PrefetchTarget
+
     pkg = 'src = fetchurl { url = "https://x.invalid/literal.tar.gz"; };'
     out = derive_prefetch_targets(
-        upstream_ref=_MIN_UPSTREAM_REF, package_source=pkg,
+        upstream_ref=_MIN_UPSTREAM_REF,
+        package_source=pkg,
     )
-    pts = [PrefetchTarget(name=t.name, url=t.url, algorithm=t.algorithm)
-           for t in out.targets]
+    pts = [
+        PrefetchTarget(name=t.name, url=t.url, algorithm=t.algorithm)
+        for t in out.targets
+    ]
     assert len(pts) == 1
     assert pts[0].name == "src.hash"
     assert pts[0].algorithm == "sha256"
@@ -611,7 +641,7 @@ def test_outcome_feeds_directly_into_prefetch_targets() -> None:
 # ─── source-backport hash-slot semantics ──────────────────────────────────
 
 
-_NCU_PACKAGE_NIX = '''
+_NCU_PACKAGE_NIX = """
 buildNpmPackage rec {
   pname = "npm-check-updates";
   version = "23.0.2";
@@ -623,7 +653,7 @@ buildNpmPackage rec {
   };
   npmDepsHash = "sha256-dsgvdgJzpxKhMjfIVO7Tnu4xxvTJYyk8Wjth7++ZHdo=";
 }
-'''
+"""
 
 
 def _source_backport_ref(**over: object) -> dict:
@@ -691,8 +721,13 @@ def test_vendor_hashes_stay_required_when_the_backport_is_unknown() -> None:
         package_source=_NCU_PACKAGE_NIX,
         attr_path="npm-check-updates",
     )
-    assert next(s for s in out.skipped if s.name == "src.hash").required_for_patch is False
-    assert next(s for s in out.skipped if s.name == "npmDepsHash").required_for_patch is True
+    assert (
+        next(s for s in out.skipped if s.name == "src.hash").required_for_patch is False
+    )
+    assert (
+        next(s for s in out.skipped if s.name == "npmDepsHash").required_for_patch
+        is True
+    )
 
 
 def test_version_bump_still_requires_hash_slots() -> None:

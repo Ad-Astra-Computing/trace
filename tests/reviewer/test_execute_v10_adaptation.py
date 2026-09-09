@@ -32,6 +32,7 @@ from tests.patcher.test_execute_v4_adaptation import (
 def _factory(text: str):
     def _make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, text)
+
     return _make
 
 
@@ -100,31 +101,43 @@ def _prep_reviewable_adaptation_bundle(tmp_path: Path) -> Path:
     patch-rationale.md + a patcher replay invocation are on disk for the Reviewer."""
     bd = _build_source_context_bundle(tmp_path)
     execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-opus-4-7",
+        adapter_factory=_factory(_adapted_patch_response()),
     )
     return bd
 
 
 # ── rendered content ────────────────────────────────────────────────────────
 
+
 def test_assemble_renders_applies_verbatim_and_source_context():
-    content = assemble_user_content({
-        "finding": {}, "upstream_ref": {}, "impact": {}, "maintainers": {},
-        "package_source": "x", "patch_diff": "d", "patch_rationale_md": "r",
-        "patch_strategy": "source-backport",
-        "upstream_fix_patch": "diff --git a/foo.c b/foo.c\n",
-        "source_context": {"foo.c": "    l = l * base;\n"},
-        "applies_verbatim": False,
-        "model_attestation_context": {
-            "reviewer_model_id": "claude-sonnet-4-5-20250929",
-            "reviewer_family": "anthropic-sonnet",
-            "patcher_model_id": "claude-opus-4-7",
-            "patcher_family": "anthropic-opus",
-            "cross_family_rule_honored_expected": True,
+    content = assemble_user_content(
+        {
+            "finding": {},
+            "upstream_ref": {},
+            "impact": {},
+            "maintainers": {},
+            "package_source": "x",
+            "patch_diff": "d",
+            "patch_rationale_md": "r",
+            "patch_strategy": "source-backport",
+            "upstream_fix_patch": "diff --git a/foo.c b/foo.c\n",
+            "source_context": {"foo.c": "    l = l * base;\n"},
             "applies_verbatim": False,
-        },
-    })
+            "model_attestation_context": {
+                "reviewer_model_id": "claude-sonnet-4-5-20250929",
+                "reviewer_family": "anthropic-sonnet",
+                "patcher_model_id": "claude-opus-4-7",
+                "patcher_family": "anthropic-opus",
+                "cross_family_rule_honored_expected": True,
+                "applies_verbatim": False,
+            },
+        }
+    )
     assert "applies_verbatim: false" in content
     assert "# source-context/ (pinned PRE-PATCH source" in content
     assert "## source-context/foo.c" in content
@@ -132,37 +145,51 @@ def test_assemble_renders_applies_verbatim_and_source_context():
 
 
 def test_assemble_renders_applicability_attestation():
-    content = assemble_user_content({
-        "finding": {}, "upstream_ref": {}, "impact": {}, "maintainers": {},
-        "package_source": "x", "patch_diff": "d", "patch_rationale_md": "r",
-        "patch_strategy": "source-backport",
-        "source_context": {"foo.c": "x\n"},
-        "applies_verbatim": False,
-        "model_attestation_context": {
-            "reviewer_model_id": "claude-sonnet-4-5-20250929",
-            "reviewer_family": "anthropic-sonnet",
-            "patcher_model_id": "claude-opus-4-7",
-            "patcher_family": "anthropic-opus",
-            "cross_family_rule_honored_expected": True,
+    content = assemble_user_content(
+        {
+            "finding": {},
+            "upstream_ref": {},
+            "impact": {},
+            "maintainers": {},
+            "package_source": "x",
+            "patch_diff": "d",
+            "patch_rationale_md": "r",
+            "patch_strategy": "source-backport",
+            "source_context": {"foo.c": "x\n"},
             "applies_verbatim": False,
-            "patch_applicability": {
-                "applies_at_fuzz0": True,
-                "unique_source_match": True,
-                "canonicalizer_version": "canonical-compiler-1",
+            "model_attestation_context": {
+                "reviewer_model_id": "claude-sonnet-4-5-20250929",
+                "reviewer_family": "anthropic-sonnet",
+                "patcher_model_id": "claude-opus-4-7",
+                "patcher_family": "anthropic-opus",
+                "cross_family_rule_honored_expected": True,
+                "applies_verbatim": False,
+                "patch_applicability": {
+                    "applies_at_fuzz0": True,
+                    "unique_source_match": True,
+                    "canonicalizer_version": "canonical-compiler-1",
+                },
             },
-        },
-    })
-    assert "patch_applicability: applies_at_fuzz0=true unique_source_match=true" in content
+        }
+    )
+    assert (
+        "patch_applicability: applies_at_fuzz0=true unique_source_match=true" in content
+    )
     assert "machine-attested" in content
 
 
 # ── execute end-to-end ──────────────────────────────────────────────────────
 
+
 def test_reviewer_routes_to_v10_and_declares_source_context(tmp_path):
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     result = execute(
-        role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        role="reviewer",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(_V10_REVIEW),
     )
     assert result["kind"] == "review"
     inv = result["replay_invocation"]
@@ -185,8 +212,12 @@ def test_reviewer_v10_review_parses_equivalence_assessment(tmp_path):
     # And execute wrote the section into the on-disk review.md body.
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     execute(
-        role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        role="reviewer",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(_V10_REVIEW),
     )
     review_md = (bd / "review.md").read_text()
     assert "## Equivalence assessment" in review_md
@@ -196,12 +227,20 @@ def test_reviewer_v10_review_parses_equivalence_assessment(tmp_path):
 def test_reviewer_verify_mode_hash_checks_source_context(tmp_path):
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     fresh = execute(
-        role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        role="reviewer",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(_V10_REVIEW),
     )
     verified = execute(
-        role="reviewer", bundle_dir=bd, invocation=fresh["replay_invocation"], verify=True,
-        model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        role="reviewer",
+        bundle_dir=bd,
+        invocation=fresh["replay_invocation"],
+        verify=True,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(_V10_REVIEW),
     )
     vpaths = {v["path"] for v in verified["input_verification"] if v.get("verified")}
     assert "source-context/foo.c" in vpaths
@@ -226,10 +265,14 @@ def _v10_review_without_equivalence() -> str:
 
 def test_adaptation_accept_without_equivalence_assessment_is_rejected(tmp_path):
     import pytest
+
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     with pytest.raises(Exception, match="Equivalence assessment"):
         execute(
-            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            role="reviewer",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
             model_id="claude-sonnet-4-5-20250929",
             adapter_factory=_factory(_v10_review_without_equivalence()),
         )
@@ -240,25 +283,35 @@ def test_adaptation_accept_without_equivalence_assessment_is_rejected(tmp_path):
 
 def test_reviewer_rejects_missing_applicability_attestation(tmp_path):
     import pytest
+
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     (bd / "patch-applicability.json").unlink()
     with pytest.raises(Exception, match="requires patch-applicability.json"):
         execute(
-            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-            model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+            role="reviewer",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
+            model_id="claude-sonnet-4-5-20250929",
+            adapter_factory=_factory(_V10_REVIEW),
         )
 
 
 def test_reviewer_rejects_attestation_false_verdict(tmp_path):
     import pytest
+
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     att = json.loads((bd / "patch-applicability.json").read_text())
     att["applies_at_fuzz0"] = False
     (bd / "patch-applicability.json").write_text(json.dumps(att))
     with pytest.raises(Exception, match="does not apply at fuzz 0"):
         execute(
-            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-            model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+            role="reviewer",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
+            model_id="claude-sonnet-4-5-20250929",
+            adapter_factory=_factory(_V10_REVIEW),
         )
 
 
@@ -266,12 +319,17 @@ def test_reviewer_rejects_attestation_hash_mismatch(tmp_path):
     # patch.diff swapped after canonicalization: the attestation's canonical hash no
     # longer matches the reviewed bytes → tamper, refuse.
     import pytest
+
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     (bd / "patch.diff").write_text((bd / "patch.diff").read_text() + "\n# tampered\n")
     with pytest.raises(Exception, match="not the attested artifact"):
         execute(
-            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-            model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+            role="reviewer",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
+            model_id="claude-sonnet-4-5-20250929",
+            adapter_factory=_factory(_V10_REVIEW),
         )
 
 
@@ -280,6 +338,7 @@ def test_reviewer_rejects_non_object_attestation(tmp_path):
     # a string): must fail closed with a controlled ExecutionError, never an
     # AttributeError traceback escaping the CLI's error handling.
     import pytest
+
     for i, payload in enumerate(("[]", "null", '"nope"', "42")):
         case_root = tmp_path / f"case{i}"
         case_root.mkdir()
@@ -287,8 +346,12 @@ def test_reviewer_rejects_non_object_attestation(tmp_path):
         (bd / "patch-applicability.json").write_text(payload)
         with pytest.raises(Exception, match="must be a JSON object"):
             execute(
-                role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-                model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+                role="reviewer",
+                bundle_dir=bd,
+                invocation=_fresh(),
+                verify=False,
+                model_id="claude-sonnet-4-5-20250929",
+                adapter_factory=_factory(_V10_REVIEW),
             )
 
 
@@ -311,10 +374,14 @@ def _v10_review_with_equivalence(value: str, verdict: str = "accept") -> str:
 def test_adaptation_accept_with_indeterminate_is_rejected(tmp_path):
     # `accept` + `indeterminate` (missing evidence) must escalate, not persist.
     import pytest
+
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     with pytest.raises(Exception, match="accept requires 'equivalent'"):
         execute(
-            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            role="reviewer",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
             model_id="claude-sonnet-4-5-20250929",
             adapter_factory=_factory(_v10_review_with_equivalence("indeterminate")),
         )
@@ -323,10 +390,14 @@ def test_adaptation_accept_with_indeterminate_is_rejected(tmp_path):
 
 def test_adaptation_accept_with_not_equivalent_is_rejected(tmp_path):
     import pytest
+
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     with pytest.raises(Exception, match="accept requires 'equivalent'"):
         execute(
-            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            role="reviewer",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
             model_id="claude-sonnet-4-5-20250929",
             adapter_factory=_factory(_v10_review_with_equivalence("not-equivalent")),
         )
@@ -337,10 +408,14 @@ def test_adaptation_accept_with_unrecognized_equivalence_is_rejected(tmp_path):
     # A substring gate would tolerate `equivalence: unknown`; the exact-value gate
     # rejects any value outside the declared enum.
     import pytest
+
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     with pytest.raises(Exception, match="unrecognized equivalence value"):
         execute(
-            role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+            role="reviewer",
+            bundle_dir=bd,
+            invocation=_fresh(),
+            verify=False,
             model_id="claude-sonnet-4-5-20250929",
             adapter_factory=_factory(_v10_review_with_equivalence("unknown")),
         )
@@ -352,9 +427,14 @@ def test_adaptation_reject_with_not_equivalent_is_allowed(tmp_path):
     # and be persisted (the gate only forbids accept-without-equivalent).
     bd = _prep_reviewable_adaptation_bundle(tmp_path)
     execute(
-        role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
+        role="reviewer",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
         model_id="claude-sonnet-4-5-20250929",
-        adapter_factory=_factory(_v10_review_with_equivalence("not-equivalent", verdict="reject")),
+        adapter_factory=_factory(
+            _v10_review_with_equivalence("not-equivalent", verdict="reject")
+        ),
     )
     assert (bd / "review.md").exists()
     assert "equivalence: not-equivalent" in (bd / "review.md").read_text()
@@ -368,23 +448,43 @@ def test_string_false_preflight_does_not_flip_to_verbatim(tmp_path):
     pf["applies_verbatim"] = "false"  # string, not boolean
     (bd / "preflight.json").write_text(json.dumps(pf))
     execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-opus-4-7",
+        adapter_factory=_factory(_adapted_patch_response()),
     )
-    content = assemble_user_content({
-        "finding": {}, "upstream_ref": {}, "impact": {}, "maintainers": {},
-        "package_source": "x", "patch_diff": "d", "patch_rationale_md": "r",
-        "patch_strategy": "source-backport", "upstream_fix_patch": "d\n",
-        "source_context": {"foo.c": "x\n"}, "applies_verbatim": False,
-        "model_attestation_context": {"applies_verbatim": False},
-    })
+    content = assemble_user_content(
+        {
+            "finding": {},
+            "upstream_ref": {},
+            "impact": {},
+            "maintainers": {},
+            "package_source": "x",
+            "patch_diff": "d",
+            "patch_rationale_md": "r",
+            "patch_strategy": "source-backport",
+            "upstream_fix_patch": "d\n",
+            "source_context": {"foo.c": "x\n"},
+            "applies_verbatim": False,
+            "model_attestation_context": {"applies_verbatim": False},
+        }
+    )
     # Sanity: assemble renders false, and execute routes to v10 (adaptation).
     assert "applies_verbatim: false" in content
     result = execute(
-        role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        role="reviewer",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(_V10_REVIEW),
     )
-    assert result["replay_invocation"]["prompt"]["path"] == f"prompts/{REVIEWER_PROMPT_PATH_ADAPT.name}"
+    assert (
+        result["replay_invocation"]["prompt"]["path"]
+        == f"prompts/{REVIEWER_PROMPT_PATH_ADAPT.name}"
+    )
 
 
 def test_verbatim_lane_stays_on_v9(tmp_path):
@@ -396,12 +496,20 @@ def test_verbatim_lane_stays_on_v9(tmp_path):
     pf["applies_verbatim"] = True
     (bd / "preflight.json").write_text(json.dumps(pf))
     execute(
-        role="patcher", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-opus-4-7", adapter_factory=_factory(_adapted_patch_response()),
+        role="patcher",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-opus-4-7",
+        adapter_factory=_factory(_adapted_patch_response()),
     )
     result = execute(
-        role="reviewer", bundle_dir=bd, invocation=_fresh(), verify=False,
-        model_id="claude-sonnet-4-5-20250929", adapter_factory=_factory(_V10_REVIEW),
+        role="reviewer",
+        bundle_dir=bd,
+        invocation=_fresh(),
+        verify=False,
+        model_id="claude-sonnet-4-5-20250929",
+        adapter_factory=_factory(_V10_REVIEW),
     )
     inv = result["replay_invocation"]
     assert inv["prompt"]["path"] == f"prompts/{REVIEWER_PROMPT_PATH_DEFAULT.name}"

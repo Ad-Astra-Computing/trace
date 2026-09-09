@@ -54,6 +54,7 @@ from eval.cve_package_check import check_cve_names_package  # noqa: E402
 def _base64_sha256_to_hex(sri: str) -> str:
     """Convert SHA256 SRI hash (sha256-...) to hex."""
     import base64
+
     b64 = sri.removeprefix("sha256-")
     return hashlib.sha256(b"").hexdigest()[:0]  # just for reference
     # Actually decode the SRI to bytes
@@ -64,6 +65,7 @@ def _base64_sha256_to_hex(sri: str) -> str:
 def _download_and_verify(url: str, sri: str, cache_dir: Path) -> Path:
     """Download tarball and verify SHA256. Returns local path."""
     import base64
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     name = url.split("/")[-1]
     dest = cache_dir / name
@@ -82,12 +84,15 @@ def _download_and_verify(url: str, sri: str, cache_dir: Path) -> Path:
 
     sha256 = hashlib.sha256(data).digest()
     import base64
+
     b64_expected = sri.removeprefix("sha256-")
     expected = base64.b64decode(b64_expected + "==")
     if sha256 != expected:
-        raise ValueError(f"SHA256 mismatch for {name}: got {sha256.hex()}, expected {expected.hex()}")
+        raise ValueError(
+            f"SHA256 mismatch for {name}: got {sha256.hex()}, expected {expected.hex()}"
+        )
     dest.write_bytes(data)
-    print(f"  verified {name} ({len(data)//1024}KB)")
+    print(f"  verified {name} ({len(data) // 1024}KB)")
     return dest
 
 
@@ -153,7 +158,7 @@ def _hunk_window(source_text: str, fix_diff: str, radius: int = 20) -> str:
         # Fallback: return first 40 lines
         return "\n".join(lines[:40])
     lo, hi = min(hunk_lines), max(hunk_lines)
-    return "\n".join(lines[max(0, lo - radius):min(len(lines), hi + radius + 1)])
+    return "\n".join(lines[max(0, lo - radius) : min(len(lines), hi + radius + 1)])
 
 
 def _scrub_fix_symbols(summary: str, fix_diff: str) -> str:
@@ -176,6 +181,7 @@ def _scrub_fix_symbols(summary: str, fix_diff: str) -> str:
 
 def _make_bundle_id(cve: str) -> str:
     import time
+
     # Use a stable hash of the CVE id for reproducibility
     return hashlib.sha256(cve.encode()).hexdigest()[:16]
 
@@ -273,7 +279,9 @@ def mint_bundle(
             }
         ],
     }
-    (out_dir / "upstream-ref.json").write_text(json.dumps(upstream_ref, indent=2) + "\n")
+    (out_dir / "upstream-ref.json").write_text(
+        json.dumps(upstream_ref, indent=2) + "\n"
+    )
 
     # --- upstream-fix.patch ---
     (out_dir / "upstream-fix.patch").write_text(patch_text)
@@ -346,7 +354,11 @@ pkgs.runCommand "repro-{cve}" {{}} ''
         "bundle_id": bundle_id,
         "nixpkgs_rev": nixpkgs_rev,
         "builder_id": "trace-builder-lite-v0.1.0",
-        "host": {"system": "x86_64-linux", "nix_version": "nix (Nix) 2.34.7", "tool_version": "trace-cli/0.0.0"},
+        "host": {
+            "system": "x86_64-linux",
+            "nix_version": "nix (Nix) 2.34.7",
+            "tool_version": "trace-cli/0.0.0",
+        },
         "started_at": "2026-07-08T08:00:00Z",
         "ended_at": "2026-07-08T08:00:10Z",
         "patch_apply": {
@@ -359,7 +371,7 @@ pkgs.runCommand "repro-{cve}" {{}} ''
             "applied": False,
             "outcome": "succeeded",
             "exit_code": 0,
-            "out_path": f"/nix/store/{'0'*32}{cve.replace('-','')[-8:]}-repro-{cve}-unpatched",
+            "out_path": f"/nix/store/{'0' * 32}{cve.replace('-', '')[-8:]}-repro-{cve}-unpatched",
             "stdout_stderr": unp_sig,
             "stdout_stderr_log_sha256": hashlib.sha256(unp_sig.encode()).hexdigest(),
         },
@@ -367,7 +379,7 @@ pkgs.runCommand "repro-{cve}" {{}} ''
             "applied": True,
             "outcome": "succeeded",
             "exit_code": 0,
-            "out_path": f"/nix/store/{'0'*32}{cve.replace('-','')[-8:]}-repro-{cve}-patched",
+            "out_path": f"/nix/store/{'0' * 32}{cve.replace('-', '')[-8:]}-repro-{cve}-patched",
             "stdout_stderr": pat_sig,
             "stdout_stderr_log_sha256": hashlib.sha256(pat_sig.encode()).hexdigest(),
         },
@@ -402,34 +414,61 @@ pkgs.runCommand "repro-{cve}" {{}} ''
             "commit_sha": upstream_commit,
         },
     }
-    (out_dir / "authoring-example.json").write_text(json.dumps(authoring_ex, indent=2) + "\n")
+    (out_dir / "authoring-example.json").write_text(
+        json.dumps(authoring_ex, indent=2) + "\n"
+    )
 
     print(f"  ✓ created {out_dir.name}")
     print(f"    file={fix_file}, symbol={fix_symbol}")
-    print(f"    pre_fix_source: {len(pre_fix_window)} chars, {len(pre_fix_window.splitlines())} lines")
+    print(
+        f"    pre_fix_source: {len(pre_fix_window)} chars, {len(pre_fix_window.splitlines())} lines"
+    )
     print(f"    fix_diff: {len(fix_diff)} chars")
     return True
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Mint a lite authoring bundle from a nixpkgs CVE patch")
+    ap = argparse.ArgumentParser(
+        description="Mint a lite authoring bundle from a nixpkgs CVE patch"
+    )
     ap.add_argument("--cve", required=True)
     ap.add_argument("--package", required=True)
     ap.add_argument("--version", required=True)
     ap.add_argument("--nixpkgs-patch", required=True, type=Path)
     ap.add_argument("--upstream-repo", required=True)
     ap.add_argument("--upstream-commit", required=True)
-    ap.add_argument("--fix-symbol", required=True, help="Distinctive symbol added by the fix (for grep oracle)")
-    ap.add_argument("--fix-file", required=True, help="Source file changed by the fix (relative to source root)")
+    ap.add_argument(
+        "--fix-symbol",
+        required=True,
+        help="Distinctive symbol added by the fix (for grep oracle)",
+    )
+    ap.add_argument(
+        "--fix-file",
+        required=True,
+        help="Source file changed by the fix (relative to source root)",
+    )
     ap.add_argument("--summary", required=True, help="CVE vulnerability description")
-    ap.add_argument("--tarball-url", required=True, help="Pre-fix source release tarball URL")
-    ap.add_argument("--tarball-sha256-sri", required=True, help="sha256-... SRI hash of the tarball")
+    ap.add_argument(
+        "--tarball-url", required=True, help="Pre-fix source release tarball URL"
+    )
+    ap.add_argument(
+        "--tarball-sha256-sri", required=True, help="sha256-... SRI hash of the tarball"
+    )
     ap.add_argument("--nixpkgs-rev", default="HEAD", help="Pre-fix nixpkgs commit SHA")
-    ap.add_argument("--nixpkgs-package-nix", default="", help="Content of pre-fix package.nix (optional)")
-    ap.add_argument("--nixpkgs-package-nix-path", default="", help="Path of package.nix in nixpkgs")
+    ap.add_argument(
+        "--nixpkgs-package-nix",
+        default="",
+        help="Content of pre-fix package.nix (optional)",
+    )
+    ap.add_argument(
+        "--nixpkgs-package-nix-path", default="", help="Path of package.nix in nixpkgs"
+    )
     ap.add_argument("--out", required=True, type=Path, help="Output bundle directory")
-    ap.add_argument("--skip-cve-package-check", action="store_true",
-                    help="Mint even when the advisory does not name the package")
+    ap.add_argument(
+        "--skip-cve-package-check",
+        action="store_true",
+        help="Mint even when the advisory does not name the package",
+    )
     args = ap.parse_args()
 
     mismatch = check_cve_names_package(args.cve, args.package)

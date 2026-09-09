@@ -151,7 +151,9 @@ def _cpe_triple(cpe: str) -> tuple[str, str, str] | None:
     return (m.group(1), m.group(2).lower(), m.group(3).lower())
 
 
-def _triple_compatible(advisory: tuple[str, str, str], snap: tuple[str, str, str]) -> bool:
+def _triple_compatible(
+    advisory: tuple[str, str, str], snap: tuple[str, str, str]
+) -> bool:
     """advisory matches snap when each non-wildcard advisory slot
     equals the snap slot. Wildcard slots in the advisory widen the
     match."""

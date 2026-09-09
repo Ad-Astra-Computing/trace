@@ -128,9 +128,11 @@ def _mk_review(**overrides: Any) -> dict[str, Any]:
 
 def test_load_reviews_skips_examples_by_default(tmp_path):
     _write(tmp_path, "real.json", _mk_review(panelist_id="p1"))
-    _write(tmp_path, "example.json", _mk_review(
-        panelist_id="px", is_example=True, example_reason="seed"
-    ))
+    _write(
+        tmp_path,
+        "example.json",
+        _mk_review(panelist_id="px", is_example=True, example_reason="seed"),
+    )
     loaded = load_reviews(tmp_path)
     assert len(loaded) == 1
     assert loaded[0]["panelist_id"] == "p1"
@@ -138,16 +140,22 @@ def test_load_reviews_skips_examples_by_default(tmp_path):
 
 def test_load_reviews_include_examples_flag(tmp_path):
     _write(tmp_path, "real.json", _mk_review(panelist_id="p1"))
-    _write(tmp_path, "example.json", _mk_review(
-        panelist_id="px", is_example=True, example_reason="seed"
-    ))
+    _write(
+        tmp_path,
+        "example.json",
+        _mk_review(panelist_id="px", is_example=True, example_reason="seed"),
+    )
     loaded = load_reviews(tmp_path, include_examples=True)
     assert len(loaded) == 2
 
 
 def test_load_reviews_bundle_filter(tmp_path):
-    _write(tmp_path, "a.json", _mk_review(panelist_id="p1", bundle_id="aaaaaaaaaaaaaaaa"))
-    _write(tmp_path, "b.json", _mk_review(panelist_id="p2", bundle_id="bbbbbbbbbbbbbbbb"))
+    _write(
+        tmp_path, "a.json", _mk_review(panelist_id="p1", bundle_id="aaaaaaaaaaaaaaaa")
+    )
+    _write(
+        tmp_path, "b.json", _mk_review(panelist_id="p2", bundle_id="bbbbbbbbbbbbbbbb")
+    )
     loaded = load_reviews(tmp_path, bundle_filter="aaaaaaaaaaaaaaaa")
     assert len(loaded) == 1
     assert loaded[0]["bundle_id"] == "aaaaaaaaaaaaaaaa"
@@ -173,17 +181,37 @@ def test_summarize_empty_is_safe():
 
 def test_summarize_counts_decisions_and_means():
     reviews = [
-        _mk_review(panelist_id="p1", confidence=5, time_to_decision_seconds=30,
-                   needed_external_access=False, decision="merge"),
-        _mk_review(panelist_id="p2", confidence=3, time_to_decision_seconds=90,
-                   needed_external_access=True, decision="reject",
-                   primary_rejection_reason="reproducer-unconvincing"),
-        _mk_review(panelist_id="p3", confidence=4, time_to_decision_seconds=60,
-                   needed_external_access=True, decision="escalate",
-                   primary_rejection_reason="blast-radius"),
-        _mk_review(panelist_id="p4", confidence=2, time_to_decision_seconds=120,
-                   needed_external_access=False, decision="reject",
-                   primary_rejection_reason="reproducer-unconvincing"),
+        _mk_review(
+            panelist_id="p1",
+            confidence=5,
+            time_to_decision_seconds=30,
+            needed_external_access=False,
+            decision="merge",
+        ),
+        _mk_review(
+            panelist_id="p2",
+            confidence=3,
+            time_to_decision_seconds=90,
+            needed_external_access=True,
+            decision="reject",
+            primary_rejection_reason="reproducer-unconvincing",
+        ),
+        _mk_review(
+            panelist_id="p3",
+            confidence=4,
+            time_to_decision_seconds=60,
+            needed_external_access=True,
+            decision="escalate",
+            primary_rejection_reason="blast-radius",
+        ),
+        _mk_review(
+            panelist_id="p4",
+            confidence=2,
+            time_to_decision_seconds=120,
+            needed_external_access=False,
+            decision="reject",
+            primary_rejection_reason="reproducer-unconvincing",
+        ),
     ]
     s = summarize(reviews)
     assert s["count"] == 4
@@ -205,13 +233,25 @@ def test_summarize_agreement_per_bundle():
         # bundle A: 3 reviewers, 2 merge + 1 reject -> 3 pairs, 1 agreeing
         _mk_review(panelist_id="p1", bundle_id="aaaaaaaaaaaaaaaa", decision="merge"),
         _mk_review(panelist_id="p2", bundle_id="aaaaaaaaaaaaaaaa", decision="merge"),
-        _mk_review(panelist_id="p3", bundle_id="aaaaaaaaaaaaaaaa", decision="reject",
-                   primary_rejection_reason="patch-incorrect"),
+        _mk_review(
+            panelist_id="p3",
+            bundle_id="aaaaaaaaaaaaaaaa",
+            decision="reject",
+            primary_rejection_reason="patch-incorrect",
+        ),
         # bundle B: 2 reviewers, both escalate -> 1 pair, 1 agreeing
-        _mk_review(panelist_id="p1", bundle_id="bbbbbbbbbbbbbbbb", decision="escalate",
-                   primary_rejection_reason="other"),
-        _mk_review(panelist_id="p2", bundle_id="bbbbbbbbbbbbbbbb", decision="escalate",
-                   primary_rejection_reason="other"),
+        _mk_review(
+            panelist_id="p1",
+            bundle_id="bbbbbbbbbbbbbbbb",
+            decision="escalate",
+            primary_rejection_reason="other",
+        ),
+        _mk_review(
+            panelist_id="p2",
+            bundle_id="bbbbbbbbbbbbbbbb",
+            decision="escalate",
+            primary_rejection_reason="other",
+        ),
         # bundle C: 1 reviewer, no pair, ignored
         _mk_review(panelist_id="p1", bundle_id="cccccccccccccccc", decision="merge"),
     ]
@@ -224,8 +264,12 @@ def test_summarize_agreement_per_bundle():
 def test_summarize_agreement_none_when_no_multi_review_bundles():
     reviews = [
         _mk_review(panelist_id="p1", bundle_id="aaaaaaaaaaaaaaaa", decision="merge"),
-        _mk_review(panelist_id="p2", bundle_id="bbbbbbbbbbbbbbbb", decision="reject",
-                   primary_rejection_reason="patch-incorrect"),
+        _mk_review(
+            panelist_id="p2",
+            bundle_id="bbbbbbbbbbbbbbbb",
+            decision="reject",
+            primary_rejection_reason="patch-incorrect",
+        ),
     ]
     s = summarize(reviews)
     assert s["bundles_with_multiple_reviews"] == 0
@@ -240,17 +284,25 @@ def test_cli_summarize_on_seed_directory(tmp_path):
 
     # With only the seed example review present and --include-examples NOT set,
     # aggregation produces a zero-count summary without failing.
-    rc = main(["review", "summarize", str(REPO_ROOT / "eval" / "reviews"), "--format", "json"])
+    rc = main(
+        ["review", "summarize", str(REPO_ROOT / "eval" / "reviews"), "--format", "json"]
+    )
     assert rc == 0
 
 
 def test_cli_summarize_include_examples(capsys):
     from tools.trace_cli.cli import main
 
-    rc = main([
-        "review", "summarize", str(REPO_ROOT / "eval" / "reviews"),
-        "--include-examples", "--format", "json",
-    ])
+    rc = main(
+        [
+            "review",
+            "summarize",
+            str(REPO_ROOT / "eval" / "reviews"),
+            "--include-examples",
+            "--format",
+            "json",
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out
     summary = json.loads(out)
@@ -268,11 +320,16 @@ def test_cli_summarize_missing_path_errors(capsys, tmp_path):
 
 
 def test_emit_summary_human_format_shape():
-    s = summarize([
-        _mk_review(panelist_id="p1", decision="merge"),
-        _mk_review(panelist_id="p2", decision="reject",
-                   primary_rejection_reason="patch-incorrect"),
-    ])
+    s = summarize(
+        [
+            _mk_review(panelist_id="p1", decision="merge"),
+            _mk_review(
+                panelist_id="p2",
+                decision="reject",
+                primary_rejection_reason="patch-incorrect",
+            ),
+        ]
+    )
     text = emit_summary(s, "human")
     assert "reviews aggregated:" in text
     assert "merge / reject / escalate:" in text

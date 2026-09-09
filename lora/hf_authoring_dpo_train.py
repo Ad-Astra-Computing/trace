@@ -29,6 +29,7 @@ norm_exact, key_token) with pass@16 as a diversity guardrail (see docs/DPO_GUARD
 Env: DPO_DATA_REPO (dataset with dpo.jsonl), SFT_ADAPTER, HUB_MODEL_ID, BETA (0.1),
 LR (5e-6), EPOCHS (2), SEED (42).
 """
+
 import json
 import os
 from pathlib import Path
@@ -42,8 +43,12 @@ from trl import DPOConfig, DPOTrainer
 BASE_MODEL_ID = "Qwen/Qwen2.5-Coder-14B-Instruct"
 MODEL_REVISION = "aedcc2d42b622764e023cf882b6652e646b95671"
 SFT_ADAPTER = os.environ.get("SFT_ADAPTER", "adastracomputing/authoring-lora-v10-clean")
-DPO_DATA_REPO = os.environ.get("DPO_DATA_REPO", "adastracomputing/authoring-dpo-guard-clip-data")
-HUB_MODEL_ID = os.environ.get("HUB_MODEL_ID", "adastracomputing/authoring-lora-dpo-guard-clip")
+DPO_DATA_REPO = os.environ.get(
+    "DPO_DATA_REPO", "adastracomputing/authoring-dpo-guard-clip-data"
+)
+HUB_MODEL_ID = os.environ.get(
+    "HUB_MODEL_ID", "adastracomputing/authoring-lora-dpo-guard-clip"
+)
 ADAPTER_DIR = Path(os.environ.get("ADAPTER_DIR", "/tmp/authoring-lora-dpo-guard-clip"))
 
 BETA = float(os.environ.get("BETA", "0.1"))
@@ -51,13 +56,23 @@ LR = float(os.environ.get("LR", "5e-6"))
 EPOCHS = float(os.environ.get("EPOCHS", "2"))
 SEED = int(os.environ.get("SEED", "42"))
 LORA_RANK, LORA_ALPHA, LORA_DROPOUT = 16, 16, 0.05
-LORA_TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj",
-                       "gate_proj", "up_proj", "down_proj"]
+LORA_TARGET_MODULES = [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+]
 
 
 def load_pairs() -> Dataset:
     from huggingface_hub import hf_hub_download
-    p = hf_hub_download(repo_id=DPO_DATA_REPO, filename="dpo.jsonl", repo_type="dataset")
+
+    p = hf_hub_download(
+        repo_id=DPO_DATA_REPO, filename="dpo.jsonl", repo_type="dataset"
+    )
     rows = [json.loads(l) for l in Path(p).read_text().splitlines() if l.strip()]
     print(f"Loaded {len(rows)} DPO preference pairs", flush=True)
     return Dataset.from_list(rows)
@@ -71,13 +86,22 @@ def main():
 
     print("Loading base (bf16) + merging SFT adapter -> reference policy", flush=True)
     base = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.bfloat16, device_map="auto")
+        BASE_MODEL_ID,
+        revision=MODEL_REVISION,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+    )
     merged = PeftModel.from_pretrained(base, SFT_ADAPTER)
     merged = merged.merge_and_unload()  # merged now == SFT policy
 
     peft_config = LoraConfig(
-        r=LORA_RANK, lora_alpha=LORA_ALPHA, lora_dropout=LORA_DROPOUT,
-        target_modules=LORA_TARGET_MODULES, bias="none", task_type=TaskType.CAUSAL_LM)
+        r=LORA_RANK,
+        lora_alpha=LORA_ALPHA,
+        lora_dropout=LORA_DROPOUT,
+        target_modules=LORA_TARGET_MODULES,
+        bias="none",
+        task_type=TaskType.CAUSAL_LM,
+    )
 
     args = DPOConfig(
         output_dir=str(ADAPTER_DIR),
@@ -103,21 +127,34 @@ def main():
 
     trainer = DPOTrainer(
         model=merged,
-        ref_model=None,          # peft => DPO-adapter-disabled (merged SFT) is the reference
+        ref_model=None,  # peft => DPO-adapter-disabled (merged SFT) is the reference
         args=args,
         train_dataset=ds,
         processing_class=tok,
         peft_config=peft_config,
     )
-    print(f"DPO: pairs={len(ds)} beta={BETA} lr={LR} epochs={EPOCHS} seed={SEED}", flush=True)
+    print(
+        f"DPO: pairs={len(ds)} beta={BETA} lr={LR} epochs={EPOCHS} seed={SEED}",
+        flush=True,
+    )
     trainer.train()
 
     trainer.save_model(str(ADAPTER_DIR))
     trainer.push_to_hub()
-    (ADAPTER_DIR / "dpo-provenance.json").write_text(json.dumps({
-        "sft_seed": SFT_ADAPTER, "dpo_data": DPO_DATA_REPO, "pairs": len(ds),
-        "beta": BETA, "lr": LR, "epochs": EPOCHS, "seed": SEED,
-    }, indent=2))
+    (ADAPTER_DIR / "dpo-provenance.json").write_text(
+        json.dumps(
+            {
+                "sft_seed": SFT_ADAPTER,
+                "dpo_data": DPO_DATA_REPO,
+                "pairs": len(ds),
+                "beta": BETA,
+                "lr": LR,
+                "epochs": EPOCHS,
+                "seed": SEED,
+            },
+            indent=2,
+        )
+    )
     print(f"Pushed DPO adapter -> {HUB_MODEL_ID}", flush=True)
 
 

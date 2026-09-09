@@ -18,6 +18,7 @@ so format reliability and verdict correctness are separated, not conflated.
 
 Usage: python3 eval/score_verdict_substance.py <frontier_baseline_report.json> [more.json ...]
 """
+
 from __future__ import annotations
 
 import json
@@ -25,7 +26,9 @@ import re
 import sys
 
 _VERDICT_RE = re.compile(r"##\s*Verdict\s*\n\s*\**\s*(accept|reject|defer)", re.I)
-_FALLBACK_RE = re.compile(r"(?:^|\n)\s*(?:conclusion|verdict)\s*[:=\-]*\s*\**\s*(accept|reject|defer)", re.I)
+_FALLBACK_RE = re.compile(
+    r"(?:^|\n)\s*(?:conclusion|verdict)\s*[:=\-]*\s*\**\s*(accept|reject|defer)", re.I
+)
 
 
 def lenient_verdict(text: str) -> str | None:
@@ -56,8 +59,10 @@ def _load_examples(path: str) -> tuple[list[dict], str | None]:
         return d["examples"], d.get("model") or d.get("model_id")
     # JSONL of gate-pilot responses
     import sys as _sys
+
     _sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
     from agents.reviewer import ReviewerOutputMalformed, parse_reviewer_output  # noqa
+
     ex = []
     for line in text.splitlines():
         if not line.strip():
@@ -69,16 +74,24 @@ def _load_examples(path: str) -> tuple[list[dict], str | None]:
         schema_ok = False
         try:
             parsed = parse_reviewer_output(gen)
-            strict_v = getattr(parsed, "verdict", None) or (parsed.get("verdict") if isinstance(parsed, dict) else None)
+            strict_v = getattr(parsed, "verdict", None) or (
+                parsed.get("verdict") if isinstance(parsed, dict) else None
+            )
             schema_ok = True
         except Exception:
             pass
-        ex.append({
-            "cve_id": r.get("cve_id"), "label": r.get("label"),
-            "expected_verdict": expected, "actual_verdict": strict_v,
-            "schema_valid": schema_ok, "verdict_correct": (strict_v == expected),
-            "parse_failure": not schema_ok, "response_text": gen,
-        })
+        ex.append(
+            {
+                "cve_id": r.get("cve_id"),
+                "label": r.get("label"),
+                "expected_verdict": expected,
+                "actual_verdict": strict_v,
+                "schema_valid": schema_ok,
+                "verdict_correct": (strict_v == expected),
+                "parse_failure": not schema_ok,
+                "response_text": gen,
+            }
+        )
     return ex, "reviewer-lora (gate-pilot responses)"
 
 
@@ -122,8 +135,14 @@ if __name__ == "__main__":
     for p in sys.argv[1:]:
         r = score_report(p)
         print(f"\n{r['model']}  (n={r['n']})")
-        print(f"  strict verdict accuracy      : {r['strict_verdict_accuracy']:.3f}  (schema-conforming)")
+        print(
+            f"  strict verdict accuracy      : {r['strict_verdict_accuracy']:.3f}  (schema-conforming)"
+        )
         print(f"  schema conformance rate      : {r['schema_conformance_rate']:.3f}")
-        print(f"  VERDICT-SUBSTANCE accuracy   : {r['lenient_verdict_substance_accuracy']:.3f}  (lenient, the honest number)")
+        print(
+            f"  VERDICT-SUBSTANCE accuracy   : {r['lenient_verdict_substance_accuracy']:.3f}  (lenient, the honest number)"
+        )
         print(f"  verdict extracted rate       : {r['lenient_verdict_found_rate']:.3f}")
-        print(f"  false-accept / false-reject  : {r['false_accept']} / {r['false_reject']}")
+        print(
+            f"  false-accept / false-reject  : {r['false_accept']} / {r['false_reject']}"
+        )

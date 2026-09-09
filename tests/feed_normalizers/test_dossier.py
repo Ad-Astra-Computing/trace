@@ -80,7 +80,9 @@ def test_source_fixture_validates(source_validator: Draft202012Validator) -> Non
     assert not errors, [str(e) for e in errors[:3]]
 
 
-def test_normalizer_output_validates(scout_input_validator: Draft202012Validator) -> None:
+def test_normalizer_output_validates(
+    scout_input_validator: Draft202012Validator,
+) -> None:
     out = _normalize_call()
     errors = sorted(scout_input_validator.iter_errors(out), key=lambda e: e.path)
     assert not errors, [str(e) for e in errors[:3]]
@@ -107,7 +109,9 @@ def test_cve_id_and_published_at_preserved() -> None:
     assert out["cve_id"] == "CVE-2024-13978"
     # Dossier publishedAt may end in 'Z' or have ms; either way scout-input
     # accepts ISO-8601.
-    assert out["published_at"].startswith("2025") or out["published_at"].startswith("2024")
+    assert out["published_at"].startswith("2025") or out["published_at"].startswith(
+        "2024"
+    )
 
 
 def test_severity_lowercased_from_canonical() -> None:
@@ -138,7 +142,9 @@ def test_references_include_canonical_link() -> None:
     assert refs
     urls = [r["url"] for r in refs]
     # The dossier's HTML view OR the upstream CVE.org URL should be present.
-    assert any("cve.vulnpatch.dev" in u or "cve.org" in u or "nvd.nist.gov" in u for u in urls)
+    assert any(
+        "cve.vulnpatch.dev" in u or "cve.org" in u or "nvd.nist.gov" in u for u in urls
+    )
 
 
 def test_nvd_patch_tag_lifts_commit_url_as_upstream_commit() -> None:
@@ -150,8 +156,14 @@ def test_nvd_patch_tag_lifts_commit_url_as_upstream_commit() -> None:
     out = _normalize_call()
     refs = out.get("references", [])
     upstream_commits = [r for r in refs if r["kind"] == "upstream-commit"]
-    gitlab_commits = [r for r in upstream_commits if "gitlab.com" in r["url"] and "/commit/" in r["url"]]
-    assert gitlab_commits, f"expected gitlab.com /commit/ URL with kind=upstream-commit, got {refs!r}"
+    gitlab_commits = [
+        r
+        for r in upstream_commits
+        if "gitlab.com" in r["url"] and "/commit/" in r["url"]
+    ]
+    assert gitlab_commits, (
+        f"expected gitlab.com /commit/ URL with kind=upstream-commit, got {refs!r}"
+    )
 
 
 def test_kernel_org_commit_urls_classified_as_upstream_commit() -> None:
@@ -172,15 +184,19 @@ def test_kernel_org_commit_urls_classified_as_upstream_commit() -> None:
             "nvd": {
                 "cpeMatches": [],
                 "nvdReferences": [
-                    {"url": "https://git.kernel.org/stable/c/" + "a" * 40,
-                     "tags": []},
-                    {"url": "https://git.kernel.org/torvalds/c/" + "b" * 40,
-                     "tags": []},
-                    {"url": "https://git.kernel.org/linus/" + "c" * 40,
-                     "tags": []},
-                    {"url": ("https://git.kernel.org/pub/scm/linux/kernel/"
-                             "git/torvalds/linux.git/commit/?id=" + "d" * 40),
-                     "tags": []},
+                    {"url": "https://git.kernel.org/stable/c/" + "a" * 40, "tags": []},
+                    {
+                        "url": "https://git.kernel.org/torvalds/c/" + "b" * 40,
+                        "tags": [],
+                    },
+                    {"url": "https://git.kernel.org/linus/" + "c" * 40, "tags": []},
+                    {
+                        "url": (
+                            "https://git.kernel.org/pub/scm/linux/kernel/"
+                            "git/torvalds/linux.git/commit/?id=" + "d" * 40
+                        ),
+                        "tags": [],
+                    },
                 ],
             },
         },
@@ -192,10 +208,7 @@ def test_kernel_org_commit_urls_classified_as_upstream_commit() -> None:
         fetched_at="2026-05-06T00:00:00Z",
         raw_response_bytes=raw,
     )
-    kernel_refs = [
-        r for r in out.get("references", [])
-        if "git.kernel.org" in r["url"]
-    ]
+    kernel_refs = [r for r in out.get("references", []) if "git.kernel.org" in r["url"]]
     assert len(kernel_refs) == 4
     for r in kernel_refs:
         assert r["kind"] == "upstream-commit", (
@@ -220,7 +233,9 @@ def test_falls_back_to_ghsa_when_nvd_absent() -> None:
     assert out["feed"] in {"ghsa", "osv"}
 
 
-def _dossier_with_cve_list_v5_affected(affected: list[dict[str, Any]]) -> dict[str, Any]:
+def _dossier_with_cve_list_v5_affected(
+    affected: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Minimal dossier shape carrying only the fields the normalizer
     needs to test version_bounds extraction."""
     return {
@@ -256,17 +271,23 @@ def test_version_bounds_extracted_from_cve_list_v5_lessThan() -> None:
     carries lessThan=11.0.0 meaning the fix landed at v11.0.0. The
     normalizer must lift this to scout-input so the resolver doesn't
     fall back to the bare-commit placeholder."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "GCHQ",
-        "product": "CyberChef",
-        "versions": [{
-            "version": "0",
-            "status": "affected",
-            "lessThan": "11.0.0",
-            "versionType": "semver",
-        }],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "GCHQ",
+                "product": "CyberChef",
+                "versions": [
+                    {
+                        "version": "0",
+                        "status": "affected",
+                        "lessThan": "11.0.0",
+                        "versionType": "semver",
+                    }
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out.get("version_bounds", [])
     assert bounds, "version_bounds must be lifted from cve_list_v5"
@@ -284,12 +305,23 @@ def test_version_bounds_lessThanOrEqual_preserved_distinctly() -> None:
     to know which was given so it can decide whether to synthesize a
     candidate target_version (lessThan: yes) or fall back (lessThanOrEqual:
     needs next-semver math we don't have yet)."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [{"version": "1.0.0", "status": "affected",
-                      "lessThanOrEqual": "1.4.5", "versionType": "semver"}],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {
+                        "version": "1.0.0",
+                        "status": "affected",
+                        "lessThanOrEqual": "1.4.5",
+                        "versionType": "semver",
+                    }
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert bounds[0]["fixed_kind"] == "lessThanOrEqual"
@@ -298,16 +330,28 @@ def test_version_bounds_lessThanOrEqual_preserved_distinctly() -> None:
 
 def test_version_bounds_skips_unaffected_status() -> None:
     """Only status=affected entries are bounds for fix-version derivation."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected", "lessThan": "2.0.0",
-             "versionType": "semver"},
-            {"version": "2.0.0", "status": "unaffected",
-             "versionType": "semver"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {
+                        "version": "0",
+                        "status": "affected",
+                        "lessThan": "2.0.0",
+                        "versionType": "semver",
+                    },
+                    {
+                        "version": "2.0.0",
+                        "status": "unaffected",
+                        "versionType": "semver",
+                    },
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert len(bounds) == 1
@@ -317,12 +361,23 @@ def test_version_bounds_skips_unaffected_status() -> None:
 def test_version_bounds_skips_non_semver_version_types() -> None:
     """v0 only handles semver. Custom/git/rpm types pass through with no
     bound emitted; the placeholder path takes over."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [{"version": "0", "status": "affected",
-                      "lessThan": "abc-1.2", "versionType": "custom"}],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {
+                        "version": "0",
+                        "status": "affected",
+                        "lessThan": "abc-1.2",
+                        "versionType": "custom",
+                    }
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     assert "version_bounds" not in out or out["version_bounds"] == []
 
@@ -330,16 +385,36 @@ def test_version_bounds_skips_non_semver_version_types() -> None:
 def test_version_bounds_multiple_products_each_carry_their_bound() -> None:
     """Multi-product CVEs: each affected product gets its own bound;
     processor filters by matched pname."""
-    data = _dossier_with_cve_list_v5_affected([
-        {"vendor": "x", "product": "Foo",
-         "versions": [{"version": "0", "status": "affected",
-                       "lessThan": "1.2.0", "versionType": "semver"}],
-         "cpes": []},
-        {"vendor": "y", "product": "Bar",
-         "versions": [{"version": "0", "status": "affected",
-                       "lessThan": "3.0.0", "versionType": "semver"}],
-         "cpes": []},
-    ])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {
+                        "version": "0",
+                        "status": "affected",
+                        "lessThan": "1.2.0",
+                        "versionType": "semver",
+                    }
+                ],
+                "cpes": [],
+            },
+            {
+                "vendor": "y",
+                "product": "Bar",
+                "versions": [
+                    {
+                        "version": "0",
+                        "status": "affected",
+                        "lessThan": "3.0.0",
+                        "versionType": "semver",
+                    }
+                ],
+                "cpes": [],
+            },
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     products = {b["product"]: b["fixed"] for b in bounds}
@@ -351,11 +426,16 @@ def test_version_bounds_parses_free_text_less_than() -> None:
     `version` field (e.g. '< 1.17.2') rather than via the structured
     lessThan key. Without parsing this, kyverno-shape advisories never
     surface a target version and the resolver falls back to placeholder."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "kyverno", "product": "kyverno",
-        "versions": [{"version": "< 1.17.2", "status": "affected"}],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "kyverno",
+                "product": "kyverno",
+                "versions": [{"version": "< 1.17.2", "status": "affected"}],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert bounds[0]["fixed"] == "1.17.2"
@@ -365,11 +445,16 @@ def test_version_bounds_parses_free_text_less_than() -> None:
 def test_version_bounds_parses_compound_free_text_range() -> None:
     """'>= 0.32.0, < 0.43.4' should yield a bound with fixed=0.43.4
     and introduced=0.32.0 (the lower bound becomes 'introduced')."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "chainguard-dev", "product": "melange",
-        "versions": [{"version": ">= 0.32.0, < 0.43.4", "status": "affected"}],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "chainguard-dev",
+                "product": "melange",
+                "versions": [{"version": ">= 0.32.0, < 0.43.4", "status": "affected"}],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert bounds[0]["fixed"] == "0.43.4"
@@ -378,11 +463,16 @@ def test_version_bounds_parses_compound_free_text_range() -> None:
 
 
 def test_version_bounds_free_text_less_than_or_equal() -> None:
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "y",
-        "versions": [{"version": "<= 2.0.0", "status": "affected"}],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "y",
+                "versions": [{"version": "<= 2.0.0", "status": "affected"}],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert bounds[0]["fixed"] == "2.0.0"
@@ -392,11 +482,16 @@ def test_version_bounds_free_text_less_than_or_equal() -> None:
 def test_version_bounds_free_text_falls_back_when_unparseable() -> None:
     """Free text we can't confidently parse (e.g. 'all versions',
     git ranges) skips emission rather than guessing."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "y",
-        "versions": [{"version": "all versions", "status": "affected"}],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "y",
+                "versions": [{"version": "all versions", "status": "affected"}],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     assert "version_bounds" not in out or out["version_bounds"] == []
 
@@ -423,14 +518,19 @@ def test_status_list_fixed_version_from_unaffected_stable() -> None:
     'placeholder-target-version' regression in slice 5g — the fix value
     was sitting in the status list, just not in a key the structured
     walker reads."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected"},
-            {"version": "4.4.0", "status": "unaffected"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {"version": "0", "status": "affected"},
+                    {"version": "4.4.0", "status": "unaffected"},
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert len(bounds) == 1
@@ -444,16 +544,21 @@ def test_status_list_fixed_version_from_unaffected_stable() -> None:
 def test_status_list_picks_smallest_stable_when_multiple_unaffected() -> None:
     """Multiple stable unaffected entries: smallest is the lower bound
     of safe versions, which is the correct fix-version equivalent."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected"},
-            {"version": "5.0.0", "status": "unaffected"},
-            {"version": "4.4.0", "status": "unaffected"},
-            {"version": "4.5.1", "status": "unaffected"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {"version": "0", "status": "affected"},
+                    {"version": "5.0.0", "status": "unaffected"},
+                    {"version": "4.4.0", "status": "unaffected"},
+                    {"version": "4.5.1", "status": "unaffected"},
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     assert out["version_bounds"][0]["fixed"] == "4.4.0"
 
@@ -463,15 +568,20 @@ def test_status_list_pre_release_when_no_stable_unaffected() -> None:
     exist. Emit lessThan=<smallest-pre-release> with provenance
     pre-release-from-status-list. The processor synthesizes the target;
     the resolver's existing pre-release-target trigger fires downstream."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected"},
-            {"version": "2.0.0-rc2", "status": "unaffected"},
-            {"version": "2.0.0-rc1", "status": "unaffected"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {"version": "0", "status": "affected"},
+                    {"version": "2.0.0-rc2", "status": "unaffected"},
+                    {"version": "2.0.0-rc1", "status": "unaffected"},
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert len(bounds) == 1
@@ -485,15 +595,20 @@ def test_status_list_prefers_stable_over_pre_release() -> None:
     """If both stable and pre-release unaffected entries are present,
     stable wins — pre-release-from-status-list is reserved for the
     case where ONLY pre-releases are flagged unaffected."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected"},
-            {"version": "2.0.0-rc1", "status": "unaffected"},
-            {"version": "2.0.0", "status": "unaffected"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {"version": "0", "status": "affected"},
+                    {"version": "2.0.0-rc1", "status": "unaffected"},
+                    {"version": "2.0.0", "status": "unaffected"},
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     b = out["version_bounds"][0]
     assert b["fixed"] == "2.0.0"
@@ -506,14 +621,22 @@ def test_status_list_commit_hash_unaffected_skipped() -> None:
     placeholder-target-version path. Documenting the skip explicitly so
     a future slice that adds a non-semver bound type doesn't regress
     silently."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected"},
-            {"version": "abcdef0123456789abcdef0123456789abcdef01", "status": "unaffected"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {"version": "0", "status": "affected"},
+                    {
+                        "version": "abcdef0123456789abcdef0123456789abcdef01",
+                        "status": "unaffected",
+                    },
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     assert "version_bounds" not in out or out["version_bounds"] == []
 
@@ -523,15 +646,24 @@ def test_status_list_does_not_override_structured_bound() -> None:
     for this product, the status-list fallback does not run. Avoids
     double-counting and keeps the structured/free-text paths
     authoritative when they fire."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected", "lessThan": "1.5.0",
-             "versionType": "semver"},
-            {"version": "2.0.0", "status": "unaffected"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {
+                        "version": "0",
+                        "status": "affected",
+                        "lessThan": "1.5.0",
+                        "versionType": "semver",
+                    },
+                    {"version": "2.0.0", "status": "unaffected"},
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     bounds = out["version_bounds"]
     assert len(bounds) == 1
@@ -539,29 +671,49 @@ def test_status_list_does_not_override_structured_bound() -> None:
     assert "provenance" not in bounds[0]
 
 
-def test_status_list_bound_validates(scout_input_validator: Draft202012Validator) -> None:
+def test_status_list_bound_validates(
+    scout_input_validator: Draft202012Validator,
+) -> None:
     """Provenance-bearing bounds emitted by the status-list fallback
     must validate against scout-input-schema.json."""
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "x", "product": "Foo",
-        "versions": [
-            {"version": "0", "status": "affected"},
-            {"version": "4.4.0", "status": "unaffected"},
-        ],
-        "cpes": [],
-    }])
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "x",
+                "product": "Foo",
+                "versions": [
+                    {"version": "0", "status": "affected"},
+                    {"version": "4.4.0", "status": "unaffected"},
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     errors = sorted(scout_input_validator.iter_errors(out), key=lambda e: e.path)
     assert not errors, [str(e) for e in errors[:3]]
 
 
-def test_version_bounds_output_validates(scout_input_validator: Draft202012Validator) -> None:
-    data = _dossier_with_cve_list_v5_affected([{
-        "vendor": "GCHQ", "product": "CyberChef",
-        "versions": [{"version": "0", "status": "affected",
-                      "lessThan": "11.0.0", "versionType": "semver"}],
-        "cpes": [],
-    }])
+def test_version_bounds_output_validates(
+    scout_input_validator: Draft202012Validator,
+) -> None:
+    data = _dossier_with_cve_list_v5_affected(
+        [
+            {
+                "vendor": "GCHQ",
+                "product": "CyberChef",
+                "versions": [
+                    {
+                        "version": "0",
+                        "status": "affected",
+                        "lessThan": "11.0.0",
+                        "versionType": "semver",
+                    }
+                ],
+                "cpes": [],
+            }
+        ]
+    )
     out = _normalize(data)
     errors = sorted(scout_input_validator.iter_errors(out), key=lambda e: e.path)
     assert not errors, [str(e) for e in errors[:3]]
@@ -598,12 +750,24 @@ def _data_with_reference_items() -> dict[str, Any]:
         "truncated": 0,
         "patches": ["https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40],
         "items": [
-            {"url": "https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40,
-             "type": "patch", "tags": ["patch"], "sources": ["primary"]},
-            {"url": "https://cert.pl/en/posts/2026/08/CVE-2026-16599",
-             "type": "advisory", "tags": ["third-party-advisory"], "sources": ["primary"]},
-            {"url": "https://gitlab.com/gnuwget/wget", "type": "other",
-             "tags": ["product"], "sources": ["primary"]},
+            {
+                "url": "https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40,
+                "type": "patch",
+                "tags": ["patch"],
+                "sources": ["primary"],
+            },
+            {
+                "url": "https://cert.pl/en/posts/2026/08/CVE-2026-16599",
+                "type": "advisory",
+                "tags": ["third-party-advisory"],
+                "sources": ["primary"],
+            },
+            {
+                "url": "https://gitlab.com/gnuwget/wget",
+                "type": "other",
+                "tags": ["product"],
+                "sources": ["primary"],
+            },
         ],
     }
     return data
@@ -617,12 +781,17 @@ def test_reference_items_are_normalized_by_type() -> None:
         raw_response_bytes=b"{}",
     )
     by_url = {r["url"]: r["kind"] for r in out["references"]}
-    assert by_url["https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40] == "upstream-commit"
+    assert (
+        by_url["https://gitlab.com/gnuwget/wget/-/commit/" + "e" * 40]
+        == "upstream-commit"
+    )
     assert by_url["https://cert.pl/en/posts/2026/08/CVE-2026-16599"] == "advisory"
     assert by_url["https://gitlab.com/gnuwget/wget"] == "other"
 
 
-def test_reference_items_output_validates(scout_input_validator: Draft202012Validator) -> None:
+def test_reference_items_output_validates(
+    scout_input_validator: Draft202012Validator,
+) -> None:
     out = normalize_dossier(
         _data_with_reference_items(),
         request_url="https://api.vulnpatch.dev/api/v1/cve/CVE-2024-13978/dossier",
@@ -638,7 +807,12 @@ def test_non_string_reference_urls_are_skipped_not_raised() -> None:
     to reach the host heuristic's `in` check and raise TypeError, which the
     poller does not catch."""
     data = _data_with_reference_items()
-    data["references"]["items"] += [{"url": True}, {"url": 42}, {"url": None}, {"url": ""}]
+    data["references"]["items"] += [
+        {"url": True},
+        {"url": 42},
+        {"url": None},
+        {"url": ""},
+    ]
     out = normalize_dossier(
         data,
         request_url="https://api.vulnpatch.dev/api/v1/cve/CVE-2024-13978/dossier",

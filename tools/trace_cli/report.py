@@ -302,9 +302,7 @@ def _has_stub_harness(bundle_dir: Path) -> bool:
     return harness is not None
 
 
-def _read_role_invocation_sidecar(
-    bundle_dir: Path, role: str
-) -> dict[str, Any] | None:
+def _read_role_invocation_sidecar(bundle_dir: Path, role: str) -> dict[str, Any] | None:
     """Read <role>-invocation.json sidecar if present. Returns the
     normalized usage block (uniform across all three roles), or None
     when the file is missing. Malformed sidecars are skipped silently
@@ -408,16 +406,20 @@ def build_report(
             usage = b.role_usage.get(role)
             if usage is None:
                 continue
-            observed_role_usage.append({
-                "cve_id": b.cve_id,
-                "role": role,
-                **usage,
-            })
+            observed_role_usage.append(
+                {
+                    "cve_id": b.cve_id,
+                    "role": role,
+                    **usage,
+                }
+            )
 
     kind_dist: dict[str, int] = {}
     repro_status: dict[str, int] = {
-        "reproducer_nix": 0, "reproducer_nix_stub_harness": 0,
-        "refusal": 0, "absent": 0,
+        "reproducer_nix": 0,
+        "reproducer_nix_stub_harness": 0,
+        "refusal": 0,
+        "absent": 0,
     }
     patcher_family: dict[str, int] = {}
     for b in bundles:
@@ -484,9 +486,7 @@ def _per_run_means(s: ScoutRunsSummary) -> dict[str, float | None]:
     }
 
 
-def _per_role_cost_reason(
-    n_bundles: int, role_counts: dict[str, int]
-) -> str:
+def _per_role_cost_reason(n_bundles: int, role_counts: dict[str, int]) -> str:
     if n_bundles == 0:
         return "no real-CVE bundles scanned under traces_root; nothing to report on"
     parts: list[str] = []
@@ -562,11 +562,13 @@ def _cost_per_merge_ready(bundles: list[BundleSummary]) -> dict[str, Any]:
         bundle_cost = _bundle_realized_cost(b)
         if bundle_cost is None:
             continue  # no observed numeric Patcher cost — cost-incomplete
-        rows.append({
-            "cve_id": b.cve_id,
-            "roles_present": sorted(b.role_usage.keys()),
-            "total_usd": round(bundle_cost, 6),
-        })
+        rows.append(
+            {
+                "cve_id": b.cve_id,
+                "roles_present": sorted(b.role_usage.keys()),
+                "total_usd": round(bundle_cost, 6),
+            }
+        )
     if not rows:
         return {"data_points": 0, "mean_usd": None, "total_usd": 0.0, "rows": []}
     total = sum(r["total_usd"] for r in rows)
@@ -775,7 +777,9 @@ def _md_retry_summary_section(retry: dict[str, Any]) -> str:
             "0 extra calls is the expected current value."
         )
         lines.append("")
-    lines.append(f"- total model-call attempts (all roles): {retry['total_model_call_attempts']}")
+    lines.append(
+        f"- total model-call attempts (all roles): {retry['total_model_call_attempts']}"
+    )
     lines.append(
         f"- reviewer retries: {retry['roles_with_retry']} role(s), "
         f"{retry['total_retry_extra_calls']} extra call(s)"
@@ -784,7 +788,9 @@ def _md_retry_summary_section(retry: dict[str, Any]) -> str:
         f"- reproducer pass@K sampling: {retry.get('roles_with_sampling', 0)} role(s), "
         f"{retry.get('total_sampling_extra_calls', 0)} extra draw(s)"
     )
-    lines.append(f"- total extra calls (retry + sampling): {retry['total_extra_calls']}")
+    lines.append(
+        f"- total extra calls (retry + sampling): {retry['total_extra_calls']}"
+    )
     lines.append(
         f"- reviewer first-attempt conformant: {retry['reviewer_first_attempt_conformant']}"
     )
@@ -818,9 +824,7 @@ def _md_derived_section(derived: dict[str, Any]) -> str:
         lines.append("| family | count |")
         lines.append("|---|---|")
         for k in sorted(derived["patcher_provenance_distribution"]):
-            lines.append(
-                f"| {k} | {derived['patcher_provenance_distribution'][k]} |"
-            )
+            lines.append(f"| {k} | {derived['patcher_provenance_distribution'][k]} |")
         lines.append("")
     cbk = (derived.get("cost_by_kind") or {}).get("kinds") or {}
     if cbk:
@@ -857,9 +861,15 @@ def _md_unobserved_section(unobs: dict[str, Any]) -> str:
     lines.append("**per-role token / cost totals**")
     lines.append("")
     lines.append(f"- data points: {cost['data_points']}")
-    lines.append(f"- patcher invocations with usage: {cost['patcher_invocations_with_usage']}")
-    lines.append(f"- reviewer invocations with usage: {cost['reviewer_invocations_with_usage']}")
-    lines.append(f"- reproducer invocations with usage: {cost['reproducer_invocations_with_usage']}")
+    lines.append(
+        f"- patcher invocations with usage: {cost['patcher_invocations_with_usage']}"
+    )
+    lines.append(
+        f"- reviewer invocations with usage: {cost['reviewer_invocations_with_usage']}"
+    )
+    lines.append(
+        f"- reproducer invocations with usage: {cost['reproducer_invocations_with_usage']}"
+    )
     lines.append(f"- reason: {cost['reason']}")
     return "\n".join(lines)
 

@@ -76,11 +76,11 @@ def _added_line_containing(patch_diff: str, substr: str) -> str | None:
         if line.startswith("+++"):
             continue  # file header
         if line.startswith("++"):
-            src = line[2:]            # embedded-patch ADDED line (the fix)
+            src = line[2:]  # embedded-patch ADDED line (the fix)
         elif line.startswith("+-"):
-            continue                  # embedded-patch REMOVED line (the vuln) — not source
+            continue  # embedded-patch REMOVED line (the vuln) — not source
         elif line.startswith("+"):
-            src = line[1:]            # outer-added source (direct .nix edit)
+            src = line[1:]  # outer-added source (direct .nix edit)
         else:
             continue
         if substr in src:
@@ -101,23 +101,42 @@ def main() -> None:
         if not d.exists():
             print(f"  MISS {name}: base dir absent", file=sys.stderr)
             continue
-        guard_line = _added_line_containing((d / "patch.diff").read_text(),
-                                            cand["fixed_substr"])
+        guard_line = _added_line_containing(
+            (d / "patch.diff").read_text(), cand["fixed_substr"]
+        )
         if guard_line is None:
-            print(f"  MISS {name}: fixed guard {cand['fixed_substr']!r} not uniquely "
-                  "in patch.diff", file=sys.stderr)
+            print(
+                f"  MISS {name}: fixed guard {cand['fixed_substr']!r} not uniquely "
+                "in patch.diff",
+                file=sys.stderr,
+            )
             continue
         find, replace = cand["fixed_substr"], cand["vuln_substr"]
         cve, attr = name.split("--")[0], name.split("--")[1]
         out_dir = args.out_root / f"{cve}--{attr}--natural-guard-mint"
-        print(f"  [{name}]  {cand['note']}\n        find={find!r} -> replace={replace!r}")
+        print(
+            f"  [{name}]  {cand['note']}\n        find={find!r} -> replace={replace!r}"
+        )
         if args.dry_run:
             continue
         cmd = [
-            sys.executable, "-m", "tools.trace_cli", "mutate", "reviewer-negative",
-            "--base-dir", str(d), "--mutation", "condition-operator-mutation",
-            "--guard", guard_line, "--op-from", find, "--op-to", replace,
-            "--out-dir", str(out_dir),
+            sys.executable,
+            "-m",
+            "tools.trace_cli",
+            "mutate",
+            "reviewer-negative",
+            "--base-dir",
+            str(d),
+            "--mutation",
+            "condition-operator-mutation",
+            "--guard",
+            guard_line,
+            "--op-from",
+            find,
+            "--op-to",
+            replace,
+            "--out-dir",
+            str(out_dir),
         ]
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         if r.returncode != 0:
@@ -127,8 +146,11 @@ def main() -> None:
             minted += 1
 
     print(f"\nminted {minted}/{len(CANDIDATES)}", file=sys.stderr)
-    print("next: `trace replay --role reviewer` each; keep only clear non-equivalent "
-          "rejects.", file=sys.stderr)
+    print(
+        "next: `trace replay --role reviewer` each; keep only clear non-equivalent "
+        "rejects.",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

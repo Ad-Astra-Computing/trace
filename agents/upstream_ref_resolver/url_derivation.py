@@ -42,10 +42,10 @@ from urllib.parse import urlparse
 class DerivedTarget:
     """A high/medium/low-confidence prefetch target derived locally."""
 
-    name: str               # e.g. "src.hash"
+    name: str  # e.g. "src.hash"
     url: str
-    derivation_rule: str    # see DERIVATION_RULES
-    confidence: str         # "high" | "medium" | "low"
+    derivation_rule: str  # see DERIVATION_RULES
+    confidence: str  # "high" | "medium" | "low"
     algorithm: str = "sha256"
 
 
@@ -92,21 +92,21 @@ class DerivationOutcome:
 
 
 DERIVATION_RULES: tuple[str, ...] = (
-    "github-release-archive",      # fetchFromGitHub or upstream repo on github.com
-    "gitlab-release-archive",      # upstream repo on a gitlab host
-    "package-url-template",        # literal URL template in package.nix with ${version} placeholders
+    "github-release-archive",  # fetchFromGitHub or upstream repo on github.com
+    "gitlab-release-archive",  # upstream repo on a gitlab host
+    "package-url-template",  # literal URL template in package.nix with ${version} placeholders
 )
 
 
 SKIP_REASONS: tuple[str, ...] = (
-    "ecosystem-not-url-derivable",         # vendorHash / cargoHash / npmDepsHash family
-    "url-template-too-complex",            # fetchurl with multiple competing placeholders
-    "no-derivable-rule",                   # nothing in package.nix or upstream-ref hints at a URL
-    "missing-target-version",              # upstream-ref doesn't have target_version
-    "missing-tag",                         # github archive needs a tag and the bundle has none
-    "closure-captured-version",            # fetchzip-extraction is a no-op when src is built
-                                           # inside a `common = { version, ... }: …` closure;
-                                           # surfaced by openssl_3 on 2026-04-27
+    "ecosystem-not-url-derivable",  # vendorHash / cargoHash / npmDepsHash family
+    "url-template-too-complex",  # fetchurl with multiple competing placeholders
+    "no-derivable-rule",  # nothing in package.nix or upstream-ref hints at a URL
+    "missing-target-version",  # upstream-ref doesn't have target_version
+    "missing-tag",  # github archive needs a tag and the bundle has none
+    "closure-captured-version",  # fetchzip-extraction is a no-op when src is built
+    # inside a `common = { version, ... }: …` closure;
+    # surfaced by openssl_3 on 2026-04-27
 )
 
 
@@ -115,9 +115,14 @@ SKIP_REASONS: tuple[str, ...] = (
 # npm-deps-prefetch, etc.). The derivation layer records these as skipped
 # with reason ecosystem-not-url-derivable.
 NON_URL_HASH_ATTRS: tuple[str, ...] = (
-    "vendorHash", "vendorSha256",
-    "cargoHash", "cargoSha256",
-    "npmDepsHash", "pnpmDepsHash", "yarnDepsHash", "yarnHash",
+    "vendorHash",
+    "vendorSha256",
+    "cargoHash",
+    "cargoSha256",
+    "npmDepsHash",
+    "pnpmDepsHash",
+    "yarnDepsHash",
+    "yarnHash",
 )
 
 
@@ -149,9 +154,15 @@ _SRC_FETCHZIP_URL_RE = re.compile(
 # `fetchFromGitHub { owner = "..."; repo = "..."; rev = "..."; ... }` —
 # capture all three. Order in nixpkgs is conventionally owner-repo-rev
 # but we don't depend on it.
-_FROMGITHUB_OWNER_RE = re.compile(r"fetchFromGitHub\s*\{[^}]*?owner\s*=\s*\"(?P<owner>[^\"]+)\"", re.DOTALL)
-_FROMGITHUB_REPO_RE = re.compile(r"fetchFromGitHub\s*\{[^}]*?repo\s*=\s*\"(?P<repo>[^\"]+)\"", re.DOTALL)
-_FROMGITHUB_REV_RE = re.compile(r"fetchFromGitHub\s*\{[^}]*?rev\s*=\s*\"(?P<rev>[^\"]+)\"", re.DOTALL)
+_FROMGITHUB_OWNER_RE = re.compile(
+    r"fetchFromGitHub\s*\{[^}]*?owner\s*=\s*\"(?P<owner>[^\"]+)\"", re.DOTALL
+)
+_FROMGITHUB_REPO_RE = re.compile(
+    r"fetchFromGitHub\s*\{[^}]*?repo\s*=\s*\"(?P<repo>[^\"]+)\"", re.DOTALL
+)
+_FROMGITHUB_REV_RE = re.compile(
+    r"fetchFromGitHub\s*\{[^}]*?rev\s*=\s*\"(?P<rev>[^\"]+)\"", re.DOTALL
+)
 
 # Hash-shaped attribute presence check, used for the skipped-target detector.
 _HASH_ATTR_PRESENCE_RE = re.compile(
@@ -195,9 +206,7 @@ _CLOSURE_CAPTURED_VERSION_FN_PARAM_RE = re.compile(
 _LET_IN_BLOCK_RE = re.compile(r"\blet\b(.+?)\bin\b", re.DOTALL)
 # A `version = "literal";` binding inside a let-block. The negative
 # lookbehind keeps `someAttr.version = …` and `myversion = …` out.
-_LET_VERSION_BINDING_RE = re.compile(
-    r"(?<![.\w])version\s*=\s*\"[^\"]+\"\s*;"
-)
+_LET_VERSION_BINDING_RE = re.compile(r"(?<![.\w])version\s*=\s*\"[^\"]+\"\s*;")
 
 
 def _has_closure_captured_version(package_source: str) -> bool:
@@ -212,6 +221,7 @@ def _has_closure_captured_version(package_source: str) -> bool:
         if _LET_VERSION_BINDING_RE.search(m.group(1)):
             return True
     return False
+
 
 # Nix interpolation tokens we know how to substitute. `${version}` is
 # the canonical form; nixpkgs idiom also uses `${finalAttrs.version}`,
@@ -257,21 +267,23 @@ def derive_prefetch_targets(
     pname = _extract_pname(package_source) or attr_path
 
     if not isinstance(target_version, str) or not target_version:
-        skipped.append(SkippedTarget(
-            name="src.hash",
-            reason="missing-target-version",
-            required_for_patch=False,
-            detail="upstream-ref.json has no target_version; URL derivation requires it",
-        ))
+        skipped.append(
+            SkippedTarget(
+                name="src.hash",
+                reason="missing-target-version",
+                required_for_patch=False,
+                detail="upstream-ref.json has no target_version; URL derivation requires it",
+            )
+        )
         # We still record skipped vendor-style hashes below.
     else:
         # ── 1. fetchurl / fetchzip with literal URL template → package-url-template
         # Try this first because when a package.nix DOES embed a fetcher
         # block, the literal URL template is the most authoritative
         # ground truth — it's what nixpkgs will actually request.
-        tmpl = _try_url_template(package_source,
-                                 target_version=target_version,
-                                 pname=pname)
+        tmpl = _try_url_template(
+            package_source, target_version=target_version, pname=pname
+        )
         if isinstance(tmpl, DerivedTarget):
             targets.append(tmpl)
         elif isinstance(tmpl, SkippedTarget):
@@ -286,8 +298,9 @@ def derive_prefetch_targets(
         # ── 2. fetchFromGitHub → github-release-archive ─────────────
         # Local fetchFromGitHub block in package.nix.
         if not _has_target_named(targets, "src.hash"):
-            gh = _try_fetch_from_github(package_source, tag=tag, pname=pname,
-                                        target_version=target_version)
+            gh = _try_fetch_from_github(
+                package_source, tag=tag, pname=pname, target_version=target_version
+            )
             if gh is not None:
                 targets.append(gh)
 
@@ -300,7 +313,8 @@ def derive_prefetch_targets(
         # fetcher (in a sibling file) may use a different URL pattern.
         if not _has_target_named(targets, "src.hash"):
             gh_fb = _try_github_release_archive_from_upstream_ref(
-                upstream_ref, tag=tag,
+                upstream_ref,
+                tag=tag,
             )
             if gh_fb is not None:
                 targets.append(gh_fb)
@@ -309,32 +323,38 @@ def derive_prefetch_targets(
         # upstream_fix_commits[0].repo_url is on a gitlab host AND a
         # tag is present).
         if not _has_target_named(targets, "src.hash"):
-            gl = _try_gitlab_release_archive(upstream_ref, tag=tag,
-                                             target_version=target_version,
-                                             pname=pname)
+            gl = _try_gitlab_release_archive(
+                upstream_ref, tag=tag, target_version=target_version, pname=pname
+            )
             if gl is not None:
                 targets.append(gl)
 
         # If after all the above we still have no src.hash target,
         # record either the url-template-too-complex skip (preferred —
         # more specific) or a generic no-derivable-rule.
-        if not _has_target_named(targets, "src.hash") and not _has_skipped_named(skipped, "src.hash"):
+        if not _has_target_named(targets, "src.hash") and not _has_skipped_named(
+            skipped, "src.hash"
+        ):
             if url_template_skip is not None:
                 # url-template-too-complex / similar — the package DOES
                 # need src.hash, the resolver just can't derive its URL.
-                skipped.append(SkippedTarget(
-                    name=url_template_skip.name,
-                    reason=url_template_skip.reason,
-                    required_for_patch=True,
-                    detail=url_template_skip.detail,
-                ))
+                skipped.append(
+                    SkippedTarget(
+                        name=url_template_skip.name,
+                        reason=url_template_skip.reason,
+                        required_for_patch=True,
+                        detail=url_template_skip.detail,
+                    )
+                )
             else:
-                skipped.append(SkippedTarget(
-                    name="src.hash",
-                    reason="no-derivable-rule",
-                    required_for_patch=True,
-                    detail="no fetchFromGitHub / fetchurl / fetchzip / gitlab-host / upstream-ref rule matched",
-                ))
+                skipped.append(
+                    SkippedTarget(
+                        name="src.hash",
+                        reason="no-derivable-rule",
+                        required_for_patch=True,
+                        detail="no fetchFromGitHub / fetchurl / fetchzip / gitlab-host / upstream-ref rule matched",
+                    )
+                )
 
         # Closure-captured-version override. When the package closes
         # over `version` at definition time — either via a function
@@ -356,24 +376,27 @@ def derive_prefetch_targets(
             targets = new_targets
             # Drop any prior src.hash skip; re-add with the more specific reason.
             skipped = [s for s in skipped if s.name != "src.hash"]
-            skipped.insert(0, SkippedTarget(
-                name="src.hash",
-                reason="closure-captured-version",
-                required_for_patch=True,
-                detail=(
-                    "package.nix captures `version` at definition time "
-                    "— either via a `helper = { version, ... }:` "
-                    "function parameter (openssl-style) or via a "
-                    "top-level `let version = \"...\"; in ...` binding "
-                    "(systemd-style). overrideAttrs on the outer "
-                    "derivation does NOT re-trigger evaluation of the "
-                    "captured value, so fetchzip extraction returns the "
-                    "package's existing src.hash regardless of the "
-                    "target version. Operator must supply src.hash via "
-                    "manual-pinned source until a closure-aware "
-                    "extraction module lands."
+            skipped.insert(
+                0,
+                SkippedTarget(
+                    name="src.hash",
+                    reason="closure-captured-version",
+                    required_for_patch=True,
+                    detail=(
+                        "package.nix captures `version` at definition time "
+                        "— either via a `helper = { version, ... }:` "
+                        "function parameter (openssl-style) or via a "
+                        'top-level `let version = "..."; in ...` binding '
+                        "(systemd-style). overrideAttrs on the outer "
+                        "derivation does NOT re-trigger evaluation of the "
+                        "captured value, so fetchzip extraction returns the "
+                        "package's existing src.hash regardless of the "
+                        "target version. Operator must supply src.hash via "
+                        "manual-pinned source until a closure-aware "
+                        "extraction module lands."
+                    ),
                 ),
-            ))
+            )
             if displaced:
                 # Diagnostic: record that we displaced a derived target.
                 pass
@@ -383,22 +406,25 @@ def derive_prefetch_targets(
         attr_name = m.group("name")
         if _has_skipped_named(skipped, attr_name):
             continue
-        skipped.append(SkippedTarget(
-            name=attr_name,
-            reason="ecosystem-not-url-derivable",
-            required_for_patch=True,
-            detail=(
-                f"{attr_name} is not URL-derivable in v0; needs an "
-                f"ecosystem-specific prefetch mechanism (Go vendoring, "
-                f"Cargo vendoring, npm/pnpm/yarn deps prefetch). Patcher "
-                f"will rule-8 refuse for this slot until that lands."
-            ),
-        ))
+        skipped.append(
+            SkippedTarget(
+                name=attr_name,
+                reason="ecosystem-not-url-derivable",
+                required_for_patch=True,
+                detail=(
+                    f"{attr_name} is not URL-derivable in v0; needs an "
+                    f"ecosystem-specific prefetch mechanism (Go vendoring, "
+                    f"Cargo vendoring, npm/pnpm/yarn deps prefetch). Patcher "
+                    f"will rule-8 refuse for this slot until that lands."
+                ),
+            )
+        )
 
     if _is_pinned_source_backport(upstream_ref):
         touches_deps = _touches_a_dependency_manifest(backport_patch_text)
         skipped = [
-            s if (touches_deps and s.name != "src.hash")
+            s
+            if (touches_deps and s.name != "src.hash")
             else _not_required_for_a_source_backport(s)
             for s in skipped
         ]
@@ -426,16 +452,28 @@ def _is_pinned_source_backport(upstream_ref: dict) -> bool:
 
 # Dependency manifests whose contents a vendor hash covers. A backport that
 # edits one of these moves the hash even though the version stays pinned.
-_DEPENDENCY_MANIFESTS = frozenset({
-    "go.mod", "go.sum",
-    "Cargo.toml", "Cargo.lock",
-    "package.json", "package-lock.json", "npm-shrinkwrap.json",
-    "yarn.lock", "pnpm-lock.yaml",
-    "composer.json", "composer.lock",
-    "Gemfile", "Gemfile.lock",
-    "poetry.lock", "pyproject.toml", "requirements.txt",
-    "mix.lock", "gradle.lockfile",
-})
+_DEPENDENCY_MANIFESTS = frozenset(
+    {
+        "go.mod",
+        "go.sum",
+        "Cargo.toml",
+        "Cargo.lock",
+        "package.json",
+        "package-lock.json",
+        "npm-shrinkwrap.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "composer.json",
+        "composer.lock",
+        "Gemfile",
+        "Gemfile.lock",
+        "poetry.lock",
+        "pyproject.toml",
+        "requirements.txt",
+        "mix.lock",
+        "gradle.lockfile",
+    }
+)
 
 _PATCH_TARGET_RE = re.compile(r"(?m)^\+\+\+ (?:b/)?(\S+)")
 
@@ -523,12 +561,16 @@ def _try_fetch_from_github(
         rev_m = _FROMGITHUB_REV_RE.search(package_source)
         if rev_m:
             rev_for_archive = _substitute_version_pname(
-                rev_m.group("rev"), version=target_version, pname=pname,
+                rev_m.group("rev"),
+                version=target_version,
+                pname=pname,
             )
     if not rev_for_archive:
         return None
 
-    url = f"https://github.com/{owner}/{repo}/archive/refs/tags/{rev_for_archive}.tar.gz"
+    url = (
+        f"https://github.com/{owner}/{repo}/archive/refs/tags/{rev_for_archive}.tar.gz"
+    )
     return DerivedTarget(
         name="src.hash",
         url=url,
@@ -600,7 +642,9 @@ def _try_url_template(
 
 
 def _try_github_release_archive_from_upstream_ref(
-    upstream_ref: dict, *, tag: str | None,
+    upstream_ref: dict,
+    *,
+    tag: str | None,
 ) -> DerivedTarget | None:
     """github-release-archive fallback for packages whose fetcher lives
     in a sibling file (e.g. mbedtls 3.nix calling generic.nix).
@@ -689,7 +733,10 @@ def _extract_pname(package_source: str) -> str | None:
 
 
 def _substitute_version_pname(
-    text: str, *, version: str, pname: str | None,
+    text: str,
+    *,
+    version: str,
+    pname: str | None,
 ) -> str:
     out = _VERSION_INTERP_RE.sub(version, text)
     if pname is not None:
@@ -741,6 +788,7 @@ def auto_prefetch_high_confidence(
         PrefetchTarget,
         prefetch_targets,
     )
+
     derivation = derive_prefetch_targets(
         upstream_ref=upstream_ref,
         package_source=package_source,
@@ -748,8 +796,7 @@ def auto_prefetch_high_confidence(
     )
     high = [t for t in derivation.targets if t.confidence == "high"]
     prefetch_inputs = [
-        PrefetchTarget(name=t.name, url=t.url, algorithm=t.algorithm)
-        for t in high
+        PrefetchTarget(name=t.name, url=t.url, algorithm=t.algorithm) for t in high
     ]
     prefetch = prefetch_targets(prefetch_inputs, prefetch_url_fn=prefetch_url_fn)
     return derivation, prefetch, high

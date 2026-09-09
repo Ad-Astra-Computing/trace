@@ -20,12 +20,15 @@ from tools.trace_cli import pinned_source
 
 # ─── read_bundle_field ─────────────────────────────────────────────────────
 
+
 def test_read_bundle_field_falls_through(tmp_path: Path) -> None:
     bd = tmp_path / "bundle"
     bd.mkdir()
     (bd / "impact.json").write_text(json.dumps({"nixpkgs_rev": "a" * 40}))
     got = pinned_source.read_bundle_field(
-        bd, ("bundle.json", "nixpkgs_rev"), ("impact.json", "nixpkgs_rev"),
+        bd,
+        ("bundle.json", "nixpkgs_rev"),
+        ("impact.json", "nixpkgs_rev"),
     )
     assert got == "a" * 40
 
@@ -37,6 +40,7 @@ def test_read_bundle_field_none_when_absent(tmp_path: Path) -> None:
 
 
 # ─── unpack_source_store_path ──────────────────────────────────────────────
+
 
 def test_unpack_source_store_path_dir_passthrough(tmp_path: Path) -> None:
     """A directory `src` (fetchFromGitHub/fetchzip) is returned unchanged."""
@@ -61,6 +65,7 @@ def test_unpack_source_store_path_extracts_and_descends(tmp_path: Path) -> None:
 
 
 # ─── injection guard: malicious attr/rev never reach nix ───────────────────
+
 
 def test_unpack_rejects_malicious_attr(tmp_path: Path) -> None:
     bd = tmp_path / "bundle"
@@ -96,47 +101,69 @@ def test_unpack_rejects_missing_attr(tmp_path: Path) -> None:
 # tarball root instead of the derivation's real sourceRoot — the exact fail-open
 # (krb5 `sourceRoot = "krb5-.../src"`) the gate exists to catch.
 
+
 def _fake_run(stdout: str = "", returncode: int = 0):
     def run(*_a, **_k):
-        return subprocess.CompletedProcess(args=[], returncode=returncode,
-                                           stdout=stdout, stderr="boom")
+        return subprocess.CompletedProcess(
+            args=[], returncode=returncode, stdout=stdout, stderr="boom"
+        )
+
     return run
 
 
 def test_eval_source_root_raises_when_nix_instantiate_missing(monkeypatch) -> None:
     monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: None)
-    with pytest.raises(pinned_source.SourceRootEvalError, match="nix-instantiate not on PATH"):
+    with pytest.raises(
+        pinned_source.SourceRootEvalError, match="nix-instantiate not on PATH"
+    ):
         pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]')
 
 
 def test_eval_source_root_raises_on_nonzero_exit(monkeypatch) -> None:
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
     monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("", returncode=1))
     with pytest.raises(pinned_source.SourceRootEvalError, match="failed"):
         pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]')
 
 
 def test_eval_source_root_raises_on_malformed_output(monkeypatch) -> None:
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
-    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("not json", returncode=0))
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
+    monkeypatch.setattr(
+        pinned_source.subprocess, "run", _fake_run("not json", returncode=0)
+    )
     with pytest.raises(pinned_source.SourceRootEvalError, match="malformed"):
         pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]')
 
 
 def test_eval_source_root_returns_none_on_genuine_unset(monkeypatch) -> None:
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
-    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("null", returncode=0))
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
+    monkeypatch.setattr(
+        pinned_source.subprocess, "run", _fake_run("null", returncode=0)
+    )
     assert pinned_source.eval_source_root("let pkgs = x {};", '["zlib"]') is None
 
 
 def test_eval_source_root_returns_string_override(monkeypatch) -> None:
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
-    monkeypatch.setattr(pinned_source.subprocess, "run",
-                        _fake_run('"krb5-1.22.1/src"', returncode=0))
-    assert pinned_source.eval_source_root("let pkgs = x {};", '["krb5"]') == "krb5-1.22.1/src"
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
+    monkeypatch.setattr(
+        pinned_source.subprocess, "run", _fake_run('"krb5-1.22.1/src"', returncode=0)
+    )
+    assert (
+        pinned_source.eval_source_root("let pkgs = x {};", '["krb5"]')
+        == "krb5-1.22.1/src"
+    )
 
 
 # ─── resolve_effective_source_root ─────────────────────────────────────────
+
 
 def test_resolve_effective_source_root_none_is_tree(tmp_path: Path) -> None:
     tree = tmp_path / "pkg-1.0"
@@ -158,7 +185,10 @@ def test_resolve_effective_source_root_dot_fails_closed(tmp_path: Path) -> None:
 def test_resolve_effective_source_root_subdir_against_parent(tmp_path: Path) -> None:
     tree = tmp_path / "krb5-1.22.1"
     (tree / "src").mkdir(parents=True)
-    assert pinned_source.resolve_effective_source_root(tree, "krb5-1.22.1/src") == tree / "src"
+    assert (
+        pinned_source.resolve_effective_source_root(tree, "krb5-1.22.1/src")
+        == tree / "src"
+    )
 
 
 def test_resolve_effective_source_root_unresolvable_raises(tmp_path: Path) -> None:
@@ -170,13 +200,16 @@ def test_resolve_effective_source_root_unresolvable_raises(tmp_path: Path) -> No
 
 # ─── eval_patch_flags: best-effort by default, strict fails closed ──────────
 
+
 def test_eval_patch_flags_best_effort_returns_default(monkeypatch) -> None:
     monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: None)
-    assert pinned_source.eval_patch_flags("p", "[x]") == ["-p1"]           # no raise
+    assert pinned_source.eval_patch_flags("p", "[x]") == ["-p1"]  # no raise
 
 
 def test_eval_patch_flags_strict_raises_on_failure(monkeypatch) -> None:
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
     monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("", returncode=1))
     with pytest.raises(pinned_source.PatchFlagsEvalError):
         pinned_source.eval_patch_flags("p", "[x]", strict=True)
@@ -185,21 +218,30 @@ def test_eval_patch_flags_strict_raises_on_failure(monkeypatch) -> None:
 def test_eval_patch_flags_strict_genuine_default_ok(monkeypatch) -> None:
     """A genuine unset patchFlags resolves to ["-p1"] via the nix `or` default —
     a successful eval, NOT a failure — so strict must not raise."""
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
-    monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run('["-p1"]', returncode=0))
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
+    monkeypatch.setattr(
+        pinned_source.subprocess, "run", _fake_run('["-p1"]', returncode=0)
+    )
     assert pinned_source.eval_patch_flags("p", "[x]", strict=True) == ["-p1"]
 
 
 # ─── eval_preceding_patches_count: always fails closed ─────────────────────
 
+
 def test_eval_preceding_patches_count_raises_on_failure(monkeypatch) -> None:
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
     monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("", returncode=1))
     with pytest.raises(pinned_source.PatchesEvalError):
         pinned_source.eval_preceding_patches_count("p", "[x]")
 
 
 def test_eval_preceding_patches_count_parses_int(monkeypatch) -> None:
-    monkeypatch.setattr(pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate")
+    monkeypatch.setattr(
+        pinned_source.shutil, "which", lambda _n: "/usr/bin/nix-instantiate"
+    )
     monkeypatch.setattr(pinned_source.subprocess, "run", _fake_run("2", returncode=0))
     assert pinned_source.eval_preceding_patches_count("p", "[x]") == 2

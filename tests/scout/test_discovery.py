@@ -40,15 +40,17 @@ def _page(
     results_per_page: int | None = None,
 ) -> bytes:
     rpp = results_per_page if results_per_page is not None else len(cve_ids)
-    return json.dumps({
-        "totalResults": total if total is not None else len(cve_ids),
-        "startIndex": start_index,
-        "resultsPerPage": rpp,
-        "vulnerabilities": [
-            {"cve": {"id": cid, "published": "2026-04-28T12:00:00.000"}}
-            for cid in cve_ids
-        ],
-    }).encode()
+    return json.dumps(
+        {
+            "totalResults": total if total is not None else len(cve_ids),
+            "startIndex": start_index,
+            "resultsPerPage": rpp,
+            "vulnerabilities": [
+                {"cve": {"id": cid, "published": "2026-04-28T12:00:00.000"}}
+                for cid in cve_ids
+            ],
+        }
+    ).encode()
 
 
 def _http(plan: list[tuple[int, bytes]]) -> Any:
@@ -70,8 +72,12 @@ def test_single_page_returns_cve_ids() -> None:
 def test_pagination_walks_all_pages() -> None:
     """NVD returns at most 2000 per page; discoverer keeps walking
     while startIndex+resultsPerPage < totalResults."""
-    page1 = _page(["CVE-2026-1", "CVE-2026-2"], total=4, start_index=0, results_per_page=2)
-    page2 = _page(["CVE-2026-3", "CVE-2026-4"], total=4, start_index=2, results_per_page=2)
+    page1 = _page(
+        ["CVE-2026-1", "CVE-2026-2"], total=4, start_index=0, results_per_page=2
+    )
+    page2 = _page(
+        ["CVE-2026-3", "CVE-2026-4"], total=4, start_index=2, results_per_page=2
+    )
     http = _http([(200, page1), (200, page2)])
     out = list_recent_cves(
         since=datetime(2026, 4, 28, tzinfo=timezone.utc),
@@ -86,8 +92,12 @@ def test_dedupe_within_response() -> None:
     """Defensive: NVD has been known to repeat ids across pages on
     edge boundaries. The discoverer dedupes preserving first-seen
     order."""
-    page1 = _page(["CVE-2026-1", "CVE-2026-2"], total=4, start_index=0, results_per_page=2)
-    page2 = _page(["CVE-2026-2", "CVE-2026-3"], total=4, start_index=2, results_per_page=2)
+    page1 = _page(
+        ["CVE-2026-1", "CVE-2026-2"], total=4, start_index=0, results_per_page=2
+    )
+    page2 = _page(
+        ["CVE-2026-2", "CVE-2026-3"], total=4, start_index=2, results_per_page=2
+    )
     http = _http([(200, page1), (200, page2)])
     out = list_recent_cves(
         since=datetime(2026, 4, 28, tzinfo=timezone.utc),
@@ -105,8 +115,14 @@ def test_window_passed_as_iso_query_params() -> None:
         http=http,
     )
     url = http.call_args.args[0]
-    assert "pubStartDate=2026-04-28T01%3A02%3A03" in url or "pubStartDate=2026-04-28T01:02:03" in url
-    assert "pubEndDate=2026-04-29T04%3A05%3A06" in url or "pubEndDate=2026-04-29T04:05:06" in url
+    assert (
+        "pubStartDate=2026-04-28T01%3A02%3A03" in url
+        or "pubStartDate=2026-04-28T01:02:03" in url
+    )
+    assert (
+        "pubEndDate=2026-04-29T04%3A05%3A06" in url
+        or "pubEndDate=2026-04-29T04:05:06" in url
+    )
 
 
 def test_api_key_threaded_through_when_provided() -> None:

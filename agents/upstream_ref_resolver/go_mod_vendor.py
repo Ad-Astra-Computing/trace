@@ -48,8 +48,8 @@ from typing import Callable
 
 @dataclass(frozen=True)
 class GoModVendorRequest:
-    attr_path: str           # e.g. "traefik"
-    target_version: str      # e.g. "3.6.8"
+    attr_path: str  # e.g. "traefik"
+    target_version: str  # e.g. "3.6.8"
     src_hash: str | None = None  # SRI-form; if absent, uses upstream pin as-is
     nixpkgs_rev: str | None = None
     timeout_seconds: int = 1800  # Go vendoring of a real package can be slow
@@ -61,8 +61,8 @@ class GoModVendorSuccess:
 
     name: str
     algorithm: str
-    value: str          # SRI-form, e.g. "sha256-..."
-    source: str         # always "go-mod-vendor" for this module
+    value: str  # SRI-form, e.g. "sha256-..."
+    source: str  # always "go-mod-vendor" for this module
     prefetch_kind: str  # always "go-mod-vendor"
     tool: str
     tool_version: str
@@ -166,7 +166,7 @@ def _build_expression(request: GoModVendorRequest) -> str:
     if request.nixpkgs_rev:
         parts.append(
             f"let pkgs = import (fetchTarball "
-            f"\"https://github.com/NixOS/nixpkgs/archive/{request.nixpkgs_rev}.tar.gz\") "
+            f'"https://github.com/NixOS/nixpkgs/archive/{request.nixpkgs_rev}.tar.gz") '
             f"{{}}; in"
         )
     else:
@@ -174,7 +174,7 @@ def _build_expression(request: GoModVendorRequest) -> str:
 
     overrides_lines: list[str] = [
         f'  version = "{request.target_version}";',
-        '  vendorHash = pkgs.lib.fakeHash;',
+        "  vendorHash = pkgs.lib.fakeHash;",
     ]
     if request.src_hash is not None:
         # If an external src_hash is supplied, override src to use it.
@@ -182,11 +182,11 @@ def _build_expression(request: GoModVendorRequest) -> str:
         # commonly used in nixpkgs Go packages; tightening this per
         # actual fetcher is future work.
         overrides_lines.append(
-            f'  # External src_hash supplied by caller; override is opaque\n'
-            f'  # but lets the build proceed past the source-fetch FOD.'
+            f"  # External src_hash supplied by caller; override is opaque\n"
+            f"  # but lets the build proceed past the source-fetch FOD."
         )
         overrides_lines.append(
-            f'  src = (pkgs.{request.attr_path}.src.overrideAttrs '
+            f"  src = (pkgs.{request.attr_path}.src.overrideAttrs "
             f'(_: {{ outputHash = "{request.src_hash}"; }}));'
         )
 
@@ -200,24 +200,33 @@ def _build_expression(request: GoModVendorRequest) -> str:
 
 
 def _run_nix_build_fod_extract(
-    expression: str, request: GoModVendorRequest,
+    expression: str,
+    request: GoModVendorRequest,
 ) -> CommandRunResult:
     """Default runner. Shell out to nix-build, expect FOD-hash failure,
     parse the error for the real hash."""
     if not shutil.which("nix-build"):
-        return ("err",
-                "nix-build not on PATH; go-mod-vendor prefetch requires Nix",
-                "", "")
+        return (
+            "err",
+            "nix-build not on PATH; go-mod-vendor prefetch requires Nix",
+            "",
+            "",
+        )
 
     # Capture tool version best-effort.
     tool_version = ""
     try:
         ver = subprocess.run(
             ["nix-build", "--version"],
-            check=False, capture_output=True, text=True, timeout=10,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if ver.returncode == 0:
-            tool_version = (ver.stdout or "").strip().splitlines()[0] if ver.stdout else ""
+            tool_version = (
+                (ver.stdout or "").strip().splitlines()[0] if ver.stdout else ""
+            )
     except subprocess.SubprocessError:
         pass
 
@@ -225,40 +234,56 @@ def _run_nix_build_fod_extract(
     # vendor step (avoiding the full Go build). --no-out-link keeps the
     # transient store path GC-eligible.
     cmd = [
-        "nix-build", "--no-out-link", "-A", "goModules",
-        "-E", expression,
+        "nix-build",
+        "--no-out-link",
+        "-A",
+        "goModules",
+        "-E",
+        expression,
     ]
     derivation_command = " ".join(cmd)
 
     try:
         result = subprocess.run(
-            cmd, check=False, capture_output=True, text=True,
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
             timeout=request.timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        return ("err",
-                f"nix-build timed out after {request.timeout_seconds}s",
-                tool_version, derivation_command)
+        return (
+            "err",
+            f"nix-build timed out after {request.timeout_seconds}s",
+            tool_version,
+            derivation_command,
+        )
     except OSError as exc:
         return ("err", f"OSError: {exc}", tool_version, derivation_command)
 
     # Successful build means vendorHash already matched lib.fakeHash —
     # which would mean someone forgot to bump it. Treat as failure.
     if result.returncode == 0:
-        return ("err",
-                "nix-build succeeded with vendorHash=lib.fakeHash; the override "
-                "was bypassed or the package does not require vendoring",
-                tool_version, derivation_command)
+        return (
+            "err",
+            "nix-build succeeded with vendorHash=lib.fakeHash; the override "
+            "was bypassed or the package does not require vendoring",
+            tool_version,
+            derivation_command,
+        )
 
     combined = (result.stderr or "") + "\n" + (result.stdout or "")
     sri = _parse_fod_hash_mismatch(combined)
     if sri is None:
         # Truncate combined output for the failure detail.
-        return ("err",
-                f"could not parse FOD hash mismatch from nix-build output; "
-                f"exit={result.returncode}, last-2KiB-stderr: "
-                f"{(result.stderr or '')[-1900:]!r}",
-                tool_version, derivation_command)
+        return (
+            "err",
+            f"could not parse FOD hash mismatch from nix-build output; "
+            f"exit={result.returncode}, last-2KiB-stderr: "
+            f"{(result.stderr or '')[-1900:]!r}",
+            tool_version,
+            derivation_command,
+        )
     return ("ok", sri, tool_version, derivation_command)
 
 

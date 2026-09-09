@@ -62,7 +62,9 @@ def is_relevant_to_nixpkgs(
     for hint in pname_hints:
         for candidate in {hint, hint.lower()}:
             if graph.find_by_pname(candidate):
-                return RelevanceDecision(True, f"pname-hit:{candidate}", "pname", candidate)
+                return RelevanceDecision(
+                    True, f"pname-hit:{candidate}", "pname", candidate
+                )
 
     tried = sorted(set(cpes + purls + [h.lower() for h in pname_hints]))
     return RelevanceDecision(

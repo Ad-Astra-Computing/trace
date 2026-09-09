@@ -42,7 +42,9 @@ def finding_validator() -> Draft202012Validator:
 
 @pytest.fixture(scope="module")
 def mapping_failure_validator() -> Draft202012Validator:
-    schema = json.loads((REPO_ROOT / "policy" / "mapping-failure-schema.json").read_text())
+    schema = json.loads(
+        (REPO_ROOT / "policy" / "mapping-failure-schema.json").read_text()
+    )
     return Draft202012Validator(schema)
 
 
@@ -104,7 +106,9 @@ def test_cpe_exact_single_hit_high(scout_input_validator, finding_validator):
     _validate(finding_validator, finding, "finding")
 
     assert finding["mapping"]["method"] == "cpe-exact"
-    assert finding["mapping"]["cpe"] == ["cpe:2.3:a:example:libexample:1.4.7:*:*:*:*:*:*:*"]
+    assert finding["mapping"]["cpe"] == [
+        "cpe:2.3:a:example:libexample:1.4.7:*:*:*:*:*:*:*"
+    ]
     assert len(finding["affected"]) == 1
     affected = finding["affected"][0]
     assert affected["confidence"] == "high"
@@ -164,15 +168,17 @@ def test_pname_heuristic_single_hit_medium(scout_input_validator, finding_valida
     )
     _validate(scout_input_validator, feed, "scout input")
     # Graph record has a different CPE so CPE-exact won't fire; pname=libexample matches.
-    graph = CannedGraphLookup([
-        GraphMatch(
-            attr_path="libexample",
-            drv_path="/nix/store/00000000000000000000000000000003-libexample-1.4.7.drv",
-            pname="libexample",
-            version="1.4.7",
-            cpes=("cpe:2.3:a:example:libexample:1.4.7:*:*:*:*:*:*:*",),
-        )
-    ])
+    graph = CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path="libexample",
+                drv_path="/nix/store/00000000000000000000000000000003-libexample-1.4.7.drv",
+                pname="libexample",
+                version="1.4.7",
+                cpes=("cpe:2.3:a:example:libexample:1.4.7:*:*:*:*:*:*:*",),
+            )
+        ]
+    )
 
     result = scan(feed, graph)
     assert result["status"] == "finding"
@@ -184,23 +190,27 @@ def test_pname_heuristic_single_hit_medium(scout_input_validator, finding_valida
     assert "confidence_reason" in finding["affected"][0]
 
 
-def test_pname_derived_from_cpe_when_no_hint_given(scout_input_validator, finding_validator):
+def test_pname_derived_from_cpe_when_no_hint_given(
+    scout_input_validator, finding_validator
+):
     # Scout should derive pname="libexample" from the cpe product component.
     feed = _base_feed(
         "CVE-0000-2005",
         cpe_matches=[{"cpe": "cpe:2.3:a:example:libexample:9.9.9:*:*:*:*:*:*:*"}],
     )
     _validate(scout_input_validator, feed, "scout input")
-    graph = CannedGraphLookup([
-        GraphMatch(
-            attr_path="libexample",
-            drv_path="/nix/store/00000000000000000000000000000004-libexample-1.4.7.drv",
-            pname="libexample",
-            version="1.4.7",
-            # Note: no CPE on this graph record (different from feed cpe), so exact
-            # lookup misses; pname extraction from the feed cpe must rescue it.
-        )
-    ])
+    graph = CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path="libexample",
+                drv_path="/nix/store/00000000000000000000000000000004-libexample-1.4.7.drv",
+                pname="libexample",
+                version="1.4.7",
+                # Note: no CPE on this graph record (different from feed cpe), so exact
+                # lookup misses; pname extraction from the feed cpe must rescue it.
+            )
+        ]
+    )
     result = scan(feed, graph)
     assert result["status"] == "finding"
     _validate(finding_validator, result["finding"], "finding")
@@ -217,20 +227,22 @@ def test_pname_heuristic_multi_hit_low(scout_input_validator, finding_validator)
         pname_hints=["libexample"],
     )
     _validate(scout_input_validator, feed, "scout input")
-    graph = CannedGraphLookup([
-        GraphMatch(
-            attr_path="libexample",
-            drv_path="/nix/store/00000000000000000000000000000005-libexample-1.4.7.drv",
-            pname="libexample",
-            version="1.4.7",
-        ),
-        GraphMatch(
-            attr_path="libexampleAlt",
-            drv_path="/nix/store/00000000000000000000000000000006-libexample-alt-1.4.7.drv",
-            pname="libexample",
-            version="1.4.7",
-        ),
-    ])
+    graph = CannedGraphLookup(
+        [
+            GraphMatch(
+                attr_path="libexample",
+                drv_path="/nix/store/00000000000000000000000000000005-libexample-1.4.7.drv",
+                pname="libexample",
+                version="1.4.7",
+            ),
+            GraphMatch(
+                attr_path="libexampleAlt",
+                drv_path="/nix/store/00000000000000000000000000000006-libexample-alt-1.4.7.drv",
+                pname="libexample",
+                version="1.4.7",
+            ),
+        ]
+    )
 
     result = scan(feed, graph)
     assert result["status"] == "finding"
@@ -246,10 +258,14 @@ def test_pname_heuristic_multi_hit_low(scout_input_validator, finding_validator)
 # ─── path 5: no match → mapping-failure ─────────────────────────────────────
 
 
-def test_no_match_emits_mapping_failure(scout_input_validator, mapping_failure_validator):
+def test_no_match_emits_mapping_failure(
+    scout_input_validator, mapping_failure_validator
+):
     feed = _base_feed(
         "CVE-0000-2007",
-        cpe_matches=[{"cpe": "cpe:2.3:a:unknownvendor:nothing-here:1.0.0:*:*:*:*:*:*:*"}],
+        cpe_matches=[
+            {"cpe": "cpe:2.3:a:unknownvendor:nothing-here:1.0.0:*:*:*:*:*:*:*"}
+        ],
         purl_matches=["pkg:generic/nothing-here@1.0.0"],
     )
     _validate(scout_input_validator, feed, "scout input")
@@ -270,7 +286,9 @@ def test_no_match_emits_mapping_failure(scout_input_validator, mapping_failure_v
         assert m["hits"] == 0
 
 
-def test_empty_identifier_set_emits_mapping_failure(scout_input_validator, mapping_failure_validator):
+def test_empty_identifier_set_emits_mapping_failure(
+    scout_input_validator, mapping_failure_validator
+):
     feed = _base_feed("CVE-0000-2008")  # no cpes, no purls, no pname hints
     _validate(scout_input_validator, feed, "scout input")
     graph = CannedGraphLookup([MATCH_LIBEXAMPLE])

@@ -19,6 +19,7 @@ the same tracker JSON and seed reproduces the sample.
 Usage:
   python3 scripts/crossdistro_screen.py --tracker deb-tracker.json --out data/reports
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,7 +83,9 @@ def fetch(url: str, timeout: int = 45) -> tuple[bytes, str] | None:
             return None  # a prior fetch of this URL failed; don't retry-hammer
     try:
         time.sleep(FETCH_DELAY_S)
-        req = urllib.request.Request(url, headers={"User-Agent": "trace-crossdistro-screen"})
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "trace-crossdistro-screen"}
+        )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             final_host = _host(resp.geturl())
             if final_host and final_host not in ALLOWED_HOSTS:
@@ -261,9 +264,15 @@ def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--tracker", type=Path, help="path to a pre-fetched security-tracker JSON")
+    ap.add_argument(
+        "--tracker", type=Path, help="path to a pre-fetched security-tracker JSON"
+    )
     ap.add_argument("--out", type=Path, default=Path("data/reports"))
-    ap.add_argument("--cache", type=Path, help="dir to cache fetches (reused across runs; polite re-runs)")
+    ap.add_argument(
+        "--cache",
+        type=Path,
+        help="dir to cache fetches (reused across runs; polite re-runs)",
+    )
     args = ap.parse_args(argv[1:])
 
     global _CACHE_DIR
@@ -274,7 +283,9 @@ def main(argv: list[str]) -> int:
     if args.tracker and args.tracker.exists():
         raw = args.tracker.read_bytes()
     else:
-        got = fetch("https://security-tracker.debian.org/tracker/data/json", timeout=120)
+        got = fetch(
+            "https://security-tracker.debian.org/tracker/data/json", timeout=120
+        )
         if got is None:
             print("error: could not fetch tracker JSON", file=sys.stderr)
             return 2
@@ -291,10 +302,16 @@ def main(argv: list[str]) -> int:
     out_path.write_text(json.dumps(report, indent=1) + "\n")
 
     print(f"census: {report['census_size']} (pkg={report['census_packages']})")
-    print(f"packages drawn: {report['packages_drawn']}  candidates tried: {report['candidates_tried']}")
-    print(f"eligible screened: {report['eligible_screened']}  eligibility rate: {report['eligibility_rate']}")
+    print(
+        f"packages drawn: {report['packages_drawn']}  candidates tried: {report['candidates_tried']}"
+    )
+    print(
+        f"eligible screened: {report['eligible_screened']}  eligibility rate: {report['eligibility_rate']}"
+    )
     c = report["counts"]
-    print(f"  genuine={c['genuine_adaptation']}  verbatim={c['verbatim_copy']}  ambiguous={c['provenance_ambiguous']}")
+    print(
+        f"  genuine={c['genuine_adaptation']}  verbatim={c['verbatim_copy']}  ambiguous={c['provenance_ambiguous']}"
+    )
     print(f"DECISION: {report['decision']} (g={report['genuine_count']}, threshold 8)")
     print(f"  Wilson95 genuine rate: {report['wilson95_genuine_rate']}")
     print(f"wrote: {out_path}")

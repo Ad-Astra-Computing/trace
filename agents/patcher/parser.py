@@ -109,7 +109,9 @@ def parse_patcher_output(raw: str) -> PatcherParseResult:
         raise PatcherOutputMalformed("model returned empty output")
 
     # Decide which block shape we're in by looking at the first BEGIN marker.
-    first_marker_match = re.search(r"^===\s*BEGIN (patch\.diff|refusal)\s*===$", text, re.MULTILINE)
+    first_marker_match = re.search(
+        r"^===\s*BEGIN (patch\.diff|refusal)\s*===$", text, re.MULTILINE
+    )
     if not first_marker_match:
         raise PatcherOutputMalformed(
             "no '=== BEGIN ... ===' marker found; model output does not match the contract"
@@ -151,7 +153,7 @@ def _parse_patch(text: str) -> PatcherParseResult:
         )
 
     # Nothing permitted after the last END marker.
-    after = stripped[match.end():].strip()
+    after = stripped[match.end() :].strip()
     if after:
         raise PatcherOutputMalformed(
             "content after '=== END patch-rationale.md ===' is forbidden; "
@@ -234,7 +236,7 @@ def _parse_refusal(text: str) -> PatcherParseResult:
             "refusal output malformed: expected '=== BEGIN refusal === ... === END refusal ==='"
         )
 
-    after = stripped[match.end():].strip()
+    after = stripped[match.end() :].strip()
     if after:
         raise PatcherOutputMalformed(
             "content after '=== END refusal ===' is forbidden; "

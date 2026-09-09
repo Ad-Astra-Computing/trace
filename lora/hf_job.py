@@ -36,6 +36,7 @@ A100 80GB (not L40S 44GB): the full-vocab cross-entropy on ~15K-token outliers
 materializes a ~8.5 GiB fp32 logits tensor that OOMs 44GB. Namespace odoom = billing
 (personal credits); HUB_MODEL_ID = adastracomputing org = adapter destination.
 """
+
 import json
 import os
 from pathlib import Path
@@ -65,8 +66,13 @@ LORA_RANK = 16
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
 LORA_TARGET_MODULES = [
-    "q_proj", "k_proj", "v_proj", "o_proj",
-    "gate_proj", "up_proj", "down_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
 ]
 
 # 150 optimizer steps × grad_accum 4 ≈ 8.7 epochs over 69 examples.
@@ -84,11 +90,13 @@ def load_jsonl(path: Path) -> list:
 def make_formatting_func(tok):
     """Batch-mode chat-template renderer. Loss is over the full conversation;
     acceptable for a 92-example binary SFT where the signal is the assistant turn."""
+
     def fmt(examples):
         return [
             tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
             for msgs in examples["messages"]
         ]
+
     return fmt
 
 
@@ -195,8 +203,13 @@ def main():
     )
 
     print(f"Model  {MODEL_ID} @ {MODEL_REVISION}", flush=True)
-    print(f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4", flush=True)
-    print(f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} seed={SEED}", flush=True)
+    print(
+        f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4",
+        flush=True,
+    )
+    print(
+        f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} seed={SEED}", flush=True
+    )
 
     train_result = trainer.train()
 
@@ -237,6 +250,7 @@ def main():
     # push_to_hub=True + hub_strategy=end already pushed the adapter; also push
     # the manifest so provenance travels with the model repo.
     from huggingface_hub import HfApi
+
     HfApi().upload_file(
         path_or_fileobj=str(manifest_path),
         path_in_repo="run_manifest.json",

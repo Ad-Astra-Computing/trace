@@ -59,14 +59,20 @@ def _extract_decision(obj: Any) -> dict[str, Any] | None:
     if not isinstance(obj, dict):
         return None
     if "allow" in obj or "deny" in obj:
-        return {"allow": bool(obj.get("allow", False)), "deny": obj.get("deny", []) or []}
+        return {
+            "allow": bool(obj.get("allow", False)),
+            "deny": obj.get("deny", []) or [],
+        }
     try:
         value = obj["result"][0]["expressions"][0]["value"]
     except (KeyError, IndexError, TypeError):
         return None
     if not isinstance(value, dict):
         return None
-    return {"allow": bool(value.get("allow", False)), "deny": value.get("deny", []) or []}
+    return {
+        "allow": bool(value.get("allow", False)),
+        "deny": value.get("deny", []) or [],
+    }
 
 
 def _deny_table(deny: list[dict[str, Any]]) -> str:
@@ -90,7 +96,7 @@ def _signal_match(
         stripped = line.strip()
         prefix = f"{name}:"
         if stripped.startswith(prefix):
-            sig = stripped[len(prefix):].strip()
+            sig = stripped[len(prefix) :].strip()
             break
     if not sig:
         return f"{FAIL} no signal line", False
@@ -165,7 +171,9 @@ def render_cert_summary(
         elif verdict_gates:
             rows.append(f"| Steward verdict | {FAIL} deny ({len(deny)} rule(s)) |")
         else:
-            rows.append(f"| Steward verdict | {NA} deny ({len(deny)} rule(s)) — informational for {kind} |")
+            rows.append(
+                f"| Steward verdict | {NA} deny ({len(deny)} rule(s)) — informational for {kind} |"
+            )
 
     build_ok = applied is True and built == "succeeded" and host == "x86_64-linux"
     verdict_blocks = verdict_gates and verdict_ok is not True
@@ -242,7 +250,9 @@ def render_steward_summary(
             # Signed (Rekor index present), but the verify-signature step did
             # not succeed (failed / cancelled / skipped) — not policy-verified.
             verdict_cell = f"{PASS} allow"
-            banner = f"### {FAIL} SIGNED BUT SIGNATURE NOT VERIFIED (verify: {verified})"
+            banner = (
+                f"### {FAIL} SIGNED BUT SIGNATURE NOT VERIFIED (verify: {verified})"
+            )
         else:
             # Allowed but no Rekor index = cosign signing / Rekor population
             # failed. The gate+sign workflow's whole job is to emit a signed,
@@ -275,7 +285,13 @@ def render_steward_summary(
     if sm.get("identity_issuer"):
         rows.append(f"| OIDC issuer | `{sm['identity_issuer']}` |")
 
-    parts = [f"## Steward gate + sign — `{bundle_name}`", "", banner, "", "\n".join(rows)]
+    parts = [
+        f"## Steward gate + sign — `{bundle_name}`",
+        "",
+        banner,
+        "",
+        "\n".join(rows),
+    ]
     if deny:
         parts.append(_deny_table(deny))
     if artifact_name:
@@ -289,7 +305,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bundle-dir", type=Path, required=True)
     p.add_argument("--bundle-name", required=True)
     p.add_argument("--kind", default=None, help="bundle kind (cert mode)")
-    p.add_argument("--decision", type=Path, default=None, help="OPA / steward decision JSON")
+    p.add_argument(
+        "--decision", type=Path, default=None, help="OPA / steward decision JSON"
+    )
     p.add_argument("--artifact-name", default=None)
     p.add_argument(
         "--verified",

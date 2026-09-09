@@ -44,7 +44,8 @@ def _is_authoring_supplement(fixture_dir: Path) -> bool:
 
 def _real_cve_bundle_dirs() -> list[str]:
     return sorted(
-        p.name for p in FIXTURE_ROOT.iterdir()
+        p.name
+        for p in FIXTURE_ROOT.iterdir()
         if p.is_dir()
         and p.name.startswith("CVE-")
         and not p.name.startswith("CVE-0000-")
@@ -77,11 +78,14 @@ def test_seed_index_does_not_reference_removed_bundles():
                 head = token.split()[0].rstrip(".,)/")
                 if head.startswith("CVE-") and "--" in head:
                     referenced.add(head)
-    stale = sorted(name for name in referenced if name not in real and not name.startswith("CVE-0000-"))
+    stale = sorted(
+        name
+        for name in referenced
+        if name not in real and not name.startswith("CVE-0000-")
+    )
     assert not stale, (
         "docs/SEED_INDEX.md references CVE bundles that no longer exist "
-        "under traces/example/:\n  "
-        + "\n  ".join(stale)
+        "under traces/example/:\n  " + "\n  ".join(stale)
     )
 
 
@@ -149,14 +153,15 @@ def test_seed_index_family_cell_mentions_all_role_families():
                 f"  {name}: replay.json has only deterministic-no-model roles, "
                 f"but index family cell {family_cell!r} omits it"
             )
-        if non_det_families and "model-attested" not in family_cell and not any(
-            f in family_cell for f in non_det_families
+        if (
+            non_det_families
+            and "model-attested" not in family_cell
+            and not any(f in family_cell for f in non_det_families)
         ):
             misses.append(
                 f"  {name}: replay.json declares families {sorted(non_det_families)!r}, "
                 f"but index family cell {family_cell!r} mentions none"
             )
     assert not misses, (
-        "docs/SEED_INDEX.md family cell drifted from replay.json:\n"
-        + "\n".join(misses)
+        "docs/SEED_INDEX.md family cell drifted from replay.json:\n" + "\n".join(misses)
     )

@@ -51,10 +51,16 @@ def main(argv: list[str] | None = None) -> int:
 
     upd = sub.add_parser("update", help="fold a run summary into the ledger")
     upd.add_argument("--ledger", required=True, type=Path)
-    upd.add_argument("--sidecar", required=True, type=Path,
-                     help="emit sidecar written by discover_nix_cli --emit-sidecar")
+    upd.add_argument(
+        "--sidecar",
+        required=True,
+        type=Path,
+        help="emit sidecar written by discover_nix_cli --emit-sidecar",
+    )
     upd.add_argument("--run-summary", required=True, type=Path)
-    upd.add_argument("--run-at", required=True, help="ISO-8601 UTC timestamp for this run")
+    upd.add_argument(
+        "--run-at", required=True, help="ISO-8601 UTC timestamp for this run"
+    )
 
     args = parser.parse_args(argv)
 

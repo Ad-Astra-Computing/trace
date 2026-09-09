@@ -102,7 +102,7 @@ GUARD_REWRITE_TYPES = ("guard-demorgan", "guard-hoist", "guard-split", "guard-re
 _DECOY_SRI = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 _HASH_LINE_RE = re.compile(
-    r'^([+\-]?\s*(?:hash|sha256|sha512|vendorHash|vendorSha256|cargoHash|cargoSha256'
+    r"^([+\-]?\s*(?:hash|sha256|sha512|vendorHash|vendorSha256|cargoHash|cargoSha256"
     r'|npmDepsHash|npmDepsSha256|pnpmDepsHash|yarnDepsHash|outputHash)\s*=\s*")([^"]+)(".*)$'
 )
 _VERSION_LINE_RE = re.compile(r'^([+]\s*version\s*=\s*")([^"]+)(".*)$')
@@ -132,28 +132,49 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         ),
     )
     p_subs = p.add_subparsers(dest="mutate_scope", required=True)
-    rn = p_subs.add_parser("reviewer-negative", help="inject a defect for a reviewer negative")
-    rn.add_argument("--base-dir", type=Path, required=True, help="known-good source bundle dir")
+    rn = p_subs.add_parser(
+        "reviewer-negative", help="inject a defect for a reviewer negative"
+    )
+    rn.add_argument(
+        "--base-dir", type=Path, required=True, help="known-good source bundle dir"
+    )
     rn.add_argument("--mutation", choices=MUTATION_TYPES, required=True)
-    rn.add_argument("--out-dir", type=Path, required=True, help="destination bundle dir (created)")
-    rn.add_argument("--decoy-hash", default=None, help="hash to use for hash-from-other-bundle")
     rn.add_argument(
-        "--swap", nargs=2, metavar=("LINE_A", "LINE_B"), default=None,
+        "--out-dir", type=Path, required=True, help="destination bundle dir (created)"
+    )
+    rn.add_argument(
+        "--decoy-hash", default=None, help="hash to use for hash-from-other-bundle"
+    )
+    rn.add_argument(
+        "--swap",
+        nargs=2,
+        metavar=("LINE_A", "LINE_B"),
+        default=None,
         help="for token-preserving-misplacement: two ADDED source lines (verbatim, "
-             "sans diff prefix) to swap so the fix is mis-ordered but the tokens remain",
+        "sans diff prefix) to swap so the fix is mis-ordered but the tokens remain",
     )
     rn.add_argument(
-        "--guard", default=None,
+        "--guard",
+        default=None,
         help="for condition-* mutations: the exact ADDED compound-guard source line "
-             "(verbatim, sans diff prefix) to mutate",
+        "(verbatim, sans diff prefix) to mutate",
     )
-    rn.add_argument("--op-from", default=None,
-                    help="condition-operator-mutation: operator substring in --guard to replace")
-    rn.add_argument("--op-to", default=None,
-                    help="condition-operator-mutation: replacement operator")
-    rn.add_argument("--drop-subterm", default=None,
-                    help="condition-drop-conjunct: a conjunct substring (e.g. ' || pl > 255') "
-                         "to remove from --guard")
+    rn.add_argument(
+        "--op-from",
+        default=None,
+        help="condition-operator-mutation: operator substring in --guard to replace",
+    )
+    rn.add_argument(
+        "--op-to",
+        default=None,
+        help="condition-operator-mutation: replacement operator",
+    )
+    rn.add_argument(
+        "--drop-subterm",
+        default=None,
+        help="condition-drop-conjunct: a conjunct substring (e.g. ' || pl > 255') "
+        "to remove from --guard",
+    )
     rn.add_argument("--format", choices=["human", "json"], default="human")
 
     rp = p_subs.add_parser(
@@ -166,28 +187,40 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
             "--execute --role reviewer` against the output to get the real accept target."
         ),
     )
-    rp.add_argument("--base-dir", type=Path, required=True, help="known-good positive bundle dir")
+    rp.add_argument(
+        "--base-dir", type=Path, required=True, help="known-good positive bundle dir"
+    )
     rp.add_argument("--reorg", choices=REORG_TYPES, required=True)
-    rp.add_argument("--out-dir", type=Path, required=True, help="destination bundle dir (created)")
     rp.add_argument(
-        "--guard", action="append", default=None, metavar="LINE",
+        "--out-dir", type=Path, required=True, help="destination bundle dir (created)"
+    )
+    rp.add_argument(
+        "--guard",
+        action="append",
+        default=None,
+        metavar="LINE",
         help="guard-* reorgs: an ADDED source line of the compound guard to rewrite "
-             "(verbatim, sans diff prefix). Repeat, in order, for a multi-line guard.",
+        "(verbatim, sans diff prefix). Repeat, in order, for a multi-line guard.",
     )
     rp.add_argument(
-        "--rewrite-to", action="append", default=None, metavar="LINE",
+        "--rewrite-to",
+        action="append",
+        default=None,
+        metavar="LINE",
         help="guard-* reorgs: a replacement source line (verbatim, sans diff prefix). "
-             "Repeat, in order; the replacement may have a different line count.",
+        "Repeat, in order; the replacement may have a different line count.",
     )
     rp.add_argument(
-        "--equivalence", default=None,
+        "--equivalence",
+        default=None,
         help="guard-* reorgs: the written proof that the rewrite is semantically "
-             "equivalent to the original guard (recorded in reorg.json).",
+        "equivalent to the original guard (recorded in reorg.json).",
     )
     rp.add_argument(
-        "--hardness", default=None,
+        "--hardness",
+        default=None,
         help="guard-* reorgs: why this rewrite sits near the rejection boundary — "
-             "what a string-level reader would mistake for a missing conjunct.",
+        "what a string-level reader would mistake for a missing conjunct.",
     )
     rp.add_argument("--format", choices=["human", "json"], default="human")
     return p
@@ -237,24 +270,42 @@ def _swap_added_lines(out_dir: Path, code_a: str, code_b: str) -> dict[str, Any]
     patch_path = out_dir / "patch.diff"
     diff = patch_path.read_text()
     lines = diff.splitlines()
-    hits_a = [(i, d) for i, l in enumerate(lines) if (d := _added_line_match(l, code_a)) is not None]
-    hits_b = [(i, d) for i, l in enumerate(lines) if (d := _added_line_match(l, code_b)) is not None]
+    hits_a = [
+        (i, d)
+        for i, l in enumerate(lines)
+        if (d := _added_line_match(l, code_a)) is not None
+    ]
+    hits_b = [
+        (i, d)
+        for i, l in enumerate(lines)
+        if (d := _added_line_match(l, code_b)) is not None
+    ]
     if len(hits_a) != 1:
-        raise ValueError(f"--swap line A matched {len(hits_a)} added line(s), need exactly 1: {code_a!r}")
+        raise ValueError(
+            f"--swap line A matched {len(hits_a)} added line(s), need exactly 1: {code_a!r}"
+        )
     if len(hits_b) != 1:
-        raise ValueError(f"--swap line B matched {len(hits_b)} added line(s), need exactly 1: {code_b!r}")
+        raise ValueError(
+            f"--swap line B matched {len(hits_b)} added line(s), need exactly 1: {code_b!r}"
+        )
     (ia, da), (ib, db) = hits_a[0], hits_b[0]
     if da != db:
-        raise ValueError(f"--swap lines are at different diff nesting depths ({da} vs {db}); cannot swap")
+        raise ValueError(
+            f"--swap lines are at different diff nesting depths ({da} vs {db}); cannot swap"
+        )
     ha, hb = _hunk_header_of(lines, ia, da), _hunk_header_of(lines, ib, db)
     if ha is None or hb is None or ha != hb:
-        raise ValueError("--swap lines are not in the same hunk; misplacement must be intra-hunk")
+        raise ValueError(
+            "--swap lines are not in the same hunk; misplacement must be intra-hunk"
+        )
     lines[ia], lines[ib] = lines[ib], lines[ia]
     patch_path.write_text("\n".join(lines) + ("\n" if diff.endswith("\n") else ""))
     return {"swapped_lines": [code_a, code_b], "line_indices": [ia, ib], "depth": da}
 
 
-def _edit_added_guard_line(out_dir: Path, guard: str, find: str, replace: str) -> dict[str, Any]:
+def _edit_added_guard_line(
+    out_dir: Path, guard: str, find: str, replace: str
+) -> dict[str, Any]:
     """Edit a single ADDED guard line in patch.diff in place: within the line
     whose source content == `guard`, replace the first occurrence of `find` with
     `replace`. Count-preserving (one line's content changes, no line added/removed),
@@ -263,7 +314,9 @@ def _edit_added_guard_line(out_dir: Path, guard: str, find: str, replace: str) -
     `replace=""` drops a subterm. Used by condition-operator-mutation and
     condition-drop-conjunct."""
     if not guard:
-        raise ValueError("condition mutation requires --guard (the exact added source line)")
+        raise ValueError(
+            "condition mutation requires --guard (the exact added source line)"
+        )
     if find not in guard:
         raise ValueError(f"edit target {find!r} not found in --guard {guard!r}")
     new_inner = guard.replace(find, replace, 1)
@@ -272,19 +325,36 @@ def _edit_added_guard_line(out_dir: Path, guard: str, find: str, replace: str) -
     patch_path = out_dir / "patch.diff"
     diff = patch_path.read_text()
     lines = diff.splitlines()
-    hits = [(i, d) for i, l in enumerate(lines) if (d := _added_line_match(l, guard)) is not None]
+    hits = [
+        (i, d)
+        for i, l in enumerate(lines)
+        if (d := _added_line_match(l, guard)) is not None
+    ]
     if len(hits) != 1:
-        raise ValueError(f"--guard matched {len(hits)} added line(s), need exactly 1: {guard!r}")
+        raise ValueError(
+            f"--guard matched {len(hits)} added line(s), need exactly 1: {guard!r}"
+        )
     i, depth = hits[0]
     lines[i] = lines[i][:depth] + new_inner
     patch_path.write_text("\n".join(lines) + ("\n" if diff.endswith("\n") else ""))
-    return {"guard": guard, "find": find, "replace": replace, "mutated_to": new_inner,
-            "line_index": i, "depth": depth}
+    return {
+        "guard": guard,
+        "find": find,
+        "replace": replace,
+        "mutated_to": new_inner,
+        "line_index": i,
+        "depth": depth,
+    }
 
 
 def _apply_mutation(
-    out_dir: Path, mutation: str, decoy_hash: str | None, swap: tuple[str, str] | None = None,
-    guard: str | None = None, op_from: str | None = None, op_to: str | None = None,
+    out_dir: Path,
+    mutation: str,
+    decoy_hash: str | None,
+    swap: tuple[str, str] | None = None,
+    guard: str | None = None,
+    op_from: str | None = None,
+    op_to: str | None = None,
     drop_subterm: str | None = None,
 ) -> dict[str, Any]:
     """Mutate the staged bundle in-place; return details for the marker."""
@@ -315,7 +385,9 @@ def _apply_mutation(
                 minus[mm.group(1).lstrip("-").strip()] = mm.group(2)
         idxs = _patched_hash_lines(diff)
         if not idxs or not minus:
-            raise ValueError("could not find paired -/+ hash lines for version-without-hash")
+            raise ValueError(
+                "could not find paired -/+ hash lines for version-without-hash"
+            )
         i = idxs[0]
         m = _HASH_LINE_RE.match(lines[i])
         old_val = next(iter(minus.values()))
@@ -407,7 +479,9 @@ def _apply_mutation(
     elif mutation == "rationale-cites-wrong-hash":
         idxs = _patched_hash_lines(diff)
         if not idxs:
-            raise ValueError("rationale-cites-wrong-hash: no patched hash in patch.diff")
+            raise ValueError(
+                "rationale-cites-wrong-hash: no patched hash in patch.diff"
+            )
         real = _HASH_LINE_RE.match(lines[idxs[0]]).group(2)
         rat_path = out_dir / "patch-rationale.md"
         rat = rat_path.read_text()
@@ -422,17 +496,23 @@ def _apply_mutation(
 
     elif mutation == "token-preserving-misplacement":
         if not swap:
-            raise ValueError("token-preserving-misplacement requires --swap LINE_A LINE_B")
+            raise ValueError(
+                "token-preserving-misplacement requires --swap LINE_A LINE_B"
+            )
         details.update(_swap_added_lines(out_dir, swap[0], swap[1]))
 
     elif mutation == "condition-operator-mutation":
         if not (guard and op_from and op_to):
-            raise ValueError("condition-operator-mutation requires --guard, --op-from, --op-to")
+            raise ValueError(
+                "condition-operator-mutation requires --guard, --op-from, --op-to"
+            )
         details.update(_edit_added_guard_line(out_dir, guard, op_from, op_to))
 
     elif mutation == "condition-drop-conjunct":
         if not (guard and drop_subterm):
-            raise ValueError("condition-drop-conjunct requires --guard and --drop-subterm")
+            raise ValueError(
+                "condition-drop-conjunct requires --guard and --drop-subterm"
+            )
         details.update(_edit_added_guard_line(out_dir, guard, drop_subterm, ""))
 
     else:  # pragma: no cover - guarded by argparse choices
@@ -506,7 +586,9 @@ def _reshape_context(out_dir: Path) -> dict[str, Any]:
 
     def _flush() -> None:
         new_lines = preamble + [l for sec in sections for l in sec]
-        patch_path.write_text("\n".join(new_lines) + ("\n" if diff.endswith("\n") else ""))
+        patch_path.write_text(
+            "\n".join(new_lines) + ("\n" if diff.endswith("\n") else "")
+        )
 
     # 1) Embedded *.patch hunk: outer `@@ -0,0 +1,N @@` adds a file whose body is
     #    itself a diff with a `+@@` header. Reshape the embedded hunk's context.
@@ -516,13 +598,13 @@ def _reshape_context(out_dir: Path) -> dict[str, Any]:
         if not emb_idxs or not outer_idxs:
             continue
         emb_idx, outer_idx = emb_idxs[-1], outer_idxs[0]
-        body = sec[emb_idx + 1:]
+        body = sec[emb_idx + 1 :]
         if not body or _emb_char(body[-1], 1) != " ":
             continue  # last embedded line is a change, not droppable context
         dropped = body.pop()
         new_emb_hdr = _recompute_header(sec[emb_idx], body, depth=1)
         sec = sec[:emb_idx] + [new_emb_hdr] + body
-        outer_body = sec[outer_idx + 1:]
+        outer_body = sec[outer_idx + 1 :]
         new_outer_hdr = _recompute_header(sec[outer_idx], outer_body, depth=0)
         sections[si] = sec[:outer_idx] + [new_outer_hdr] + outer_body
         _flush()
@@ -534,7 +616,7 @@ def _reshape_context(out_dir: Path) -> dict[str, Any]:
         if not hidxs:
             continue
         hidx = hidxs[-1]
-        body = sec[hidx + 1:]
+        body = sec[hidx + 1 :]
         if not body or _emb_char(body[-1], 0) != " ":
             continue
         dropped = body.pop()
@@ -558,9 +640,7 @@ def _find_added_block(lines: list[str], guard: list[str]) -> list[tuple[int, int
     return hits
 
 
-_HUNK_HDR_COUNTS_RE = re.compile(
-    r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$"
-)
+_HUNK_HDR_COUNTS_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
 
 
 def _bump_new_count(header: str, delta: int, depth: int) -> str:
@@ -583,7 +663,9 @@ def _bump_new_count(header: str, delta: int, depth: int) -> str:
     return f"{prefix}@@ {old_side} +{c},{new_count} @@{heading}"
 
 
-def _rewrite_guard(out_dir: Path, guard: list[str], rewrite_to: list[str]) -> dict[str, Any]:
+def _rewrite_guard(
+    out_dir: Path, guard: list[str], rewrite_to: list[str]
+) -> dict[str, Any]:
     """Replace an ADDED compound-guard block in patch.diff with an equivalent
     rewrite, recomputing the enclosing hunk header(s) so the diff stays
     well-formed. Only the added side changes; the old side (context + removed
@@ -594,7 +676,9 @@ def _rewrite_guard(out_dir: Path, guard: list[str], rewrite_to: list[str]) -> di
     if not guard or not rewrite_to:
         raise ValueError("guard rewrite requires both --guard and --rewrite-to")
     if guard == rewrite_to:
-        raise ValueError("--rewrite-to is identical to --guard (a no-op is not a rewrite)")
+        raise ValueError(
+            "--rewrite-to is identical to --guard (a no-op is not a rewrite)"
+        )
     patch_path = out_dir / "patch.diff"
     diff = patch_path.read_text()
     lines = diff.splitlines()
@@ -607,7 +691,7 @@ def _rewrite_guard(out_dir: Path, guard: list[str], rewrite_to: list[str]) -> di
     idx, depth = hits[0]
     prefix = "+" * depth
     new_block = [prefix + l for l in rewrite_to]
-    lines[idx:idx + len(guard)] = new_block
+    lines[idx : idx + len(guard)] = new_block
     last = idx + len(new_block) - 1
 
     # Fix up the enclosing hunk header(s): only the NEW side changed, by exactly
@@ -703,9 +787,17 @@ def _stage_copy(base: Path, out: Path) -> None:
     # export authoring` from traces/example only) — it is never an input to a
     # reviewer variant, so it is dead weight here and would needlessly carry the
     # authoring exporter's vuln_raw into the reviewer corpus.
-    for stale in ("review.md", "review-scoring-report.json", "review-refusal.json",
-                  "reviewer-invocation.json", "bundle.sig", "build.json",
-                  "cosign-cert.pem", "bundle.canonical.json", "authoring-example.json"):
+    for stale in (
+        "review.md",
+        "review-scoring-report.json",
+        "review-refusal.json",
+        "reviewer-invocation.json",
+        "bundle.sig",
+        "build.json",
+        "cosign-cert.pem",
+        "bundle.canonical.json",
+        "authoring-example.json",
+    ):
         sp = out / stale
         if sp.exists():
             sp.unlink()
@@ -846,7 +938,11 @@ def _run_reorg(args: argparse.Namespace) -> int:
         print(f"error: reorg failed ({args.reorg}): {exc}")
         return 2
 
-    base_bundle = json.loads((base / "bundle.json").read_text()) if (base / "bundle.json").is_file() else {}
+    base_bundle = (
+        json.loads((base / "bundle.json").read_text())
+        if (base / "bundle.json").is_file()
+        else {}
+    )
     marker = {
         "schema_version": "1.0.0",
         "positive_source": "reorg",
@@ -882,7 +978,9 @@ def _run_reorg(args: argparse.Namespace) -> int:
         print(f"reorg-positive bundle written -> {out}")
         print(f"  base:   {base.name} ({marker['base_cve_id']})")
         print(f"  reorg:  {args.reorg} ({details})")
-        print(f"  next: trace replay --execute --role reviewer --model claude-sonnet-4-6 {out.name}")
+        print(
+            f"  next: trace replay --execute --role reviewer --model claude-sonnet-4-6 {out.name}"
+        )
     return 0
 
 
@@ -899,7 +997,9 @@ def run(args: argparse.Namespace) -> int:
         print(f"error: out-dir already exists: {out}")
         return 2
 
-    if args.mutation == "token-preserving-misplacement" and not getattr(args, "swap", None):
+    if args.mutation == "token-preserving-misplacement" and not getattr(
+        args, "swap", None
+    ):
         print(
             "error: --mutation token-preserving-misplacement requires --swap LINE_A LINE_B "
             "(the two added source lines to reorder so the fix is mis-placed while its "
@@ -921,9 +1021,14 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         details = _apply_mutation(
-            out, args.mutation, args.decoy_hash, getattr(args, "swap", None),
-            guard=getattr(args, "guard", None), op_from=getattr(args, "op_from", None),
-            op_to=getattr(args, "op_to", None), drop_subterm=getattr(args, "drop_subterm", None),
+            out,
+            args.mutation,
+            args.decoy_hash,
+            getattr(args, "swap", None),
+            guard=getattr(args, "guard", None),
+            op_from=getattr(args, "op_from", None),
+            op_to=getattr(args, "op_to", None),
+            drop_subterm=getattr(args, "drop_subterm", None),
         )
     except Exception as exc:
         # Roll back the partial copy so a corrected rerun isn't blocked by an
@@ -932,7 +1037,11 @@ def run(args: argparse.Namespace) -> int:
         print(f"error: mutation failed ({args.mutation}): {exc}")
         return 2
 
-    base_bundle = json.loads((base / "bundle.json").read_text()) if (base / "bundle.json").is_file() else {}
+    base_bundle = (
+        json.loads((base / "bundle.json").read_text())
+        if (base / "bundle.json").is_file()
+        else {}
+    )
     marker = {
         "schema_version": "1.0.0",
         "negative_source": "mutation",
@@ -947,7 +1056,9 @@ def run(args: argparse.Namespace) -> int:
             "dir, then keep only if the Reviewer genuinely rejects with findings."
         ),
     }
-    (out / "mutation.json").write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n")
+    (out / "mutation.json").write_text(
+        json.dumps(marker, indent=2, sort_keys=True) + "\n"
+    )
 
     if args.format == "json":
         print(json.dumps(marker, indent=2, sort_keys=True))
@@ -956,5 +1067,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"  base:     {base.name} ({marker['base_cve_id']})")
         print(f"  mutation: {args.mutation}")
         print(f"  details:  {details}")
-        print(f"  next: trace replay --execute --role reviewer --model claude-sonnet-4-6 {out.name}")
+        print(
+            f"  next: trace replay --execute --role reviewer --model claude-sonnet-4-6 {out.name}"
+        )
     return 0

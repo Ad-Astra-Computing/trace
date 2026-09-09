@@ -112,10 +112,14 @@ def test_resolver_input_built_from_finding_and_references(tmp_path: Path) -> Non
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://gitlab.com/libtiff/libtiff/-/commit/2ebfffb0e8836bfb1cd7d85c059cd285c59761a4",
-             "kind": "upstream-commit"},
-            {"url": "https://nvd.nist.gov/vuln/detail/CVE-2024-13978",
-             "kind": "advisory"},
+            {
+                "url": "https://gitlab.com/libtiff/libtiff/-/commit/2ebfffb0e8836bfb1cd7d85c059cd285c59761a4",
+                "kind": "upstream-commit",
+            },
+            {
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-13978",
+                "kind": "advisory",
+            },
         ],
     )
     graph = CannedGraphLookup([_LIBTIFF])
@@ -139,14 +143,19 @@ def test_github_commit_url_recognised(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://github.com/octocat/Hello-World/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-             "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/octocat/Hello-World/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "kind": "upstream-commit",
+            },
         ],
     )
     graph = CannedGraphLookup([_LIBTIFF])
     process_entry(entry, graph=graph)
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
-    assert refs[0]["upstream_fix_commits"][0]["repo_url"] == "https://github.com/octocat/Hello-World"
+    assert (
+        refs[0]["upstream_fix_commits"][0]["repo_url"]
+        == "https://github.com/octocat/Hello-World"
+    )
 
 
 # ─── git.kernel.org commit URL recognition ────────────────────────────────────
@@ -166,14 +175,19 @@ def test_kernel_stable_c_commit_url_recognised(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://git.kernel.org/stable/c/" + "a" * 40,
-             "kind": "upstream-commit"},
+            {
+                "url": "https://git.kernel.org/stable/c/" + "a" * 40,
+                "kind": "upstream-commit",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
     fc = refs[0]["upstream_fix_commits"][0]
-    assert fc["repo_url"] == "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git"
+    assert (
+        fc["repo_url"]
+        == "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git"
+    )
     assert fc["commit_sha"] == "a" * 40
 
 
@@ -183,14 +197,19 @@ def test_kernel_torvalds_c_commit_url_recognised(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://git.kernel.org/torvalds/c/" + "b" * 40,
-             "kind": "upstream-commit"},
+            {
+                "url": "https://git.kernel.org/torvalds/c/" + "b" * 40,
+                "kind": "upstream-commit",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
     fc = refs[0]["upstream_fix_commits"][0]
-    assert fc["repo_url"] == "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+    assert (
+        fc["repo_url"]
+        == "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+    )
     assert fc["commit_sha"] == "b" * 40
 
 
@@ -200,14 +219,19 @@ def test_kernel_linus_shorthand_commit_url_recognised(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://git.kernel.org/linus/" + "c" * 40,
-             "kind": "upstream-commit"},
+            {
+                "url": "https://git.kernel.org/linus/" + "c" * 40,
+                "kind": "upstream-commit",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
     fc = refs[0]["upstream_fix_commits"][0]
-    assert fc["repo_url"] == "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+    assert (
+        fc["repo_url"]
+        == "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+    )
     assert fc["commit_sha"] == "c" * 40
 
 
@@ -271,10 +295,14 @@ def test_kernel_and_github_urls_coexist(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://git.kernel.org/stable/c/" + "a" * 40,
-             "kind": "upstream-commit"},
-            {"url": "https://github.com/torvalds/linux/commit/" + "b" * 40,
-             "kind": "upstream-commit"},
+            {
+                "url": "https://git.kernel.org/stable/c/" + "a" * 40,
+                "kind": "upstream-commit",
+            },
+            {
+                "url": "https://github.com/torvalds/linux/commit/" + "b" * 40,
+                "kind": "upstream-commit",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
@@ -292,8 +320,10 @@ def test_upstream_ref_written_with_resolver_verdict(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://github.com/x/y/commit/" + "a" * 40,
-             "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/x/y/commit/" + "a" * 40,
+                "kind": "upstream-commit",
+            },
         ],
     )
     graph = CannedGraphLookup([_LIBTIFF])
@@ -318,8 +348,10 @@ def test_no_candidate_refs_yields_ineligible_verdict(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://nvd.nist.gov/vuln/detail/CVE-2024-13978",
-             "kind": "advisory"},
+            {
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-13978",
+                "kind": "advisory",
+            },
         ],
     )
     graph = CannedGraphLookup([_LIBTIFF])
@@ -380,19 +412,25 @@ def test_version_bounds_lessThan_yields_real_target_version(tmp_path: Path) -> N
         cve_id="CVE-2026-42615",
         pname_hints=["cyberchef"],
         references=[
-            {"url": "https://github.com/gchq/CyberChef/commit/" + "a" * 40,
-             "kind": "upstream-commit"},
-            {"url": "https://nvd.nist.gov/vuln/detail/CVE-2026-42615",
-             "kind": "advisory"},
+            {
+                "url": "https://github.com/gchq/CyberChef/commit/" + "a" * 40,
+                "kind": "upstream-commit",
+            },
+            {
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-42615",
+                "kind": "advisory",
+            },
         ],
-        version_bounds=[{
-            "product": "cyberchef",
-            "introduced": "0",
-            "fixed": "11.0.0",
-            "fixed_kind": "lessThan",
-            "version_type": "semver",
-            "source": "cve_list_v5",
-        }],
+        version_bounds=[
+            {
+                "product": "cyberchef",
+                "introduced": "0",
+                "fixed": "11.0.0",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            }
+        ],
     )
     process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
 
@@ -406,7 +444,9 @@ def test_version_bounds_lessThan_yields_real_target_version(tmp_path: Path) -> N
     assert upstream["eligibility"]["verdict"] == "eligible-requires-human-review"
 
 
-def test_version_bounds_versionEndExcluding_treated_like_lessThan(tmp_path: Path) -> None:
+def test_version_bounds_versionEndExcluding_treated_like_lessThan(
+    tmp_path: Path,
+) -> None:
     """NVD configurations use versionEndExcluding; semantically equal
     to CVE-list-v5's lessThan."""
     entry = _seed_inbox(
@@ -414,14 +454,21 @@ def test_version_bounds_versionEndExcluding_treated_like_lessThan(tmp_path: Path
         cve_id="CVE-2099-0001",
         pname_hints=["cyberchef"],
         references=[
-            {"url": "https://github.com/x/y/commit/" + "b" * 40, "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/x/y/commit/" + "b" * 40,
+                "kind": "upstream-commit",
+            },
             {"url": "https://example.test/advisory", "kind": "advisory"},
         ],
-        version_bounds=[{
-            "product": "cyberchef", "fixed": "10.24.0",
-            "fixed_kind": "versionEndExcluding",
-            "version_type": "semver", "source": "nvd_configurations",
-        }],
+        version_bounds=[
+            {
+                "product": "cyberchef",
+                "fixed": "10.24.0",
+                "fixed_kind": "versionEndExcluding",
+                "version_type": "semver",
+                "source": "nvd_configurations",
+            }
+        ],
     )
     process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
@@ -440,14 +487,21 @@ def test_version_bounds_lessThanOrEqual_routes_to_human_review(tmp_path: Path) -
         cve_id="CVE-2099-0002",
         pname_hints=["cyberchef"],
         references=[
-            {"url": "https://github.com/x/y/commit/" + "c" * 40, "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/x/y/commit/" + "c" * 40,
+                "kind": "upstream-commit",
+            },
             {"url": "https://example.test/advisory", "kind": "advisory"},
         ],
-        version_bounds=[{
-            "product": "cyberchef", "fixed": "10.23.0",
-            "fixed_kind": "lessThanOrEqual",
-            "version_type": "semver", "source": "cve_list_v5",
-        }],
+        version_bounds=[
+            {
+                "product": "cyberchef",
+                "fixed": "10.23.0",
+                "fixed_kind": "lessThanOrEqual",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            }
+        ],
     )
     process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
@@ -468,7 +522,10 @@ def test_no_bounds_at_all_uses_placeholder_with_explicit_flag(tmp_path: Path) ->
         cve_id="CVE-2099-0010",
         pname_hints=["cyberchef"],
         references=[
-            {"url": "https://github.com/x/y/commit/" + "f" * 40, "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/x/y/commit/" + "f" * 40,
+                "kind": "upstream-commit",
+            },
             {"url": "https://example.test/advisory", "kind": "advisory"},
         ],
     )
@@ -492,16 +549,24 @@ def test_placeholder_with_bounds_is_not_tagged_source_backport(tmp_path: Path) -
         cve_id="CVE-2099-0011",
         pname_hints=["cyberchef"],
         references=[
-            {"url": "https://github.com/x/y/commit/" + "a" * 40, "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/x/y/commit/" + "a" * 40,
+                "kind": "upstream-commit",
+            },
         ],
-        version_bounds=[{
-            "product": "cyberchef", "fixed": "11.0.0", "fixed_kind": "lessThan",
-            "version_type": "semver", "source": "cve_list_v5",
-        }],
+        version_bounds=[
+            {
+                "product": "cyberchef",
+                "fixed": "11.0.0",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            }
+        ],
     )
     process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
-    assert refs[0]["version"] == "11.0.0"            # real derived fix version
+    assert refs[0]["version"] == "11.0.0"  # real derived fix version
     assert refs[0]["tier_hint"] != "source-backport"  # version bump, not backport
     assert refs[0].get("requires_review_reason") != "placeholder-target-version"
 
@@ -513,14 +578,27 @@ def test_version_bounds_filtered_to_matched_pname(tmp_path: Path) -> None:
         cve_id="CVE-2099-0003",
         pname_hints=["cyberchef"],
         references=[
-            {"url": "https://github.com/x/y/commit/" + "d" * 40, "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/x/y/commit/" + "d" * 40,
+                "kind": "upstream-commit",
+            },
             {"url": "https://example.test/advisory", "kind": "advisory"},
         ],
         version_bounds=[
-            {"product": "wholly-different", "fixed": "9.9.9",
-             "fixed_kind": "lessThan", "version_type": "semver", "source": "cve_list_v5"},
-            {"product": "cyberchef", "fixed": "11.0.0",
-             "fixed_kind": "lessThan", "version_type": "semver", "source": "cve_list_v5"},
+            {
+                "product": "wholly-different",
+                "fixed": "9.9.9",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            },
+            {
+                "product": "cyberchef",
+                "fixed": "11.0.0",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
@@ -529,7 +607,9 @@ def test_version_bounds_filtered_to_matched_pname(tmp_path: Path) -> None:
     assert refs[0]["version"] == "11.0.0"
 
 
-def test_multiple_bounds_for_same_product_yield_multiple_candidates(tmp_path: Path) -> None:
+def test_multiple_bounds_for_same_product_yield_multiple_candidates(
+    tmp_path: Path,
+) -> None:
     """Two distinct lessThan bounds for the same matched product = two
     candidates. Resolver picks smallest-upgrade or routes to review."""
     entry = _seed_inbox(
@@ -537,14 +617,27 @@ def test_multiple_bounds_for_same_product_yield_multiple_candidates(tmp_path: Pa
         cve_id="CVE-2099-0004",
         pname_hints=["cyberchef"],
         references=[
-            {"url": "https://github.com/x/y/commit/" + "e" * 40, "kind": "upstream-commit"},
+            {
+                "url": "https://github.com/x/y/commit/" + "e" * 40,
+                "kind": "upstream-commit",
+            },
             {"url": "https://example.test/advisory", "kind": "advisory"},
         ],
         version_bounds=[
-            {"product": "cyberchef", "fixed": "10.24.0",
-             "fixed_kind": "lessThan", "version_type": "semver", "source": "cve_list_v5"},
-            {"product": "cyberchef", "fixed": "11.0.0",
-             "fixed_kind": "lessThan", "version_type": "semver", "source": "cve_list_v5"},
+            {
+                "product": "cyberchef",
+                "fixed": "10.24.0",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            },
+            {
+                "product": "cyberchef",
+                "fixed": "11.0.0",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_CYBERCHEF]))
@@ -561,8 +654,7 @@ def test_short_commit_sha_is_skipped(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://github.com/x/y/commit/abc12",
-             "kind": "upstream-commit"},
+            {"url": "https://github.com/x/y/commit/abc12", "kind": "upstream-commit"},
         ],
     )
     graph = CannedGraphLookup([_LIBTIFF])
@@ -585,12 +677,18 @@ def test_plain_http_github_commit_url_recognised(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "http://github.com/contribsys/faktory/commit/" + "c" * 40, "kind": "other"},
+            {
+                "url": "http://github.com/contribsys/faktory/commit/" + "c" * 40,
+                "kind": "other",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
-    assert refs[0]["upstream_fix_commits"][0]["repo_url"] == "https://github.com/contribsys/faktory"
+    assert (
+        refs[0]["upstream_fix_commits"][0]["repo_url"]
+        == "https://github.com/contribsys/faktory"
+    )
 
 
 def test_codeberg_commit_url_recognised(tmp_path: Path) -> None:
@@ -599,12 +697,18 @@ def test_codeberg_commit_url_recognised(tmp_path: Path) -> None:
         tmp_path,
         cpe_matches=[{"cpe": _LIBTIFF.cpes[0]}],
         references=[
-            {"url": "https://codeberg.org/forgejo/forgejo/commit/" + "b" * 40, "kind": "other"},
+            {
+                "url": "https://codeberg.org/forgejo/forgejo/commit/" + "b" * 40,
+                "kind": "other",
+            },
         ],
     )
     process_entry(entry, graph=CannedGraphLookup([_LIBTIFF]))
     refs = json.loads((entry / "resolver-input.json").read_text())["candidate_refs"]
-    assert refs[0]["upstream_fix_commits"][0]["repo_url"] == "https://codeberg.org/forgejo/forgejo"
+    assert (
+        refs[0]["upstream_fix_commits"][0]["repo_url"]
+        == "https://codeberg.org/forgejo/forgejo"
+    )
 
 
 def test_pull_request_url_is_not_treated_as_a_commit(tmp_path: Path) -> None:

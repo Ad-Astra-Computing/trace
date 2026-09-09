@@ -55,7 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.since and args.lookback_hours is not None:
-        print("error: --since and --lookback-hours are mutually exclusive", file=sys.stderr)
+        print(
+            "error: --since and --lookback-hours are mutually exclusive",
+            file=sys.stderr,
+        )
         return _EXIT_USAGE
 
     until = _parse_iso(args.until) if args.until else datetime.now(timezone.utc)

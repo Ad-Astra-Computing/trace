@@ -12,7 +12,9 @@ from tools.trace_cli import mutate as mut
 def _base_bundle(root: Path, name: str = "CVE-2025-0001--zk") -> Path:
     bd = root / name
     bd.mkdir(parents=True)
-    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "base123", "cve_id": "CVE-2025-0001"}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"bundle_id": "base123", "cve_id": "CVE-2025-0001"})
+    )
     (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-0001"}))
     (bd / "package.nix").write_text("{ }: { }\n")
     (bd / "patch.diff").write_text(
@@ -23,21 +25,39 @@ def _base_bundle(root: Path, name: str = "CVE-2025-0001--zk") -> Path:
     )
     (bd / "review.md").write_text("## Verdict\naccept\n")  # should be stripped on copy
     (bd / "bundle.sig").write_text("sig")  # should be stripped on copy
-    (bd / "cosign-cert.pem").write_text("-----BEGIN CERTIFICATE-----")  # stale signing cert
+    (bd / "cosign-cert.pem").write_text(
+        "-----BEGIN CERTIFICATE-----"
+    )  # stale signing cert
     (bd / "bundle.canonical.json").write_text("{}")  # stale canonical signing manifest
-    (bd / "authoring-example.json").write_text('{"vuln_raw": "x"}')  # other-pipeline cache
+    (bd / "authoring-example.json").write_text(
+        '{"vuln_raw": "x"}'
+    )  # other-pipeline cache
     return bd
 
 
 def _args(
-    base: Path, mutation: str, out: Path, decoy: str | None = None,
-    swap: tuple[str, str] | None = None, guard: str | None = None,
-    op_from: str | None = None, op_to: str | None = None, drop_subterm: str | None = None,
+    base: Path,
+    mutation: str,
+    out: Path,
+    decoy: str | None = None,
+    swap: tuple[str, str] | None = None,
+    guard: str | None = None,
+    op_from: str | None = None,
+    op_to: str | None = None,
+    drop_subterm: str | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
-        mutate_scope="reviewer-negative", base_dir=base, mutation=mutation,
-        out_dir=out, decoy_hash=decoy, swap=swap, guard=guard, op_from=op_from,
-        op_to=op_to, drop_subterm=drop_subterm, format="json",
+        mutate_scope="reviewer-negative",
+        base_dir=base,
+        mutation=mutation,
+        out_dir=out,
+        decoy_hash=decoy,
+        swap=swap,
+        guard=guard,
+        op_from=op_from,
+        op_to=op_to,
+        drop_subterm=drop_subterm,
+        format="json",
     )
 
 
@@ -46,7 +66,9 @@ def _compound_guard_base(root: Path, name: str = "CVE-2025-0003--cg") -> Path:
     (the zlib-shaped multi-subterm condition)."""
     bd = root / name
     bd.mkdir(parents=True)
-    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "cg123", "cve_id": "CVE-2025-0003"}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"bundle_id": "cg123", "cve_id": "CVE-2025-0003"})
+    )
     (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-0003"}))
     (bd / "package.nix").write_text("{ }: { }\n")
     (bd / "patch.diff").write_text(
@@ -72,7 +94,9 @@ def _embedded_backport_base(root: Path, name: str = "CVE-2025-0002--ord") -> Pat
     multi-line fix (a declaration that must precede the statement reading it)."""
     bd = root / name
     bd.mkdir(parents=True)
-    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "ord123", "cve_id": "CVE-2025-0002"}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"bundle_id": "ord123", "cve_id": "CVE-2025-0002"})
+    )
     (bd / "finding.json").write_text(json.dumps({"cve_id": "CVE-2025-0002"}))
     (bd / "package.nix").write_text("{ }: { }\n")
     (bd / "patch.diff").write_text(
@@ -157,10 +181,24 @@ def test_scrubs_reviewer_replay_and_signing(tmp_path):
     bj["signed_manifest"] = {"rekor_log_index": 123, "signer": "x"}
     bj["auto_merge_evidence_path"] = "reviewer-attested"
     (base / "bundle.json").write_text(json.dumps(bj))
-    (base / "replay.json").write_text(json.dumps({"roles": [
-        {"role": "patcher", "invocations": [{"invocation_id": "p"}]},
-        {"role": "reviewer", "invocations": [{"invocation_id": "r", "inputs": [{"path": "patch.diff", "sha256": "stale"}]}]},
-    ]}))
+    (base / "replay.json").write_text(
+        json.dumps(
+            {
+                "roles": [
+                    {"role": "patcher", "invocations": [{"invocation_id": "p"}]},
+                    {
+                        "role": "reviewer",
+                        "invocations": [
+                            {
+                                "invocation_id": "r",
+                                "inputs": [{"path": "patch.diff", "sha256": "stale"}],
+                            }
+                        ],
+                    },
+                ]
+            }
+        )
+    )
     out = tmp_path / "neg" / "m7"
     mut.run(_args(base, "wrong-src-hash", out))
     # signing metadata scrubbed
@@ -200,7 +238,7 @@ def _rich_base(root: Path, name: str = "CVE-2025-0009--rz") -> Path:
     (bd / "upstream-ref.json").write_text(json.dumps({"target_version": "3.9.4"}))
     (bd / "patch-rationale.md").write_text(
         "## Why\nBump to 3.9.4; hash "
-        'sha512-NEW0000000000000000000000000000000000000000000000000000000000000000000000000000000000== '
+        "sha512-NEW0000000000000000000000000000000000000000000000000000000000000000000000000000000000== "
         "grounded from prefetch.\n"
     )
     return bd
@@ -212,7 +250,7 @@ def test_wrong_target_version(tmp_path):
     mut.run(_args(base, "wrong-target-version", out))
     diff = (out / "patch.diff").read_text()
     assert '+  version = "3.9.4";' not in diff  # real target replaced
-    assert '+  version = "3.9.11";' in diff      # +7 on the last component
+    assert '+  version = "3.9.11";' in diff  # +7 on the last component
     # the now-inconsistent hash is neutralized to a decoy (single coherent defect)
     assert mut._DECOY_SRI in diff
     assert "NEW000000" not in diff
@@ -276,7 +314,9 @@ def test_wrong_target_version_neutralizes_vendor_hash(tmp_path):
     )
     out = tmp_path / "neg" / "v6"
     mut.run(_args(base, "wrong-target-version", out))
-    plus = [l for l in (out / "patch.diff").read_text().splitlines() if l.startswith("+")]
+    plus = [
+        l for l in (out / "patch.diff").read_text().splitlines() if l.startswith("+")
+    ]
     # the ADDED hash + vendorHash lines are both neutralized to the decoy
     assert not any("REALSRC000" in l for l in plus)
     assert not any("REALVENDOR000" in l for l in plus)
@@ -331,8 +371,14 @@ def test_misplacement_requires_swap(tmp_path):
 def test_misplacement_unknown_line_errors(tmp_path):
     base = _embedded_backport_base(tmp_path / "ex")
     out = tmp_path / "neg" / "mp3"
-    rc = mut.run(_args(base, "token-preserving-misplacement", out,
-                       swap=(_DECL, "  this line is not in the diff")))
+    rc = mut.run(
+        _args(
+            base,
+            "token-preserving-misplacement",
+            out,
+            swap=(_DECL, "  this line is not in the diff"),
+        )
+    )
     assert rc == 2
     assert not out.exists()
 
@@ -347,11 +393,20 @@ def test_misplacement_identical_lines_errors(tmp_path):
 
 # --- compound-condition mutations (v1.11 queue) --------------------------------
 
+
 def test_condition_operator_mutation_flips_operator(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "neg" / "cg1"
-    rc = mut.run(_args(base, "condition-operator-mutation", out, guard=_GUARD,
-                       op_from="||", op_to="&&"))
+    rc = mut.run(
+        _args(
+            base,
+            "condition-operator-mutation",
+            out,
+            guard=_GUARD,
+            op_from="||",
+            op_to="&&",
+        )
+    )
     assert rc == 0
     diff = (out / "patch.diff").read_text()
     assert "++\t\tif(ul > 255 && pl > 255)" in diff  # || -> && (weakened)
@@ -368,11 +423,18 @@ def test_condition_operator_mutation_flips_operator(tmp_path):
 def test_condition_drop_conjunct_removes_subterm(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "neg" / "cg2"
-    rc = mut.run(_args(base, "condition-drop-conjunct", out, guard=_GUARD,
-                       drop_subterm=" || pl > 255"))
+    rc = mut.run(
+        _args(
+            base,
+            "condition-drop-conjunct",
+            out,
+            guard=_GUARD,
+            drop_subterm=" || pl > 255",
+        )
+    )
     assert rc == 0
     diff = (out / "patch.diff").read_text()
-    assert "++\t\tif(ul > 255)" in diff      # pl check dropped (incomplete guard)
+    assert "++\t\tif(ul > 255)" in diff  # pl check dropped (incomplete guard)
     assert "pl > 255" not in diff
     assert "@@ -0,0 +1,5 @@" in diff
     marker = json.loads((out / "mutation.json").read_text())
@@ -382,29 +444,51 @@ def test_condition_drop_conjunct_removes_subterm(tmp_path):
 
 def test_condition_operator_requires_args(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
-    rc = mut.run(_args(base, "condition-operator-mutation", tmp_path / "neg" / "cg3", guard=_GUARD))
+    rc = mut.run(
+        _args(
+            base, "condition-operator-mutation", tmp_path / "neg" / "cg3", guard=_GUARD
+        )
+    )
     assert rc == 2  # missing --op-from/--op-to
 
 
 def test_condition_guard_not_found_errors(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
-    rc = mut.run(_args(base, "condition-drop-conjunct", tmp_path / "neg" / "cg4",
-                       guard="\t\tif(NONEXISTENT)", drop_subterm=" || x"))
+    rc = mut.run(
+        _args(
+            base,
+            "condition-drop-conjunct",
+            tmp_path / "neg" / "cg4",
+            guard="\t\tif(NONEXISTENT)",
+            drop_subterm=" || x",
+        )
+    )
     assert rc == 2
     assert not (tmp_path / "neg" / "cg4").exists()
 
 
 # --- reviewer-positive-reorg (structure-preserving positive variants) ----------
 
+
 def _reorg_args(
-    base: Path, reorg: str, out: Path, guard: list[str] | None = None,
-    rewrite_to: list[str] | None = None, equivalence: str | None = None,
+    base: Path,
+    reorg: str,
+    out: Path,
+    guard: list[str] | None = None,
+    rewrite_to: list[str] | None = None,
+    equivalence: str | None = None,
     hardness: str | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
-        mutate_scope="reviewer-positive-reorg", base_dir=base, reorg=reorg,
-        out_dir=out, guard=guard, rewrite_to=rewrite_to, equivalence=equivalence,
-        hardness=hardness, format="json",
+        mutate_scope="reviewer-positive-reorg",
+        base_dir=base,
+        reorg=reorg,
+        out_dir=out,
+        guard=guard,
+        rewrite_to=rewrite_to,
+        equivalence=equivalence,
+        hardness=hardness,
+        format="json",
     )
 
 
@@ -413,7 +497,9 @@ def _two_section_base(root: Path, name: str = "CVE-2025-0002--zr") -> Path:
     zlib shape). Reordering the sections is content-preserving."""
     bd = root / name
     bd.mkdir(parents=True)
-    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "b2", "cve_id": "CVE-2025-0002"}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"bundle_id": "b2", "cve_id": "CVE-2025-0002"})
+    )
     (bd / "patch.diff").write_text(
         "diff --git a/pkgs/x/CVE.patch b/pkgs/x/CVE.patch\n"
         "new file mode 100644\n--- /dev/null\n+++ b/pkgs/x/CVE.patch\n"
@@ -433,7 +519,9 @@ def _multi_hunk_base(root: Path, name: str = "CVE-2025-0003--mh") -> Path:
     the file is content-preserving."""
     bd = root / name
     bd.mkdir(parents=True)
-    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "b3", "cve_id": "CVE-2025-0003"}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"bundle_id": "b3", "cve_id": "CVE-2025-0003"})
+    )
     (bd / "patch.diff").write_text(
         "diff --git a/src/foo.c b/src/foo.c\n--- a/src/foo.c\n+++ b/src/foo.c\n"
         "@@ -10,3 +10,4 @@\n ctx1\n+added_line_A\n more1\n"
@@ -443,7 +531,11 @@ def _multi_hunk_base(root: Path, name: str = "CVE-2025-0003--mh") -> Path:
 
 
 def _changed_lines(diff: str) -> set:
-    return {l for l in diff.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))}
+    return {
+        l
+        for l in diff.splitlines()
+        if l[:1] in "+-" and not l.startswith(("+++", "---"))
+    }
 
 
 def test_reorg_reorders_file_sections(tmp_path):
@@ -453,7 +545,7 @@ def test_reorg_reorders_file_sections(tmp_path):
     rc = mut.run(_reorg_args(base, "reorder-hunks", out))
     assert rc == 0
     after = (out / "patch.diff").read_text()
-    assert after != before                          # layout changed
+    assert after != before  # layout changed
     assert _changed_lines(after) == _changed_lines(before)  # content preserved
     # default.nix section now precedes the CVE.patch section
     assert after.index("default.nix") < after.index("CVE.patch b/")
@@ -489,7 +581,9 @@ def test_reorg_refuses_unreorderable(tmp_path):
     # single file, single hunk -> nothing to reorder -> refuse + roll back
     base = tmp_path / "ex" / "CVE-2025-0004--one"
     base.mkdir(parents=True)
-    (base / "bundle.json").write_text(json.dumps({"bundle_id": "b4", "cve_id": "CVE-2025-0004"}))
+    (base / "bundle.json").write_text(
+        json.dumps({"bundle_id": "b4", "cve_id": "CVE-2025-0004"})
+    )
     (base / "patch.diff").write_text(
         "diff --git a/f.c b/f.c\n--- a/f.c\n+++ b/f.c\n@@ -1,2 +1,3 @@\n ctx\n+only\n more\n"
     )
@@ -501,13 +595,16 @@ def test_reorg_refuses_unreorderable(tmp_path):
 
 # --- context-reshape (internal hunk presentation, mirrors the zlib failure) ----
 
+
 def _embedded_patch_base(root: Path, name: str = "CVE-2025-0005--emb") -> Path:
     """The dominant corpus shape: section 1 ADDS pkgs/.../CVE.patch (the embedded
     C fix), section 2 edits default.nix to list it. Reshaping the embedded hunk's
     context mirrors the v1.8 zlib multi-line-guard misread."""
     bd = root / name
     bd.mkdir(parents=True)
-    (bd / "bundle.json").write_text(json.dumps({"bundle_id": "b5", "cve_id": "CVE-2025-0005"}))
+    (bd / "bundle.json").write_text(
+        json.dumps({"bundle_id": "b5", "cve_id": "CVE-2025-0005"})
+    )
     # embedded hunk: 2 leading ctx + 1 removed + 1 added + 2 trailing ctx
     # -> old/new side counts = 5,5; outer added-line count = 3 (hdr) + 6 (body) = 9
     (bd / "patch.diff").write_text(
@@ -575,7 +672,9 @@ def test_context_reshape_refuses_no_trailing_context(tmp_path):
     # a hunk whose last line is a change (no trailing context to drop) -> refuse
     base = tmp_path / "ex" / "CVE-2025-0006--nc"
     base.mkdir(parents=True)
-    (base / "bundle.json").write_text(json.dumps({"bundle_id": "b6", "cve_id": "CVE-2025-0006"}))
+    (base / "bundle.json").write_text(
+        json.dumps({"bundle_id": "b6", "cve_id": "CVE-2025-0006"})
+    )
     (base / "patch.diff").write_text(
         "diff --git a/f.c b/f.c\n--- a/f.c\n+++ b/f.c\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n"
     )
@@ -594,11 +693,17 @@ _HARD = "The `|| pl > 255` conjunct disappears and both operators flip."
 def test_guard_demorgan_rewrites_in_place(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "pos" / "g1"
-    rc = mut.run(_reorg_args(
-        base, "guard-demorgan", out, guard=[_GUARD],
-        rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
-        equivalence=_EQ, hardness=_HARD,
-    ))
+    rc = mut.run(
+        _reorg_args(
+            base,
+            "guard-demorgan",
+            out,
+            guard=[_GUARD],
+            rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
+            equivalence=_EQ,
+            hardness=_HARD,
+        )
+    )
     assert rc == 0
     after = (out / "patch.diff").read_text()
     assert "++\t\tif(!(ul <= 255 && pl <= 255))\n" in after
@@ -621,27 +726,40 @@ def test_guard_rewrite_bumps_enclosing_hunk_counts(tmp_path):
     new-side counts by the delta (and leaves the old side alone)."""
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "pos" / "g2"
-    rc = mut.run(_reorg_args(
-        base, "guard-split", out, guard=[_GUARD],
-        rewrite_to=["\t\tif(ul > 255)", "\t\t\tgoto too_long;", "\t\tif(pl > 255)"],
-        equivalence=_EQ, hardness=_HARD,
-    ))
+    rc = mut.run(
+        _reorg_args(
+            base,
+            "guard-split",
+            out,
+            guard=[_GUARD],
+            rewrite_to=["\t\tif(ul > 255)", "\t\t\tgoto too_long;", "\t\tif(pl > 255)"],
+            equivalence=_EQ,
+            hardness=_HARD,
+        )
+    )
     assert rc == 0
     after = (out / "patch.diff").read_text()
-    assert "@@ -0,0 +1,7 @@" in after       # outer: 5 + 2
-    assert "+@@ -10,2 +10,5 @@" in after     # embedded: 3 + 2, old side (2) intact
-    assert json.loads((out / "reorg.json").read_text())["reorg_details"]["line_delta"] == 2
+    assert "@@ -0,0 +1,7 @@" in after  # outer: 5 + 2
+    assert "+@@ -10,2 +10,5 @@" in after  # embedded: 3 + 2, old side (2) intact
+    assert (
+        json.loads((out / "reorg.json").read_text())["reorg_details"]["line_delta"] == 2
+    )
 
 
 def test_guard_rewrite_multi_line_guard(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "pos" / "g3"
-    rc = mut.run(_reorg_args(
-        base, "guard-hoist", out,
-        guard=[" \tport = parse(s);", _GUARD],
-        rewrite_to=[" \tport = parse(s);", "\t\tif(!(ul <= 255 && pl <= 255))"],
-        equivalence=_EQ, hardness=_HARD,
-    ))
+    rc = mut.run(
+        _reorg_args(
+            base,
+            "guard-hoist",
+            out,
+            guard=[" \tport = parse(s);", _GUARD],
+            rewrite_to=[" \tport = parse(s);", "\t\tif(!(ul <= 255 && pl <= 255))"],
+            equivalence=_EQ,
+            hardness=_HARD,
+        )
+    )
     # the first guard line is a CONTEXT line in the embedded patch, not an added
     # one, so the block does not match -> refuse rather than silently mis-edit
     assert rc == 2
@@ -651,11 +769,17 @@ def test_guard_rewrite_multi_line_guard(tmp_path):
 def test_guard_rewrite_requires_written_justification(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "pos" / "g4"
-    rc = mut.run(_reorg_args(
-        base, "guard-demorgan", out, guard=[_GUARD],
-        rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
-        equivalence="", hardness=_HARD,
-    ))
+    rc = mut.run(
+        _reorg_args(
+            base,
+            "guard-demorgan",
+            out,
+            guard=[_GUARD],
+            rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
+            equivalence="",
+            hardness=_HARD,
+        )
+    )
     assert rc == 2
     assert not out.exists()
 
@@ -663,7 +787,9 @@ def test_guard_rewrite_requires_written_justification(tmp_path):
 def test_guard_rewrite_requires_guard_and_rewrite(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "pos" / "g5"
-    rc = mut.run(_reorg_args(base, "guard-demorgan", out, equivalence=_EQ, hardness=_HARD))
+    rc = mut.run(
+        _reorg_args(base, "guard-demorgan", out, equivalence=_EQ, hardness=_HARD)
+    )
     assert rc == 2
     assert not out.exists()
 
@@ -671,10 +797,17 @@ def test_guard_rewrite_requires_guard_and_rewrite(tmp_path):
 def test_guard_rewrite_refuses_unmatched_guard(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "pos" / "g6"
-    rc = mut.run(_reorg_args(
-        base, "guard-demorgan", out, guard=["\t\tif(nope > 255)"],
-        rewrite_to=["\t\tif(!(nope <= 255))"], equivalence=_EQ, hardness=_HARD,
-    ))
+    rc = mut.run(
+        _reorg_args(
+            base,
+            "guard-demorgan",
+            out,
+            guard=["\t\tif(nope > 255)"],
+            rewrite_to=["\t\tif(!(nope <= 255))"],
+            equivalence=_EQ,
+            hardness=_HARD,
+        )
+    )
     assert rc == 2
     assert not out.exists()
 
@@ -682,10 +815,17 @@ def test_guard_rewrite_refuses_unmatched_guard(tmp_path):
 def test_guard_rewrite_refuses_noop(tmp_path):
     base = _compound_guard_base(tmp_path / "ex")
     out = tmp_path / "pos" / "g7"
-    rc = mut.run(_reorg_args(
-        base, "guard-demorgan", out, guard=[_GUARD], rewrite_to=[_GUARD],
-        equivalence=_EQ, hardness=_HARD,
-    ))
+    rc = mut.run(
+        _reorg_args(
+            base,
+            "guard-demorgan",
+            out,
+            guard=[_GUARD],
+            rewrite_to=[_GUARD],
+            equivalence=_EQ,
+            hardness=_HARD,
+        )
+    )
     assert rc == 2
     assert not out.exists()
 
@@ -695,10 +835,16 @@ def test_guard_rewrite_strips_review_and_signing(tmp_path):
     (base / "review.md").write_text("## Verdict\naccept\n")
     (base / "bundle.sig").write_text("sig")
     out = tmp_path / "pos" / "g8"
-    mut.run(_reorg_args(
-        base, "guard-demorgan", out, guard=[_GUARD],
-        rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
-        equivalence=_EQ, hardness=_HARD,
-    ))
+    mut.run(
+        _reorg_args(
+            base,
+            "guard-demorgan",
+            out,
+            guard=[_GUARD],
+            rewrite_to=["\t\tif(!(ul <= 255 && pl <= 255))"],
+            equivalence=_EQ,
+            hardness=_HARD,
+        )
+    )
     assert not (out / "review.md").exists()
     assert not (out / "bundle.sig").exists()

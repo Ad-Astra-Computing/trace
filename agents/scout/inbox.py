@@ -76,14 +76,16 @@ def write_inbox_entry(
 
     cve_id = scout_input.get("cve_id")
     if not isinstance(cve_id, str) or not cve_id.startswith("CVE-"):
-        raise InboxRefused(
-            f"scout_input.cve_id missing or not CVE-shaped: {cve_id!r}"
-        )
+        raise InboxRefused(f"scout_input.cve_id missing or not CVE-shaped: {cve_id!r}")
 
-    errors = sorted(_scout_input_validator().iter_errors(scout_input), key=lambda e: e.path)
+    errors = sorted(
+        _scout_input_validator().iter_errors(scout_input), key=lambda e: e.path
+    )
     if errors:
         first = errors[0]
-        raise InboxRefused(f"scout_input failed schema: {first.message} at {list(first.path)}")
+        raise InboxRefused(
+            f"scout_input failed schema: {first.message} at {list(first.path)}"
+        )
 
     raw_sha256 = hashlib.sha256(raw_bytes).hexdigest()
     raw_filename = f"raw-{raw_source}.json"

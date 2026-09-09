@@ -21,19 +21,16 @@ from agents.scorers.reviewer_scorers import ReviewAdaptationEquivalenceScorer
 
 REGISTERED_CVE = "CVE-2024-34490"
 _DEFAULT_PATCH_DIFF = (
-    "--- a/src/gnuplot_def.lisp\n"
-    "+++ b/src/gnuplot_def.lisp\n"
-    "@@ -1 +1 @@\n"
-    "-old\n"
-    "+new\n"
+    "--- a/src/gnuplot_def.lisp\n+++ b/src/gnuplot_def.lisp\n@@ -1 +1 @@\n-old\n+new\n"
 )
 
 
 # ─── shared fixtures ───────────────────────────────────────────────────────
 
 
-def _review_invocation(outputs: list[str], *,
-                      reviewer_model_id: str = "claude-sonnet-4-6") -> dict:
+def _review_invocation(
+    outputs: list[str], *, reviewer_model_id: str = "claude-sonnet-4-6"
+) -> dict:
     return {
         "invocation_id": "00000000-0000-4000-8000-000000000099",
         "outputs": [{"path": p, "sha256": "0" * 64} for p in outputs],
@@ -47,20 +44,23 @@ def _review_invocation(outputs: list[str], *,
     }
 
 
-def _adaptation_bundle(tmp_path: Path, *,
-                       cve_id: str = REGISTERED_CVE,
-                       applies_verbatim: bool | None = False,
-                       with_patch: bool = True,
-                       patch_diff: str = _DEFAULT_PATCH_DIFF) -> Path:
+def _adaptation_bundle(
+    tmp_path: Path,
+    *,
+    cve_id: str = REGISTERED_CVE,
+    applies_verbatim: bool | None = False,
+    with_patch: bool = True,
+    patch_diff: str = _DEFAULT_PATCH_DIFF,
+) -> Path:
     """Bundle in the adaptation lane: non-empty source-context/ +
     preflight.json with applies_verbatim != true. Also writes patch.diff
     by default (the scorer hash-binds the oracle label to this file)."""
     bd = tmp_path / "bundle"
     bd.mkdir()
     (bd / "finding.json").write_text(json.dumps({"cve_id": cve_id}))
-    (bd / "upstream-ref.json").write_text(json.dumps({
-        "eligibility": {"patch_strategy": "source-backport"}
-    }))
+    (bd / "upstream-ref.json").write_text(
+        json.dumps({"eligibility": {"patch_strategy": "source-backport"}})
+    )
     preflight: dict = {}
     if applies_verbatim is not None:
         preflight["applies_verbatim"] = applies_verbatim
@@ -73,9 +73,13 @@ def _adaptation_bundle(tmp_path: Path, *,
     return bd
 
 
-def _install_matching_oracle(monkeypatch: pytest.MonkeyPatch, bd: Path, *,
-                             cve_id: str = REGISTERED_CVE,
-                             ground_truth_equivalence: str = "equivalent") -> AdaptationOracle:
+def _install_matching_oracle(
+    monkeypatch: pytest.MonkeyPatch,
+    bd: Path,
+    *,
+    cve_id: str = REGISTERED_CVE,
+    ground_truth_equivalence: str = "equivalent",
+) -> AdaptationOracle:
     """Monkeypatch get_oracle so the registered oracle's
     adjudicated_patch_sha256 matches this bundle's own patch.diff bytes —
     the scorer hash-binds the label to a specific adjudicated patch, and a
@@ -108,10 +112,13 @@ def _v10_review_md(equivalence_line: str | None, *, verdict: str = "accept") -> 
     with markers before parsing)."""
     equivalence_section = (
         f"## Equivalence assessment\n- {equivalence_line}\n\n"
-        if equivalence_line is not None else ""
+        if equivalence_line is not None
+        else ""
     )
-    findings = "(none)\n" if verdict == "accept" else (
-        "- severity: high — adaptation not equivalent — source-context/src/x\n"
+    findings = (
+        "(none)\n"
+        if verdict == "accept"
+        else ("- severity: high — adaptation not equivalent — source-context/src/x\n")
     )
     return (
         "## Verdict\n"
@@ -142,7 +149,8 @@ def test_refusal_invocation_does_not_apply(tmp_path: Path) -> None:
     bd = _adaptation_bundle(tmp_path)
     (bd / "review-refusal.json").write_text(json.dumps({"rule": 1, "reason": "x"}))
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review-refusal.json"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review-refusal.json"]),
     )
     assert r.applies is False
     assert r.score is None
@@ -153,7 +161,8 @@ def test_verbatim_lane_does_not_apply(tmp_path: Path) -> None:
     bd = _adaptation_bundle(tmp_path, applies_verbatim=True)
     (bd / "review.md").write_text(_v10_review_md("equivalence: equivalent — match"))
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert r.score is None
@@ -167,7 +176,8 @@ def test_no_source_context_does_not_apply(tmp_path: Path) -> None:
     (bd / "preflight.json").write_text(json.dumps({"applies_verbatim": False}))
     (bd / "review.md").write_text(_v10_review_md("equivalence: equivalent — match"))
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
 
@@ -177,7 +187,8 @@ def test_missing_cve_id_does_not_apply(tmp_path: Path) -> None:
     (bd / "finding.json").write_text(json.dumps({"summary": "no cve id here"}))
     (bd / "review.md").write_text(_v10_review_md("equivalence: equivalent — match"))
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert "cve_id" in r.notes
@@ -187,7 +198,8 @@ def test_unregistered_cve_does_not_apply(tmp_path: Path) -> None:
     bd = _adaptation_bundle(tmp_path, cve_id="CVE-9999-99999")
     (bd / "review.md").write_text(_v10_review_md("equivalence: equivalent — match"))
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert "no adaptation-equivalence oracle registered" in r.notes
@@ -196,14 +208,17 @@ def test_unregistered_cve_does_not_apply(tmp_path: Path) -> None:
 # ─── applies=True scoring ───────────────────────────────────────────────────
 
 
-def test_matching_equivalence_scores_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_matching_equivalence_scores_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bd = _adaptation_bundle(tmp_path)
     _install_matching_oracle(monkeypatch, bd)
     (bd / "review.md").write_text(
         _v10_review_md("equivalence: equivalent — same bounds check")
     )
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.advisory is False
@@ -215,7 +230,9 @@ def test_matching_equivalence_scores_one(tmp_path: Path, monkeypatch: pytest.Mon
     assert r.details["match"] is True
 
 
-def test_wrong_direction_scores_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wrong_direction_scores_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Oracle says 'equivalent'; reviewer says 'not-equivalent' → wrong-direction miss."""
     bd = _adaptation_bundle(tmp_path)
     _install_matching_oracle(monkeypatch, bd)
@@ -223,7 +240,8 @@ def test_wrong_direction_scores_zero(tmp_path: Path, monkeypatch: pytest.MonkeyP
         _v10_review_md("equivalence: not-equivalent — diverges (test)")
     )
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -241,7 +259,8 @@ def test_indeterminate_scores_zero_with_undercommitment_note(
         _v10_review_md("equivalence: indeterminate — insufficient evidence")
     )
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -259,7 +278,8 @@ def test_unrecognized_equivalence_value_scores_zero(
         _v10_review_md("equivalence: maybe — unrecognized token")
     )
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -267,12 +287,15 @@ def test_unrecognized_equivalence_value_scores_zero(
     assert r.details["reviewer_equivalence"] == "maybe"
 
 
-def test_no_equivalence_line_scores_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_equivalence_line_scores_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bd = _adaptation_bundle(tmp_path)
     _install_matching_oracle(monkeypatch, bd)
     (bd / "review.md").write_text(_v10_review_md(None))
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -280,11 +303,14 @@ def test_no_equivalence_line_scores_zero(tmp_path: Path, monkeypatch: pytest.Mon
     assert r.details["reviewer_equivalence"] is None
 
 
-def test_missing_review_md_scores_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_review_md_scores_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bd = _adaptation_bundle(tmp_path)
     _install_matching_oracle(monkeypatch, bd)
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is True
     assert r.score == 0.0
@@ -302,7 +328,8 @@ def test_patch_diff_missing_does_not_apply(tmp_path: Path) -> None:
         _v10_review_md("equivalence: equivalent — same bounds check")
     )
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert r.score is None
@@ -320,7 +347,8 @@ def test_patch_hash_mismatch_does_not_apply(tmp_path: Path) -> None:
         _v10_review_md("equivalence: equivalent — same bounds check")
     )
     r = ReviewAdaptationEquivalenceScorer().score(
-        bundle_dir=bd, invocation=_review_invocation(["review.md"]),
+        bundle_dir=bd,
+        invocation=_review_invocation(["review.md"]),
     )
     assert r.applies is False
     assert r.score is None
@@ -330,16 +358,21 @@ def test_patch_hash_mismatch_does_not_apply(tmp_path: Path) -> None:
 # ─── _is_adaptation_lane: must mirror the executor's fail-closed routing ────
 
 
-def _lane(tmp_path: Path, *, source_files: bool, preflight: object,
-          patch_strategy: str | None = "source-backport") -> bool:
+def _lane(
+    tmp_path: Path,
+    *,
+    source_files: bool,
+    preflight: object,
+    patch_strategy: str | None = "source-backport",
+) -> bool:
     from agents.scorers.reviewer_scorers import _is_adaptation_lane
 
     bd = tmp_path / "b"
     bd.mkdir()
     if patch_strategy is not None:
-        (bd / "upstream-ref.json").write_text(json.dumps({
-            "eligibility": {"patch_strategy": patch_strategy}
-        }))
+        (bd / "upstream-ref.json").write_text(
+            json.dumps({"eligibility": {"patch_strategy": patch_strategy}})
+        )
     if source_files:
         sc = bd / "source-context" / "src"
         sc.mkdir(parents=True)
@@ -347,8 +380,9 @@ def _lane(tmp_path: Path, *, source_files: bool, preflight: object,
     else:
         (bd / "source-context").mkdir()  # empty
     if preflight is not _NO_PREFLIGHT:
-        (bd / "preflight.json").write_text(preflight if isinstance(preflight, str)
-                                           else json.dumps(preflight))
+        (bd / "preflight.json").write_text(
+            preflight if isinstance(preflight, str) else json.dumps(preflight)
+        )
     return _is_adaptation_lane(bd)
 
 
@@ -358,17 +392,34 @@ _NO_PREFLIGHT = object()
 def test_lane_requires_source_backport_strategy(tmp_path: Path) -> None:
     # A version-bump bundle that retains source-context is NOT the adaptation
     # lane (the executor only enters it in the source-backport branch).
-    assert _lane(tmp_path, source_files=True, preflight={"applies_verbatim": False},
-                 patch_strategy="version-bump") is False
+    assert (
+        _lane(
+            tmp_path,
+            source_files=True,
+            preflight={"applies_verbatim": False},
+            patch_strategy="version-bump",
+        )
+        is False
+    )
 
 
 def test_lane_requires_upstream_ref(tmp_path: Path) -> None:
-    assert _lane(tmp_path, source_files=True, preflight={"applies_verbatim": False},
-                 patch_strategy=None) is False
+    assert (
+        _lane(
+            tmp_path,
+            source_files=True,
+            preflight={"applies_verbatim": False},
+            patch_strategy=None,
+        )
+        is False
+    )
 
 
 def test_lane_requires_nonempty_source_context(tmp_path: Path) -> None:
-    assert _lane(tmp_path, source_files=False, preflight={"applies_verbatim": False}) is False
+    assert (
+        _lane(tmp_path, source_files=False, preflight={"applies_verbatim": False})
+        is False
+    )
 
 
 def test_lane_missing_preflight_is_adaptation(tmp_path: Path) -> None:
@@ -385,11 +436,17 @@ def test_lane_non_object_preflight_is_adaptation(tmp_path: Path) -> None:
 
 
 def test_lane_applies_verbatim_true_is_verbatim(tmp_path: Path) -> None:
-    assert _lane(tmp_path, source_files=True, preflight={"applies_verbatim": True}) is False
+    assert (
+        _lane(tmp_path, source_files=True, preflight={"applies_verbatim": True})
+        is False
+    )
 
 
 def test_lane_applies_verbatim_false_is_adaptation(tmp_path: Path) -> None:
-    assert _lane(tmp_path, source_files=True, preflight={"applies_verbatim": False}) is True
+    assert (
+        _lane(tmp_path, source_files=True, preflight={"applies_verbatim": False})
+        is True
+    )
 
 
 def test_lane_applies_verbatim_missing_key_is_adaptation(tmp_path: Path) -> None:

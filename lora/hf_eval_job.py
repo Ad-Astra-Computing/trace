@@ -28,6 +28,7 @@ Submission (see lora/submit_hf_eval.sh):
     -e ADAPTER_REPO=adastracomputing/reviewer-lora-v1.0 \
     lora/hf_eval_job.py
 """
+
 import json
 import os
 from pathlib import Path
@@ -72,7 +73,9 @@ def main():
         msgs = rec["messages"]
         # Drop the assistant ground-truth turn; keep system + user.
         prompt_msgs = [m for m in msgs if m["role"] in ("system", "user")]
-        gt_assistant = next((m["content"] for m in msgs if m["role"] == "assistant"), "")
+        gt_assistant = next(
+            (m["content"] for m in msgs if m["role"] == "assistant"), ""
+        )
 
         inputs = tokenizer.apply_chat_template(
             prompt_msgs,
@@ -93,26 +96,37 @@ def main():
         # Match key: hash of the user turn, so local scoring can align to the
         # full export regardless of order.
         user_text = next((m["content"] for m in prompt_msgs if m["role"] == "user"), "")
-        responses.append({
-            "index": i,
-            "prompt_len": prompt_len,
-            "user_sha256": __import__("hashlib").sha256(user_text.encode()).hexdigest(),
-            "generated": gen,
-            "ground_truth_assistant": gt_assistant,
-        })
-        print(f"  [{i+1}/{len(records)}] gen_chars={len(gen)} prompt_tok={prompt_len}", flush=True)
+        responses.append(
+            {
+                "index": i,
+                "prompt_len": prompt_len,
+                "user_sha256": __import__("hashlib")
+                .sha256(user_text.encode())
+                .hexdigest(),
+                "generated": gen,
+                "ground_truth_assistant": gt_assistant,
+            }
+        )
+        print(
+            f"  [{i + 1}/{len(records)}] gen_chars={len(gen)} prompt_tok={prompt_len}",
+            flush=True,
+        )
 
     out_path = Path("/tmp/responses.jsonl")
     out_path.write_text("\n".join(json.dumps(r) for r in responses) + "\n")
 
     from huggingface_hub import HfApi
+
     HfApi().upload_file(
         path_or_fileobj=str(out_path),
         path_in_repo="eval/responses.jsonl",
         repo_id=adapter_repo,
         repo_type="model",
     )
-    print(f"\nDone. {len(responses)} responses pushed to {adapter_repo}/eval/responses.jsonl", flush=True)
+    print(
+        f"\nDone. {len(responses)} responses pushed to {adapter_repo}/eval/responses.jsonl",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

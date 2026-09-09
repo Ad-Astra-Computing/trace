@@ -67,7 +67,9 @@ class _FakeMsg:
         self.stop_reason = "end_turn"
 
 
-def _capture_invoke(model_id: str, system_prompt: str, user_content: str) -> dict[str, Any]:
+def _capture_invoke(
+    model_id: str, system_prompt: str, user_content: str
+) -> dict[str, Any]:
     """Invoke adapter against a mocked Anthropic client; return the kwargs
     the SDK saw."""
     adapter = _make_adapter(model_id)
@@ -91,11 +93,14 @@ def _capture_invoke(model_id: str, system_prompt: str, user_content: str) -> dic
     return captured
 
 
-@pytest.mark.parametrize("model_id", [
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-])
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    ],
+)
 def test_system_prompt_marked_for_caching(model_id: str) -> None:
     """The system prompt MUST be sent as a content-block array with
     `cache_control: {type: "ephemeral"}` on the marked block. A bare
@@ -113,7 +118,9 @@ def test_system_prompt_marked_for_caching(model_id: str) -> None:
     assert system, "system content-block array must be non-empty"
     # Find the cached block (the design caches the entire system prompt as
     # one ephemeral block, so the last block is the natural marker).
-    cached_blocks = [b for b in system if isinstance(b, dict) and b.get("cache_control")]
+    cached_blocks = [
+        b for b in system if isinstance(b, dict) and b.get("cache_control")
+    ]
     assert cached_blocks, "at least one system block must carry cache_control"
     # Ephemeral type is the only one Anthropic supports today.
     for b in cached_blocks:
@@ -149,8 +156,6 @@ def test_cached_block_carries_full_system_text() -> None:
         user_content="x",
     )
     cached_text = "".join(
-        b.get("text", "")
-        for b in kwargs["system"]
-        if isinstance(b, dict)
+        b.get("text", "") for b in kwargs["system"] if isinstance(b, dict)
     )
     assert sentinel in cached_text

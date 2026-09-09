@@ -87,7 +87,7 @@ def _unwrap_added_file_body(raw_lines: list[str]) -> str:
             if _HUNK_HEADER_RE.match(line):
                 started = True
             continue
-        if line.startswith("\\"):        # "\ No newline at end of file"
+        if line.startswith("\\"):  # "\ No newline at end of file"
             trailing_newline = False
             continue
         out.append(line[1:] if line.startswith("+") else line)
@@ -119,7 +119,8 @@ def extract_nested_source_patch(patch_diff_text: str) -> tuple[str, list[str]]:
     """
     sections = _split_diff_sections(patch_diff_text)
     nested = [
-        s for s in sections
+        s
+        for s in sections
         if s["is_new_file"] and _basename(s["path"]).endswith(".patch")
     ]
     # A section that MODIFIES an existing `*.patch` (not a new-file addition)
@@ -132,7 +133,8 @@ def extract_nested_source_patch(patch_diff_text: str) -> tuple[str, list[str]]:
     # be fed verbatim to `patch`, which tries to patch the `*.patch` path in the
     # source tree — a misleading false-failure. Both cases: fail closed.
     modified_nested = [
-        s for s in sections
+        s
+        for s in sections
         if not s["is_new_file"] and _basename(s["path"]).endswith(".patch")
     ]
     if modified_nested:

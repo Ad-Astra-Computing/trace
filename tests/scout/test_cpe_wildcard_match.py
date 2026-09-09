@@ -71,19 +71,16 @@ def _scout_input(
 
 def test_find_by_cpe_uri_match_promotes_wildcard_advisory_to_real_record() -> None:
     from agents.scout.graph_lookup import CannedGraphLookup
+
     g = CannedGraphLookup([_ACTIVEMQ_REAL])
-    matches = g.find_by_cpe_uri_match(
-        "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*"
-    )
+    matches = g.find_by_cpe_uri_match("cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*")
     assert len(matches) == 1
     assert matches[0].attr_path == "activemq"
 
 
 def test_find_by_cpe_uri_match_concrete_advisory_uses_exact_index() -> None:
     g = CannedGraphLookup([_ACTIVEMQ_REAL])
-    matches = g.find_by_cpe_uri_match(
-        "cpe:2.3:a:apache:activemq:6.2.4:*:*:*:*:*:*:*"
-    )
+    matches = g.find_by_cpe_uri_match("cpe:2.3:a:apache:activemq:6.2.4:*:*:*:*:*:*:*")
     assert len(matches) == 1
     assert matches[0].attr_path == "activemq"
 
@@ -93,9 +90,7 @@ def test_find_by_cpe_uri_match_does_not_cross_vendor() -> None:
     must not match jboss:activemq. Vendor specificity is the whole
     point of using the dictionary."""
     g = CannedGraphLookup([_ACTIVEMQ_REAL])
-    matches = g.find_by_cpe_uri_match(
-        "cpe:2.3:a:jboss:activemq:*:*:*:*:*:*:*:*"
-    )
+    matches = g.find_by_cpe_uri_match("cpe:2.3:a:jboss:activemq:*:*:*:*:*:*:*:*")
     assert matches == []
 
 
@@ -103,9 +98,7 @@ def test_find_by_cpe_uri_match_handles_dash_wildcard() -> None:
     """CPE 2.3 reserves `-` for 'not applicable' / wildcard. Treat it
     the same as `*` for matching purposes."""
     g = CannedGraphLookup([_ACTIVEMQ_REAL])
-    matches = g.find_by_cpe_uri_match(
-        "cpe:2.3:a:apache:activemq:-:*:*:*:*:*:*:*"
-    )
+    matches = g.find_by_cpe_uri_match("cpe:2.3:a:apache:activemq:-:*:*:*:*:*:*:*")
     assert len(matches) == 1
 
 
@@ -123,10 +116,12 @@ def test_in_scope_wildcard_advisory_yields_cpe_exact_high_confidence() -> None:
     finding must be cpe-exact with confidence:high so Steward can
     classify it as auto-merge-eligible."""
     scout_in = _scout_input(
-        cpe_matches=[{
-            "cpe": "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*",
-            "version_range": ">=6.0.0,<6.2.5",
-        }],
+        cpe_matches=[
+            {
+                "cpe": "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*",
+                "version_range": ">=6.0.0,<6.2.5",
+            }
+        ],
     )
     result = scan(scout_in, graph=CannedGraphLookup([_ACTIVEMQ_REAL]))
     assert result["status"] == "finding"
@@ -143,10 +138,12 @@ def test_out_of_scope_wildcard_advisory_is_skipped() -> None:
     CVE onto the package). Mapping-failure is the right outcome when
     no other identifier hits."""
     scout_in = _scout_input(
-        cpe_matches=[{
-            "cpe": "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*",
-            "version_range": "<5.0.0",
-        }],
+        cpe_matches=[
+            {
+                "cpe": "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*",
+                "version_range": "<5.0.0",
+            }
+        ],
     )
     result = scan(scout_in, graph=CannedGraphLookup([_ACTIVEMQ_REAL]))
     assert result["status"] == "mapping-failure"
@@ -158,11 +155,15 @@ def test_version_bounds_used_when_no_explicit_range_on_cpe_match() -> None:
     in-scope check. activemq 6.2.4 vs lessThan=6.2.5 -> in scope."""
     scout_in = _scout_input(
         cpe_matches=[{"cpe": "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*"}],
-        version_bounds=[{
-            "product": "activemq", "fixed": "6.2.5",
-            "fixed_kind": "lessThan", "version_type": "semver",
-            "source": "cve_list_v5",
-        }],
+        version_bounds=[
+            {
+                "product": "activemq",
+                "fixed": "6.2.5",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            }
+        ],
     )
     result = scan(scout_in, graph=CannedGraphLookup([_ACTIVEMQ_REAL]))
     assert result["status"] == "finding"
@@ -206,15 +207,21 @@ def test_processor_end_to_end_yields_auto_merge_eligible_inputs(tmp_path: Path) 
     entry = tmp_path / "CVE-2099-9000"
     entry.mkdir()
     scout_in = _scout_input(
-        cpe_matches=[{
-            "cpe": "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*",
-            "version_range": ">=6.0.0,<6.2.5",
-        }],
-        version_bounds=[{
-            "product": "activemq", "fixed": "6.2.5",
-            "fixed_kind": "lessThan", "version_type": "semver",
-            "source": "cve_list_v5",
-        }],
+        cpe_matches=[
+            {
+                "cpe": "cpe:2.3:a:apache:activemq:*:*:*:*:*:*:*:*",
+                "version_range": ">=6.0.0,<6.2.5",
+            }
+        ],
+        version_bounds=[
+            {
+                "product": "activemq",
+                "fixed": "6.2.5",
+                "fixed_kind": "lessThan",
+                "version_type": "semver",
+                "source": "cve_list_v5",
+            }
+        ],
     )
     (entry / "scout-input.json").write_text(json.dumps(scout_in))
     process_entry(entry, graph=CannedGraphLookup([_ACTIVEMQ_REAL]))

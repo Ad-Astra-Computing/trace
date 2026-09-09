@@ -1,4 +1,5 @@
 """Unit tests for the edit-shape classifier (fold vs clip vs security-guard-add)."""
+
 from eval.classify_edit_shape import classify_diff
 
 
@@ -14,8 +15,10 @@ def test_operator_refine_is_condition_fold():
 
 
 def test_conjunct_add_is_condition_fold():
-    d = _diff("-    if (state->head != Z_NULL)\n"
-              "+    if (state->head != Z_NULL && len < state->head->extra_max)\n")
+    d = _diff(
+        "-    if (state->head != Z_NULL)\n"
+        "+    if (state->head != Z_NULL && len < state->head->extra_max)\n"
+    )
     r = classify_diff(d)
     assert r["shape"] == "condition-fold"
     assert r["subshape"] == "conjunct-add"
@@ -36,8 +39,10 @@ def test_guard_clip_is_not_fold():
 
 
 def test_security_guard_add_raises():
-    d = _diff("     key = load()\n+    if len(key) == 0:\n"
-              "+        raise InvalidKeyError(\"key must not be empty\")\n     use(key)\n")
+    d = _diff(
+        "     key = load()\n+    if len(key) == 0:\n"
+        '+        raise InvalidKeyError("key must not be empty")\n     use(key)\n'
+    )
     r = classify_diff(d)
     assert r["shape"] == "security-guard-add"
 
@@ -55,14 +60,18 @@ def test_empty_diff_is_other():
 def test_same_operator_punctuation_change_is_not_fold():
     # Perl `open $_ or return` → `open '<', $_ or return`: the `or` is unchanged and the
     # only added token is a string/char literal — not a condition change.
-    d = _diff("-        open FILE, $_ or return;\n+        open FILE, '<', $_ or return;\n")
+    d = _diff(
+        "-        open FILE, $_ or return;\n+        open FILE, '<', $_ or return;\n"
+    )
     assert classify_diff(d)["shape"] == "other"
 
 
 def test_operand_identifier_change_is_fold():
     # sqlite zA1 → zA2: same operator, but a real comparison OPERAND changed.
-    d = _diff("-    if (sqlite3_stricmp(zA1, zB) == 0)\n"
-              "+    if (sqlite3_stricmp(zA2, zB) == 0)\n")
+    d = _diff(
+        "-    if (sqlite3_stricmp(zA1, zB) == 0)\n"
+        "+    if (sqlite3_stricmp(zA2, zB) == 0)\n"
+    )
     assert classify_diff(d)["shape"] == "condition-fold"
 
 

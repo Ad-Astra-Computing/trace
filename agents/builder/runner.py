@@ -121,8 +121,11 @@ def run_builder(
     )
     if instrumentation_error is not None:
         return _instrumentation_malformed_result(
-            cve_id=cve_id, bundle_id=bundle_id, nixpkgs_rev=nixpkgs_rev,
-            host=host, started_at=started_at,
+            cve_id=cve_id,
+            bundle_id=bundle_id,
+            nixpkgs_rev=nixpkgs_rev,
+            host=host,
+            started_at=started_at,
             reason=instrumentation_error,
         )
 
@@ -133,8 +136,7 @@ def run_builder(
     reproducer_nix_path = bundle_dir / "reproducer.nix"
     reproducer_refusal_path = bundle_dir / "reproducer-refusal.json"
     has_reproducer = (
-        reproducer_nix_path.is_file()
-        and not reproducer_refusal_path.is_file()
+        reproducer_nix_path.is_file() and not reproducer_refusal_path.is_file()
     )
 
     # ── §2.1. patch-presence check ──────────────────────────────────────
@@ -144,8 +146,11 @@ def run_builder(
     if not has_patch:
         patch_apply = _patch_apply_skipped("no-patch-or-patcher-refused")
         return _refused_result(
-            cve_id=cve_id, bundle_id=bundle_id, nixpkgs_rev=nixpkgs_rev,
-            host=host, started_at=started_at,
+            cve_id=cve_id,
+            bundle_id=bundle_id,
+            nixpkgs_rev=nixpkgs_rev,
+            host=host,
+            started_at=started_at,
             patch_apply=patch_apply,
             dispatch_outcome="refused-no-patch",
             instrumentation=instrumentation,
@@ -160,7 +165,8 @@ def run_builder(
     if has_reproducer:
         unpatched_outcome = build_runner.run(
             nix_expression=_repro_nix_expression(
-                reproducer_nix_path, attr_in_repro="unpatched.test",
+                reproducer_nix_path,
+                attr_in_repro="unpatched.test",
                 nixpkgs_pin=nixpkgs_checkout,
             ),
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
@@ -168,7 +174,9 @@ def run_builder(
             instrumentation=instrumentation,
         )
         unpatched_phase, unpatched_full = _build_phase_block(
-            unpatched_outcome, applied=True, attr="unpatched.test",
+            unpatched_outcome,
+            applied=True,
+            attr="unpatched.test",
         )
     else:
         unpatched_phase = {
@@ -201,8 +209,11 @@ def run_builder(
         )
         if not patch_apply.get("applied"):
             return _patch_apply_failed_result(
-                cve_id=cve_id, bundle_id=bundle_id, nixpkgs_rev=nixpkgs_rev,
-                host=host, started_at=started_at,
+                cve_id=cve_id,
+                bundle_id=bundle_id,
+                nixpkgs_rev=nixpkgs_rev,
+                host=host,
+                started_at=started_at,
                 patch_apply=patch_apply,
                 unpatched_phase=unpatched_phase,
                 unpatched_full=unpatched_full,
@@ -232,14 +243,17 @@ def run_builder(
     else:
         patched_outcome = _no_attr_outcome()
     patched_build_phase, patched_build_full = _build_phase_block(
-        patched_outcome, applied=True, attr=attr,
+        patched_outcome,
+        applied=True,
+        attr=attr,
     )
 
     # ── §2.4. patched reproducer (POST-patch tree) ──────────────────────
     if has_reproducer:
         patched_repro_outcome = build_runner.run(
             nix_expression=_repro_nix_expression(
-                reproducer_nix_path, attr_in_repro="patched.test",
+                reproducer_nix_path,
+                attr_in_repro="patched.test",
                 nixpkgs_pin=nixpkgs_checkout,
             ),
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
@@ -247,7 +261,9 @@ def run_builder(
             instrumentation=instrumentation,
         )
         patched_repro_phase, patched_repro_full = _build_phase_block(
-            patched_repro_outcome, applied=True, attr="patched.test",
+            patched_repro_outcome,
+            applied=True,
+            attr="patched.test",
         )
     else:
         patched_repro_phase = dict(unpatched_phase)
@@ -331,7 +347,9 @@ def _build_phase_block(
         "exit_code": outcome.exit_code,
         "drv_path": outcome.drv_path,
         "out_path": outcome.out_path,
-        "elapsed_seconds": round(outcome.elapsed_seconds, 3) if outcome.elapsed_seconds is not None else None,
+        "elapsed_seconds": round(outcome.elapsed_seconds, 3)
+        if outcome.elapsed_seconds is not None
+        else None,
         "stdout_stderr": truncated,
         "stdout_stderr_log_sha256": _sha256(full) if was_truncated else None,
     }
@@ -342,7 +360,9 @@ def _build_phase_block(
 
 def _no_attr_outcome() -> BuildOutcome:
     return BuildOutcome(
-        exit_code=None, drv_path=None, out_path=None,
+        exit_code=None,
+        drv_path=None,
+        out_path=None,
         stdout_stderr="finding.json had no affected[0].attr_path; cannot run patched-build",
         elapsed_seconds=0.0,
         extras={"reason": "no-attr"},
@@ -436,7 +456,9 @@ def _apply_patch(
         numstat = subprocess.run(
             ["git", "apply", "--recount", "--numstat", str(patch_diff_path)],
             cwd=str(nixpkgs_checkout),
-            check=False, capture_output=True, text=True,
+            check=False,
+            capture_output=True,
+            text=True,
         )
         numstat_paths = [
             ln.split("\t", 2)[2]
@@ -452,19 +474,30 @@ def _apply_patch(
         # deletes/renames/symlinks; every path relative, normalized, no '..', and
         # contained in package_dir_rel; git apply --check must pass at the repo root.
         _unsafe_diff = any(
-            marker in diff_text for marker in (
-                "\ndeleted file mode ", "\nrename from ", "\nrename to ",
-                "\ncopy from ", "\ncopy to ",
-                "\nold mode ", "\nnew mode ", "120000",
+            marker in diff_text
+            for marker in (
+                "\ndeleted file mode ",
+                "\nrename from ",
+                "\nrename to ",
+                "\ncopy from ",
+                "\ncopy to ",
+                "\nold mode ",
+                "\nnew mode ",
+                "120000",
             )
         )
-        if (numstat.returncode == 0 and numstat_paths
-                and not _unsafe_diff
-                and _paths_contained_in(numstat_paths, package_dir_rel)):
+        if (
+            numstat.returncode == 0
+            and numstat_paths
+            and not _unsafe_diff
+            and _paths_contained_in(numstat_paths, package_dir_rel)
+        ):
             check_root = subprocess.run(
                 ["git", "apply", "--recount", "--check", str(patch_diff_path)],
                 cwd=str(nixpkgs_checkout),
-                check=False, capture_output=True, text=True,
+                check=False,
+                capture_output=True,
+                text=True,
             )
             if check_root.returncode == 0:
                 direct_package_dir = True
@@ -483,14 +516,19 @@ def _apply_patch(
         # future change permits any of those here, numstat (source) and the
         # written (destination) path could diverge and the guard would be
         # bypassable — the `_unsafe_diff` precondition below is load-bearing.
-        if (not direct_package_dir
-                and numstat.returncode == 0 and numstat_paths
-                and not _unsafe_diff
-                and _split_package_perl_eligible(numstat_paths, diff_text)):
+        if (
+            not direct_package_dir
+            and numstat.returncode == 0
+            and numstat_paths
+            and not _unsafe_diff
+            and _split_package_perl_eligible(numstat_paths, diff_text)
+        ):
             check_root = subprocess.run(
                 ["git", "apply", "--recount", "--check", str(patch_diff_path)],
                 cwd=str(nixpkgs_checkout),
-                check=False, capture_output=True, text=True,
+                check=False,
+                capture_output=True,
+                text=True,
             )
             if check_root.returncode == 0:
                 split_package = True
@@ -507,9 +545,9 @@ def _apply_patch(
             # `not _unsafe_diff` precondition on (2) is load-bearing: it blocks
             # deletes/renames/copies/mode-changes/symlinks so the numstat paths
             # equal what git apply actually writes.
-            single_canonical = (
-                numstat.returncode == 0 and numstat_paths == ["package.nix"]
-            )
+            single_canonical = numstat.returncode == 0 and numstat_paths == [
+                "package.nix"
+            ]
             source_backport_canonical = (
                 numstat.returncode == 0
                 and not _unsafe_diff
@@ -545,7 +583,9 @@ def _apply_patch(
             tmp.close()
             patch_to_apply = Path(tmp.name)
             cleanup_tmp = patch_to_apply
-            remap_note = f"package.nix -> {package_dir_rel}/{target_basename} ({method})"
+            remap_note = (
+                f"package.nix -> {package_dir_rel}/{target_basename} ({method})"
+            )
             if source_backport_canonical:
                 remap_payloads = [p for p in numstat_paths if p != "package.nix"]
                 apply_mode = "canonical-source-backport-remap"
@@ -571,7 +611,9 @@ def _apply_patch(
         check = subprocess.run(
             [*apply_args, "--check", str(patch_to_apply)],
             cwd=str(nixpkgs_checkout),
-            check=False, capture_output=True, text=True,
+            check=False,
+            capture_output=True,
+            text=True,
         )
         if check.returncode != 0:
             return _failed(
@@ -582,7 +624,9 @@ def _apply_patch(
         real = subprocess.run(
             [*apply_args, str(patch_to_apply)],
             cwd=str(nixpkgs_checkout),
-            check=False, capture_output=True, text=True,
+            check=False,
+            capture_output=True,
+            text=True,
         )
         if real.returncode != 0:
             return _failed(
@@ -606,9 +650,7 @@ def _apply_patch(
         effective_changed = (
             [target_basename, *remap_payloads] if remap_note else files_changed
         )
-        files_changed_prefixed = [
-            f"{package_dir_rel}/{p}" for p in effective_changed
-        ]
+        files_changed_prefixed = [f"{package_dir_rel}/{p}" for p in effective_changed]
     result: dict[str, Any] = {
         "applied": True,
         "git_apply_exit_code": 0,
@@ -674,7 +716,7 @@ def _split_package_perl_eligible(paths: list[str], diff_text: str) -> bool:
     for p in payloads:
         if not (p.startswith(_SPLIT_PERL_PATCH_DIR) and p.endswith(".patch")):
             return False
-        rest = p[len(_SPLIT_PERL_PATCH_DIR):]
+        rest = p[len(_SPLIT_PERL_PATCH_DIR) :]
         if "/" in rest or not rest:
             return False  # must be directly in perl-modules/, no nested subdir
     # Each payload basename must be referenced by an ADDED line of the wiring
@@ -739,7 +781,7 @@ def _added_lines_for_file(diff_text: str, target_path: str) -> list[str]:
     header = f"diff --git a/{target_path} b/{target_path}"
     for line in diff_text.splitlines():
         if line.startswith("diff --git "):
-            in_section = (line == header)
+            in_section = line == header
             continue
         if in_section and line.startswith("+") and not line.startswith("+++"):
             added.append(line[1:])
@@ -758,7 +800,8 @@ _ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)*$
 
 
 def _resolve_attr_package_file(
-    nixpkgs_checkout: Path, attr: str | None,
+    nixpkgs_checkout: Path,
+    attr: str | None,
 ) -> str | None:
     """Return the path of the package *file* for `attr` relative to
     `nixpkgs_checkout` (e.g. `pkgs/by-name/he/hello/package.nix` or, for a
@@ -830,7 +873,7 @@ def _resolve_attr_package_file(
     bare_expr = f"(import {checkout_abs} {{}}).{attr}.meta.position"
     checkout_json = json.dumps(checkout_abs)
     quoted_expr = (
-        f"(import (builtins.path {{ path = {checkout_json}; name = \"nixpkgs\"; }}) "
+        f'(import (builtins.path {{ path = {checkout_json}; name = "nixpkgs"; }}) '
         f"{{}}).{attr}.meta.position"
     )
 
@@ -838,7 +881,10 @@ def _resolve_attr_package_file(
     try:
         proc = subprocess.run(
             ["nix-instantiate", "--eval", "--raw", "--expr", bare_expr],
-            check=False, capture_output=True, text=True, timeout=60,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         result = _position_from_proc(proc)
         if result is not None:
@@ -851,7 +897,10 @@ def _resolve_attr_package_file(
     try:
         proc = subprocess.run(
             ["nix", "eval", "--raw", f"{checkout_abs}#{attr}.meta.position"],
-            check=False, capture_output=True, text=True, timeout=60,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         result = _position_from_proc(proc)
         if result is not None:
@@ -863,7 +912,10 @@ def _resolve_attr_package_file(
     try:
         proc = subprocess.run(
             ["nix", "eval", "--raw", "--impure", "--expr", quoted_expr],
-            check=False, capture_output=True, text=True, timeout=60,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         return _position_from_proc(proc)
     except (OSError, subprocess.SubprocessError):
@@ -871,7 +923,8 @@ def _resolve_attr_package_file(
 
 
 def _resolve_attr_package_dir(
-    nixpkgs_checkout: Path, attr: str | None,
+    nixpkgs_checkout: Path,
+    attr: str | None,
 ) -> str | None:
     """Directory portion of `_resolve_attr_package_file` (kept for callers/tests
     that only need the package directory, not the filename)."""
@@ -934,7 +987,11 @@ def _select_remap_target(
             continue
         candidates.append(p)
     if not candidates:
-        return None, None, f"no in-checkout *.nix candidates in {package_dir_rel} to remap onto"
+        return (
+            None,
+            None,
+            f"no in-checkout *.nix candidates in {package_dir_rel} to remap onto",
+        )
 
     # Primary: exact byte-match to the bundled package.nix.
     if bundled_package_nix.is_file():
@@ -943,9 +1000,13 @@ def _select_remap_target(
         if len(matches) == 1:
             return matches[0].name, "content-match", ""
         if len(matches) > 1:
-            return None, None, (
-                f"ambiguous content-match ({len(matches)} *.nix files byte-equal to the "
-                f"bundled package.nix) in {package_dir_rel}; refusing to remap"
+            return (
+                None,
+                None,
+                (
+                    f"ambiguous content-match ({len(matches)} *.nix files byte-equal to the "
+                    f"bundled package.nix) in {package_dir_rel}; refusing to remap"
+                ),
             )
 
     # Fallback: a single git-apply --check hit among candidates.
@@ -959,10 +1020,18 @@ def _select_remap_target(
             tmp.write(remapped)
             tmp.close()
             chk = subprocess.run(
-                ["git", "apply", "--recount", "--check",
-                 f"--directory={package_dir_rel}", tmp.name],
+                [
+                    "git",
+                    "apply",
+                    "--recount",
+                    "--check",
+                    f"--directory={package_dir_rel}",
+                    tmp.name,
+                ],
                 cwd=str(nixpkgs_checkout),
-                check=False, capture_output=True, text=True,
+                check=False,
+                capture_output=True,
+                text=True,
             )
             if chk.returncode == 0:
                 applies.append(p.name)
@@ -971,13 +1040,21 @@ def _select_remap_target(
     if len(applies) == 1:
         return applies[0], "apply-check", ""
     if len(applies) > 1:
-        return None, None, (
-            f"ambiguous apply-check ({len(applies)} *.nix files accept the patch) in "
-            f"{package_dir_rel}; refusing to remap"
+        return (
+            None,
+            None,
+            (
+                f"ambiguous apply-check ({len(applies)} *.nix files accept the patch) in "
+                f"{package_dir_rel}; refusing to remap"
+            ),
         )
-    return None, None, (
-        f"no *.nix file in {package_dir_rel} matches the canonical package.nix patch "
-        f"(neither byte-match to the bundled package.nix nor a git-apply --check hit)"
+    return (
+        None,
+        None,
+        (
+            f"no *.nix file in {package_dir_rel} matches the canonical package.nix patch "
+            f"(neither byte-match to the bundled package.nix nor a git-apply --check hit)"
+        ),
     )
 
 
@@ -1032,7 +1109,8 @@ def _refused_result(
         "instrumentation": instrumentation,
     }
     return BuilderRunResult(
-        build_json=build_json, dispatch_outcome=dispatch_outcome,
+        build_json=build_json,
+        dispatch_outcome=dispatch_outcome,
     )
 
 
@@ -1068,7 +1146,9 @@ def _patch_apply_failed_result(
         "reason": "patch-apply-failed",
     }
     full_logs: dict[str, str] = {
-        "patched_build": "", "unpatched": unpatched_full, "patched": "",
+        "patched_build": "",
+        "unpatched": unpatched_full,
+        "patched": "",
     }
     build_json = {
         "schema_version": SCHEMA_VERSION,
@@ -1081,7 +1161,9 @@ def _patch_apply_failed_result(
         "ended_at": _utc_now_iso(),
         "patch_apply": patch_apply,
         "patched_build": dict(skipped_phase),
-        "unpatched": unpatched_phase if unpatched_phase is not None else dict(skipped_phase),
+        "unpatched": unpatched_phase
+        if unpatched_phase is not None
+        else dict(skipped_phase),
         "patched": dict(skipped_phase),
         "passthru_tests_ground_truth": [],
         "sbom_delta_attempted": False,
@@ -1089,7 +1171,8 @@ def _patch_apply_failed_result(
         "instrumentation": instrumentation,
     }
     return BuilderRunResult(
-        build_json=build_json, dispatch_outcome="patch-apply-failed",
+        build_json=build_json,
+        dispatch_outcome="patch-apply-failed",
         full_logs=full_logs,
     )
 
@@ -1177,36 +1260,56 @@ def _read_instrumentation(
     except (OSError, json.JSONDecodeError) as exc:
         return None, False, f"reproducer-instrumentation.json: not valid JSON: {exc}"
     if not isinstance(body, dict):
-        return None, False, (
-            "reproducer-instrumentation.json: top-level must be a JSON "
-            f"object, got {type(body).__name__}"
+        return (
+            None,
+            False,
+            (
+                "reproducer-instrumentation.json: top-level must be a JSON "
+                f"object, got {type(body).__name__}"
+            ),
         )
     allowed_keys = {"schema_version", "asan", "disable_doCheck"}
     extra = set(body.keys()) - allowed_keys
     if extra:
-        return None, False, (
-            f"reproducer-instrumentation.json: unknown keys "
-            f"{sorted(extra)!r}; v0 only accepts {sorted(allowed_keys)!r}"
+        return (
+            None,
+            False,
+            (
+                f"reproducer-instrumentation.json: unknown keys "
+                f"{sorted(extra)!r}; v0 only accepts {sorted(allowed_keys)!r}"
+            ),
         )
     schema_version = body.get("schema_version")
     if schema_version != "1.0.0":
-        return None, False, (
-            f"reproducer-instrumentation.json: schema_version must be "
-            f"\"1.0.0\", got {schema_version!r}"
+        return (
+            None,
+            False,
+            (
+                f"reproducer-instrumentation.json: schema_version must be "
+                f'"1.0.0", got {schema_version!r}'
+            ),
         )
     # `asan` is the only required-when-present knob retained as required for
     # backwards compat with v0.1 of the schema; absence is treated as false.
     asan = body.get("asan", False)
     if not isinstance(asan, bool):
-        return None, False, (
-            "reproducer-instrumentation.json: `asan` must be a boolean, "
-            f"got {type(asan).__name__}"
+        return (
+            None,
+            False,
+            (
+                "reproducer-instrumentation.json: `asan` must be a boolean, "
+                f"got {type(asan).__name__}"
+            ),
         )
     disable_doCheck_raw = body.get("disable_doCheck", False)
     if not isinstance(disable_doCheck_raw, bool):
-        return None, False, (
-            "reproducer-instrumentation.json: `disable_doCheck` must be a "
-            f"boolean, got {type(disable_doCheck_raw).__name__}"
+        return (
+            None,
+            False,
+            (
+                "reproducer-instrumentation.json: `disable_doCheck` must be a "
+                f"boolean, got {type(disable_doCheck_raw).__name__}"
+            ),
         )
     return (
         "asan" if asan else None,
@@ -1242,17 +1345,17 @@ def _enumerate_passthru_tests(
     expr = (
         "let "
         "pkgs = import ./. { config.allowUnsupportedSystem = true; }; "
-        f"attrPath = \"{attr}\"; "
+        f'attrPath = "{attr}"; '
         "passthru = pkgs.${attrPath}.passthru.tests or { }; "
         "passthruNames = builtins.attrNames passthru; "
         "nixosTests = pkgs.nixosTests or { }; "
         "matchingNixos = builtins.filter "
-        "  (n: builtins.match (\".*${attrPath}.*\") n != null) "
+        '  (n: builtins.match (".*${attrPath}.*") n != null) '
         "  (builtins.attrNames nixosTests); "
         "manifest = "
-        "  (builtins.map (n: { name = \"passthru.tests.\" + n; kind = \"passthru.tests\"; }) passthruNames) "
-        "  ++ (builtins.map (n: { name = \"nixosTests.\" + n; kind = \"nixosTests\"; }) matchingNixos); "
-        "in pkgs.writeText \"manifest.json\" (builtins.toJSON manifest)"
+        '  (builtins.map (n: { name = "passthru.tests." + n; kind = "passthru.tests"; }) passthruNames) '
+        '  ++ (builtins.map (n: { name = "nixosTests." + n; kind = "nixosTests"; }) matchingNixos); '
+        'in pkgs.writeText "manifest.json" (builtins.toJSON manifest)'
     )
     outcome = build_runner.run(
         nix_expression=expr,
@@ -1330,8 +1433,7 @@ def _repro_nix_expression(
     if nixpkgs_pin is not None:
         pin_abs = str(nixpkgs_pin.resolve())
         return (
-            f"((import {abs_path} {{ pkgs = import {pin_abs} {{}}; }})"
-            f".{attr_in_repro})"
+            f"((import {abs_path} {{ pkgs = import {pin_abs} {{}}; }}).{attr_in_repro})"
         )
     return f"((import {abs_path} {{}}).{attr_in_repro})"
 
@@ -1360,7 +1462,10 @@ def _git_head_sha(cwd: Path) -> str | None:
     try:
         proc = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=str(cwd), check=False, capture_output=True, text=True,
+            cwd=str(cwd),
+            check=False,
+            capture_output=True,
+            text=True,
         )
     except OSError:
         return None
@@ -1374,7 +1479,7 @@ def _extract_changed_files(diff_text: str) -> list[str]:
     files: list[str] = []
     for line in diff_text.splitlines():
         if line.startswith("+++ b/"):
-            files.append(line[len("+++ b/"):].strip())
+            files.append(line[len("+++ b/") :].strip())
         elif line.startswith("+++ "):
             tail = line[4:].strip()
             if tail and tail != "/dev/null":

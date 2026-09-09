@@ -100,13 +100,11 @@ def _valid_reproducer_response() -> str:
     )
 
 
-def _valid_refusal_response(rule: int = 3, reason: str = "vuln class is not locally-reproducible (CAP_SYS_ADMIN required)") -> str:
-    return (
-        "=== BEGIN refusal ===\n"
-        f"rule: {rule}\n"
-        f"reason: {reason}\n"
-        "=== END refusal ==="
-    )
+def _valid_refusal_response(
+    rule: int = 3,
+    reason: str = "vuln class is not locally-reproducible (CAP_SYS_ADMIN required)",
+) -> str:
+    return f"=== BEGIN refusal ===\nrule: {rule}\nreason: {reason}\n=== END refusal ==="
 
 
 _PROXY_NIX = """\
@@ -183,38 +181,60 @@ def _build_post_patcher_bundle(
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
 
-    (bundle_dir / "bundle.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": "0000000000000001",
-        "cve_id": "CVE-0000-0001",
-        "nixpkgs_rev": "0" * 40,
-        "kind": kind,
-    }))
-    (bundle_dir / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "affected": [{"attr_path": "demo", "version": "1.0.0"}],
-        "summary": "out-of-bounds read in demo's deserialise() on malformed length-prefix",
-    }))
-    (bundle_dir / "upstream-ref.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "current_version": "1.0.0",
-        "target_version": "1.0.1",
-        "fix_tier": "security-patch-release",
-        "eligibility": {"verdict": verdict},
-        "upstream_fix_commits": [
-            {"repo_url": "https://github.com/example/demo",
-             "commit_sha": "deadbeefcafe"}
-        ],
-    }))
-    (bundle_dir / "impact.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "reverse_closure_count": 42,
-        "exceeds_threshold": False,
-    }))
-    (bundle_dir / "maintainers.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "attr_paths": {"demo": {"maintainers": [{"github": "alice"}]}},
-    }))
+    (bundle_dir / "bundle.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": "0000000000000001",
+                "cve_id": "CVE-0000-0001",
+                "nixpkgs_rev": "0" * 40,
+                "kind": kind,
+            }
+        )
+    )
+    (bundle_dir / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "affected": [{"attr_path": "demo", "version": "1.0.0"}],
+                "summary": "out-of-bounds read in demo's deserialise() on malformed length-prefix",
+            }
+        )
+    )
+    (bundle_dir / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "current_version": "1.0.0",
+                "target_version": "1.0.1",
+                "fix_tier": "security-patch-release",
+                "eligibility": {"verdict": verdict},
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://github.com/example/demo",
+                        "commit_sha": "deadbeefcafe",
+                    }
+                ],
+            }
+        )
+    )
+    (bundle_dir / "impact.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "reverse_closure_count": 42,
+                "exceeds_threshold": False,
+            }
+        )
+    )
+    (bundle_dir / "maintainers.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "attr_paths": {"demo": {"maintainers": [{"github": "alice"}]}},
+            }
+        )
+    )
     (bundle_dir / "package.nix").write_text('version = "1.0.0";\n')
 
     if include_patcher_outputs:
@@ -233,61 +253,78 @@ def _build_post_patcher_bundle(
             "## Downstream risk\nrev_closure=42, under threshold.\n"
         )
     if include_patcher_refusal:
-        (bundle_dir / "refusal.json").write_text(json.dumps({
-            "rule": 3, "reason": "advisory-only verdict",
-        }))
+        (bundle_dir / "refusal.json").write_text(
+            json.dumps(
+                {
+                    "rule": 3,
+                    "reason": "advisory-only verdict",
+                }
+            )
+        )
 
     # Build replay.json with deterministic resolver invocation +
     # optional patcher invocation. The reproducer dispatcher reads the
     # patcher invocation's model.model_id to resolve patcher_family.
-    roles = [{
-        "role": "upstream-ref-resolver",
-        "invocations": [{
-            "invocation_id": "00000000-0000-4000-8000-000000000001",
+    roles = [
+        {
             "role": "upstream-ref-resolver",
-            "started_at": "2026-04-23T00:00:00Z",
-            "ended_at": "2026-04-23T00:00:01Z",
-            "model": {
-                "family": "deterministic-no-model",
-                "vendor": "internal",
-                "model_id": "upstream-ref-resolver-deterministic",
-                "version": "1.0.0",
-                "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
-            },
-            "prompt": {
-                "path": "prompts/upstream-ref-resolver.v1.md",
-                "sha256": "7" * 64,
-            },
-            "inputs": [{"path": "finding.json", "sha256": "6" * 64}],
-            "outputs": [{"path": "upstream-ref.json", "sha256": "8" * 64}],
-            "rng_seed": None,
-            "validators_passed": ["eligibility-verdict-present"],
-            "network_policy_applied": "feeds-only",
-        }],
-    }]
+            "invocations": [
+                {
+                    "invocation_id": "00000000-0000-4000-8000-000000000001",
+                    "role": "upstream-ref-resolver",
+                    "started_at": "2026-04-23T00:00:00Z",
+                    "ended_at": "2026-04-23T00:00:01Z",
+                    "model": {
+                        "family": "deterministic-no-model",
+                        "vendor": "internal",
+                        "model_id": "upstream-ref-resolver-deterministic",
+                        "version": "1.0.0",
+                        "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
+                    },
+                    "prompt": {
+                        "path": "prompts/upstream-ref-resolver.v1.md",
+                        "sha256": "7" * 64,
+                    },
+                    "inputs": [{"path": "finding.json", "sha256": "6" * 64}],
+                    "outputs": [{"path": "upstream-ref.json", "sha256": "8" * 64}],
+                    "rng_seed": None,
+                    "validators_passed": ["eligibility-verdict-present"],
+                    "network_policy_applied": "feeds-only",
+                }
+            ],
+        }
+    ]
     if include_patcher_invocation:
-        roles.append({
-            "role": "patcher",
-            "invocations": [{
-                "invocation_id": "11111111-1111-4111-8111-111111111111",
+        roles.append(
+            {
                 "role": "patcher",
-                "started_at": "2026-04-27T00:00:00Z",
-                "ended_at": "2026-04-27T00:00:05Z",
-                "model": {
-                    "family": "anthropic",
-                    "vendor": "anthropic",
-                    "model_id": patcher_model_id,
-                    "version": "test",
-                    "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 8192},
-                },
-                "prompt": {"path": "prompts/patcher.v2.md", "sha256": "a" * 64},
-                "inputs": [],
-                "outputs": [],
-                "rng_seed": None,
-                "validators_passed": ["schema-valid-output"],
-                "network_policy_applied": "none",
-            }],
-        })
+                "invocations": [
+                    {
+                        "invocation_id": "11111111-1111-4111-8111-111111111111",
+                        "role": "patcher",
+                        "started_at": "2026-04-27T00:00:00Z",
+                        "ended_at": "2026-04-27T00:00:05Z",
+                        "model": {
+                            "family": "anthropic",
+                            "vendor": "anthropic",
+                            "model_id": patcher_model_id,
+                            "version": "test",
+                            "sampling": {
+                                "temperature": 0,
+                                "top_p": 1,
+                                "max_tokens": 8192,
+                            },
+                        },
+                        "prompt": {"path": "prompts/patcher.v2.md", "sha256": "a" * 64},
+                        "inputs": [],
+                        "outputs": [],
+                        "rng_seed": None,
+                        "validators_passed": ["schema-valid-output"],
+                        "network_policy_applied": "none",
+                    }
+                ],
+            }
+        )
     replay = {
         "schema_version": "1.0.0",
         "bundle_id": "0000000000000001",
@@ -314,6 +351,7 @@ def _fresh_invocation() -> dict:
 def _factory(response_text: str):
     def _make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, response_text)
+
     return _make
 
 
@@ -450,7 +488,8 @@ def test_reproducer_refuses_when_required_input_missing(tmp_path):
 def test_reproducer_rejects_same_family_as_patcher(tmp_path):
     """Patcher recorded as opus; requesting opus reproducer is forbidden."""
     bundle_dir = _build_post_patcher_bundle(
-        tmp_path, patcher_model_id="claude-opus-4-7",
+        tmp_path,
+        patcher_model_id="claude-opus-4-7",
     )
     with pytest.raises(ExecutionError, match="cross-family"):
         execute(
@@ -469,7 +508,8 @@ def test_reproducer_rejects_same_family_as_patcher(tmp_path):
 
 def test_reproducer_accepts_different_family_pair(tmp_path):
     bundle_dir = _build_post_patcher_bundle(
-        tmp_path, patcher_model_id="claude-opus-4-7",
+        tmp_path,
+        patcher_model_id="claude-opus-4-7",
     )
     result = execute(
         role="reproducer",
@@ -489,7 +529,8 @@ def test_reproducer_proceeds_when_no_patcher_recorded(tmp_path):
     the production path the dispatcher refuses earlier on missing
     patch.diff."""
     bundle_dir = _build_post_patcher_bundle(
-        tmp_path, include_patcher_invocation=False,
+        tmp_path,
+        include_patcher_invocation=False,
     )
     # patch.diff exists; missing only the patcher REPLAY entry
     result = execute(
@@ -515,7 +556,11 @@ def test_reproducer_malformed_output_writes_no_files(tmp_path):
     # A long prose preamble (over the tolerated lead-in cap) is genuine format
     # breakdown, so it still fails and must write nothing. (A SHORT lead-in is
     # now tolerated and parses; see test_short_preamble_before_first_marker.)
-    bad_response = ("This is a long explanation of what I did. " * 20) + "\n\n" + _valid_reproducer_response()
+    bad_response = (
+        ("This is a long explanation of what I did. " * 20)
+        + "\n\n"
+        + _valid_reproducer_response()
+    )
     with pytest.raises(ExecutionError, match=r"malformed|shape is broken"):
         execute(
             role="reproducer",
@@ -637,8 +682,10 @@ def test_reproducer_v15_has_three_fixture_design_rules():
     assert "not a regular file" in low
     assert "effect is absent" in low or "effect being absent" in low
     # (3) unpatched observability independent of fix, giflib
-    assert "unpatched side's observability is independent" in low or \
-        "unpatched vuln" in low
+    assert (
+        "unpatched side's observability is independent" in low
+        or "unpatched vuln" in low
+    )
     assert "cve-2025-31344" in low
 
 
@@ -766,8 +813,12 @@ def test_collect_pocs_oversized_file_uses_previews_not_inline(tmp_path):
     assert entry["inline"] is False
     assert "content_text" not in entry
     assert "content_base64" not in entry
-    assert base64.b64decode(entry["preview_base64_first_256"]) == big[:POC_PREVIEW_BYTES]
-    assert base64.b64decode(entry["preview_base64_last_256"]) == big[-POC_PREVIEW_BYTES:]
+    assert (
+        base64.b64decode(entry["preview_base64_first_256"]) == big[:POC_PREVIEW_BYTES]
+    )
+    assert (
+        base64.b64decode(entry["preview_base64_last_256"]) == big[-POC_PREVIEW_BYTES:]
+    )
 
 
 def test_collect_pocs_rejects_symlinks(tmp_path):
@@ -841,7 +892,9 @@ def test_reproducer_runner_renders_pocs_block(tmp_path):
     message includes the v5 bundle-local PoC artifacts section."""
     bundle_dir = _build_post_patcher_bundle(tmp_path)
     (bundle_dir / "repro").mkdir()
-    (bundle_dir / "repro" / "crash_poc.csm").write_bytes(b"\x00\x01\x02malformed CSM bytes")
+    (bundle_dir / "repro" / "crash_poc.csm").write_bytes(
+        b"\x00\x01\x02malformed CSM bytes"
+    )
 
     captured: dict = {}
 
@@ -852,6 +905,7 @@ def test_reproducer_runner_renders_pocs_block(tmp_path):
         def invoke(self, *, system_prompt, user_content, sampling):
             captured["user_content"] = user_content
             from agents.patcher.adapter import ModelResponse
+
             return ModelResponse(
                 text=_valid_reproducer_response(),
                 model_id=self.model_id,

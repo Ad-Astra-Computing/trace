@@ -166,6 +166,7 @@ def _reproducer_response() -> str:
 def _factory(response: str):
     def make(model_id: str) -> FakeAdapter:
         return FakeAdapter(model_id, response)
+
     return make
 
 
@@ -179,24 +180,38 @@ def _build_runner_factory():
     into build.json so the reproducer scorers can grep for them
     downstream.
     """
-    sig_unpatched = "vuln-triggered: out-of-bounds-read in deserialise() on malformed length-prefix"
+    sig_unpatched = (
+        "vuln-triggered: out-of-bounds-read in deserialise() on malformed length-prefix"
+    )
     sig_patched = "rejected-malformed-length-prefix-as-expected-from-CVE-0000-0001"
 
     def make() -> FakeBuildRunner:
-        return FakeBuildRunner(responses=[
-            BuildOutcome(exit_code=0, drv_path="/nix/store/bbb.drv",
-                         out_path="/nix/store/bbb-repro-unpatched",
-                         stdout_stderr=f"+ run unpatched\n{sig_unpatched}\n",
-                         elapsed_seconds=0.5),
-            BuildOutcome(exit_code=0, drv_path="/nix/store/aaa.drv",
-                         out_path="/nix/store/aaa-patched-build",
-                         stdout_stderr="+ patched build ok\n",
-                         elapsed_seconds=1.0),
-            BuildOutcome(exit_code=0, drv_path="/nix/store/ccc.drv",
-                         out_path="/nix/store/ccc-repro-patched",
-                         stdout_stderr=f"+ run patched\n{sig_patched}\n",
-                         elapsed_seconds=0.5),
-        ])
+        return FakeBuildRunner(
+            responses=[
+                BuildOutcome(
+                    exit_code=0,
+                    drv_path="/nix/store/bbb.drv",
+                    out_path="/nix/store/bbb-repro-unpatched",
+                    stdout_stderr=f"+ run unpatched\n{sig_unpatched}\n",
+                    elapsed_seconds=0.5,
+                ),
+                BuildOutcome(
+                    exit_code=0,
+                    drv_path="/nix/store/aaa.drv",
+                    out_path="/nix/store/aaa-patched-build",
+                    stdout_stderr="+ patched build ok\n",
+                    elapsed_seconds=1.0,
+                ),
+                BuildOutcome(
+                    exit_code=0,
+                    drv_path="/nix/store/ccc.drv",
+                    out_path="/nix/store/ccc-repro-patched",
+                    stdout_stderr=f"+ run patched\n{sig_patched}\n",
+                    elapsed_seconds=0.5,
+                ),
+            ]
+        )
+
     return make
 
 
@@ -206,39 +221,63 @@ def _build_runner_factory():
 def _scaffold_pre_patcher_bundle(tmp_path: Path) -> Path:
     bundle = tmp_path / "bundle"
     bundle.mkdir()
-    (bundle / "bundle.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "bundle_id": "0000000000000099",
-        "cve_id": "CVE-0000-0001",
-        "nixpkgs_rev": "0" * 40,
-        "kind": "auto-merge",
-    }))
-    (bundle / "finding.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "affected": [{"attr_path": "demo", "version": "1.0.0", "confidence": "high"}],
-        "summary": "out-of-bounds read in demo's deserialise() on malformed length-prefix",
-    }))
-    (bundle / "upstream-ref.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "current_version": "1.0.0",
-        "target_version": "1.0.1",
-        "fix_tier": "security-patch-release",
-        "eligibility": {"verdict": "eligible"},
-        "upstream_fix_commits": [
-            {"repo_url": "https://github.com/example/demo",
-             "commit_sha": "deadbeefcafe",
-             "message": "deserialise: bound length-prefix before reading"},
-        ],
-    }))
-    (bundle / "impact.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "reverse_closure_count": 42,
-        "exceeds_threshold": False,
-    }))
-    (bundle / "maintainers.json").write_text(json.dumps({
-        "cve_id": "CVE-0000-0001",
-        "attr_paths": {"demo": {"maintainers": [{"github": "alice"}]}},
-    }))
+    (bundle / "bundle.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "bundle_id": "0000000000000099",
+                "cve_id": "CVE-0000-0001",
+                "nixpkgs_rev": "0" * 40,
+                "kind": "auto-merge",
+            }
+        )
+    )
+    (bundle / "finding.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "affected": [
+                    {"attr_path": "demo", "version": "1.0.0", "confidence": "high"}
+                ],
+                "summary": "out-of-bounds read in demo's deserialise() on malformed length-prefix",
+            }
+        )
+    )
+    (bundle / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "current_version": "1.0.0",
+                "target_version": "1.0.1",
+                "fix_tier": "security-patch-release",
+                "eligibility": {"verdict": "eligible"},
+                "upstream_fix_commits": [
+                    {
+                        "repo_url": "https://github.com/example/demo",
+                        "commit_sha": "deadbeefcafe",
+                        "message": "deserialise: bound length-prefix before reading",
+                    },
+                ],
+            }
+        )
+    )
+    (bundle / "impact.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "reverse_closure_count": 42,
+                "exceeds_threshold": False,
+            }
+        )
+    )
+    (bundle / "maintainers.json").write_text(
+        json.dumps(
+            {
+                "cve_id": "CVE-0000-0001",
+                "attr_paths": {"demo": {"maintainers": [{"github": "alice"}]}},
+            }
+        )
+    )
     (bundle / "package.nix").write_text('version = "1.0.0";\n')
 
     # Minimal replay.json with one resolver invocation (Patcher needs a
@@ -256,28 +295,35 @@ def _scaffold_pre_patcher_bundle(tmp_path: Path) -> Path:
             "tools": [{"name": "python", "version": "3.13"}],
         },
         "cross_family_rule_honored": True,
-        "roles": [{
-            "role": "upstream-ref-resolver",
-            "invocations": [{
-                "invocation_id": "00000000-0000-4000-8000-000000000099",
+        "roles": [
+            {
                 "role": "upstream-ref-resolver",
-                "started_at": "2026-04-28T00:00:00Z",
-                "ended_at": "2026-04-28T00:00:01Z",
-                "model": {
-                    "family": "deterministic-no-model",
-                    "vendor": "internal",
-                    "model_id": "upstream-ref-resolver-deterministic",
-                    "version": "1.0.0",
-                    "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
-                },
-                "prompt": {"path": "prompts/upstream-ref-resolver.v1.md", "sha256": "7" * 64},
-                "inputs": [{"path": "finding.json", "sha256": "6" * 64}],
-                "outputs": [{"path": "upstream-ref.json", "sha256": "8" * 64}],
-                "rng_seed": None,
-                "validators_passed": ["eligibility-verdict-present"],
-                "network_policy_applied": "feeds-only",
-            }],
-        }],
+                "invocations": [
+                    {
+                        "invocation_id": "00000000-0000-4000-8000-000000000099",
+                        "role": "upstream-ref-resolver",
+                        "started_at": "2026-04-28T00:00:00Z",
+                        "ended_at": "2026-04-28T00:00:01Z",
+                        "model": {
+                            "family": "deterministic-no-model",
+                            "vendor": "internal",
+                            "model_id": "upstream-ref-resolver-deterministic",
+                            "version": "1.0.0",
+                            "sampling": {"temperature": 0, "top_p": 1, "max_tokens": 1},
+                        },
+                        "prompt": {
+                            "path": "prompts/upstream-ref-resolver.v1.md",
+                            "sha256": "7" * 64,
+                        },
+                        "inputs": [{"path": "finding.json", "sha256": "6" * 64}],
+                        "outputs": [{"path": "upstream-ref.json", "sha256": "8" * 64}],
+                        "rng_seed": None,
+                        "validators_passed": ["eligibility-verdict-present"],
+                        "network_policy_applied": "feeds-only",
+                    }
+                ],
+            }
+        ],
     }
     (bundle / "replay.json").write_text(json.dumps(replay))
     return bundle
@@ -319,11 +365,19 @@ def _build_opa_input(bundle_dir: Path) -> dict:
 
 def _run_steward(bundle_dir: Path) -> dict:
     proc = subprocess.run(
-        [OPA_BIN, "eval", "--format=json",
-         "--data", str(POLICY_FILE), "--stdin-input",
-         "data.trace.steward"],
+        [
+            OPA_BIN,
+            "eval",
+            "--format=json",
+            "--data",
+            str(POLICY_FILE),
+            "--stdin-input",
+            "data.trace.steward",
+        ],
         input=json.dumps(_build_opa_input(bundle_dir)),
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return json.loads(proc.stdout)["result"][0]["expressions"][0]["value"]
 
@@ -343,15 +397,19 @@ def _score_reproducer(bundle_dir: Path, invocation_outputs: list[dict]) -> dict:
     for s in scorers:
         r = s.score(bundle_dir=bundle_dir, invocation=invocation)
         d = {
-            "scorer_name": r.scorer_name, "scorer_version": r.scorer_version,
-            "applies": r.applies, "advisory": r.advisory,
-            "score": r.score, "notes": r.notes,
+            "scorer_name": r.scorer_name,
+            "scorer_version": r.scorer_version,
+            "applies": r.applies,
+            "advisory": r.advisory,
+            "score": r.score,
+            "notes": r.notes,
         }
         if r.details:
             d["details"] = r.details
         results.append(d)
     report = {
-        "schema_version": "1.0.0", "scope": "reproducer",
+        "schema_version": "1.0.0",
+        "scope": "reproducer",
         "bundle_id": json.loads((bundle_dir / "bundle.json").read_text())["bundle_id"],
         "kind": "reproducer",
         "model_id": "claude-sonnet-4-6",
@@ -364,8 +422,10 @@ def _score_reproducer(bundle_dir: Path, invocation_outputs: list[dict]) -> dict:
 
 
 def _score_reviewer(bundle_dir: Path, invocation_outputs: list[dict]) -> dict:
-    invocation = {"outputs": invocation_outputs,
-                  "model": {"model_id": "claude-sonnet-4-6"}}
+    invocation = {
+        "outputs": invocation_outputs,
+        "model": {"model_id": "claude-sonnet-4-6"},
+    }
     scorers = [
         ReviewSchemaValidScorer(),
         ReviewEvidenceCitedScorer(),
@@ -376,15 +436,19 @@ def _score_reviewer(bundle_dir: Path, invocation_outputs: list[dict]) -> dict:
     for s in scorers:
         r = s.score(bundle_dir=bundle_dir, invocation=invocation)
         d = {
-            "scorer_name": r.scorer_name, "scorer_version": r.scorer_version,
-            "applies": r.applies, "advisory": r.advisory,
-            "score": r.score, "notes": r.notes,
+            "scorer_name": r.scorer_name,
+            "scorer_version": r.scorer_version,
+            "applies": r.applies,
+            "advisory": r.advisory,
+            "score": r.score,
+            "notes": r.notes,
         }
         if r.details:
             d["details"] = r.details
         results.append(d)
     report = {
-        "schema_version": "1.0.0", "scope": "reviewer",
+        "schema_version": "1.0.0",
+        "scope": "reviewer",
         "bundle_id": json.loads((bundle_dir / "bundle.json").read_text())["bundle_id"],
         "model_id": "claude-sonnet-4-6",
         "prompt_sha": "e" * 64,
@@ -418,8 +482,11 @@ def test_full_chain_patcher_reviewer_reproducer_builder_steward(tmp_path: Path) 
 
     # ── Patcher ─────────────────────────────────────────────────────────
     p_result = execute(
-        role="patcher", bundle_dir=bundle, invocation=fresh_invocation,
-        verify=False, model_id="claude-opus-4-7",
+        role="patcher",
+        bundle_dir=bundle,
+        invocation=fresh_invocation,
+        verify=False,
+        model_id="claude-opus-4-7",
         adapter_factory=_factory(_patcher_response()),
     )
     assert p_result["kind"] == "patch"
@@ -428,8 +495,11 @@ def test_full_chain_patcher_reviewer_reproducer_builder_steward(tmp_path: Path) 
 
     # ── Reviewer (cross-family with Patcher) ────────────────────────────
     rv_result = execute(
-        role="reviewer", bundle_dir=bundle, invocation=fresh_invocation,
-        verify=False, model_id="claude-sonnet-4-6",
+        role="reviewer",
+        bundle_dir=bundle,
+        invocation=fresh_invocation,
+        verify=False,
+        model_id="claude-sonnet-4-6",
         adapter_factory=_factory(_reviewer_response()),
     )
     assert rv_result["kind"] == "review"
@@ -449,8 +519,11 @@ def test_full_chain_patcher_reviewer_reproducer_builder_steward(tmp_path: Path) 
 
     # ── Reproducer (cross-family with Patcher) ──────────────────────────
     rp_result = execute(
-        role="reproducer", bundle_dir=bundle, invocation=fresh_invocation,
-        verify=False, model_id="claude-sonnet-4-6",
+        role="reproducer",
+        bundle_dir=bundle,
+        invocation=fresh_invocation,
+        verify=False,
+        model_id="claude-sonnet-4-6",
         adapter_factory=_factory(_reproducer_response()),
     )
     assert rp_result["kind"] == "reproducer"
@@ -465,8 +538,11 @@ def test_full_chain_patcher_reviewer_reproducer_builder_steward(tmp_path: Path) 
 
     # ── Builder (RUNNER_BACKED; FakeBuildRunner) ────────────────────────
     b_result = execute(
-        role="builder", bundle_dir=bundle, invocation=fresh_invocation,
-        verify=False, build_runner_factory=_build_runner_factory(),
+        role="builder",
+        bundle_dir=bundle,
+        invocation=fresh_invocation,
+        verify=False,
+        build_runner_factory=_build_runner_factory(),
         nixpkgs_checkout=None,
     )
     assert b_result["dispatch_outcome"] == "ok"
@@ -513,7 +589,9 @@ def test_full_chain_patcher_reviewer_reproducer_builder_steward(tmp_path: Path) 
     # (rule-6 through rule-11) all pass; the orthogonal rule-4 / rule-5
     # are exercised in their own deny fixtures.
     bundle_doc = json.loads((bundle / "bundle.json").read_text())
-    bundle_doc["files"] = {}  # opt out of rule-4 surface; no replay-critical files declared
+    bundle_doc[
+        "files"
+    ] = {}  # opt out of rule-4 surface; no replay-critical files declared
     bundle_doc["signed_manifest"] = {
         "algorithm": "sigstore-cosign-v1",
         "signer": "integration-test@example.invalid",
@@ -558,23 +636,47 @@ def test_full_chain_replay_records_role_progression(tmp_path: Path) -> None:
     bundle = _scaffold_pre_patcher_bundle(tmp_path)
     inv = {"invocation_id": None, "inputs": [], "outputs": []}
 
-    execute(role="patcher", bundle_dir=bundle, invocation=inv, verify=False,
-            model_id="claude-opus-4-7",
-            adapter_factory=_factory(_patcher_response()))
-    execute(role="reviewer", bundle_dir=bundle, invocation=inv, verify=False,
-            model_id="claude-sonnet-4-6",
-            adapter_factory=_factory(_reviewer_response()))
-    execute(role="reproducer", bundle_dir=bundle, invocation=inv, verify=False,
-            model_id="claude-sonnet-4-6",
-            adapter_factory=_factory(_reproducer_response()))
-    execute(role="builder", bundle_dir=bundle, invocation=inv, verify=False,
-            build_runner_factory=_build_runner_factory(),
-            nixpkgs_checkout=None)
+    execute(
+        role="patcher",
+        bundle_dir=bundle,
+        invocation=inv,
+        verify=False,
+        model_id="claude-opus-4-7",
+        adapter_factory=_factory(_patcher_response()),
+    )
+    execute(
+        role="reviewer",
+        bundle_dir=bundle,
+        invocation=inv,
+        verify=False,
+        model_id="claude-sonnet-4-6",
+        adapter_factory=_factory(_reviewer_response()),
+    )
+    execute(
+        role="reproducer",
+        bundle_dir=bundle,
+        invocation=inv,
+        verify=False,
+        model_id="claude-sonnet-4-6",
+        adapter_factory=_factory(_reproducer_response()),
+    )
+    execute(
+        role="builder",
+        bundle_dir=bundle,
+        invocation=inv,
+        verify=False,
+        build_runner_factory=_build_runner_factory(),
+        nixpkgs_checkout=None,
+    )
 
     replay = json.loads((bundle / "replay.json").read_text())
     role_order = [r["role"] for r in replay["roles"]]
     assert role_order == [
-        "upstream-ref-resolver", "patcher", "reviewer", "reproducer", "builder",
+        "upstream-ref-resolver",
+        "patcher",
+        "reviewer",
+        "reproducer",
+        "builder",
     ]
 
     # Cross-references: reviewer + reproducer point at patcher; builder
@@ -593,7 +695,9 @@ def test_full_chain_replay_records_role_progression(tmp_path: Path) -> None:
 
     # Reproducer cross-references the Patcher
     assert reproducer_inv["invocations"][0]["patcher_invocation_id"] == p_id
-    assert reproducer_inv["invocations"][0]["patcher_family_recorded"] == "anthropic-opus"
+    assert (
+        reproducer_inv["invocations"][0]["patcher_family_recorded"] == "anthropic-opus"
+    )
 
     # Builder cross-references both
     assert builder_inv["invocations"][0]["patcher_invocation_id"] == p_id

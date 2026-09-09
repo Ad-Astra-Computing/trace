@@ -59,6 +59,7 @@ Submission (see lora/submit_hf_authoring_job_v1.3.sh):
     -e HUB_MODEL_ID=adastracomputing/authoring-lora-v1.3 \\
     lora/hf_authoring_job_v1.3.py
 """
+
 import json
 import os
 from pathlib import Path
@@ -84,8 +85,13 @@ LORA_RANK = 16
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
 LORA_TARGET_MODULES = [
-    "q_proj", "k_proj", "v_proj", "o_proj",
-    "gate_proj", "up_proj", "down_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
 ]
 
 # v1.3: 375 steps × grad_accum 4 = 1500 effective steps ≈ 3.4 passes over 109 train examples
@@ -105,6 +111,7 @@ def make_formatting_func(tok):
             tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
             for msgs in examples["messages"]
         ]
+
     return fmt
 
 
@@ -113,7 +120,9 @@ def main():
 
     data_dir = Path(os.environ.get("DATA_DIR", "/data"))
     adapter_dir = Path(os.environ.get("ADAPTER_DIR", "/tmp/authoring-lora-v1.3"))
-    hub_model_id = os.environ.get("HUB_MODEL_ID", "adastracomputing/authoring-lora-v1.3")
+    hub_model_id = os.environ.get(
+        "HUB_MODEL_ID", "adastracomputing/authoring-lora-v1.3"
+    )
     adapter_dir.mkdir(parents=True, exist_ok=True)
 
     train_file = os.environ.get("TRAIN_FILE", "authoring.train.jsonl")
@@ -132,8 +141,12 @@ def main():
     train_text = "\n".join(json.dumps(r) for r in load_jsonl(train_path))
 
     # Canary exclusion: none of the 4 canary families may be in training data
-    for cve, name in [("CVE-2026-48526", "pyjwt"), ("CVE-2022-37434", "zlib"),
-                      ("CVE-2024-47081", "requests"), ("CVE-2026-42250", "bzip2-canary")]:
+    for cve, name in [
+        ("CVE-2026-48526", "pyjwt"),
+        ("CVE-2022-37434", "zlib"),
+        ("CVE-2024-47081", "requests"),
+        ("CVE-2026-42250", "bzip2-canary"),
+    ]:
         if cve in train_text:
             raise RuntimeError(
                 f"ABORT: canary {cve} ({name}) detected in training data. "
@@ -146,13 +159,19 @@ def main():
         raise RuntimeError(
             "ABORT: v1.3 system prompt rule 5 not found in training data."
         )
-    print("v1.3 corpus check: rule 5 (minimal structural change) system prompt present", flush=True)
+    print(
+        "v1.3 corpus check: rule 5 (minimal structural change) system prompt present",
+        flush=True,
+    )
 
     if "most specific method or class" not in train_text:
         raise RuntimeError(
             "ABORT: v1.3 system prompt rule 6 not found in training data."
         )
-    print("v1.3 corpus check: rule 6 (most specific class) system prompt present", flush=True)
+    print(
+        "v1.3 corpus check: rule 6 (most specific class) system prompt present",
+        flush=True,
+    )
 
     if "recursive self-call" in train_text:
         raise RuntimeError(
@@ -165,16 +184,34 @@ def main():
     # on whatever the honest corpus contains; the exporter now excludes any pair that
     # became ungrounded/duplicate/self-leaked). See docs/FINDINGS_LORA.md.
     _known_supplements = [
-        "CVE-2019-12900", "CVE-2019-3863", "CVE-2025-69693", "CVE-2017-12652",
-        "CVE-2020-15503", "CVE-2025-5917", "CVE-2015-8784", "CVE-2017-12898",
-        "CVE-2017-13024", "CVE-2018-13785", "CVE-2019-18218", "CVE-2021-23017",
-        "CVE-2021-28677", "CVE-2021-3520", "CVE-2021-3575", "CVE-2023-3603",
-        "CVE-2024-25629", "CVE-2024-37407", "CVE-2024-49766", "CVE-2025-57052",
+        "CVE-2019-12900",
+        "CVE-2019-3863",
+        "CVE-2025-69693",
+        "CVE-2017-12652",
+        "CVE-2020-15503",
+        "CVE-2025-5917",
+        "CVE-2015-8784",
+        "CVE-2017-12898",
+        "CVE-2017-13024",
+        "CVE-2018-13785",
+        "CVE-2019-18218",
+        "CVE-2021-23017",
+        "CVE-2021-28677",
+        "CVE-2021-3520",
+        "CVE-2021-3575",
+        "CVE-2023-3603",
+        "CVE-2024-25629",
+        "CVE-2024-37407",
+        "CVE-2024-49766",
+        "CVE-2025-57052",
         "CVE-2026-7135",
     ]
     _present = sum(1 for c in _known_supplements if c in train_text)
-    print(f"v10-clean corpus check: {_present}/{len(_known_supplements)} known real-diff "
-          "supplements survive the integrity fix", flush=True)
+    print(
+        f"v10-clean corpus check: {_present}/{len(_known_supplements)} known real-diff "
+        "supplements survive the integrity fix",
+        flush=True,
+    )
 
     # Sanity floor for the CLEAN corpus (integrity-gated 91->79 rows, ~68 train).
     # Catches a broken/empty upload without hardcoding the old v9 count.
@@ -183,7 +220,9 @@ def main():
             f"ABORT: expected >= 60 train examples in the clean corpus, got {len(train_ds)}. "
             "Re-upload authoring-lora-data-v10-clean from exports/authoring-lora/."
         )
-    print(f"v10-clean corpus check: train size {len(train_ds)} (>= 60 floor)", flush=True)
+    print(
+        f"v10-clean corpus check: train size {len(train_ds)} (>= 60 floor)", flush=True
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
     tokenizer.pad_token = tokenizer.eos_token
@@ -258,8 +297,14 @@ def main():
     )
 
     print(f"Model  {MODEL_ID} @ {MODEL_REVISION}", flush=True)
-    print(f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4", flush=True)
-    print(f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} warmup={warmup_steps} seed={SEED}", flush=True)
+    print(
+        f"LoRA   rank={LORA_RANK} alpha={LORA_ALPHA} dropout={LORA_DROPOUT} QLoRA-nf4",
+        flush=True,
+    )
+    print(
+        f"Train  max_steps={MAX_STEPS} grad_accum={GRAD_ACCUM} warmup={warmup_steps} seed={SEED}",
+        flush=True,
+    )
 
     train_result = trainer.train()
 
@@ -297,6 +342,7 @@ def main():
     tokenizer.save_pretrained(str(adapter_dir))
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.upload_file(
         path_or_fileobj=str(manifest_path),

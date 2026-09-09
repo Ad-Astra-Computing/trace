@@ -151,13 +151,15 @@ class FakeBuildRunner:
             raise ValueError(
                 "BuildRunner.run requires exactly one of nix_expression / attr"
             )
-        self.calls.append({
-            "nix_expression": nix_expression,
-            "attr": attr,
-            "cwd": str(cwd),
-            "timeout_seconds": timeout_seconds,
-            "instrumentation": instrumentation,
-        })
+        self.calls.append(
+            {
+                "nix_expression": nix_expression,
+                "attr": attr,
+                "cwd": str(cwd),
+                "timeout_seconds": timeout_seconds,
+                "instrumentation": instrumentation,
+            }
+        )
         if self._single is not None:
             return self._single
         if not self._queue:
@@ -175,24 +177,44 @@ class FakeBuildRunner:
 # output, and a legacy nix-build evaluation can read the caller's environment
 # through builtins.getEnv, so an operator shell that has sourced .env would hand
 # its API keys to the fixture and from there to a build log that gets committed.
-_ENV_ALLOW_EXACT = frozenset({
-    "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "USER", "LOGNAME", "SHELL", "TERM",
-    "LANG", "LANGUAGE", "TZ", "SSL_CERT_FILE", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
-    "XDG_RUNTIME_DIR", "TRACE_INSTRUMENTATION",
-})
+_ENV_ALLOW_EXACT = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TERM",
+        "LANG",
+        "LANGUAGE",
+        "TZ",
+        "SSL_CERT_FILE",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_RUNTIME_DIR",
+        "TRACE_INSTRUMENTATION",
+    }
+)
 _ENV_ALLOW_PREFIXES = ("NIX_", "LC_")
 
 
-def build_environment(parent: "Mapping[str, str]", *, instrumentation: str | None = None) -> dict[str, str]:
+def build_environment(
+    parent: "Mapping[str, str]", *, instrumentation: str | None = None
+) -> dict[str, str]:
     """The environment `nix-build` runs under: an allow-list of the parent's, not a copy."""
     env = {
-        k: v for k, v in parent.items()
+        k: v
+        for k, v in parent.items()
         if k in _ENV_ALLOW_EXACT or k.startswith(_ENV_ALLOW_PREFIXES)
     }
     if "NIX_CONFIG" in env:
         # Keep experimental-features and substituters; drop private-cache tokens.
         env["NIX_CONFIG"] = "\n".join(
-            line for line in env["NIX_CONFIG"].splitlines()
+            line
+            for line in env["NIX_CONFIG"].splitlines()
             if not line.strip().lower().startswith("access-tokens")
         )
     if instrumentation:
@@ -200,7 +222,9 @@ def build_environment(parent: "Mapping[str, str]", *, instrumentation: str | Non
     return env
 
 
-def _with_stored_build_log(out_path: str, combined: str, *, env: dict[str, str], cwd: Path) -> str:
+def _with_stored_build_log(
+    out_path: str, combined: str, *, env: dict[str, str], cwd: Path
+) -> str:
     """Append the store's own build log for a path nix-build did not rebuild.
 
     A derivation already present in the store prints only its path, so the
@@ -213,9 +237,15 @@ def _with_stored_build_log(out_path: str, combined: str, *, env: dict[str, str],
         return combined
     try:
         proc = subprocess.run(
-            [nix_store, "--read-log", out_path], cwd=str(cwd), check=False,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=120, env=env,
+            [nix_store, "--read-log", out_path],
+            cwd=str(cwd),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            env=env,
         )
     except (OSError, subprocess.TimeoutExpired):
         return combined
@@ -255,15 +285,16 @@ class LocalNixBuildRunner:
     ) -> BuildOutcome:
         if not self.is_available:
             return BuildOutcome(
-                exit_code=None, drv_path=None, out_path=None,
+                exit_code=None,
+                drv_path=None,
+                out_path=None,
                 stdout_stderr=f"nix-build not on PATH (looked for {self._binary!r})",
                 elapsed_seconds=0.0,
                 extras={"reason": "nix-build-not-available"},
             )
         if (nix_expression is None) == (attr is None):
             raise ValueError(
-                "LocalNixBuildRunner.run requires exactly one of "
-                "nix_expression / attr"
+                "LocalNixBuildRunner.run requires exactly one of nix_expression / attr"
             )
         cmd: list[str] = [self._binary, "--no-out-link"]
         if nix_expression is not None:
@@ -271,13 +302,18 @@ class LocalNixBuildRunner:
         else:
             cmd += ["-A", str(attr)]
         import os as _os
+
         env = build_environment(_os.environ, instrumentation=instrumentation)
         started = time.monotonic()
         try:
             proc = subprocess.run(
-                cmd, cwd=str(cwd), check=False,
-                capture_output=True, text=True,
-                encoding="utf-8", errors="replace",
+                cmd,
+                cwd=str(cwd),
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout_seconds,
                 env=env,
             )
@@ -286,10 +322,12 @@ class LocalNixBuildRunner:
             stdout = exc.stdout or ""
             stderr = exc.stderr or ""
             return BuildOutcome(
-                exit_code=None, drv_path=None, out_path=None,
+                exit_code=None,
+                drv_path=None,
+                out_path=None,
                 stdout_stderr=(stdout if isinstance(stdout, str) else "")
-                              + "\n"
-                              + (stderr if isinstance(stderr, str) else ""),
+                + "\n"
+                + (stderr if isinstance(stderr, str) else ""),
                 elapsed_seconds=elapsed,
                 timed_out=True,
                 extras={"reason": "timeout", "timeout_seconds": timeout_seconds},
@@ -297,7 +335,9 @@ class LocalNixBuildRunner:
         except OSError as exc:
             elapsed = time.monotonic() - started
             return BuildOutcome(
-                exit_code=None, drv_path=None, out_path=None,
+                exit_code=None,
+                drv_path=None,
+                out_path=None,
                 stdout_stderr=f"OSError: {exc}",
                 elapsed_seconds=elapsed,
                 extras={"reason": "os-error"},

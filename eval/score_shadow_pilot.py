@@ -16,6 +16,7 @@ Usage:
         --shadow-jsonl exports/reviewer-shadow-pilot/shadow-pilot.jsonl \\
         --out data/reports/lora-shadow-pilot-v1.0.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,14 +32,22 @@ from eval.frontier_baseline import score_example
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--responses", required=True, help="shadow-pilot-responses.jsonl from HF")
-    ap.add_argument("--shadow-jsonl", default="exports/reviewer-shadow-pilot/shadow-pilot.jsonl")
+    ap.add_argument(
+        "--responses", required=True, help="shadow-pilot-responses.jsonl from HF"
+    )
+    ap.add_argument(
+        "--shadow-jsonl", default="exports/reviewer-shadow-pilot/shadow-pilot.jsonl"
+    )
     ap.add_argument("--out", default="data/reports/lora-shadow-pilot-v1.0.json")
     args = ap.parse_args()
 
     responses = {
         r["bundle_id"]: r
-        for r in (json.loads(l) for l in Path(args.responses).read_text().splitlines() if l.strip())
+        for r in (
+            json.loads(l)
+            for l in Path(args.responses).read_text().splitlines()
+            if l.strip()
+        )
     }
 
     shadow_records = [
@@ -63,7 +72,10 @@ def main() -> None:
         results.append(scored)
 
     if unmatched:
-        print(f"WARN: no response for {len(unmatched)} examples: {unmatched}", file=sys.stderr)
+        print(
+            f"WARN: no response for {len(unmatched)} examples: {unmatched}",
+            file=sys.stderr,
+        )
 
     n = len(results)
     false_rejects = [r for r in results if r.get("actual_verdict") == "reject"]
@@ -80,12 +92,20 @@ def main() -> None:
         "false_reject_count": len(false_rejects),
         "refusal_count": len(refusals),
         "parse_failure_count": len(parse_fails),
-        "schema_valid_rate": sum(1 for r in results if r.get("schema_valid")) / n if n else 0,
-        "evidence_cited_rate": sum(1 for r in results if r.get("evidence_cited")) / n if n else 0,
+        "schema_valid_rate": sum(1 for r in results if r.get("schema_valid")) / n
+        if n
+        else 0,
+        "evidence_cited_rate": sum(1 for r in results if r.get("evidence_cited")) / n
+        if n
+        else 0,
         "gate_pass": len(false_rejects) == 0 and len(parse_fails) == 0,
-        "false_rejects": [{"cve_id": r["cve_id"], "attr_path": r["attr_path"]} for r in false_rejects],
+        "false_rejects": [
+            {"cve_id": r["cve_id"], "attr_path": r["attr_path"]} for r in false_rejects
+        ],
         "refusals": [{"cve_id": r["cve_id"]} for r in refusals],
-        "parse_failures": [{"cve_id": r["cve_id"], "error": r.get("parse_error")} for r in parse_fails],
+        "parse_failures": [
+            {"cve_id": r["cve_id"], "error": r.get("parse_error")} for r in parse_fails
+        ],
         "results": results,
     }
 
@@ -93,13 +113,21 @@ def main() -> None:
     Path(args.out).write_text(json.dumps(agg, indent=2))
 
     gate = "PASS" if agg["gate_pass"] else "FAIL"
-    print(f"\nReviewer-LoRA v1.0 shadow pilot ({n} post-training positives)", file=sys.stderr)
-    print(f"  acceptance rate:  {agg['acceptance_rate']:.1%}  ({len(accepts)}/{n})", file=sys.stderr)
+    print(
+        f"\nReviewer-LoRA v1.0 shadow pilot ({n} post-training positives)",
+        file=sys.stderr,
+    )
+    print(
+        f"  acceptance rate:  {agg['acceptance_rate']:.1%}  ({len(accepts)}/{n})",
+        file=sys.stderr,
+    )
     print(f"  false rejects:    {agg['false_reject_count']}", file=sys.stderr)
     print(f"  refusals:         {agg['refusal_count']}", file=sys.stderr)
     print(f"  parse failures:   {agg['parse_failure_count']}", file=sys.stderr)
     print(f"  schema valid:     {agg['schema_valid_rate']:.1%}", file=sys.stderr)
-    print(f"  gate ({gate}):     0 false rejects required for promotion", file=sys.stderr)
+    print(
+        f"  gate ({gate}):     0 false rejects required for promotion", file=sys.stderr
+    )
     print(f"\nwrote {args.out}", file=sys.stderr)
 
 

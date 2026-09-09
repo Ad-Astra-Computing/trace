@@ -211,3 +211,31 @@ jobs:
 
       - name: Python schema validation of the emitted snapshot + cargo smoke tests
         run: nix develop --command pytest -v tests/graph
+
+  flake-checks:
+    # The Ad Astra standard gates formatting + eval-fixtures in CI (the same two
+    # checks the skeleton's pre-commit runs). trace exposes them as flake
+    # `checks` outputs; this job builds both. treefmt (nixfmt + ruff.format)
+    # excludes the hash-bound evidence trees (traces/, eval/experiments/,
+    # tests/fixtures/) so formatting never rewrites bundle bytes.
+    name: flake checks (fmt + eval-fixtures)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      # DeterminateSystems actions pinned by full commit SHA (see other jobs).
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      - name: nix build flake checks
+        run: |
+          set -euo pipefail
+          nix build --print-build-logs \
+            .#checks.x86_64-linux.formatting \
+            .#checks.x86_64-linux.eval-fixtures

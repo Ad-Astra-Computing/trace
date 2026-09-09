@@ -106,7 +106,9 @@ def _fetch_one_page_with_retry(
             if status >= 500:
                 raise FeedTransientError(f"CPE dictionary returned {status}")
             if status != 200:
-                raise FeedDecodeError(f"CPE dictionary returned unexpected status {status}")
+                raise FeedDecodeError(
+                    f"CPE dictionary returned unexpected status {status}"
+                )
             try:
                 payload = json.loads(body)
             except json.JSONDecodeError as e:
@@ -179,16 +181,18 @@ def enrich_records_with_cpes(
             if c not in seen:
                 seen.add(c)
                 merged.append(c)
-        out.append(GraphMatch(
-            attr_path=r.attr_path,
-            drv_path=r.drv_path,
-            pname=r.pname,
-            version=r.version,
-            cpes=tuple(merged),
-            purls=r.purls,
-            src_url=r.src_url,
-            src_hash=r.src_hash,
-        ))
+        out.append(
+            GraphMatch(
+                attr_path=r.attr_path,
+                drv_path=r.drv_path,
+                pname=r.pname,
+                version=r.version,
+                cpes=tuple(merged),
+                purls=r.purls,
+                src_url=r.src_url,
+                src_hash=r.src_hash,
+            )
+        )
     return out
 
 

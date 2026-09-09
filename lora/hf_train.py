@@ -20,6 +20,7 @@ Usage:
 
 Hyperparameters mirror lora/mlx_config.yaml so results are comparable.
 """
+
 import argparse
 import json
 from pathlib import Path
@@ -38,8 +39,13 @@ LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
 # Attention + MLP projections for Qwen2.5
 LORA_TARGET_MODULES = [
-    "q_proj", "k_proj", "v_proj", "o_proj",
-    "gate_proj", "up_proj", "down_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
 ]
 
 
@@ -56,28 +62,49 @@ def make_formatting_func(tok):
     Loss is computed over all tokens (system + user + assistant); acceptable for
     a 92-example binary SFT where the signal is entirely in the assistant turn.
     """
+
     def fmt(examples):
         # examples is a dict of lists: {"messages": [[...], [...], ...]}
         return [
             tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
             for msgs in examples["messages"]
         ]
+
     return fmt
 
 
 def main():
     parser = argparse.ArgumentParser(description="Reviewer-LoRA v1.0 fine-tune")
-    parser.add_argument("--data", default="exports/lora",
-                        help="Directory with train.jsonl / valid.jsonl (default: exports/lora)")
-    parser.add_argument("--adapter-path", default="lora/adapters/reviewer-v1.0",
-                        help="Where to save LoRA adapter weights")
-    parser.add_argument("--qlora", dest="qlora", action="store_true", default=True,
-                        help="Use 4-bit QLoRA (default)")
-    parser.add_argument("--no-qlora", dest="qlora", action="store_false",
-                        help="Disable QLoRA; use full BF16 LoRA (requires ≥40GB VRAM)")
-    parser.add_argument("--max-steps", type=int, default=150,
-                        help="Optimizer steps (default: 150; with grad_accum=4 this is "
-                             "~8.7 epochs over 69 train examples. 500 = ~29 epochs overfits a 14B.)")
+    parser.add_argument(
+        "--data",
+        default="exports/lora",
+        help="Directory with train.jsonl / valid.jsonl (default: exports/lora)",
+    )
+    parser.add_argument(
+        "--adapter-path",
+        default="lora/adapters/reviewer-v1.0",
+        help="Where to save LoRA adapter weights",
+    )
+    parser.add_argument(
+        "--qlora",
+        dest="qlora",
+        action="store_true",
+        default=True,
+        help="Use 4-bit QLoRA (default)",
+    )
+    parser.add_argument(
+        "--no-qlora",
+        dest="qlora",
+        action="store_false",
+        help="Disable QLoRA; use full BF16 LoRA (requires ≥40GB VRAM)",
+    )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=150,
+        help="Optimizer steps (default: 150; with grad_accum=4 this is "
+        "~8.7 epochs over 69 train examples. 500 = ~29 epochs overfits a 14B.)",
+    )
     args = parser.parse_args()
 
     data_dir = Path(args.data)
@@ -178,7 +205,9 @@ def main():
 
     mode = "QLoRA 4-bit nf4" if args.qlora else "full BF16 LoRA"
     print(f"Model  {MODEL_ID}")
-    print(f"LoRA   rank={LORA_RANK}  alpha={LORA_ALPHA}  dropout={LORA_DROPOUT}  mode={mode}")
+    print(
+        f"LoRA   rank={LORA_RANK}  alpha={LORA_ALPHA}  dropout={LORA_DROPOUT}  mode={mode}"
+    )
     print(f"Train  max_steps={args.max_steps}  lr=1e-4  warmup=50")
     print(f"Out    {adapter_path}")
 

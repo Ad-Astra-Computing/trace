@@ -32,12 +32,14 @@ from tests.schema.validate import REPO_ROOT
 def _fake_runner_ok(value: str, version: str = "nix-build (Nix) 2.33.3"):
     def runner(expression: str, request: GoModVendorRequest):
         return ("ok", value, version, "nix-build --no-out-link -A goModules ...")
+
     return runner
 
 
 def _fake_runner_err(detail: str, version: str = "nix-build (Nix) 2.33.3"):
     def runner(expression: str, request: GoModVendorRequest):
         return ("err", detail, version, "nix-build --no-out-link -A goModules ...")
+
     return runner
 
 
@@ -45,7 +47,9 @@ def test_happy_path_records_full_attribution() -> None:
     request = GoModVendorRequest(attr_path="traefik", target_version="3.6.8")
     out = prefetch_go_mod_vendor(
         request,
-        command_runner=_fake_runner_ok("sha256-Pr3F3tCh3dV3nd0rV4lu3Sh4p3dRightForTest="),
+        command_runner=_fake_runner_ok(
+            "sha256-Pr3F3tCh3dV3nd0rV4lu3Sh4p3dRightForTest="
+        ),
     )
     assert isinstance(out, GoModVendorSuccess)
     assert out.name == "vendorHash"
@@ -78,7 +82,9 @@ def test_success_serialises_to_prefetch_hashes_schema_shape() -> None:
     request = GoModVendorRequest(attr_path="traefik", target_version="3.6.8")
     out = prefetch_go_mod_vendor(
         request,
-        command_runner=_fake_runner_ok("sha256-V3nd0rValueShap3dRightForJSONsch3maT3st="),
+        command_runner=_fake_runner_ok(
+            "sha256-V3nd0rValueShap3dRightForJSONsch3maT3st="
+        ),
     )
     assert isinstance(out, GoModVendorSuccess)
     d = out.to_schema_dict()
@@ -107,8 +113,10 @@ def test_success_serialises_to_prefetch_hashes_schema_shape() -> None:
         "replay_critical": True,
     }
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(bundle)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(bundle)
+    ]
     assert not errors, errors
 
 
@@ -139,8 +147,10 @@ def test_failure_serialises_to_prefetch_skips_schema_shape() -> None:
         "replay_critical": True,
     }
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(bundle)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(bundle)
+    ]
     assert not errors, errors
 
 
@@ -148,6 +158,7 @@ def test_expression_includes_target_version_and_fakeHash() -> None:
     """Sanity check the constructed Nix expression: the override must
     include the target_version and lib.fakeHash."""
     from agents.upstream_ref_resolver.go_mod_vendor import _build_expression
+
     request = GoModVendorRequest(attr_path="traefik", target_version="3.6.8")
     expr = _build_expression(request)
     assert 'version = "3.6.8"' in expr
@@ -157,8 +168,10 @@ def test_expression_includes_target_version_and_fakeHash() -> None:
 
 def test_expression_pins_nixpkgs_rev_when_supplied() -> None:
     from agents.upstream_ref_resolver.go_mod_vendor import _build_expression
+
     request = GoModVendorRequest(
-        attr_path="traefik", target_version="3.6.8",
+        attr_path="traefik",
+        target_version="3.6.8",
         nixpkgs_rev="55b908383f4d5bfee96f5cca0effc66c80893984",
     )
     expr = _build_expression(request)
@@ -168,6 +181,7 @@ def test_expression_pins_nixpkgs_rev_when_supplied() -> None:
 def test_parse_fod_hash_mismatch_extracts_modern_format() -> None:
     """Sanity check the regex against a realistic stderr excerpt."""
     from agents.upstream_ref_resolver.go_mod_vendor import _parse_fod_hash_mismatch
+
     stderr = (
         "error: hash mismatch in fixed-output derivation '/nix/store/...':\n"
         "         specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
@@ -179,6 +193,7 @@ def test_parse_fod_hash_mismatch_extracts_modern_format() -> None:
 
 def test_parse_fod_hash_mismatch_returns_none_when_absent() -> None:
     from agents.upstream_ref_resolver.go_mod_vendor import _parse_fod_hash_mismatch
+
     stderr = "error: build failed for unrelated reason; exit code 2"
     assert _parse_fod_hash_mismatch(stderr) is None
 
@@ -192,7 +207,8 @@ def test_real_traefik_go_vendor_smoke() -> None:
     traefik 3.6.8. Asserts shape only — does not pin the hash value
     because the real value can shift if upstream re-releases."""
     request = GoModVendorRequest(
-        attr_path="traefik", target_version="3.6.8",
+        attr_path="traefik",
+        target_version="3.6.8",
     )
     out = prefetch_go_mod_vendor(request)
     assert isinstance(out, GoModVendorSuccess), getattr(out, "detail", "")

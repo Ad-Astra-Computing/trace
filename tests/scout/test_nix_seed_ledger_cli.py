@@ -18,18 +18,33 @@ def test_update_folds_terminal_outcomes(tmp_path: Path) -> None:
     ledger = tmp_path / "seen.jsonl"
     sidecar = tmp_path / "emitted.jsonl"
     summary = tmp_path / "run-summary.jsonl"
-    _write_jsonl(sidecar, [
-        {"cve_id": "CVE-2026-1001", "fingerprint": "u:x"},
-        {"cve_id": "CVE-2026-1002", "fingerprint": "u:y"},
-    ])
-    _write_jsonl(summary, [
-        {"cve_id": "CVE-2026-1001", "action": "written"},
-        {"cve_id": "CVE-2026-1002", "action": "skipped-irrelevant"},
-    ])
-    rc = nix_seed_ledger_cli.main([
-        "update", "--ledger", str(ledger), "--sidecar", str(sidecar),
-        "--run-summary", str(summary), "--run-at", "2026-07-21T12:00:00Z",
-    ])
+    _write_jsonl(
+        sidecar,
+        [
+            {"cve_id": "CVE-2026-1001", "fingerprint": "u:x"},
+            {"cve_id": "CVE-2026-1002", "fingerprint": "u:y"},
+        ],
+    )
+    _write_jsonl(
+        summary,
+        [
+            {"cve_id": "CVE-2026-1001", "action": "written"},
+            {"cve_id": "CVE-2026-1002", "action": "skipped-irrelevant"},
+        ],
+    )
+    rc = nix_seed_ledger_cli.main(
+        [
+            "update",
+            "--ledger",
+            str(ledger),
+            "--sidecar",
+            str(sidecar),
+            "--run-summary",
+            str(summary),
+            "--run-at",
+            "2026-07-21T12:00:00Z",
+        ]
+    )
     assert rc == 0
     got = read_ledger(ledger)
     assert got["CVE-2026-1001"].outcome == "written"
@@ -41,10 +56,19 @@ def test_update_missing_sidecar_is_noop(tmp_path: Path) -> None:
     ledger = tmp_path / "seen.jsonl"
     summary = tmp_path / "run-summary.jsonl"
     _write_jsonl(summary, [{"cve_id": "CVE-2026-1001", "action": "written"}])
-    rc = nix_seed_ledger_cli.main([
-        "update", "--ledger", str(ledger), "--sidecar", str(tmp_path / "absent.jsonl"),
-        "--run-summary", str(summary), "--run-at", "2026-07-21T12:00:00Z",
-    ])
+    rc = nix_seed_ledger_cli.main(
+        [
+            "update",
+            "--ledger",
+            str(ledger),
+            "--sidecar",
+            str(tmp_path / "absent.jsonl"),
+            "--run-summary",
+            str(summary),
+            "--run-at",
+            "2026-07-21T12:00:00Z",
+        ]
+    )
     assert rc == 0
     assert not ledger.exists()  # nothing written
 
@@ -53,8 +77,17 @@ def test_update_missing_run_summary_is_usage_error(tmp_path: Path) -> None:
     ledger = tmp_path / "seen.jsonl"
     sidecar = tmp_path / "emitted.jsonl"
     _write_jsonl(sidecar, [{"cve_id": "CVE-2026-1001", "fingerprint": "u:x"}])
-    rc = nix_seed_ledger_cli.main([
-        "update", "--ledger", str(ledger), "--sidecar", str(sidecar),
-        "--run-summary", str(tmp_path / "absent.jsonl"), "--run-at", "t",
-    ])
+    rc = nix_seed_ledger_cli.main(
+        [
+            "update",
+            "--ledger",
+            str(ledger),
+            "--sidecar",
+            str(sidecar),
+            "--run-summary",
+            str(tmp_path / "absent.jsonl"),
+            "--run-at",
+            "t",
+        ]
+    )
     assert rc == 64

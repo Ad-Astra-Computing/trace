@@ -31,17 +31,21 @@ from tests.schema.validate import REPO_ROOT
 def _fake_runner_ok(value: str, version: str = "nix-build (Nix) 2.33.3"):
     def runner(expression: str, request: FetchzipRequest):
         return ("ok", value, version, "nix-build --no-out-link -E ...")
+
     return runner
 
 
 def _fake_runner_err(detail: str, version: str = "nix-build (Nix) 2.33.3"):
     def runner(expression: str, request: FetchzipRequest):
         return ("err", detail, version, "nix-build --no-out-link -E ...")
+
     return runner
 
 
 def test_happy_path_records_full_attribution() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
+    request = FetchzipRequest(
+        attr_path="uriparser", target_version="1.0.0", current_version="0.9.9"
+    )
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_ok("sha256-Pr3F3tCh3dSrcValueShap3dRightForTest="),
@@ -59,7 +63,9 @@ def test_happy_path_records_full_attribution() -> None:
 
 
 def test_failure_path_returns_structured_failure() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
+    request = FetchzipRequest(
+        attr_path="uriparser", target_version="1.0.0", current_version="0.9.9"
+    )
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_err("nix-build: HTTP 404 fetching tarball"),
@@ -74,7 +80,9 @@ def test_failure_path_returns_structured_failure() -> None:
 
 
 def test_success_serialises_to_prefetch_hashes_schema_shape() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
+    request = FetchzipRequest(
+        attr_path="uriparser", target_version="1.0.0", current_version="0.9.9"
+    )
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_ok("sha256-V1d3oRoundtripValueForJSONsch3maT3st="),
@@ -106,13 +114,17 @@ def test_success_serialises_to_prefetch_hashes_schema_shape() -> None:
         "replay_critical": True,
     }
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(bundle)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(bundle)
+    ]
     assert not errors, errors
 
 
 def test_failure_serialises_to_prefetch_failures_schema_shape() -> None:
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
+    request = FetchzipRequest(
+        attr_path="uriparser", target_version="1.0.0", current_version="0.9.9"
+    )
     out = prefetch_fetchzip(
         request,
         command_runner=_fake_runner_err("nix-build: build timed out"),
@@ -142,14 +154,19 @@ def test_failure_serialises_to_prefetch_failures_schema_shape() -> None:
         "replay_critical": True,
     }
     validator = Draft202012Validator(schema)
-    errors = ["/".join(str(p) for p in e.absolute_path) + ": " + e.message
-             for e in validator.iter_errors(bundle)]
+    errors = [
+        "/".join(str(p) for p in e.absolute_path) + ": " + e.message
+        for e in validator.iter_errors(bundle)
+    ]
     assert not errors, errors
 
 
 def test_expression_includes_target_version_and_fakeHash() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
-    request = FetchzipRequest(attr_path="uriparser", target_version="1.0.0", current_version="0.9.9")
+
+    request = FetchzipRequest(
+        attr_path="uriparser", target_version="1.0.0", current_version="0.9.9"
+    )
     expr = _build_expression(request)
     assert 'version = "1.0.0"' in expr
     assert "lib.fakeHash" in expr
@@ -169,8 +186,10 @@ def test_expression_includes_target_version_and_fakeHash() -> None:
 
 def test_expression_pins_nixpkgs_rev_when_supplied() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
+
     request = FetchzipRequest(
-        attr_path="uriparser", target_version="1.0.0",
+        attr_path="uriparser",
+        target_version="1.0.0",
         current_version="0.9.9",
         nixpkgs_rev="20bb5d462943a0f38eba2372db9f7a6d9fd22be2",
     )
@@ -204,13 +223,16 @@ def test_expression_passes_allow_unsupported_system_for_linux_only_packages() ->
         _build_expression,
         _PREFETCH_NIXPKGS_CONFIG,
     )
+
     assert "allowUnsupportedSystem = true" in _PREFETCH_NIXPKGS_CONFIG
     # Crucial: must NOT pin system — that would propagate to the FOD drv.
     assert "system =" not in _PREFETCH_NIXPKGS_CONFIG
 
     # No nixpkgs_rev — config still applied to the <nixpkgs> import.
     expr_unpinned = _build_expression(
-        FetchzipRequest(attr_path="systemd", target_version="257.6", current_version="257.5")
+        FetchzipRequest(
+            attr_path="systemd", target_version="257.6", current_version="257.5"
+        )
     )
     assert "config.allowUnsupportedSystem = true" in expr_unpinned
     assert "import <nixpkgs>" in expr_unpinned
@@ -221,7 +243,8 @@ def test_expression_passes_allow_unsupported_system_for_linux_only_packages() ->
     # With nixpkgs_rev — config still applied to the fetchTarball import.
     expr_pinned = _build_expression(
         FetchzipRequest(
-            attr_path="systemd", target_version="257.6",
+            attr_path="systemd",
+            target_version="257.6",
             current_version="257.5",
             nixpkgs_rev="adfe0268d8b621c68f0b060fc2e801b5196b5f6a",
         )
@@ -252,7 +275,8 @@ def test_real_systemd_fetchzip_resolves_on_darwin_host() -> None:
     a68c049d03b8) is `sha256-Myb/ra7NQTDzN7B9jn8svbhTrLSfiqWaSxREe/nDyYo=`,
     which is what fetchFromGitHub demands at build time."""
     request = FetchzipRequest(
-        attr_path="systemd", target_version="257.6",
+        attr_path="systemd",
+        target_version="257.6",
         nixpkgs_rev="adfe0268d8b621c68f0b060fc2e801b5196b5f6a",
     )
     out = prefetch_fetchzip(request)
@@ -263,6 +287,7 @@ def test_real_systemd_fetchzip_resolves_on_darwin_host() -> None:
 
 def test_parse_fod_hash_mismatch_extracts_modern_format() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _parse_fod_hash_mismatch
+
     stderr = (
         "error: hash mismatch in fixed-output derivation '/nix/store/...':\n"
         "         specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
@@ -274,6 +299,7 @@ def test_parse_fod_hash_mismatch_extracts_modern_format() -> None:
 
 def test_parse_fod_hash_mismatch_returns_none_when_absent() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _parse_fod_hash_mismatch
+
     stderr = "error: build failed for unrelated reason; exit code 2"
     assert _parse_fod_hash_mismatch(stderr) is None
 
@@ -292,7 +318,8 @@ def test_real_uriparser_fetchzip_smoke() -> None:
     which is what fetchFromGitHub demands. Confirming this test passes
     is what the whole 'fetchFromGitHub != nix-prefetch-url' fix was for."""
     request = FetchzipRequest(
-        attr_path="uriparser", target_version="1.0.0",
+        attr_path="uriparser",
+        target_version="1.0.0",
     )
     out = prefetch_fetchzip(request)
     assert isinstance(out, FetchzipSuccess), getattr(out, "detail", "")

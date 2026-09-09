@@ -208,7 +208,9 @@ def _extract_references(response: dict[str, Any]) -> list[dict[str, str]]:
             if not url or url in seen:
                 continue
             seen.add(url)
-            refs.append({"url": url, "kind": _classify_nvd_ref(url, entry.get("tags") or [])})
+            refs.append(
+                {"url": url, "kind": _classify_nvd_ref(url, entry.get("tags") or [])}
+            )
     return refs
 
 
@@ -278,7 +280,12 @@ def _derive_pname_hints(cpe_matches: list[dict[str, str]]) -> list[str]:
     return hints
 
 
-_FIX_KIND_KEYS = ("lessThan", "lessThanOrEqual", "versionEndExcluding", "versionEndIncluding")
+_FIX_KIND_KEYS = (
+    "lessThan",
+    "lessThanOrEqual",
+    "versionEndExcluding",
+    "versionEndIncluding",
+)
 _RANGE_PART_RE = re.compile(r"^\s*(<=|>=|<|>|==|=)?\s*([0-9][0-9A-Za-z.\-+]*)\s*$")
 
 # Slice 5h status-list fallback: classify unaffected-entry version strings.
@@ -411,9 +418,7 @@ def _pick_fix_signal(entry: dict[str, Any]) -> tuple[str | None, str]:
     return None, ""
 
 
-def _status_list_bound(
-    product: str, versions: list[Any]
-) -> dict[str, Any] | None:
+def _status_list_bound(product: str, versions: list[Any]) -> dict[str, Any] | None:
     """Status-list fallback (slice 5h). When no status=affected entry
     yields a structured or free-text bound for this product, infer one
     from the status=unaffected entries in the same affected[] block.

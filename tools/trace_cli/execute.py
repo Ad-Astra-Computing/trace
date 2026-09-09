@@ -34,19 +34,23 @@ from pathlib import Path
 from typing import Any
 
 
-DETERMINISTIC_ROLES: frozenset[str] = frozenset({
-    "scout",
-    "cartographer",
-    "upstream-ref-resolver",
-})
+DETERMINISTIC_ROLES: frozenset[str] = frozenset(
+    {
+        "scout",
+        "cartographer",
+        "upstream-ref-resolver",
+    }
+)
 
 # Non-deterministic roles need a model call. Patcher, Reviewer, and
 # Reproducer are wired (the latter as of the 2026-04-28 step-4 lock).
-MODEL_BACKED_ROLES: frozenset[str] = frozenset({
-    "patcher",
-    "reviewer",
-    "reproducer",
-})
+MODEL_BACKED_ROLES: frozenset[str] = frozenset(
+    {
+        "patcher",
+        "reviewer",
+        "reproducer",
+    }
+)
 
 # Builder is deterministic (no LLM call) but its execution shape is
 # subprocess-driven (shells out to nix-build via the BuildRunner
@@ -54,9 +58,11 @@ MODEL_BACKED_ROLES: frozenset[str] = frozenset({
 # Builder execution requires a Linux build host; the wiring lands
 # regardless so the FakeBuildRunner-driven tests can exercise the
 # integration.
-RUNNER_BACKED_ROLES: frozenset[str] = frozenset({
-    "builder",
-})
+RUNNER_BACKED_ROLES: frozenset[str] = frozenset(
+    {
+        "builder",
+    }
+)
 
 REJECTED_NON_DETERMINISTIC_ROLES: frozenset[str] = frozenset()
 
@@ -205,10 +211,14 @@ def execute(
 # ─── input loading + hash check ─────────────────────────────────────────────
 
 
-def _load_input(ref: dict[str, Any], bundle_dir: Path, verify: bool) -> tuple[bytes, Any]:
+def _load_input(
+    ref: dict[str, Any], bundle_dir: Path, verify: bool
+) -> tuple[bytes, Any]:
     path = bundle_dir / ref["path"]
     if not path.is_file():
-        raise ExecutionError(f"input file not found: {ref['path']} (looked under {bundle_dir})")
+        raise ExecutionError(
+            f"input file not found: {ref['path']} (looked under {bundle_dir})"
+        )
     data = path.read_bytes()
     if verify:
         actual = sha256_hex(data)
@@ -369,12 +379,14 @@ def _match_and_hash_outputs(
                 f"output hash mismatch for {ref['path']}: "
                 f"replay.json declares {ref['sha256']}, stub output hashes to {computed}"
             )
-        out.append({
-            "path": ref["path"],
-            "declared_sha256": ref["sha256"],
-            "computed_sha256": computed,
-            "content": content,
-        })
+        out.append(
+            {
+                "path": ref["path"],
+                "declared_sha256": ref["sha256"],
+                "computed_sha256": computed,
+                "content": content,
+            }
+        )
 
     return out
 
@@ -382,11 +394,15 @@ def _match_and_hash_outputs(
 # ─── patcher (model-backed) ─────────────────────────────────────────────────
 
 
-PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v2.2.md"
+PATCHER_PROMPT_PATH_DEFAULT = (
+    Path(__file__).resolve().parents[2] / "prompts" / "patcher.v2.2.md"
+)
 # Used only when upstream-ref.json.eligibility.patch_strategy == "source-backport":
 # the v3 prompt authorizes the Patcher to author an in-tree backport patch
 # against the current version instead of bumping to the fixed release.
-PATCHER_PROMPT_PATH_BACKPORT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v3.md"
+PATCHER_PROMPT_PATH_BACKPORT = (
+    Path(__file__).resolve().parents[2] / "prompts" / "patcher.v3.md"
+)
 # Used when a source-backport bundle carries a source-context/ dir (schema 1.1.0):
 # the adaptation prompt gives the Patcher the pre-patch source of the affected files plus
 # the deterministic preflight verdict (applies_verbatim), so it transcribes
@@ -395,7 +411,9 @@ PATCHER_PROMPT_PATH_BACKPORT = Path(__file__).resolve().parents[2] / "prompts" /
 # v5 replaces v4 here: same contract, plus a `## Why minimal` claim list whose
 # every claim cites a line the payload adds, so `rationale_binding` can falsify
 # the model's account of its own diff before Reviewer spend.
-PATCHER_PROMPT_PATH_ADAPT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v5.md"
+PATCHER_PROMPT_PATH_ADAPT = (
+    Path(__file__).resolve().parents[2] / "prompts" / "patcher.v5.md"
+)
 
 
 def _persist_role_failure(
@@ -478,7 +496,9 @@ def _persist_role_failure(
             cache_creation_input_tokens=cache_creation,
             cache_read_input_tokens=cache_read,
         )
-    failure_body = (json.dumps(failure_meta, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    failure_body = (json.dumps(failure_meta, indent=2, sort_keys=True) + "\n").encode(
+        "utf-8"
+    )
     _atomic_write_bytes(fail_dir / "failure.json", failure_body)
 
 
@@ -587,7 +607,13 @@ def _execute_patcher(
     else:
         input_verification = [
             {"path": p.name, "verified": False}
-            for p in (finding_path, upstream_ref_path, impact_path, maintainers_path, package_path)
+            for p in (
+                finding_path,
+                upstream_ref_path,
+                impact_path,
+                maintainers_path,
+                package_path,
+            )
         ]
 
     # Build adapter.
@@ -624,8 +650,12 @@ def _execute_patcher(
         # Replay integrity: in --verify mode the recorded invocation MUST declare
         # upstream-fix.patch as an input (the patch the Patcher transcribes), or
         # replay could silently use a different, un-hashed ground truth.
-        if verify and invocation.get("inputs") and not any(
-            ref.get("path") == "upstream-fix.patch" for ref in invocation["inputs"]
+        if (
+            verify
+            and invocation.get("inputs")
+            and not any(
+                ref.get("path") == "upstream-fix.patch" for ref in invocation["inputs"]
+            )
         ):
             raise ExecutionError(
                 "patcher source-backport replay verification: upstream-fix.patch is "
@@ -635,7 +665,9 @@ def _execute_patcher(
         inputs["upstream_fix_patch"] = fix_patch_path.read_text()
         inputs["patch_strategy"] = "source-backport"
         patcher_prompt_path = PATCHER_PROMPT_PATH_BACKPORT
-        if not any(ref.get("path") == "upstream-fix.patch" for ref in input_verification):
+        if not any(
+            ref.get("path") == "upstream-fix.patch" for ref in input_verification
+        ):
             input_verification.append({"path": "upstream-fix.patch", "verified": False})
 
         # Semantic-adaptation lane (patcher.v5): a source-context/ dir means this
@@ -646,15 +678,15 @@ def _execute_patcher(
         source_context_dir = bundle_dir / "source-context"
         sc_relpaths = (
             _source_context_relpaths(source_context_dir)
-            if source_context_dir.is_dir() else []
+            if source_context_dir.is_dir()
+            else []
         )
         # Only the adaptation lane when source-context actually carries files. An
         # empty dir must NOT route to the adaptation prompt (it would run with no context while
         # finalize emits a 1.0.0 bundle, an inconsistent and unsigned adaptation contract).
         if sc_relpaths:
             inputs["source_context"] = {
-                rel: (source_context_dir / rel).read_text()
-                for rel in sc_relpaths
+                rel: (source_context_dir / rel).read_text() for rel in sc_relpaths
             }
             preflight_path = bundle_dir / "preflight.json"
             if preflight_path.is_file():
@@ -793,8 +825,16 @@ def _execute_patcher(
         _atomic_write_bytes(bundle_dir / "patch.diff", diff_bytes)
         _atomic_write_bytes(bundle_dir / "patch-rationale.md", rat_bytes)
         outputs = [
-            {"path": "patch.diff", "sha256": sha256_hex(diff_bytes), "bytes": len(diff_bytes)},
-            {"path": "patch-rationale.md", "sha256": sha256_hex(rat_bytes), "bytes": len(rat_bytes)},
+            {
+                "path": "patch.diff",
+                "sha256": sha256_hex(diff_bytes),
+                "bytes": len(diff_bytes),
+            },
+            {
+                "path": "patch-rationale.md",
+                "sha256": sha256_hex(rat_bytes),
+                "bytes": len(rat_bytes),
+            },
         ]
         # Adaptation lane: emit a signed applicability attestation the Reviewer
         # treats as deterministic evidence that the canonical patch.diff is the
@@ -816,7 +856,8 @@ def _execute_patcher(
                 "files": hunk_normalization["files"],
             }
             att_bytes = (
-                json.dumps(attestation, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+                json.dumps(attestation, indent=2, sort_keys=True).encode("utf-8")
+                + b"\n"
             )
             _atomic_write_bytes(bundle_dir / "patch-applicability.json", att_bytes)
             outputs.append(
@@ -827,17 +868,24 @@ def _execute_patcher(
                 }
             )
     else:  # refusal
-        refusal_body = json.dumps(
-            {
-                "rule": result.parsed.refusal_rule,
-                "reason": result.parsed.refusal_reason,
-            },
-            indent=2,
-            sort_keys=True,
-        ).encode("utf-8") + b"\n"
+        refusal_body = (
+            json.dumps(
+                {
+                    "rule": result.parsed.refusal_rule,
+                    "reason": result.parsed.refusal_reason,
+                },
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
         _atomic_write_bytes(bundle_dir / "refusal.json", refusal_body)
         outputs = [
-            {"path": "refusal.json", "sha256": sha256_hex(refusal_body), "bytes": len(refusal_body)},
+            {
+                "path": "refusal.json",
+                "sha256": sha256_hex(refusal_body),
+                "bytes": len(refusal_body),
+            },
         ]
 
     patcher_run_meta: dict[str, Any] = {
@@ -882,9 +930,7 @@ def _execute_patcher(
         model_response=result.model_response,
     )
 
-    _append_patcher_replay_entry(
-        bundle_dir=bundle_dir, invocation=replay_invocation
-    )
+    _append_patcher_replay_entry(bundle_dir=bundle_dir, invocation=replay_invocation)
 
     return {
         "role": "patcher",
@@ -1072,7 +1118,7 @@ def _build_patcher_model_block(patcher_run: dict[str, Any]) -> dict[str, Any]:
         family, vendor, version = "deterministic-no-model", "internal", "fake"
     elif model_id.startswith("claude-"):
         family, vendor = "anthropic", "anthropic"
-        version = model_id[len("claude-"):] or "unknown"
+        version = model_id[len("claude-") :] or "unknown"
     else:
         family, vendor, version = "open-weights-other", "unknown", "unknown"
 
@@ -1096,11 +1142,13 @@ def _build_patcher_model_block(patcher_run: dict[str, Any]) -> dict[str, Any]:
 
 def _utc_now_iso() -> str:
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _gen_invocation_id() -> str:
     import uuid
+
     return str(uuid.uuid4())
 
 
@@ -1145,7 +1193,13 @@ def _build_patcher_invocation(
     inputs = []
     # upstream-fix.patch is replay-critical input ONLY on the source-backport
     # path (resolver-supplied upstream commit diff the Patcher transcribes).
-    input_files = ["finding.json", "upstream-ref.json", "impact.json", "maintainers.json", "package.nix"]
+    input_files = [
+        "finding.json",
+        "upstream-ref.json",
+        "impact.json",
+        "maintainers.json",
+        "package.nix",
+    ]
     if (bundle_dir / "upstream-fix.patch").is_file():
         input_files.append("upstream-fix.patch")
     # source-context inputs (patcher.v5 semantic-adaptation lane): the pre-patch
@@ -1154,7 +1208,8 @@ def _build_patcher_invocation(
     source_context_dir = bundle_dir / "source-context"
     if source_context_dir.is_dir():
         input_files += [
-            f"source-context/{rel}" for rel in _source_context_relpaths(source_context_dir)
+            f"source-context/{rel}"
+            for rel in _source_context_relpaths(source_context_dir)
         ]
         if (bundle_dir / "preflight.json").is_file():
             input_files.append("preflight.json")
@@ -1169,7 +1224,10 @@ def _build_patcher_invocation(
         "started_at": started_at,
         "ended_at": ended_at,
         "model": _build_patcher_model_block(patcher_run),
-        "prompt": {"path": prompt_path_relative, "sha256": patcher_run["prompt_sha256"]},
+        "prompt": {
+            "path": prompt_path_relative,
+            "sha256": patcher_run["prompt_sha256"],
+        },
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
         "rng_seed": None,
@@ -1225,11 +1283,15 @@ def _append_patcher_replay_entry(
 # ─── reviewer execution ────────────────────────────────────────────────────
 
 
-REVIEWER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v9.md"
+REVIEWER_PROMPT_PATH_DEFAULT = (
+    Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v9.md"
+)
 # Adaptation lane (source-context present, applies_verbatim != true): reviewer.v10
 # adds the semantic-equivalence branch to check 0. Verbatim/non-source-backport
 # reviews stay on the default (v9).
-REVIEWER_PROMPT_PATH_ADAPT = Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v10.md"
+REVIEWER_PROMPT_PATH_ADAPT = (
+    Path(__file__).resolve().parents[2] / "prompts" / "reviewer.v10.md"
+)
 
 # Bounded auto-retry for parse/contract-malformed Reviewer output ONLY (a live
 # eval showed the model intermittently, ~33% of the time, drops the required
@@ -1317,8 +1379,15 @@ def _execute_reviewer(
     impact_path = bundle_dir / "impact.json"
     maintainers_path = bundle_dir / "maintainers.json"
     package_path = bundle_dir / "package.nix"
-    for p in (diff_path, rat_path, finding_path, upstream_ref_path,
-              impact_path, maintainers_path, package_path):
+    for p in (
+        diff_path,
+        rat_path,
+        finding_path,
+        upstream_ref_path,
+        impact_path,
+        maintainers_path,
+        package_path,
+    ):
         if not p.is_file():
             raise ExecutionError(
                 f"reviewer requires {p.name} in bundle_dir (missing: {p})"
@@ -1358,8 +1427,15 @@ def _execute_reviewer(
     else:
         input_verification = [
             {"path": p.name, "verified": False}
-            for p in (finding_path, upstream_ref_path, impact_path,
-                      maintainers_path, package_path, diff_path, rat_path)
+            for p in (
+                finding_path,
+                upstream_ref_path,
+                impact_path,
+                maintainers_path,
+                package_path,
+                diff_path,
+                rat_path,
+            )
         ]
 
     if adapter_factory is not None:
@@ -1399,7 +1475,9 @@ def _execute_reviewer(
     # (ground truth) so it can verify the authored backport faithfully
     # transcribes it — rather than checking against a hallucinated notion of the
     # fix. Without this the Reviewer cannot ground a source-backport verdict.
-    if (upstream_ref.get("eligibility") or {}).get("patch_strategy") == "source-backport":
+    if (upstream_ref.get("eligibility") or {}).get(
+        "patch_strategy"
+    ) == "source-backport":
         fix_patch_path = bundle_dir / "upstream-fix.patch"
         if not fix_patch_path.is_file():
             raise ExecutionError(
@@ -1409,8 +1487,12 @@ def _execute_reviewer(
             )
         # Replay integrity: under --verify the recorded invocation must declare
         # upstream-fix.patch, or replay could use a different un-hashed ground truth.
-        if verify and invocation.get("inputs") and not any(
-            ref.get("path") == "upstream-fix.patch" for ref in invocation["inputs"]
+        if (
+            verify
+            and invocation.get("inputs")
+            and not any(
+                ref.get("path") == "upstream-fix.patch" for ref in invocation["inputs"]
+            )
         ):
             raise ExecutionError(
                 "reviewer source-backport replay verification: upstream-fix.patch is "
@@ -1433,7 +1515,9 @@ def _execute_reviewer(
         applies_verbatim: bool | None = None
         if preflight_path.is_file():
             try:
-                applies_verbatim = json.loads(preflight_path.read_text()).get("applies_verbatim")
+                applies_verbatim = json.loads(preflight_path.read_text()).get(
+                    "applies_verbatim"
+                )
             except (json.JSONDecodeError, OSError):
                 applies_verbatim = None
         # Only the adaptation lane when source-context carries files AND the fix
@@ -1482,9 +1566,10 @@ def _execute_reviewer(
                     f"{type(att).__name__} — refusing to review a malformed / "
                     "tampered attestation"
                 )
-            if att.get("applies_at_fuzz0") is not True or att.get(
-                "unique_source_match"
-            ) is not True:
+            if (
+                att.get("applies_at_fuzz0") is not True
+                or att.get("unique_source_match") is not True
+            ):
                 raise ExecutionError(
                     "patch-applicability.json attests the patch does not apply at "
                     "fuzz 0 / is not uniquely grounded — refusing adaptation review"
@@ -1505,7 +1590,9 @@ def _execute_reviewer(
                         "reviewer replay: patch-applicability.json not declared in the "
                         "recorded invocation inputs; refusing to read it unverified"
                     )
-            if "patch-applicability.json" not in {v.get("path") for v in input_verification}:
+            if "patch-applicability.json" not in {
+                v.get("path") for v in input_verification
+            }:
                 input_verification.append(
                     {"path": "patch-applicability.json", "verified": False}
                 )
@@ -1581,7 +1668,10 @@ def _execute_reviewer(
                     f"{equivalence_value!r} (expected equivalent | not-equivalent | "
                     f"indeterminate)"
                 )
-            elif candidate.parsed.verdict == "accept" and equivalence_value != "equivalent":
+            elif (
+                candidate.parsed.verdict == "accept"
+                and equivalence_value != "equivalent"
+            ):
                 problem = (
                     f"adaptation-lane review verdict is 'accept' but equivalence is "
                     f"{equivalence_value!r} — accept requires 'equivalent'; "
@@ -1650,20 +1740,33 @@ def _execute_reviewer(
         if review_bytes and not review_bytes.endswith(b"\n"):
             review_bytes += b"\n"
         _atomic_write_bytes(bundle_dir / "review.md", review_bytes)
-        outputs = [{
-            "path": "review.md", "sha256": sha256_hex(review_bytes),
-            "bytes": len(review_bytes),
-        }]
+        outputs = [
+            {
+                "path": "review.md",
+                "sha256": sha256_hex(review_bytes),
+                "bytes": len(review_bytes),
+            }
+        ]
     else:  # refusal
-        refusal_body = json.dumps(
-            {"rule": result.parsed.refusal_rule, "reason": result.parsed.refusal_reason},
-            indent=2, sort_keys=True,
-        ).encode("utf-8") + b"\n"
+        refusal_body = (
+            json.dumps(
+                {
+                    "rule": result.parsed.refusal_rule,
+                    "reason": result.parsed.refusal_reason,
+                },
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
         _atomic_write_bytes(bundle_dir / "review-refusal.json", refusal_body)
-        outputs = [{
-            "path": "review-refusal.json", "sha256": sha256_hex(refusal_body),
-            "bytes": len(refusal_body),
-        }]
+        outputs = [
+            {
+                "path": "review-refusal.json",
+                "sha256": sha256_hex(refusal_body),
+                "bytes": len(refusal_body),
+            }
+        ]
 
     # v2 attestation validator (DECISIONS 2026-05-19 corpus-saturation +
     # Reviewer-validator entry). Compare the Reviewer's emitted
@@ -1678,8 +1781,8 @@ def _execute_reviewer(
     emitted_cf = result.parsed.cross_family
     attestation_grounded: bool | None = None
     if emitted_cf and expected_reviewer_family != "<unknown>":
-        reviewer_match = (emitted_cf.reviewer_family == expected_reviewer_family)
-        patcher_match = (emitted_cf.patcher_family_observed == expected_patcher_family)
+        reviewer_match = emitted_cf.reviewer_family == expected_reviewer_family
+        patcher_match = emitted_cf.patcher_family_observed == expected_patcher_family
         attestation_grounded = reviewer_match and patcher_match
 
     reviewer_run_meta: dict[str, Any] = {
@@ -1732,7 +1835,8 @@ def _execute_reviewer(
     )
 
     _append_reviewer_replay_entry(
-        bundle_dir=bundle_dir, invocation=replay_invocation,
+        bundle_dir=bundle_dir,
+        invocation=replay_invocation,
     )
 
     return {
@@ -1760,7 +1864,11 @@ def _model_id_family(model_id: str) -> str | None:
         return "anthropic-haiku"
     if model_id.startswith("claude-"):
         return "anthropic-other"
-    if model_id.startswith("gpt-") or model_id.startswith("o1-") or model_id.startswith("o3-"):
+    if (
+        model_id.startswith("gpt-")
+        or model_id.startswith("o1-")
+        or model_id.startswith("o3-")
+    ):
         return "openai-gpt"
     return None
 
@@ -1836,9 +1944,15 @@ def _build_reviewer_invocation(
 ) -> dict[str, Any]:
     """Build a single replay-shape invocation record for a Reviewer run."""
     inputs: list[dict[str, Any]] = []
-    review_input_files = ["finding.json", "upstream-ref.json", "impact.json",
-                          "maintainers.json", "package.nix",
-                          "patch.diff", "patch-rationale.md"]
+    review_input_files = [
+        "finding.json",
+        "upstream-ref.json",
+        "impact.json",
+        "maintainers.json",
+        "package.nix",
+        "patch.diff",
+        "patch-rationale.md",
+    ]
     # On the source-backport path the verdict depends on upstream-fix.patch
     # (the ground truth the Reviewer verifies against), so it is replay-critical.
     if (bundle_dir / "upstream-fix.patch").is_file():
@@ -1876,7 +1990,10 @@ def _build_reviewer_invocation(
         "started_at": started_at,
         "ended_at": ended_at,
         "model": _build_reviewer_model_block(reviewer_run),
-        "prompt": {"path": prompt_path_relative, "sha256": reviewer_run["prompt_sha256"]},
+        "prompt": {
+            "path": prompt_path_relative,
+            "sha256": reviewer_run["prompt_sha256"],
+        },
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
         "rng_seed": None,
@@ -1889,11 +2006,13 @@ def _build_reviewer_invocation(
 def _build_reviewer_model_block(reviewer_run: dict[str, Any]) -> dict[str, Any]:
     """Reviewer model block. Uses the Patcher's helper since the family-
     derivation rules are identical."""
-    return _build_patcher_model_block({
-        "model_id": reviewer_run["model_id"],
-        "sampling": reviewer_run.get("sampling") or {},
-        "adapter": reviewer_run.get("adapter") or "unknown",
-    })
+    return _build_patcher_model_block(
+        {
+            "model_id": reviewer_run["model_id"],
+            "sampling": reviewer_run.get("sampling") or {},
+            "adapter": reviewer_run.get("adapter") or "unknown",
+        }
+    )
 
 
 def _reviewer_validators_for(reviewer_run: dict[str, Any]) -> list[str]:
@@ -1995,26 +2114,32 @@ def _collect_bundle_local_pocs(bundle_dir: Path) -> list[dict[str, Any]]:
             continue
         # symlink check first — Path.is_symlink() works even when target missing
         if p.is_symlink():
-            skipped.append({
-                "path": _safe_relpath(p, bundle_dir),
-                "skip_reason": "symlink-rejected",
-            })
+            skipped.append(
+                {
+                    "path": _safe_relpath(p, bundle_dir),
+                    "skip_reason": "symlink-rejected",
+                }
+            )
             continue
         # Reject anything that doesn't normalize cleanly back into bundle_dir/repro
         try:
             rel = p.resolve().relative_to(repro_dir.resolve())
         except ValueError:
-            skipped.append({
-                "path": _safe_relpath(p, bundle_dir),
-                "skip_reason": "path-rejected",
-            })
+            skipped.append(
+                {
+                    "path": _safe_relpath(p, bundle_dir),
+                    "skip_reason": "path-rejected",
+                }
+            )
             continue
         # Hidden / dotfile rejection
         if any(part.startswith(".") for part in rel.parts):
-            skipped.append({
-                "path": _safe_relpath(p, bundle_dir),
-                "skip_reason": "hidden-file-rejected",
-            })
+            skipped.append(
+                {
+                    "path": _safe_relpath(p, bundle_dir),
+                    "skip_reason": "hidden-file-rejected",
+                }
+            )
             continue
         candidates.append(p)
 
@@ -2023,18 +2148,22 @@ def _collect_bundle_local_pocs(bundle_dir: Path) -> list[dict[str, Any]]:
     total_inline_bytes = 0
     for idx, p in enumerate(candidates):
         if idx >= POC_MAX_COUNT:
-            accepted.append({
-                "path": f"repro/{p.relative_to(repro_dir).as_posix()}",
-                "skip_reason": "count-cap-exceeded",
-            })
+            accepted.append(
+                {
+                    "path": f"repro/{p.relative_to(repro_dir).as_posix()}",
+                    "skip_reason": "count-cap-exceeded",
+                }
+            )
             continue
         try:
             data = p.read_bytes()
         except OSError as exc:
-            accepted.append({
-                "path": f"repro/{p.relative_to(repro_dir).as_posix()}",
-                "skip_reason": f"read-error: {exc.strerror}",
-            })
+            accepted.append(
+                {
+                    "path": f"repro/{p.relative_to(repro_dir).as_posix()}",
+                    "skip_reason": f"read-error: {exc.strerror}",
+                }
+            )
             continue
         sha = hashlib.sha256(data).hexdigest()
         size = len(data)
@@ -2047,7 +2176,10 @@ def _collect_bundle_local_pocs(bundle_dir: Path) -> list[dict[str, Any]]:
             "size_bytes": size,
             "kind": "text" if is_text else "binary",
         }
-        if size <= POC_PER_FILE_INLINE_CAP and total_inline_bytes + size <= POC_TOTAL_INLINE_CAP:
+        if (
+            size <= POC_PER_FILE_INLINE_CAP
+            and total_inline_bytes + size <= POC_TOTAL_INLINE_CAP
+        ):
             entry["inline"] = True
             total_inline_bytes += size
             if is_text:
@@ -2056,8 +2188,12 @@ def _collect_bundle_local_pocs(bundle_dir: Path) -> list[dict[str, Any]]:
                 entry["content_base64"] = base64.b64encode(data).decode("ascii")
         else:
             entry["inline"] = False
-            entry["preview_base64_first_256"] = base64.b64encode(data[:POC_PREVIEW_BYTES]).decode("ascii")
-            entry["preview_base64_last_256"] = base64.b64encode(data[-POC_PREVIEW_BYTES:]).decode("ascii")
+            entry["preview_base64_first_256"] = base64.b64encode(
+                data[:POC_PREVIEW_BYTES]
+            ).decode("ascii")
+            entry["preview_base64_last_256"] = base64.b64encode(
+                data[-POC_PREVIEW_BYTES:]
+            ).decode("ascii")
         accepted.append(entry)
 
     return accepted + skipped
@@ -2142,8 +2278,15 @@ def _execute_reproducer(
     impact_path = bundle_dir / "impact.json"
     maintainers_path = bundle_dir / "maintainers.json"
     package_path = bundle_dir / "package.nix"
-    for p in (diff_path, rat_path, finding_path, upstream_ref_path,
-              impact_path, maintainers_path, package_path):
+    for p in (
+        diff_path,
+        rat_path,
+        finding_path,
+        upstream_ref_path,
+        impact_path,
+        maintainers_path,
+        package_path,
+    ):
         if not p.is_file():
             raise ExecutionError(
                 f"reproducer requires {p.name} in bundle_dir (missing: {p})"
@@ -2184,8 +2327,15 @@ def _execute_reproducer(
     else:
         input_verification = [
             {"path": p.name, "verified": False}
-            for p in (finding_path, upstream_ref_path, impact_path,
-                      maintainers_path, package_path, diff_path, rat_path)
+            for p in (
+                finding_path,
+                upstream_ref_path,
+                impact_path,
+                maintainers_path,
+                package_path,
+                diff_path,
+                rat_path,
+            )
         ]
 
     if adapter_factory is not None:
@@ -2246,23 +2396,33 @@ def _execute_reproducer(
             if buf and not buf.endswith(b"\n"):
                 buf = buf + b"\n"
             _atomic_write_bytes(bundle_dir / buf_name, buf)
-            outputs.append({
-                "path": buf_name,
-                "sha256": sha256_hex(buf),
-                "bytes": len(buf),
-            })
+            outputs.append(
+                {
+                    "path": buf_name,
+                    "sha256": sha256_hex(buf),
+                    "bytes": len(buf),
+                }
+            )
     else:  # refusal
-        refusal_body = json.dumps(
-            {"rule": result.parsed.refusal_rule,
-             "reason": result.parsed.refusal_reason},
-            indent=2, sort_keys=True,
-        ).encode("utf-8") + b"\n"
+        refusal_body = (
+            json.dumps(
+                {
+                    "rule": result.parsed.refusal_rule,
+                    "reason": result.parsed.refusal_reason,
+                },
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
         _atomic_write_bytes(bundle_dir / "reproducer-refusal.json", refusal_body)
-        outputs = [{
-            "path": "reproducer-refusal.json",
-            "sha256": sha256_hex(refusal_body),
-            "bytes": len(refusal_body),
-        }]
+        outputs = [
+            {
+                "path": "reproducer-refusal.json",
+                "sha256": sha256_hex(refusal_body),
+                "bytes": len(refusal_body),
+            }
+        ]
 
     reproducer_run_meta: dict[str, Any] = {
         "prompt_sha256": result.prompt_sha256,
@@ -2300,7 +2460,8 @@ def _execute_reproducer(
     )
 
     _append_reproducer_replay_entry(
-        bundle_dir=bundle_dir, invocation=replay_invocation,
+        bundle_dir=bundle_dir,
+        invocation=replay_invocation,
     )
 
     return {
@@ -2344,9 +2505,13 @@ def _build_reproducer_invocation(
     """
     inputs: list[dict[str, Any]] = []
     for fname in (
-        "finding.json", "upstream-ref.json", "impact.json",
-        "maintainers.json", "package.nix",
-        "patch.diff", "patch-rationale.md",
+        "finding.json",
+        "upstream-ref.json",
+        "impact.json",
+        "maintainers.json",
+        "package.nix",
+        "patch.diff",
+        "patch-rationale.md",
     ):
         p = bundle_dir / fname
         if p.is_file():
@@ -2377,11 +2542,13 @@ def _build_reproducer_invocation(
 def _build_reproducer_model_block(reproducer_run: dict[str, Any]) -> dict[str, Any]:
     """Reproducer model block. Reuses the patcher model-block helper
     because family-derivation rules are identical."""
-    return _build_patcher_model_block({
-        "model_id": reproducer_run["model_id"],
-        "sampling": reproducer_run.get("sampling") or {},
-        "adapter": reproducer_run.get("adapter") or "unknown",
-    })
+    return _build_patcher_model_block(
+        {
+            "model_id": reproducer_run["model_id"],
+            "sampling": reproducer_run.get("sampling") or {},
+            "adapter": reproducer_run.get("adapter") or "unknown",
+        }
+    )
 
 
 def _reproducer_validators_for(reproducer_run: dict[str, Any]) -> list[str]:
@@ -2499,9 +2666,7 @@ def record_sampled_reproducer_invocation(
     # Bill every draw's model spend, not only the winner's. The winner leads
     # (model_id / shas come from it); the other billed draws ride as extra
     # usages so the summed token totals reflect the full sweep.
-    extra_usages = [
-        r.model_response for r in billed_runs if r is not winning_run
-    ]
+    extra_usages = [r.model_response for r in billed_runs if r is not winning_run]
     _write_role_invocation_sidecar(
         bundle_dir=bundle_dir,
         role="reproducer",
@@ -2549,6 +2714,7 @@ def _execute_builder(
     # a FakeBuildRunner factory.
     if build_runner_factory is None:
         from agents.builder import LocalNixBuildRunner
+
         build_runner = LocalNixBuildRunner()
     else:
         build_runner = build_runner_factory()  # type: ignore[misc]
@@ -2572,11 +2738,13 @@ def _execute_builder(
     ).encode("utf-8")
     _atomic_write_bytes(bundle_dir / "build.json", build_json_bytes)
 
-    outputs: list[dict[str, Any]] = [{
-        "path": "build.json",
-        "sha256": sha256_hex(build_json_bytes),
-        "bytes": len(build_json_bytes),
-    }]
+    outputs: list[dict[str, Any]] = [
+        {
+            "path": "build.json",
+            "sha256": sha256_hex(build_json_bytes),
+            "bytes": len(build_json_bytes),
+        }
+    ]
 
     # Persist any oversize logs as build.log. We concatenate the
     # full logs (truncation-only-on-stdout_stderr was already done
@@ -2586,11 +2754,13 @@ def _execute_builder(
     if any(_log_oversize(text) for text in full_logs.values()):
         log_bytes = _assemble_build_log(full_logs).encode("utf-8")
         _atomic_write_bytes(bundle_dir / "build.log", log_bytes)
-        outputs.append({
-            "path": "build.log",
-            "sha256": sha256_hex(log_bytes),
-            "bytes": len(log_bytes),
-        })
+        outputs.append(
+            {
+                "path": "build.log",
+                "sha256": sha256_hex(log_bytes),
+                "bytes": len(log_bytes),
+            }
+        )
 
     input_verification: list[dict[str, Any]] = []
     for fname in ("patch.diff", "reproducer.nix", "package.nix"):
@@ -2605,7 +2775,8 @@ def _execute_builder(
         ended_at=ended_at,
     )
     _append_builder_replay_entry(
-        bundle_dir=bundle_dir, invocation=replay_invocation,
+        bundle_dir=bundle_dir,
+        invocation=replay_invocation,
     )
 
     return {
@@ -2654,10 +2825,10 @@ def _build_builder_invocation(
         "prompt": None,
         "inputs": inputs,
         "outputs": [{"path": o["path"], "sha256": o["sha256"]} for o in outputs],
-        "patcher_invocation_id":
-            _read_role_latest_invocation_id(bundle_dir, "patcher"),
-        "reproducer_invocation_id":
-            _read_role_latest_invocation_id(bundle_dir, "reproducer"),
+        "patcher_invocation_id": _read_role_latest_invocation_id(bundle_dir, "patcher"),
+        "reproducer_invocation_id": _read_role_latest_invocation_id(
+            bundle_dir, "reproducer"
+        ),
         "rng_seed": None,
         "validators_passed": ["build-json-shape-valid"],
         "network_policy_applied": "substituter-only",
@@ -2666,7 +2837,8 @@ def _build_builder_invocation(
 
 
 def _read_role_latest_invocation_id(
-    bundle_dir: Path, role: str,
+    bundle_dir: Path,
+    role: str,
 ) -> str | None:
     """Most-recent invocation_id for a given role in replay.json."""
     rj = bundle_dir / "replay.json"
@@ -2718,16 +2890,25 @@ def _default_builder_host_info() -> dict[str, str]:
     import platform
     import shutil
     import subprocess as _sp
-    system = platform.machine() + "-" + (
-        "linux" if platform.system().lower() == "linux"
-        else platform.system().lower().replace("darwin", "darwin")
+
+    system = (
+        platform.machine()
+        + "-"
+        + (
+            "linux"
+            if platform.system().lower() == "linux"
+            else platform.system().lower().replace("darwin", "darwin")
+        )
     )
     nix_version = "unknown"
     if shutil.which("nix-build"):
         try:
             out = _sp.run(
                 ["nix-build", "--version"],
-                check=False, capture_output=True, text=True, timeout=5,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if out.stdout:
                 nix_version = out.stdout.strip().splitlines()[0]
@@ -2742,6 +2923,7 @@ def _default_builder_host_info() -> dict[str, str]:
 
 def _log_oversize(text: str) -> bool:
     from agents.builder.protocol import INLINE_STDOUT_STDERR_CAP_BYTES
+
     return len(text.encode("utf-8")) > INLINE_STDOUT_STDERR_CAP_BYTES
 
 

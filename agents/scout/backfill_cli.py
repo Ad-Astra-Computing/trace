@@ -56,24 +56,44 @@ _NVD_MAX_WINDOW_DAYS = 120
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trace-scout-backfill")
-    parser.add_argument("--since-days", type=int, default=None,
-                        help="Window in days, ending now. Mutually exclusive with --since/--until.")
-    parser.add_argument("--since", help="ISO-8601 window start; required when --since-days absent.")
+    parser.add_argument(
+        "--since-days",
+        type=int,
+        default=None,
+        help="Window in days, ending now. Mutually exclusive with --since/--until.",
+    )
+    parser.add_argument(
+        "--since", help="ISO-8601 window start; required when --since-days absent."
+    )
     parser.add_argument("--until", help="ISO-8601 window end; defaults to now.")
     parser.add_argument("--graph-snapshot", required=True, type=Path)
     parser.add_argument("--inbox", required=True, type=Path)
-    parser.add_argument("--output-dir", required=True, type=Path,
-                        help="Directory for run-summary.jsonl and aggregate-counts.json.")
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
+        help="Directory for run-summary.jsonl and aggregate-counts.json.",
+    )
     parser.add_argument("--cpe-index", type=Path, default=None)
-    parser.add_argument("--nixpkgs-root", type=Path, default=None,
-                        help="Path to a nixpkgs checkout. With "
-                             "TRACE_REAL_PREFETCH=1 in env, enables "
-                             "auto-prefetch of plain-fetchurl src.hash.")
-    parser.add_argument("--use-nix-eval", action="store_true",
-                        help="Allow path resolver `nix eval` fallback "
-                             "for non-by-name packages.")
-    parser.add_argument("--cap", type=int, default=None,
-                        help="Hard limit on number of CVEs processed (defence against runaway scopes).")
+    parser.add_argument(
+        "--nixpkgs-root",
+        type=Path,
+        default=None,
+        help="Path to a nixpkgs checkout. With "
+        "TRACE_REAL_PREFETCH=1 in env, enables "
+        "auto-prefetch of plain-fetchurl src.hash.",
+    )
+    parser.add_argument(
+        "--use-nix-eval",
+        action="store_true",
+        help="Allow path resolver `nix eval` fallback for non-by-name packages.",
+    )
+    parser.add_argument(
+        "--cap",
+        type=int,
+        default=None,
+        help="Hard limit on number of CVEs processed (defence against runaway scopes).",
+    )
     args = parser.parse_args(argv)
 
     window = _resolve_window(args)
@@ -82,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
     since, until = window
 
     if not args.graph_snapshot.is_file():
-        print(f"error: graph snapshot not found: {args.graph_snapshot}", file=sys.stderr)
+        print(
+            f"error: graph snapshot not found: {args.graph_snapshot}", file=sys.stderr
+        )
         return _EXIT_USAGE
     if args.cpe_index is not None and not args.cpe_index.is_file():
         print(f"error: --cpe-index not found: {args.cpe_index}", file=sys.stderr)
@@ -108,17 +130,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if to_process:
         batch_argv = [
-            "--cve-ids-file", str(ids_file),
-            "--graph-snapshot", str(args.graph_snapshot),
-            "--inbox", str(args.inbox),
-            "--output-jsonl", str(run_summary),
+            "--cve-ids-file",
+            str(ids_file),
+            "--graph-snapshot",
+            str(args.graph_snapshot),
+            "--inbox",
+            str(args.inbox),
+            "--output-jsonl",
+            str(run_summary),
         ]
         if args.cpe_index is not None:
             batch_argv += ["--cpe-index", str(args.cpe_index)]
         if args.nixpkgs_root is not None:
             batch_argv += [
-                "--nixpkgs-root", str(args.nixpkgs_root),
-                "--aggregate-counts", str(args.output_dir / "auto-prefetch-counts.json"),
+                "--nixpkgs-root",
+                str(args.nixpkgs_root),
+                "--aggregate-counts",
+                str(args.output_dir / "auto-prefetch-counts.json"),
             ]
             if args.use_nix_eval:
                 batch_argv += ["--use-nix-eval"]
@@ -149,12 +177,16 @@ def _run_batch(argv: list[str]) -> int:
 
 def _resolve_window(args: argparse.Namespace) -> tuple[datetime, datetime] | None:
     if args.since_days is not None and (args.since or args.until):
-        print("error: --since-days is mutually exclusive with --since/--until",
-              file=sys.stderr)
+        print(
+            "error: --since-days is mutually exclusive with --since/--until",
+            file=sys.stderr,
+        )
         return None
     if args.since_days is None and not args.since:
-        print("error: must pass --since-days or --since (no implicit default for backfill)",
-              file=sys.stderr)
+        print(
+            "error: must pass --since-days or --since (no implicit default for backfill)",
+            file=sys.stderr,
+        )
         return None
 
     until = _parse_iso(args.until) if args.until else datetime.now(timezone.utc)
@@ -180,8 +212,10 @@ def _resolve_window(args: argparse.Namespace) -> tuple[datetime, datetime] | Non
         )
         return None
     if since >= until:
-        print(f"error: since ({since.isoformat()}) must be before until ({until.isoformat()})",
-              file=sys.stderr)
+        print(
+            f"error: since ({since.isoformat()}) must be before until ({until.isoformat()})",
+            file=sys.stderr,
+        )
         return None
     return since, until
 

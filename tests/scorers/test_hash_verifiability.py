@@ -26,7 +26,9 @@ from tests.schema.validate import REPO_ROOT
 
 TRAEFIK_BUNDLE = REPO_ROOT / "traces" / "example" / "CVE-2026-25949--traefik"
 RUN1_ARCHIVE = TRAEFIK_BUNDLE / "_first-run-archive"
-SYNTHETIC_FIXTURE = REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+SYNTHETIC_FIXTURE = (
+    REPO_ROOT / "traces" / "example" / "CVE-0000-0010--patcher-fixture-dispatchable"
+)
 
 
 def _patch_invocation(outputs: list[str]) -> dict:
@@ -125,11 +127,13 @@ def test_grounded_patch_scores_full(tmp_path: Path) -> None:
         '+  hash = "sha256-Re4l1stIcL00kingButNotForbiddenPatternXYZ=";\n'
     )
     bundle = _write_diff(
-        tmp_path, diff,
+        tmp_path,
+        diff,
         with_package='version = "1.0.0";\nhash = "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD0=";\n',
     )
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.applies is True
     assert r.score == 1.0, r.notes
@@ -145,7 +149,8 @@ def test_lib_fakehash_symbol_is_forbidden(tmp_path: Path) -> None:
     )
     bundle = _write_diff(tmp_path, diff)
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.score == 0.0
     kinds = {v["kind"] for v in r.details["violations"]}
@@ -162,7 +167,8 @@ def test_64_zero_hex_is_forbidden(tmp_path: Path) -> None:
     )
     bundle = _write_diff(tmp_path, diff)
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.score == 0.0
     kinds = {v["kind"] for v in r.details["violations"]}
@@ -179,7 +185,8 @@ def test_empty_string_hash_is_forbidden(tmp_path: Path) -> None:
     )
     bundle = _write_diff(tmp_path, diff)
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.score == 0.0
     kinds = {v["kind"] for v in r.details["violations"]}
@@ -202,11 +209,14 @@ def test_silent_omission_after_version_bump(tmp_path: Path) -> None:
     )
     bundle = _write_diff(tmp_path, diff, with_package=pkg)
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.applies is True
     assert r.score == 0.0
-    omitted = {v["attr"] for v in r.details["violations"] if v["kind"] == "silent-omission"}
+    omitted = {
+        v["attr"] for v in r.details["violations"] if v["kind"] == "silent-omission"
+    }
     assert omitted == {"hash", "vendorHash"}
 
 
@@ -221,7 +231,8 @@ def test_no_version_bump_no_hash_no_violation(tmp_path: Path) -> None:
     )
     bundle = _write_diff(tmp_path, diff)
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.applies is True
     assert r.score == 1.0
@@ -245,25 +256,30 @@ def test_prefetch_table_grandfathers_listed_value(tmp_path: Path) -> None:
     bundle.mkdir()
     (bundle / "patch.diff").write_text(diff)
     (bundle / "package.nix").write_text(pkg)
-    (bundle / "upstream-ref.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": "CVE-0000-0000",
-        "current_version": "1.0.0",
-        "prefetch_hashes": [
+    (bundle / "upstream-ref.json").write_text(
+        json.dumps(
             {
-                "name": "src.hash",
-                "algorithm": "sha256",
-                "value": "sha256-Pr3F3tCH3dGr0und3dV4lu3FromUpstreamReleaseXYZ=",
-                "source": "nix-prefetch-url",
-                "url": "https://example.invalid/release-1.0.1.tar.gz",
+                "schema_version": "1.0.0",
+                "cve_id": "CVE-0000-0000",
+                "current_version": "1.0.0",
+                "prefetch_hashes": [
+                    {
+                        "name": "src.hash",
+                        "algorithm": "sha256",
+                        "value": "sha256-Pr3F3tCH3dGr0und3dV4lu3FromUpstreamReleaseXYZ=",
+                        "source": "nix-prefetch-url",
+                        "url": "https://example.invalid/release-1.0.1.tar.gz",
+                        "replay_critical": True,
+                    },
+                ],
+                "eligibility": {"verdict": "eligible"},
                 "replay_critical": True,
-            },
-        ],
-        "eligibility": {"verdict": "eligible"},
-        "replay_critical": True,
-    }))
+            }
+        )
+    )
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.applies is True
     assert r.score == 1.0, r.notes
@@ -271,8 +287,7 @@ def test_prefetch_table_grandfathers_listed_value(tmp_path: Path) -> None:
     assert r.details["prefetch_table_present"] is True
     introduced = r.details["introduced"]
     assert any(
-        e["verdict"] == "grounded-prefetch" and e["attr"] == "hash"
-        for e in introduced
+        e["verdict"] == "grounded-prefetch" and e["attr"] == "hash" for e in introduced
     ), introduced
 
 
@@ -293,25 +308,30 @@ def test_prefetch_table_rejects_unlisted_value(tmp_path: Path) -> None:
     bundle.mkdir()
     (bundle / "patch.diff").write_text(diff)
     (bundle / "package.nix").write_text(pkg)
-    (bundle / "upstream-ref.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": "CVE-0000-0000",
-        "current_version": "1.0.0",
-        "prefetch_hashes": [
+    (bundle / "upstream-ref.json").write_text(
+        json.dumps(
             {
-                "name": "src.hash",
-                "algorithm": "sha256",
-                "value": "sha256-Pr3F3tCH3dGr0und3dV4lu3FromUpstreamReleaseXYZ=",
-                "source": "nix-prefetch-url",
-                "url": "https://example.invalid/release-1.0.1.tar.gz",
+                "schema_version": "1.0.0",
+                "cve_id": "CVE-0000-0000",
+                "current_version": "1.0.0",
+                "prefetch_hashes": [
+                    {
+                        "name": "src.hash",
+                        "algorithm": "sha256",
+                        "value": "sha256-Pr3F3tCH3dGr0und3dV4lu3FromUpstreamReleaseXYZ=",
+                        "source": "nix-prefetch-url",
+                        "url": "https://example.invalid/release-1.0.1.tar.gz",
+                        "replay_critical": True,
+                    },
+                ],
+                "eligibility": {"verdict": "eligible"},
                 "replay_critical": True,
-            },
-        ],
-        "eligibility": {"verdict": "eligible"},
-        "replay_critical": True,
-    }))
+            }
+        )
+    )
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.applies is True
     assert r.score == 0.0, r.notes
@@ -337,15 +357,20 @@ def test_no_prefetch_table_falls_back_to_v0_lenient(tmp_path: Path) -> None:
     (bundle / "patch.diff").write_text(diff)
     (bundle / "package.nix").write_text(pkg)
     # No upstream-ref.json at all (or one without prefetch_hashes).
-    (bundle / "upstream-ref.json").write_text(json.dumps({
-        "schema_version": "1.0.0",
-        "cve_id": "CVE-0000-0000",
-        "current_version": "1.0.0",
-        "eligibility": {"verdict": "eligible"},
-        "replay_critical": True,
-    }))
+    (bundle / "upstream-ref.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "cve_id": "CVE-0000-0000",
+                "current_version": "1.0.0",
+                "eligibility": {"verdict": "eligible"},
+                "replay_critical": True,
+            }
+        )
+    )
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_patch_invocation(["patch.diff"]),
+        bundle_dir=bundle,
+        invocation=_patch_invocation(["patch.diff"]),
     )
     assert r.applies is True
     assert r.score == 1.0, r.notes
@@ -357,7 +382,8 @@ def test_non_rule_8_refusal_is_trivial_pass(tmp_path: Path) -> None:
     bundle.mkdir()
     (bundle / "refusal.json").write_text(json.dumps({"rule": 3, "reason": "test"}))
     r = HashVerifiabilityScorer().score(
-        bundle_dir=bundle, invocation=_refusal_invocation(),
+        bundle_dir=bundle,
+        invocation=_refusal_invocation(),
     )
     assert r.applies is True
     assert r.score == 1.0

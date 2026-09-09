@@ -82,7 +82,7 @@ _VERSION_RE = re.compile(r'^([+-])\s*version\s*=\s*"([^"]+)"\s*;', re.M)
 # Any hash-family attribute assignment on an added/removed diff line — used only to
 # detect whether *some* hash was touched (version-without-hash vs wrong-src-hash).
 _HASH_RE = re.compile(
-    r'^([+-])\s*(?:hash|sha256|sha512|vendorHash|vendorSha256|cargoHash|'
+    r"^([+-])\s*(?:hash|sha256|sha512|vendorHash|vendorSha256|cargoHash|"
     r'cargoSha256|outputHash|npmDepsHash)\s*=\s*"([^"]+)"',
     re.M,
 )
@@ -217,7 +217,11 @@ def check_metadata_consistency(bundle_dir: str | Path) -> list[MetadataViolation
     #    always adds the prefetched hash, so this never false-rejects. Its absence
     #    means the source hash was left stale (no hash changed at all) or set to a
     #    wrong value (some hash changed, but not to the grounded one).
-    if version_changed and resolver_src_hash and resolver_src_hash not in added_src_hashes:
+    if (
+        version_changed
+        and resolver_src_hash
+        and resolver_src_hash not in added_src_hashes
+    ):
         if _diff_has_hash_change(diff):
             violations.append(
                 MetadataViolation(

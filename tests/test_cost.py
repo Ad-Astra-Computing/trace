@@ -93,9 +93,9 @@ def test_actual_cost_usd_all_four_fields_sum_correctly() -> None:
     creation + no reads (first run) + meaningful output."""
     cost = actual_cost_usd(
         model_id="claude-opus-4-7",
-        input_tokens=100,            # 100 × $15 / 1M = $0.0015
-        output_tokens=1000,          # 1000 × $75 / 1M = $0.075
-        cache_creation_input_tokens=8000,   # 8000 × $15 × 1.25 / 1M = $0.15
+        input_tokens=100,  # 100 × $15 / 1M = $0.0015
+        output_tokens=1000,  # 1000 × $75 / 1M = $0.075
+        cache_creation_input_tokens=8000,  # 8000 × $15 × 1.25 / 1M = $0.15
         cache_read_input_tokens=0,
     )
     assert cost == pytest.approx(0.0015 + 0.075 + 0.15, rel=1e-9)
@@ -110,7 +110,7 @@ def test_actual_cost_usd_cache_read_subsequent_call() -> None:
         input_tokens=100,
         output_tokens=1000,
         cache_creation_input_tokens=0,
-        cache_read_input_tokens=8000,       # 8000 × $1.50 / 1M = $0.012
+        cache_read_input_tokens=8000,  # 8000 × $1.50 / 1M = $0.012
     )
     assert cost == pytest.approx(0.0015 + 0.075 + 0.012, rel=1e-9)
 
@@ -118,11 +118,14 @@ def test_actual_cost_usd_cache_read_subsequent_call() -> None:
 def test_actual_cost_usd_none_input_tokens_returns_none() -> None:
     """Missing usage data must surface as None so the report's
     unobserved section reports it honestly, not as $0."""
-    assert actual_cost_usd(
-        model_id="claude-opus-4-7",
-        input_tokens=None,
-        output_tokens=1000,
-    ) is None
+    assert (
+        actual_cost_usd(
+            model_id="claude-opus-4-7",
+            input_tokens=None,
+            output_tokens=1000,
+        )
+        is None
+    )
 
 
 def test_actual_cost_usd_none_cache_fields_default_to_zero() -> None:

@@ -8,6 +8,7 @@ signal), classifies each with `eval.classify_edit_shape`, and tallies the shape 
 
 Usage: python3 eval/size_fold_supply.py [--repo ../nixpkgs] [--limit 4000]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -23,20 +24,31 @@ from eval.classify_edit_shape import classify_diff  # noqa: E402
 
 def _git(repo: Path, *args: str) -> str:
     # patches can carry non-UTF-8 bytes — decode leniently
-    return subprocess.run(["git", "-C", str(repo), *args],
-                          capture_output=True).stdout.decode("utf-8", "replace")
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True
+    ).stdout.decode("utf-8", "replace")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", type=Path, default=ROOT.parent / "nixpkgs")
     ap.add_argument("--limit", type=int, default=4000, help="commits to scan back")
-    ap.add_argument("--max-patches", type=int, default=400, help="cap .patch files classified")
+    ap.add_argument(
+        "--max-patches", type=int, default=400, help="cap .patch files classified"
+    )
     args = ap.parse_args()
 
     # recently-ADDED .patch files under pkgs/ (source-backport vein), with their commit
-    out = _git(args.repo, "log", f"-n{args.limit}", "--diff-filter=A",
-               "--name-only", "--format=@@%H", "--", "pkgs/**/*.patch")
+    out = _git(
+        args.repo,
+        "log",
+        f"-n{args.limit}",
+        "--diff-filter=A",
+        "--name-only",
+        "--format=@@%H",
+        "--",
+        "pkgs/**/*.patch",
+    )
     sha = None
     pairs: list[tuple[str, str]] = []
     for line in out.splitlines():
@@ -61,13 +73,20 @@ def main() -> None:
             fold_leads.append((c["shape"], c["subshape"], path))
 
     total = sum(shapes.values())
-    print(f"scanned {args.limit} commits → {len(pairs)} added .patch files, classified {total}")
+    print(
+        f"scanned {args.limit} commits → {len(pairs)} added .patch files, classified {total}"
+    )
     for shape, k in shapes.most_common():
-        print(f"  {shape:20} {k:3}  ({k/total:.0%})" if total else f"  {shape}: {k}")
+        print(f"  {shape:20} {k:3}  ({k / total:.0%})" if total else f"  {shape}: {k}")
     fold = shapes.get("condition-fold", 0) + shapes.get("security-guard-add", 0)
-    print(f"\n  fold + security-guard-add supply: {fold}/{total} "
-          f"({fold/total:.0%})" if total else "  no patches classified")
-    print(f"  → Phase-B needs ~40 (behavioral-validated); raw shape-matched leads here: {fold}")
+    print(
+        f"\n  fold + security-guard-add supply: {fold}/{total} ({fold / total:.0%})"
+        if total
+        else "  no patches classified"
+    )
+    print(
+        f"  → Phase-B needs ~40 (behavioral-validated); raw shape-matched leads here: {fold}"
+    )
     print("\n  sample fold-shaped leads (shape / subshape / patch):")
     for shape, sub, path in fold_leads[:15]:
         print(f"    {shape:20} {sub:16} {path}")

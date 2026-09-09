@@ -101,18 +101,21 @@ def _mk_drv(attr: str, uniq: str) -> str:
         (9999, ">5000", True),
     ],
 )
-def test_bucket_boundaries(impact_validator, maintainers_validator,
-                           count, expected_bucket, exceeds):
+def test_bucket_boundaries(
+    impact_validator, maintainers_validator, count, expected_bucket, exceeds
+):
     attr = "libexample"
-    graph = CannedCartographerGraph([
-        CannedNode(
-            attr_path=attr,
-            drv_path=_mk_drv(attr, "a"),
-            pname="libexample",
-            version="1.4.7",
-            reverse_closure=tuple(f"downstream-{i}" for i in range(count)),
-        )
-    ])
+    graph = CannedCartographerGraph(
+        [
+            CannedNode(
+                attr_path=attr,
+                drv_path=_mk_drv(attr, "a"),
+                pname="libexample",
+                version="1.4.7",
+                reverse_closure=tuple(f"downstream-{i}" for i in range(count)),
+            )
+        ]
+    )
 
     out = analyze(
         _finding("CVE-0000-3001", [(attr, _mk_drv(attr, "a"))]),
@@ -133,20 +136,22 @@ def test_bucket_boundaries(impact_validator, maintainers_validator,
 
 
 def test_small_closure_below_threshold(impact_validator, maintainers_validator):
-    graph = CannedCartographerGraph([
-        CannedNode(
-            attr_path="libexample",
-            drv_path=_mk_drv("libexample", "a"),
-            pname="libexample",
-            version="1.4.7",
-            reverse_closure=("exampleApp", "exampleServer", "exampleCli"),
-            critical_downstreams=("exampleServer",),
-            maintainers=(
-                Maintainer(github="alice"),
-                Maintainer(github="bob", email="bob@example.invalid"),
+    graph = CannedCartographerGraph(
+        [
+            CannedNode(
+                attr_path="libexample",
+                drv_path=_mk_drv("libexample", "a"),
+                pname="libexample",
+                version="1.4.7",
+                reverse_closure=("exampleApp", "exampleServer", "exampleCli"),
+                critical_downstreams=("exampleServer",),
+                maintainers=(
+                    Maintainer(github="alice"),
+                    Maintainer(github="bob", email="bob@example.invalid"),
+                ),
             ),
-        ),
-    ])
+        ]
+    )
     out = analyze(
         _finding("CVE-0000-3002", [("libexample", _mk_drv("libexample", "a"))]),
         graph,
@@ -165,7 +170,9 @@ def test_small_closure_below_threshold(impact_validator, maintainers_validator):
 
     maint = out["maintainers"]
     assert list(maint["attr_paths"].keys()) == ["libexample"]
-    github_handles = [m["github"] for m in maint["attr_paths"]["libexample"]["maintainers"]]
+    github_handles = [
+        m["github"] for m in maint["attr_paths"]["libexample"]["maintainers"]
+    ]
     assert github_handles == ["alice", "bob"]
     # email only appears on entries that supplied one
     emails = [m.get("email") for m in maint["attr_paths"]["libexample"]["maintainers"]]
@@ -179,25 +186,27 @@ def test_multi_attr_union_dedup(impact_validator, maintainers_validator):
     # Two affected attrs whose reverse closures overlap.
     # Attr A closure = {D1, D2, D3}, Attr B closure = {D3, D4, D5}.
     # Union count = 5, per-attr counts = 3 each.
-    graph = CannedCartographerGraph([
-        CannedNode(
-            attr_path="attrA",
-            drv_path=_mk_drv("attrA", "a"),
-            pname="attrA",
-            version="1.0.0",
-            reverse_closure=("D1", "D2", "D3"),
-            maintainers=(Maintainer(github="alice"),),
-        ),
-        CannedNode(
-            attr_path="attrB",
-            drv_path=_mk_drv("attrB", "b"),
-            pname="attrB",
-            version="1.0.0",
-            reverse_closure=("D3", "D4", "D5"),
-            critical_downstreams=("D4",),
-            maintainers=(Maintainer(github="bob"),),
-        ),
-    ])
+    graph = CannedCartographerGraph(
+        [
+            CannedNode(
+                attr_path="attrA",
+                drv_path=_mk_drv("attrA", "a"),
+                pname="attrA",
+                version="1.0.0",
+                reverse_closure=("D1", "D2", "D3"),
+                maintainers=(Maintainer(github="alice"),),
+            ),
+            CannedNode(
+                attr_path="attrB",
+                drv_path=_mk_drv("attrB", "b"),
+                pname="attrB",
+                version="1.0.0",
+                reverse_closure=("D3", "D4", "D5"),
+                critical_downstreams=("D4",),
+                maintainers=(Maintainer(github="bob"),),
+            ),
+        ]
+    )
     finding = _finding(
         "CVE-0000-3003",
         [("attrA", _mk_drv("attrA", "a")), ("attrB", _mk_drv("attrB", "b"))],
@@ -240,15 +249,17 @@ def test_unknown_attr_empty_safely(impact_validator, maintainers_validator):
 
 
 def test_threshold_override(impact_validator, maintainers_validator):
-    graph = CannedCartographerGraph([
-        CannedNode(
-            attr_path="libexample",
-            drv_path=_mk_drv("libexample", "a"),
-            pname="libexample",
-            version="1.4.7",
-            reverse_closure=tuple(f"d-{i}" for i in range(100)),
-        )
-    ])
+    graph = CannedCartographerGraph(
+        [
+            CannedNode(
+                attr_path="libexample",
+                drv_path=_mk_drv("libexample", "a"),
+                pname="libexample",
+                version="1.4.7",
+                reverse_closure=tuple(f"d-{i}" for i in range(100)),
+            )
+        ]
+    )
     out = analyze(
         _finding("CVE-0000-3005", [("libexample", _mk_drv("libexample", "a"))]),
         graph,
@@ -268,13 +279,20 @@ def test_threshold_override(impact_validator, maintainers_validator):
 def test_analysis_status_defaults_to_complete(impact_validator, maintainers_validator):
     """Backwards-compat: analyze() with the default analysis_status
     emits 'complete' so existing fixtures and bundles keep working."""
-    graph = CannedCartographerGraph([CannedNode(
-        attr_path="libexample", drv_path=_mk_drv("libexample", "a"),
-        pname="libexample", version="1.4.7",
-    )])
+    graph = CannedCartographerGraph(
+        [
+            CannedNode(
+                attr_path="libexample",
+                drv_path=_mk_drv("libexample", "a"),
+                pname="libexample",
+                version="1.4.7",
+            )
+        ]
+    )
     out = analyze(
         _finding("CVE-0000-3010", [("libexample", _mk_drv("libexample", "a"))]),
-        graph, nixpkgs_rev=NIXPKGS_REV,
+        graph,
+        nixpkgs_rev=NIXPKGS_REV,
     )
     assert out["impact"]["analysis_status"] == "complete"
     assert "analysis_reason" not in out["impact"]
@@ -284,13 +302,20 @@ def test_analysis_status_skipped_v0_propagates(impact_validator, maintainers_val
     """When the caller signals the graph backend can't produce real
     reverse-closure data, analyze() emits analysis_status='skipped-v0'
     + analysis_reason so Steward can route to review."""
-    graph = CannedCartographerGraph([CannedNode(
-        attr_path="libexample", drv_path=_mk_drv("libexample", "a"),
-        pname="libexample", version="1.4.7",
-    )])
+    graph = CannedCartographerGraph(
+        [
+            CannedNode(
+                attr_path="libexample",
+                drv_path=_mk_drv("libexample", "a"),
+                pname="libexample",
+                version="1.4.7",
+            )
+        ]
+    )
     out = analyze(
         _finding("CVE-0000-3011", [("libexample", _mk_drv("libexample", "a"))]),
-        graph, nixpkgs_rev=NIXPKGS_REV,
+        graph,
+        nixpkgs_rev=NIXPKGS_REV,
         analysis_status="skipped-v0",
         analysis_reason="snapshot-backend-unimplemented",
     )
@@ -301,14 +326,16 @@ def test_analysis_status_skipped_v0_propagates(impact_validator, maintainers_val
 
 def test_cartographer_emits_no_policy_verdicts():
     """Cartographer reports facts only. No kind / eligibility / verdict fields anywhere."""
-    graph = CannedCartographerGraph([
-        CannedNode(
-            attr_path="libexample",
-            drv_path=_mk_drv("libexample", "a"),
-            pname="libexample",
-            version="1.4.7",
-        )
-    ])
+    graph = CannedCartographerGraph(
+        [
+            CannedNode(
+                attr_path="libexample",
+                drv_path=_mk_drv("libexample", "a"),
+                pname="libexample",
+                version="1.4.7",
+            )
+        ]
+    )
     out = analyze(
         _finding("CVE-0000-3006", [("libexample", _mk_drv("libexample", "a"))]),
         graph,
