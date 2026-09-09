@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import nested_patch
@@ -74,7 +74,7 @@ class RationaleBindingError(ValueError):
 class Citation:
     text: str
     matched: bool
-    match_kind: str  # "exact" | "whitespace-normalized" | "none"
+    match_kind: str  # "exact" | "whitespace-normalized" | "wiring" | "none"
 
     def to_dict(self) -> dict[str, Any]:
         return {"text": self.text, "matched": self.matched, "match_kind": self.match_kind}
@@ -208,6 +208,54 @@ def _added_lines(patch_diff_text: str) -> list[str]:
     return out
 
 
+def _wiring_added_lines(patch_diff_text: str) -> set[str]:
+    """Added lines belonging to a `package.nix` hunk, `+` prefix stripped.
+
+    The prompt tells the Patcher that wiring the new patch into `patches = [ ]`
+    is not a behavioral change and does not satisfy a claim. A claim that cites
+    one is a contract violation, but it is a different violation from citing a
+    line that is nowhere in the diff, and the operator needs to be told which.
+    """
+    out: set[str] = set()
+    in_package_nix = False
+    old_budget = new_budget = 0
+    for line in patch_diff_text.splitlines():
+        # A `diff --git` at column zero starts a new file and ends whatever hunk
+        # preceded it. Resetting here keeps a hunk header whose counts overshoot
+        # its body from swallowing the next file's header lines. Content can
+        # never reach this branch: an added or context line carries its own
+        # `+`, `-` or space prefix first.
+        if line.startswith("diff --git "):
+            old_budget = new_budget = 0
+            in_package_nix = False
+            continue
+        if old_budget <= 0 and new_budget <= 0:
+            if line.startswith("+++ "):
+                # A unified-diff header may carry a timestamp after a tab.
+                target = line[4:].split("\t", 1)[0].strip()
+                if target.startswith(("a/", "b/")):
+                    target = target[2:]
+                in_package_nix = PurePosixPath(target).name == "package.nix"
+                continue
+            m = _HUNK_HEADER_RE.match(line)
+            if m:
+                old_budget = int(m.group(1)) if m.group(1) is not None else 1
+                new_budget = int(m.group(2)) if m.group(2) is not None else 1
+            continue
+        if line.startswith("\\"):
+            continue
+        if line.startswith("-"):
+            old_budget -= 1
+        elif line.startswith("+"):
+            new_budget -= 1
+            if in_package_nix:
+                out.add(line[1:])
+        else:
+            old_budget -= 1
+            new_budget -= 1
+    return out
+
+
 def patcher_prompt_path(bundle_dir: Path) -> str | None:
     """The prompt path the bundle's replay record names for its last Patcher run.
 
@@ -265,6 +313,8 @@ def check_binding(
             problems=[f"patch.diff has no extractable source patch to cite: {exc}"])
 
     exact = set(added)
+    wiring = _wiring_added_lines(patch_diff_text)
+    wiring_stripped = {line.strip() for line in wiring if line.strip()}
     normalized: dict[str, str] = {}
     for line in added:
         normalized.setdefault(line.strip(), line)
@@ -283,6 +333,11 @@ def check_binding(
             elif body.strip() and body.strip() in normalized:
                 cites.append(Citation(text, True, "whitespace-normalized"))
                 cited_lines.add(normalized[body.strip()])
+            elif body in wiring or body.strip() in wiring_stripped:
+                cites.append(Citation(text, False, "wiring"))
+                problems.append(
+                    f"claim {claim.claim_id} cites the `package.nix` wiring, which is "
+                    f"not a behavioral change and cannot carry a claim: {text!r}")
             else:
                 cites.append(Citation(text, False, "none"))
                 problems.append(

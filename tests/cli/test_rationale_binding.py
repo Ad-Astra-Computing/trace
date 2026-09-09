@@ -147,6 +147,53 @@ class TestUnboundRationale:
             "  - Diff Line: `+    ./CVE-2026-82591.patch`\n")
         result = rb.check_binding(rationale, NESTED_PATCH_DIFF)
         assert result.verdict == rb.VERDICT_UNBOUND
+        assert any("cites the `package.nix` wiring" in p for p in result.problems)
+        assert result.claims[0].citations[0].match_kind == "wiring"
+
+    def test_wiring_and_absent_lines_are_told_apart_in_the_message(self):
+        """An operator fixes these two differently, so they must read differently.
+
+        A wiring citation means the claim is true but out of contract. An absent
+        citation means the claim describes work the payload does not do.
+        """
+        rationale = _rationale(
+            "- [CLAIM-1] Wires the patch in.\n"
+            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n"
+            "- [CLAIM-2] Trims the vector back.\n"
+            "  - Diff Line: `+    mVertices.resize(iNewIndex);`\n")
+        problems = rb.check_binding(rationale, NESTED_PATCH_DIFF).problems
+        assert any("claim 1 cites the `package.nix` wiring" in p for p in problems)
+        assert any("claim 2 cites a line the patch does not add" in p for p in problems)
+
+    def test_flat_shape_wiring_is_diagnosed_the_same_way(self):
+        flat = FLAT_PATCH_DIFF + (
+            "diff --git a/pkgs/by-name/as/assimp/package.nix"
+            " b/pkgs/by-name/as/assimp/package.nix\n"
+            "index 2222222..3333333 100644\n"
+            "--- a/pkgs/by-name/as/assimp/package.nix\n"
+            "+++ b/pkgs/by-name/as/assimp/package.nix\n"
+            "@@ -20,6 +20,7 @@\n"
+            "   patches = [\n"
+            "+    ./CVE-2026-82591.patch\n"
+            "   ];\n")
+        rationale = _rationale(
+            "- [CLAIM-1] Wires the patch in.\n"
+            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n")
+        result = rb.check_binding(rationale, flat)
+        assert result.verdict == rb.VERDICT_UNBOUND
+        assert any("cites the `package.nix` wiring" in p for p in result.problems)
+
+    def test_a_timestamped_file_header_still_reads_as_package_nix(self):
+        """`diff -u` writes `+++ path\tTIMESTAMP`, which is a valid header."""
+        stamped = NESTED_PATCH_DIFF.replace(
+            "+++ b/pkgs/by-name/as/assimp/package.nix",
+            "+++ b/pkgs/by-name/as/assimp/package.nix\t2026-09-09 12:00:00.000000000 +0000")
+        rationale = _rationale(
+            "- [CLAIM-1] Wires the patch in.\n"
+            "  - Diff Line: `+    ./CVE-2026-82591.patch`\n")
+        result = rb.check_binding(rationale, stamped)
+        assert result.verdict == rb.VERDICT_UNBOUND
+        assert any("cites the `package.nix` wiring" in p for p in result.problems)
 
     def test_a_payload_with_no_source_patch_at_all_is_unbound(self):
         only_wiring = NESTED_PATCH_DIFF.split(
