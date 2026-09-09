@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.trace_cli import candidate_run
 from tools.trace_cli.candidate_run import (
     EXIT_GATE_STOPPED,
     EXIT_INFRA,
@@ -61,6 +62,7 @@ class Trace:
             fetch_source=self.step("fetch_source"),
             preflight_upstream=self.step("preflight_upstream"),
             patcher=self.step("patcher"),
+            rationale_binding=self.step("rationale_binding", "bound"),
             preflight_payload=self.step("preflight_payload"),
             reviewer=self.step("reviewer", "accept"),
             reproducer=self.step("reproducer"),
@@ -70,7 +72,7 @@ class Trace:
 
 
 ORDER = ["bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream",
-         "patcher", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"]
+         "patcher", "rationale_binding", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"]
 PAID = {"patcher", "reviewer", "reproducer"}
 
 
@@ -170,7 +172,7 @@ def test_default_steps_are_the_real_commands():
     defaults = m.default_steps()
     assert defaults.bootstrap.__module__.endswith("candidate_run")
     for name in ("bootstrap", "assemble", "finalize", "fetch_source", "preflight_upstream",
-                 "patcher", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"):
+                 "patcher", "rationale_binding", "preflight_payload", "reviewer", "reproducer", "probe", "refinalize"):
         assert callable(getattr(defaults, name)), name
 
 
@@ -186,7 +188,8 @@ def test_resume_after_a_stop_skips_the_completed_steps_and_repeats_no_model_call
     assert code == EXIT_READY
     assert not (PAID & set(t2.calls))
     # free gates are never skipped; the expensive setup and the paid steps are
-    assert t2.calls == ["preflight_upstream", "preflight_payload", "probe", "refinalize"]
+    assert t2.calls == ["preflight_upstream", "rationale_binding",
+                        "preflight_payload", "probe", "refinalize"]
 
 
 def test_resume_never_repeats_a_paid_step_whose_output_exists(tmp_path):
@@ -253,7 +256,8 @@ def test_free_gates_are_never_skipped_on_resume_even_if_the_record_says_ok(tmp_p
     run_candidate(_ctx(tmp_path), steps=t.steps())
     t2 = Trace()
     run_candidate(_ctx(tmp_path), steps=t2.steps(), resume=True)
-    for gate in ("preflight_upstream", "preflight_payload", "probe", "refinalize"):
+    for gate in ("preflight_upstream", "rationale_binding",
+                 "preflight_payload", "probe", "refinalize"):
         assert gate in t2.calls, gate
 
 
@@ -885,3 +889,69 @@ class TestAdaptationLane:
             "--adaptation-lane", "canary",
         ])
         assert args.adaptation_lane == "canary"
+
+
+class TestRationaleBindingGate:
+    """The free gate between the Patcher and Reviewer spend. Drives the real
+    `_rationale_binding`, so the control is operated rather than described.
+    """
+
+    PATCH = (
+        "diff --git a/src/file.c b/src/file.c\n"
+        "--- a/src/file.c\n"
+        "+++ b/src/file.c\n"
+        "@@ -1 +1,2 @@\n"
+        " int old(void);\n"
+        "+int guard(void);\n"
+    )
+
+    @staticmethod
+    def _bundle(tmp_path: Path, why_minimal: str, patch: str) -> dict:
+        bundle = tmp_path / "bundle"
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "patch.diff").write_text(patch)
+        (bundle / "patch-rationale.md").write_text(
+            "## Upstream reference\nhttps://example.invalid/c/abc\n\n"
+            "## Why this version\nSource-backport.\n\n"
+            f"## Why minimal\n{why_minimal}\n\n"
+            "## Alternatives rejected\n- Bump — not authorized.\n\n"
+            "## Downstream risk\nNone noted.\n")
+        return {"bundle_dir": bundle}
+
+    def test_a_cited_claim_lets_the_run_reach_the_reviewer(self, tmp_path):
+        ctx = self._bundle(
+            tmp_path,
+            "- [CLAIM-1] Declares the guard.\n  - Diff Line: `+int guard(void);`\n",
+            self.PATCH)
+        assert candidate_run._rationale_binding(ctx) == "bound"
+
+    def test_a_claim_the_payload_does_not_contain_stops_before_reviewer_spend(self, tmp_path):
+        ctx = self._bundle(
+            tmp_path,
+            "- [CLAIM-1] Declares the guard.\n  - Diff Line: `+int guard(void);`\n"
+            "- [CLAIM-2] Trims the vector.\n  - Diff Line: `+    v.resize(n);`\n",
+            self.PATCH)
+        with pytest.raises(candidate_run.StepStopped) as e:
+            candidate_run._rationale_binding(ctx)
+        assert e.value.gate == "rationale_binding"
+        assert "v.resize(n)" in e.value.reason
+
+    def test_a_claim_with_no_citation_stops_the_run(self, tmp_path):
+        ctx = self._bundle(tmp_path, "- [CLAIM-1] Does something unstated.\n", self.PATCH)
+        with pytest.raises(candidate_run.StepStopped):
+            candidate_run._rationale_binding(ctx)
+
+    def test_a_rationale_authored_before_v5_passes_as_not_applicable(self, tmp_path):
+        ctx = self._bundle(
+            tmp_path, "Prose justifying each hunk, as v3 and v4 asked for.\n", self.PATCH)
+        assert candidate_run._rationale_binding(ctx) == "not-applicable"
+
+    def test_the_gate_runs_between_the_patcher_and_the_payload_preflight(self):
+        order = candidate_run.ORDER
+        assert order.index("patcher") < order.index("rationale_binding")
+        assert order.index("rationale_binding") < order.index("preflight_payload")
+        assert order.index("rationale_binding") < order.index("reviewer")
+
+    def test_the_gate_is_free_so_a_resume_always_re_runs_it(self):
+        assert "rationale_binding" in candidate_run._ALWAYS_RUN
+        assert "rationale_binding" not in candidate_run.PAID_STEPS

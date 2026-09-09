@@ -296,6 +296,9 @@ def main(argv: list[str]) -> int:
     from tools.trace_cli import normalize_context as _normalize_ctx_module
     _normalize_ctx_module.add_parser(b_subs)
 
+    from tools.trace_cli import rationale_binding as _rationale_binding_module
+    _rationale_binding_module.add_parser(b_subs)
+
     cand = subs.add_parser("candidate", help="work one screened candidate end to end")
     cand_subs = cand.add_subparsers(dest="candidate_cmd", required=True)
     from tools.trace_cli import candidate_run as _candidate_run_module
@@ -456,6 +459,9 @@ def main(argv: list[str]) -> int:
             from tools.trace_cli import normalize_sourceroot as _normalize_module
             from pathlib import Path as _Path
             return _normalize_module.run(args, repo_root=_Path(__file__).resolve().parents[2])
+        if args.bundle_cmd == "rationale-binding":
+            from tools.trace_cli import rationale_binding as _rationale_binding_module
+            return _rationale_binding_module.run(args)
         if args.bundle_cmd == "normalize-context":
             from tools.trace_cli import normalize_context as _normalize_ctx_module
             from pathlib import Path as _Path

@@ -6,7 +6,7 @@ Patcher (v3) transcribes it byte-for-byte. When the pinned base has diverged —
 the libarchive CVE-2026-15028 shape, where the upstream fix used ``archive_ckd_*``
 helpers absent from the pinned 3.8.7 — a verbatim transcription cannot apply, and
 a correct fix requires a *semantic adaptation* authored against the pinned base's
-own code. ``patcher.v4`` performs that adaptation, but only if it can see the
+own code. ``patcher.v5`` performs that adaptation, but only if it can see the
 affected source of the pinned base.
 
 This module parses the exact file set out of ``upstream-fix.patch`` and copies

@@ -48,6 +48,7 @@ class Steps:
     fetch_source: Step
     preflight_upstream: Step
     patcher: Step
+    rationale_binding: Step
     preflight_payload: Step
     reviewer: Step
     reproducer: Step
@@ -100,14 +101,15 @@ _PAID_INPUTS = {
     "reviewer": ("patch.diff", "patch-rationale.md", "package.nix", "upstream-fix.patch"),
     "reproducer": ("patch.diff", "package.nix", "finding.json", "upstream-ref.json"),
 }
-# On the adaptation lane the Patcher runs patcher.v4 and the Reviewer reads the
+# On the adaptation lane the Patcher runs patcher.v5 and the Reviewer reads the
 # same pinned source it adapted against, so both roles' outputs depend on
 # preflight.json and every source-context/ file. Absent here, a resume would
 # reuse a patch.diff authored against source that has since changed.
 _ADAPTATION_INPUTS = frozenset({"patcher", "reviewer"})
 # Free gates are re-run on every resume. A run.jsonl line is a claim, and these
 # are the checks that stand between a model payload and a cert.
-_ALWAYS_RUN = frozenset({"preflight_upstream", "preflight_payload", "probe", "refinalize"})
+_ALWAYS_RUN = frozenset({"preflight_upstream", "rationale_binding",
+                         "preflight_payload", "probe", "refinalize"})
 
 
 def _inputs_sha(bundle_dir: Path, step: str, model_id: str | None = None) -> str:
@@ -423,7 +425,7 @@ def _enter_adaptation_lane(ctx: dict[str, Any]) -> None:
 
     A failing upstream preflight is the adaptation lane's normal state: the fix is
     expressible on the pinned base but not verbatim. Continuing is only meaningful
-    if the Patcher is actually routed to patcher.v4, and that routing is driven by
+    if the Patcher is actually routed to patcher.v5, and that routing is driven by
     `source-context/` plus `preflight.json.applies_verbatim`, which only the
     source-backport staging writes. Restaging with the tree fetched two steps
     earlier produces both, and finalize then hashes them into the signed manifest
@@ -622,6 +624,26 @@ def _patcher(ctx: dict[str, Any]) -> None:
     ctx.setdefault("invocations", {})["patcher"] = result
 
 
+def _rationale_binding(ctx: dict[str, Any]) -> str:
+    """Check the Patcher's account of its own diff before paying a Reviewer.
+
+    Free and deterministic: every `[CLAIM-N]` in `## Why minimal` must cite a
+    line the payload adds. A rationale authored before patcher.v5 carries no
+    claim list and passes as not-applicable. The verdict is not written into
+    the bundle — it is re-derivable at any time from two manifested files, and
+    `trace bundle rationale-binding` is the way to recompute it.
+    """
+    from tools.trace_cli import rationale_binding
+
+    result = rationale_binding.check_bundle(ctx["bundle_dir"])
+    if not result.ok:
+        raise StepStopped(
+            "rationale_binding",
+            "the rationale claims work the payload does not contain: "
+            + "; ".join(result.problems))
+    return result.verdict
+
+
 def _reviewer(ctx: dict[str, Any]) -> str:
     _role(ctx, "reviewer")
     review = ctx["bundle_dir"] / "review.md"
@@ -667,7 +689,8 @@ def default_steps() -> Steps:
     return Steps(
         bootstrap=_bootstrap, assemble=_assemble, finalize=_finalize,
         fetch_source=_fetch_source, preflight_upstream=lambda c: _preflight(c, patch_diff=False),
-        patcher=_patcher, preflight_payload=lambda c: _preflight(c, patch_diff=True),
+        patcher=_patcher, rationale_binding=_rationale_binding,
+        preflight_payload=lambda c: _preflight(c, patch_diff=True),
         reviewer=_reviewer, reproducer=_reproducer, probe=_probe, refinalize=_refinalize,
     )
 
@@ -700,7 +723,7 @@ def add_parser(subs: argparse._SubParsersAction) -> None:
     p.add_argument("--adaptation-lane", default=None, metavar="REASON",
                    help="continue past a failing upstream-patch preflight by restaging the "
                         "bundle against the fetched pinned source, which routes the Patcher to "
-                        "patcher.v4 and signs the applies_verbatim verdict. For the "
+                        "patcher.v5 and signs the applies_verbatim verdict. For the "
                         "semantic-adaptation lane, where the fix is expressible on the pinned "
                         "base but does not apply verbatim. REASON is recorded in run.jsonl. The "
                         "payload preflight still gates.")

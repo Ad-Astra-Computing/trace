@@ -388,11 +388,14 @@ PATCHER_PROMPT_PATH_DEFAULT = Path(__file__).resolve().parents[2] / "prompts" / 
 # against the current version instead of bumping to the fixed release.
 PATCHER_PROMPT_PATH_BACKPORT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v3.md"
 # Used when a source-backport bundle carries a source-context/ dir (schema 1.1.0):
-# the v4 prompt gives the Patcher the pre-patch source of the affected files plus
+# the adaptation prompt gives the Patcher the pre-patch source of the affected files plus
 # the deterministic preflight verdict (applies_verbatim), so it transcribes
 # verbatim when the upstream fix applies and authors a grounded semantic
 # adaptation when the pinned base has diverged (semantic-backport-adaptation arc).
-PATCHER_PROMPT_PATH_ADAPT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v4.md"
+# v5 replaces v4 here: same contract, plus a `## Why minimal` claim list whose
+# every claim cites a line the payload adds, so `rationale_binding` can falsify
+# the model's account of its own diff before Reviewer spend.
+PATCHER_PROMPT_PATH_ADAPT = Path(__file__).resolve().parents[2] / "prompts" / "patcher.v5.md"
 
 
 def _persist_role_failure(
@@ -635,10 +638,10 @@ def _execute_patcher(
         if not any(ref.get("path") == "upstream-fix.patch" for ref in input_verification):
             input_verification.append({"path": "upstream-fix.patch", "verified": False})
 
-        # Semantic-adaptation lane (patcher.v4): a source-context/ dir means this
+        # Semantic-adaptation lane (patcher.v5): a source-context/ dir means this
         # bundle carries the pre-patch source of the affected files (a schema-1.1.0
         # signed input). Feed it, plus the deterministic preflight verdict baked at
-        # bootstrap (preflight.json.applies_verbatim), so v4 transcribes verbatim
+        # bootstrap (preflight.json.applies_verbatim), so the adaptation prompt transcribes verbatim
         # when the fix applies and authors a grounded adaptation when it does not.
         source_context_dir = bundle_dir / "source-context"
         sc_relpaths = (
@@ -646,8 +649,8 @@ def _execute_patcher(
             if source_context_dir.is_dir() else []
         )
         # Only the adaptation lane when source-context actually carries files. An
-        # empty dir must NOT route to v4 (it would run v4 with no context while
-        # finalize emits a 1.0.0 bundle — an inconsistent, unsigned v4 contract).
+        # empty dir must NOT route to the adaptation prompt (it would run with no context while
+        # finalize emits a 1.0.0 bundle, an inconsistent and unsigned adaptation contract).
         if sc_relpaths:
             inputs["source_context"] = {
                 rel: (source_context_dir / rel).read_text()
@@ -665,7 +668,7 @@ def _execute_patcher(
                 inputs["preflight_diagnostics"] = ""
             patcher_prompt_path = PATCHER_PROMPT_PATH_ADAPT
 
-            # Replay integrity: a recorded v4 invocation MUST declare the
+            # Replay integrity: a recorded adaptation invocation MUST declare the
             # source-context files (and preflight.json when present) as inputs, or
             # replay could run the adaptation lane against different/absent source.
             if verify and invocation.get("inputs"):
@@ -1145,9 +1148,9 @@ def _build_patcher_invocation(
     input_files = ["finding.json", "upstream-ref.json", "impact.json", "maintainers.json", "package.nix"]
     if (bundle_dir / "upstream-fix.patch").is_file():
         input_files.append("upstream-fix.patch")
-    # source-context inputs (patcher.v4 semantic-adaptation lane): the pre-patch
+    # source-context inputs (patcher.v5 semantic-adaptation lane): the pre-patch
     # source of the affected files + the deterministic preflight verdict. Recorded
-    # as replay-critical patcher inputs so a replay re-runs v4 on the same bytes.
+    # as replay-critical patcher inputs so a replay re-runs the adaptation prompt on the same bytes.
     source_context_dir = bundle_dir / "source-context"
     if source_context_dir.is_dir():
         input_files += [

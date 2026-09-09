@@ -356,7 +356,7 @@ def assemble_bundle(
     # upstream fix diff, and — when a source tree is resolvable — extract the
     # pre-patch source the fix touches into source-context/ and bake the
     # deterministic applies_verbatim verdict into preflight.json. Both drive
-    # patcher.v4. Opt-in: fires only for a source-backport upstream-ref when
+    # patcher.v5. Opt-in: fires only for a source-backport upstream-ref when
     # upstream_fix_patch_path is supplied. The source-context step additionally
     # needs a source tree (pre-unpacked via source_tree, or unpacked from pkg.src
     # when write_source_context is set).
@@ -992,7 +992,7 @@ def finalize_bundle(
     # is the source-backport ground-truth diff (the Patcher transcribes it and the
     # Reviewer verifies against it — replay-critical when present).
     # preflight.json (source-context-extractor) is the deterministic
-    # applies_verbatim verdict baked at bootstrap that drives patcher.v4; it is a
+    # applies_verbatim verdict baked at bootstrap that drives patcher.v5; it is a
     # replay-critical, signed input on the adaptation lane.
     # patch-normalization.json (patch-normalizer) is emitted ONLY for a bundle
     # whose model patch was sourceRoot-normalized — most bundles never carry it,
