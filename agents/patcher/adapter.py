@@ -145,6 +145,14 @@ class AnthropicAdapter:
         "claude-opus-4-7",
         "claude-opus-4-8",
         "claude-fable-5",
+        # The 5 line deprecated both knobs as well. Confirmed against the
+        # live API on 13 September 2026 rather than assumed from the naming:
+        # each of claude-sonnet-5, claude-opus-5 and claude-fable-5-1 returns
+        # 400 "`temperature` is deprecated for this model" and the same for
+        # `top_p`, and succeeds when neither is sent. "claude-fable-5" above
+        # already prefix-covers claude-fable-5-1.
+        "claude-sonnet-5",
+        "claude-opus-5",
     )
 
     # Anthropic models that accept ONLY ONE of `temperature` or `top_p`,

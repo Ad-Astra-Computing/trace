@@ -102,3 +102,37 @@ def test_haiku_4_5_in_reject_both_set() -> None:
     assert (
         "claude-haiku-4-5" in AnthropicAdapter._MODELS_THAT_REJECT_BOTH_SAMPLING_KNOBS
     )
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "claude-sonnet-5",
+        "claude-opus-5",
+        "claude-fable-5-1",
+        "claude-fable-5",
+        "claude-sonnet-5-20260901",  # dated suffix
+    ],
+)
+def test_the_5_line_drops_both_knobs(model_id: str) -> None:
+    """The 5 line deprecated temperature AND top_p, the same way Opus 4.7
+    did. Probed against the live API on 13 September 2026: each model
+    returns 400 for temperature, 400 for top_p and 200 when neither is
+    sent. Before this, a Patcher run on claude-sonnet-5 died with
+    "`temperature` is deprecated for this model" after the free gates had
+    already passed, so the cost was a wasted setup rather than a wasted
+    call."""
+    a = _make_adapter(model_id)
+    assert a._model_drops_sampling() is True
+    assert a._model_accepts_only_temperature() is False
+
+
+def test_sonnet_5_is_not_confused_with_sonnet_4_5() -> None:
+    """The prefixes `claude-sonnet-5` and `claude-sonnet-4-5` name
+    different models with different sampling contracts, so neither may
+    match the other's branch."""
+    five = _make_adapter("claude-sonnet-5")
+    four_five = _make_adapter("claude-sonnet-4-5-20250929")
+    assert five._model_drops_sampling() is True
+    assert four_five._model_drops_sampling() is False
+    assert four_five._model_accepts_only_temperature() is True
