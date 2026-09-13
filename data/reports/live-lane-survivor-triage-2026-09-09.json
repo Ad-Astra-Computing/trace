@@ -5,17 +5,17 @@
   "method": "read-only verification via gh api commit history plus upstream advisory and release-note search; nothing bootstrapped, no live model spend",
   "bar": "source-backport-viable: compiled-language library, in-range packaged version, minimal commit-shaped memory-safety or bounds fix; web apps and authorization-check fixes excluded as design-freedom; chirp CVE-2026-78136 excluded (known dead-end)",
   "recommendation": {
-    "bootstrap_first": "CVE-2026-86141",
-    "reason": "the libxml2 cluster is the proven lane: same attr and same pinned rev as the two bundles already certified, single-file fixes, and CVE-2026-86139 went bootstrap to green cert in one pass on 13 September. CVE-2026-86141 is a 6-line NULL-check-then-strlen ordering fix in xmlregexp.c",
+    "bootstrap_first": "CVE-2026-86140",
+    "reason": "promoted after the base dry-run retired CVE-2026-86141. Bounds check before a strcat stack overflow in xmlSnprintfElements (valid.c), and the upstream fix applies to the pinned 2.15.3 source",
     "then": [
-      "CVE-2026-86140",
       "CVE-2026-86138",
       "CVE-2026-86142"
     ],
     "held": {
       "openssl_cluster": "8 rows, see attr_label_correction",
       "CVE-2026-86143": "unconfirmed CVE-to-commit mapping, verify before spend",
-      "CVE-2026-86098": "ndpi, not yet assessed"
+      "CVE-2026-86098": "ndpi, not yet assessed",
+      "CVE-2026-86141": "retired, base mismatch, see base_dry_run_sweep"
     },
     "note": "ranks 1, 2 and 15 are now in the corpus and are not work"
   },
@@ -87,7 +87,8 @@
       "file": "xmlregexp.c",
       "fix_size": "1 file, +6",
       "fix_availability": "release",
-      "note": "NULL-check-then-strlen ordering after strdup failure"
+      "note": "NULL-check-then-strlen ordering after strdup failure",
+      "base_dry_run": "base-mismatch"
     },
     {
       "rank": 6,
@@ -100,7 +101,8 @@
       "file": "valid.c",
       "fix_size": "1 file, +18",
       "fix_availability": "release",
-      "note": "strcat stack overflow in xmlSnprintfElements, bounds check added"
+      "note": "strcat stack overflow in xmlSnprintfElements, bounds check added",
+      "base_dry_run": "applies"
     },
     {
       "rank": 7,
@@ -113,7 +115,8 @@
       "file": "dict.c",
       "fix_size": "1 file, +21",
       "fix_availability": "release",
-      "note": "integer-overflow-then-heap-overflow guard in xmlDictAddQString"
+      "note": "integer-overflow-then-heap-overflow guard in xmlDictAddQString",
+      "base_dry_run": "applies"
     },
     {
       "rank": 8,
@@ -126,7 +129,8 @@
       "file": "xpointer.c",
       "fix_size": "1 file, +9",
       "fix_availability": "release",
-      "note": "length-saturation overflow check in xmlXPtrEvalXPtrPart"
+      "note": "length-saturation overflow check in xmlXPtrEvalXPtrPart",
+      "base_dry_run": "applies"
     },
     {
       "rank": 9,
@@ -250,7 +254,8 @@
       "file": "xmlregexp.c",
       "fix_size": "1 file, +8",
       "fix_availability": "release",
-      "note": "UNCONFIRMED CVE-to-commit mapping; only unmatched xmlregexp fix in the 2.15.3->2.15.4 range fitting CWE-192; verify before spend"
+      "note": "UNCONFIRMED CVE-to-commit mapping; only unmatched xmlregexp fix in the 2.15.3->2.15.4 range fitting CWE-192; verify before spend",
+      "base_dry_run": "applies-mapping-unconfirmed"
     }
   ],
   "rejected_compiled": [
@@ -335,5 +340,21 @@
     ],
     "consequence": "a bundle for any of them must target the openssl attr. That moves them out of the small-blast-radius class the shortlist bar assumed: openssl has a very large reverse closure against the v0-default 500 threshold, and every one of them is release-fixed in 3.6.4, which is the shape nixpkgs closes by bumping rather than by an in-tree patch",
     "disposition": "held pending a blast-radius and patch-versus-bump call; not retired"
+  },
+  "base_dry_run_sweep": {
+    "checked": "2026-09-13, gh api plus patch --dry-run against the v2.15.3 file, no model spend",
+    "method": "fetch the affected file at the packaged tag, dry-run the upstream fix against it. This is the step 6 preflight done at triage time instead of after a bundle is staged",
+    "retired": {
+      "CVE-2026-86141": "the fix moves ret->len = strlen(ret->string) below the NULL check in xmlRegNewParserCtxt, but that assignment does not exist at v2.15.3 at all, so the hunk fails and the packaged version was never vulnerable. The regression was introduced after 2.15.3 and the fix repairs code that never shipped in the pinned base. Libarchive shape, so a retirement rather than an adaptation"
+    },
+    "viable": [
+      "CVE-2026-86140",
+      "CVE-2026-86138",
+      "CVE-2026-86142"
+    ],
+    "needs_mapping_check": [
+      "CVE-2026-86143"
+    ],
+    "screen_gap": "the packaged-version gate read 2.15.3 as in-range because the advisory says 'before 2.15.4', which is true of the version string and false of the code. A before-X advisory does not imply the vulnerable line is present in the packaged tree"
   }
 }
