@@ -5,9 +5,10 @@
   "method": "read-only verification via gh api commit history plus upstream advisory and release-note search; nothing bootstrapped, no live model spend",
   "bar": "source-backport-viable: compiled-language library, in-range packaged version, minimal commit-shaped memory-safety or bounds fix; web apps and authorization-check fixes excluded as design-freedom; chirp CVE-2026-78136 excluded (known dead-end)",
   "recommendation": {
-    "bootstrap_first": "CVE-2026-16599",
-    "reason": "fix is still unreleased upstream (fix_availability none), so trace patches ahead of both nixpkgs and wget itself, the clearest beat-upstream story in the batch; single-file +11/-4 integer-bound clamp in a well-understood C tool; verdict in-range unambiguous",
-    "safe_pair_after": "CVE-2026-86139"
+    "bootstrap_first": "CVE-2026-86139",
+    "reason": "promoted from rank 2 after the corpus cross-check retired rank 1 as already certified. Single-file +4 length check before a buffer write in xmlURIEscapeStr, fixed upstream in 2.15.4, packaged 2.15.3 in range.",
+    "safe_pair_after": "CVE-2026-63076",
+    "note": "ranks 1 and 15 are already in the corpus and are not work"
   },
   "shortlist": [
     {
@@ -21,7 +22,8 @@
       "file": "src/ftp-basic.c",
       "fix_size": "1 file, +11/-4",
       "fix_availability": "none",
-      "note": "unreleased upstream; integer-bound clamp on FTP OPIE sequence number; textbook minimal backport"
+      "note": "unreleased upstream; integer-bound clamp on FTP OPIE sequence number; textbook minimal backport",
+      "already_bundled": "CVE-2026-16599--wget-ftp-opie-backport"
     },
     {
       "rank": 2,
@@ -203,7 +205,8 @@
       "file": "xinclude.c",
       "fix_size": "1 file, +~90/-32",
       "fix_availability": "release",
-      "note": "parseFlags propagation through multiple call sites; larger but single-file and mechanical"
+      "note": "parseFlags propagation through multiple call sites; larger but single-file and mechanical",
+      "already_bundled": "CVE-2026-86144--libxml2-xinclude-parseflags-backport"
     },
     {
       "rank": 16,
@@ -282,6 +285,21 @@
       "verdict": "bootstrappable, no base mismatch",
       "reason": "security hunk is a self-contained bound (skey_sequence > 9999 -> xfree + FTPLOGREFUSED) added inside the existing OPIE sequence loop in src/ftp-basic.c ftp_login; that loop and the unbounded accumulation predate 1.25.0, so the fix applies to the pinned base. The other hunk (size_t loop-var cleanup) is incidental and not security-relevant, so an authored minimal fix may legitimately omit it (differs-but-equivalent GOLD class).",
       "next_when_credits_return": "resolver-side files + assemble + finalize + preflight, then Patcher (patcher.v4 source-backport), Reviewer, Reproducer, probe, Linux cert"
+    }
+  },
+  "corpus_cross_check": {
+    "checked": "2026-09-13, read-only against traces/example, no model spend",
+    "finding": "the 9 September triage ranked screen survivors without asking which already had a finished bundle, so its top pick was work already done",
+    "already_bundled": {
+      "CVE-2026-16599": "cert-green and signed 5 September 2026 (commits 59339b56, 1294603f, 2caf772a, probe gate 886eba1c), four days before this triage named it bootstrap_first",
+      "CVE-2026-86144": "bundle present as CVE-2026-86144--libxml2-xinclude-parseflags-backport"
+    },
+    "still_open": "15 of the 17 shortlist rows have no bundle, so the ranking below them stands",
+    "root_cause": "eval/beat_upstream_screen.py _duplicate_of deliberately ignores a same-CVE-id corpus match, because two bundles for one id are the intended bump-versus-backport tier pair. The screen is correct. The missing step was in triage, which needs the already-bundled fact as an advisory signal.",
+    "superseded_recommendation": {
+      "bootstrap_first": "CVE-2026-16599",
+      "reason": "fix is still unreleased upstream (fix_availability none), so trace patches ahead of both nixpkgs and wget itself, the clearest beat-upstream story in the batch; single-file +11/-4 integer-bound clamp in a well-understood C tool; verdict in-range unambiguous",
+      "safe_pair_after": "CVE-2026-86139"
     }
   }
 }
