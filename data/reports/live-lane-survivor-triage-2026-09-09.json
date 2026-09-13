@@ -5,10 +5,19 @@
   "method": "read-only verification via gh api commit history plus upstream advisory and release-note search; nothing bootstrapped, no live model spend",
   "bar": "source-backport-viable: compiled-language library, in-range packaged version, minimal commit-shaped memory-safety or bounds fix; web apps and authorization-check fixes excluded as design-freedom; chirp CVE-2026-78136 excluded (known dead-end)",
   "recommendation": {
-    "bootstrap_first": "CVE-2026-86139",
-    "reason": "promoted from rank 2 after the corpus cross-check retired rank 1 as already certified. Single-file +4 length check before a buffer write in xmlURIEscapeStr, fixed upstream in 2.15.4, packaged 2.15.3 in range.",
-    "safe_pair_after": "CVE-2026-63076",
-    "note": "ranks 1 and 15 are already in the corpus and are not work"
+    "bootstrap_first": "CVE-2026-86141",
+    "reason": "the libxml2 cluster is the proven lane: same attr and same pinned rev as the two bundles already certified, single-file fixes, and CVE-2026-86139 went bootstrap to green cert in one pass on 13 September. CVE-2026-86141 is a 6-line NULL-check-then-strlen ordering fix in xmlregexp.c",
+    "then": [
+      "CVE-2026-86140",
+      "CVE-2026-86138",
+      "CVE-2026-86142"
+    ],
+    "held": {
+      "openssl_cluster": "8 rows, see attr_label_correction",
+      "CVE-2026-86143": "unconfirmed CVE-to-commit mapping, verify before spend",
+      "CVE-2026-86098": "ndpi, not yet assessed"
+    },
+    "note": "ranks 1, 2 and 15 are now in the corpus and are not work"
   },
   "shortlist": [
     {
@@ -36,7 +45,8 @@
       "file": "uri.c",
       "fix_size": "1 file, +4",
       "fix_availability": "release",
-      "note": "length check before buffer write in xmlURIEscapeStr; fixed in 2.15.4"
+      "note": "length check before buffer write in xmlURIEscapeStr; fixed in 2.15.4",
+      "already_bundled": "CVE-2026-86139--libxml2-uri-escape-int-overflow-backport"
     },
     {
       "rank": 3,
@@ -49,7 +59,8 @@
       "file": "crypto/cmp/cmp_protect.c",
       "fix_size": "1 file, +1/-1",
       "fix_availability": "release",
-      "note": "NULL-deref guard on protectionAlg type check; attr is pkgs.openssl inherited, not vendored; fixed 3.6.4"
+      "note": "NULL-deref guard on protectionAlg type check; attr is pkgs.openssl inherited, not vendored; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 4,
@@ -62,7 +73,8 @@
       "file": "crypto/cmp/cmp_vfy.c",
       "fix_size": "1 file, +1/-1",
       "fix_availability": "release",
-      "note": "format-string fix, peer DN passed to ERR_raise_data; fixed 3.6.4"
+      "note": "format-string fix, peer DN passed to ERR_raise_data; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 5,
@@ -127,7 +139,8 @@
       "file": "crypto/cms/cms_kari.c, cms_kemri.c",
       "fix_size": "2 files, +16/-2",
       "fix_availability": "release",
-      "note": "AES-WRAP-PAD unwrap output-buffer sizing; fixed 3.6.4"
+      "note": "AES-WRAP-PAD unwrap output-buffer sizing; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 10,
@@ -140,7 +153,8 @@
       "file": "crypto/cmp/cmp_vfy.c",
       "fix_size": "1 file, +7/-2",
       "fix_availability": "release",
-      "note": "unbounded extraCerts cache growth in CMP; fixed 3.6.4"
+      "note": "unbounded extraCerts cache growth in CMP; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 11,
@@ -153,7 +167,8 @@
       "file": "ssl/quic/quic_port.c, quic_record_rx.c, header",
       "fix_size": "3 files, +65/-18",
       "fix_availability": "release",
-      "note": "QUIC QRX double-free; moderate multi-file but tightly scoped; fixed 3.6.4"
+      "note": "QUIC QRX double-free; moderate multi-file but tightly scoped; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 12,
@@ -166,7 +181,8 @@
       "file": "ssl/record/methods/dtls_meth.c",
       "fix_size": "1 file, +13/-16",
       "fix_availability": "release",
-      "note": "DTLS next-epoch memory amplification; fixed 3.6.4"
+      "note": "DTLS next-epoch memory amplification; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 13,
@@ -179,7 +195,8 @@
       "file": "3 AEAD cipher files plus CCM",
       "fix_size": "4 files, ~+44/-11",
       "fix_availability": "release",
-      "note": "empty-ciphertext AEAD tag-check bypass; two related commits; fixed 3.6.4"
+      "note": "empty-ciphertext AEAD tag-check bypass; two related commits; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 14,
@@ -192,7 +209,8 @@
       "file": "ssl/t1_lib.c",
       "fix_size": "source +14 (test file not needed)",
       "fix_availability": "release",
-      "note": "RPK NULL-deref guard; fixed 3.6.4"
+      "note": "RPK NULL-deref guard; fixed 3.6.4",
+      "attr_correction": "openssl"
     },
     {
       "rank": 15,
@@ -301,5 +319,21 @@
       "reason": "fix is still unreleased upstream (fix_availability none), so trace patches ahead of both nixpkgs and wget itself, the clearest beat-upstream story in the batch; single-file +11/-4 integer-bound clamp in a well-understood C tool; verdict in-range unambiguous",
       "safe_pair_after": "CVE-2026-86139"
     }
+  },
+  "attr_label_correction": {
+    "checked": "2026-09-13, nix eval against the local nixpkgs checkout",
+    "finding": "the attr azure-sdk-for-cpp.openssl is not a vendored copy. It evaluates to the same derivation as pkgs.openssl (same_drv true, version 3.6.3 on both), so all 8 rows carrying that label are really pkgs.openssl under a misleading scope path",
+    "affected_ranks": [
+      3,
+      4,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14
+    ],
+    "consequence": "a bundle for any of them must target the openssl attr. That moves them out of the small-blast-radius class the shortlist bar assumed: openssl has a very large reverse closure against the v0-default 500 threshold, and every one of them is release-fixed in 3.6.4, which is the shape nixpkgs closes by bumping rather than by an in-tree patch",
+    "disposition": "held pending a blast-radius and patch-versus-bump call; not retired"
   }
 }
