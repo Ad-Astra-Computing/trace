@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from eval.beat_upstream_screen import (
     _advisory_symbols,
+    _bundled_as,
     _duplicate_of,
     _fix_shape_class,
     _fixed_release_status,
@@ -762,3 +763,76 @@ def test_an_unseen_fix_commit_is_not_a_duplicate():
         ]
     }
     assert _duplicate_of(ref, {}, cve_id="CVE-2026-1") is None
+
+
+def test_bundled_as_finds_a_bundle_for_the_same_cve_id():
+    """wget CVE-2026-16599 was cert-green and signed but still surfaced as a
+    fresh bootstrap target; a survivor row needs this signal, advisory only."""
+    corpus = {
+        ("https://github.com/o/r", "c" * 40): "CVE-2026-16599--wget-backport",
+    }
+    assert (
+        _bundled_as(corpus, "CVE-2026-16599") == "CVE-2026-16599--wget-backport"
+    )
+
+
+def test_bundled_as_is_none_when_the_cve_has_no_bundle():
+    corpus = {("https://github.com/o/r", "c" * 40): "CVE-2026-16599--wget-backport"}
+    assert _bundled_as(corpus, "CVE-2026-9999") is None
+
+
+def test_bundled_as_does_not_false_match_a_longer_cve_id():
+    """CVE-2026-1659 must not match a CVE-2026-16599 bundle directory, mirroring
+    the cve_id + "-" prefix convention _duplicate_of already relies on."""
+    corpus = {("https://github.com/o/r", "c" * 40): "CVE-2026-16599--wget-backport"}
+    assert _bundled_as(corpus, "CVE-2026-1659") is None
+
+
+def test_bundled_as_is_unaffected_by_a_different_cve_id_duplicate():
+    """A same-fix-commit-different-CVE case still populates duplicate_of, and
+    already_bundled reports independently on the id actually being screened."""
+    ref = {
+        "upstream_fix_commits": [
+            {
+                "repo_url": "https://github.com/lutzroeder/netron",
+                "commit_sha": "cd14bad8",
+            }
+        ]
+    }
+    corpus = {
+        (
+            "https://github.com/lutzroeder/netron",
+            "cd14bad8",
+        ): "CVE-2026-79718--netron-sidebar-xss-backport"
+    }
+    assert (
+        _duplicate_of(ref, corpus, cve_id="CVE-2026-79720")
+        == "CVE-2026-79718--netron-sidebar-xss-backport"
+    )
+    assert _bundled_as(corpus, "CVE-2026-79720") is None
+    assert (
+        _bundled_as(corpus, "CVE-2026-79718")
+        == "CVE-2026-79718--netron-sidebar-xss-backport"
+    )
+
+
+def test_bundled_as_is_deterministic_across_runs() -> None:
+    """Ten CVE ids in the corpus carry two bundle directories each (the
+    deliberate bump-versus-backport tier pairs). Iterating the bare set would
+    pick either one depending on per-process str hash randomisation, so the
+    screen artifact would differ byte-for-byte between two identical runs.
+    Lexically first wins. This asserts that contract directly rather than
+    looping: a single process has one hash seed, so repeated calls inside one
+    test would agree even with the bug present."""
+    from eval.beat_upstream_screen import _bundled_as
+
+    corpus = {
+        ("https://example.invalid/a", "a" * 40): "CVE-2026-99999--pkg-backport",
+        ("https://example.invalid/b", "b" * 40): "CVE-2026-99999--pkg-bump",
+        ("https://example.invalid/c", "c" * 40): "CVE-2026-11111--other",
+    }
+    matching = sorted(
+        b for b in corpus.values() if b.startswith("CVE-2026-99999-")
+    )
+    assert len(matching) == 2, "fixture must model a tier pair to be meaningful"
+    assert _bundled_as(corpus, "CVE-2026-99999") == matching[0]

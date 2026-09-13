@@ -145,6 +145,28 @@ def _duplicate_of(
     return None
 
 
+def _bundled_as(corpus: dict[tuple[str, str], str], cve_id: str) -> str | None:
+    """The bundle directory already authored for this CVE id, if any.
+
+    Advisory only: a same CVE id bundle is not a duplicate-fix-commit reject (that
+    tier pair is deliberate, see _duplicate_of), so a survivor row for a CVE the
+    corpus already covers still passes the screen with no signal that a bundle
+    exists. wget CVE-2026-16599 was ranked as the top bootstrap target on 9
+    September 2026 while cert-green and signed since 5 September, for want of
+    this. Matching on cve_id + "-" mirrors _duplicate_of's convention so
+    CVE-2026-1659 cannot false-match a CVE-2026-16599 bundle directory.
+
+    Sorted because ten CVE ids in the corpus carry two bundle directories each
+    (the deliberate tier pairs), and str hashing is randomised per process, so
+    iterating the bare set would return a different name run to run and the
+    screen artifact would stop being byte-reproducible. Lexically first wins.
+    """
+    for bundle in sorted(set(corpus.values())):
+        if bundle.startswith(cve_id + "-"):
+            return bundle
+    return None
+
+
 def _nixpkgs_pr_exists(cve_id: str) -> bool | None:
     """True/False if a NixOS/nixpkgs PR references the CVE id; None if the check failed.
 
@@ -760,6 +782,7 @@ def screen_cve(
         return v
     v["fix_commits"] = ref.get("upstream_fix_commits", [])
     v["tier_hint"] = ref.get("tier_hint")
+    v["already_bundled"] = _bundled_as(corpus or {}, cve_id)
 
     dup = _duplicate_of(ref, corpus or {}, cve_id=cve_id)
     if dup is not None:
