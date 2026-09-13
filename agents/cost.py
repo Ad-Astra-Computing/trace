@@ -29,12 +29,22 @@ from collections.abc import Iterable, Mapping
 # the moment — runners don't surface cache hits from adapter usage
 # blocks yet.
 MODEL_PRICES_PER_MTOK: dict[str, dict[str, float]] = {
+    # Absent rows price through the expensive-unknown fallback below.
+    # Fable 5.1 publishes 0.25/MTok cache reads, not the usual 10 percent.
+    "claude-fable-5-1": {"input": 10.0, "cached_input": 0.25, "output": 50.0},
+    "claude-fable-5": {"input": 10.0, "cached_input": 1.00, "output": 50.0},
+    "claude-opus-5": {"input": 5.0, "cached_input": 0.50, "output": 25.0},
+    "claude-sonnet-5": {"input": 2.0, "cached_input": 0.20, "output": 10.0},
+    "claude-opus-4-8": {"input": 5.0, "cached_input": 0.50, "output": 25.0},
+    # 4.7 and 4.6 are stale on purpose: both are now 5/25. The
+    # cost-per-merge-ready baseline was measured through these rows.
+    # See DECISIONS 2026-09-13.
     "claude-opus-4-7": {"input": 15.0, "cached_input": 1.50, "output": 75.0},
     "claude-opus-4-6": {"input": 15.0, "cached_input": 1.50, "output": 75.0},
     "claude-opus-4-5": {"input": 15.0, "cached_input": 1.50, "output": 75.0},
     "claude-sonnet-4-6": {"input": 3.0, "cached_input": 0.30, "output": 15.0},
     "claude-sonnet-4-5": {"input": 3.0, "cached_input": 0.30, "output": 15.0},
-    "claude-haiku-4-5": {"input": 0.80, "cached_input": 0.08, "output": 4.0},
+    "claude-haiku-4-5": {"input": 1.0, "cached_input": 0.10, "output": 5.0},
 }
 
 

@@ -211,3 +211,64 @@ def test_rollup_usage_empty_is_all_zero() -> None:
         "total_usd": 0.0,
         "by_model": {},
     }
+
+
+def test_the_5_line_models_are_priced_from_the_table_not_the_fallback() -> None:
+    """A model missing from the table prices through the Opus fallback, which
+    is deliberately the most expensive rate available. That is the right
+    default for an unknown model and the wrong answer for a model we chose
+    BECAUSE it is cheap, so the 5 line has to be present by name."""
+    from agents.cost import _DEFAULT_PRICES, prices_for
+
+    for model_id, expected_in, expected_out in [
+        ("claude-sonnet-5", 2.0, 10.0),
+        ("claude-opus-5", 5.0, 25.0),
+        ("claude-fable-5-1", 10.0, 50.0),
+        ("claude-haiku-4-5", 1.0, 5.0),
+    ]:
+        prices = prices_for(model_id)
+        assert prices["input"] == expected_in, model_id
+        assert prices["output"] == expected_out, model_id
+        assert prices is not _DEFAULT_PRICES, model_id
+
+
+def test_fable_5_1_does_not_price_as_fable_5_by_prefix() -> None:
+    """prices_for matches by prefix over a dict, so the more specific id has
+    to win. The two share an input and output rate, so the cache-read rate is
+    what actually discriminates them: Fable 5.1 publishes 0.25/MTok where
+    Fable 5 follows the usual 10 percent. Asserting only on `input` here would
+    pass even if the rows were ordered so that `claude-fable-5` swallowed
+    `claude-fable-5-1`."""
+    from agents.cost import prices_for
+
+    assert prices_for("claude-fable-5-1")["input"] == 10.0
+    assert prices_for("claude-fable-5")["input"] == 10.0
+    assert prices_for("claude-fable-5-1")["cached_input"] == 0.25
+    assert prices_for("claude-fable-5")["cached_input"] == 1.00
+
+
+def test_sonnet_5_is_not_priced_as_sonnet_4_5() -> None:
+    """`claude-sonnet-5` and `claude-sonnet-4-5` are different models at
+    different prices; neither prefix may swallow the other."""
+    from agents.cost import prices_for
+
+    assert prices_for("claude-sonnet-5")["input"] == 2.0
+    assert prices_for("claude-sonnet-4-5-20250929")["input"] == 3.0
+
+
+def test_a_sonnet_5_patcher_call_is_not_billed_at_opus_rates() -> None:
+    """Regression pin for the observed case: the first live sonnet-5 Patcher
+    run recorded 0.811987 USD because the id was absent from the table and
+    priced at 15/75. The same usage at the sonnet-5 rate is about 0.111 USD."""
+    from agents.cost import actual_cost_usd
+
+    cost = actual_cost_usd(
+        model_id="claude-sonnet-5",
+        input_tokens=4645,
+        output_tokens=7878,
+        cache_creation_input_tokens=8078,
+        cache_read_input_tokens=0,
+    )
+    assert cost is not None
+    assert 0.10 < cost < 0.13, cost
+    assert cost < 0.811987
