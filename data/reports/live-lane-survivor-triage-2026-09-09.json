@@ -5,19 +5,17 @@
   "method": "read-only verification via gh api commit history plus upstream advisory and release-note search; nothing bootstrapped, no live model spend",
   "bar": "source-backport-viable: compiled-language library, in-range packaged version, minimal commit-shaped memory-safety or bounds fix; web apps and authorization-check fixes excluded as design-freedom; chirp CVE-2026-78136 excluded (known dead-end)",
   "recommendation": {
-    "bootstrap_first": "CVE-2026-86140",
-    "reason": "promoted after the base dry-run retired CVE-2026-86141. Bounds check before a strcat stack overflow in xmlSnprintfElements (valid.c), and the upstream fix applies to the pinned 2.15.3 source",
-    "then": [
-      "CVE-2026-86138",
-      "CVE-2026-86142"
-    ],
-    "held": {
-      "openssl_cluster": "8 rows, see attr_label_correction",
-      "CVE-2026-86143": "unconfirmed CVE-to-commit mapping, verify before spend",
-      "CVE-2026-86098": "ndpi, not yet assessed",
-      "CVE-2026-86141": "retired, base mismatch, see base_dry_run_sweep"
+    "bootstrap_first": null,
+    "reason": "the libxml2 cluster is finished. Every remaining row is either held, unverified or already in the corpus, so the next candidate needs a fresh screen snapshot rather than another pick from this list",
+    "remaining": {
+      "CVE-2026-86143": "libxml2, applies to 2.15.3 but the CVE-to-commit mapping is unconfirmed; verify before spend",
+      "CVE-2026-86098": "ndpi, never assessed against the source-backport bar",
+      "openssl_cluster": "8 rows held, see attr_label_correction"
     },
-    "note": "ranks 1, 2 and 15 are now in the corpus and are not work"
+    "retired": {
+      "CVE-2026-86141": "base mismatch, see base_dry_run_sweep"
+    },
+    "note": "11 of the 17 rows are now resolved: 6 bundled, 1 retired, 8 held, with overlap where a held row is also unverified"
   },
   "shortlist": [
     {
@@ -102,7 +100,8 @@
       "fix_size": "1 file, +18",
       "fix_availability": "release",
       "note": "strcat stack overflow in xmlSnprintfElements, bounds check added",
-      "base_dry_run": "applies"
+      "base_dry_run": "applies",
+      "already_bundled": "CVE-2026-86140--libxml2-snprintf-elements-backport"
     },
     {
       "rank": 7,
@@ -116,7 +115,8 @@
       "fix_size": "1 file, +21",
       "fix_availability": "release",
       "note": "integer-overflow-then-heap-overflow guard in xmlDictAddQString",
-      "base_dry_run": "applies"
+      "base_dry_run": "applies",
+      "already_bundled": "CVE-2026-86138--libxml2-dict-qstring-overflow-backport"
     },
     {
       "rank": 8,
@@ -130,7 +130,8 @@
       "fix_size": "1 file, +9",
       "fix_availability": "release",
       "note": "length-saturation overflow check in xmlXPtrEvalXPtrPart",
-      "base_dry_run": "applies"
+      "base_dry_run": "applies",
+      "already_bundled": "CVE-2026-86142--libxml2-xptr-length-overflow-backport"
     },
     {
       "rank": 9,
