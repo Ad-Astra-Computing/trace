@@ -771,9 +771,7 @@ def test_bundled_as_finds_a_bundle_for_the_same_cve_id():
     corpus = {
         ("https://github.com/o/r", "c" * 40): "CVE-2026-16599--wget-backport",
     }
-    assert (
-        _bundled_as(corpus, "CVE-2026-16599") == "CVE-2026-16599--wget-backport"
-    )
+    assert _bundled_as(corpus, "CVE-2026-16599") == "CVE-2026-16599--wget-backport"
 
 
 def test_bundled_as_is_none_when_the_cve_has_no_bundle():
@@ -831,8 +829,6 @@ def test_bundled_as_is_deterministic_across_runs() -> None:
         ("https://example.invalid/b", "b" * 40): "CVE-2026-99999--pkg-bump",
         ("https://example.invalid/c", "c" * 40): "CVE-2026-11111--other",
     }
-    matching = sorted(
-        b for b in corpus.values() if b.startswith("CVE-2026-99999-")
-    )
+    matching = sorted(b for b in corpus.values() if b.startswith("CVE-2026-99999-"))
     assert len(matching) == 2, "fixture must model a tier pair to be meaningful"
     assert _bundled_as(corpus, "CVE-2026-99999") == matching[0]
