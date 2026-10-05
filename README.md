@@ -72,8 +72,8 @@ entry that anyone can check with `trace bundle verify` or `cosign verify-blob`.
 ## Status
 
 Latest tag: [v0.7.0](CHANGELOG.md) (21 July 2026). The corpus in
-`traces/example/` holds 169 real-CVE directories (August 2026, excluding the
-`CVE-0000-*` synthetic fixtures), of which 103 carry a `bundle.json` evidence
+`traces/example/` holds 184 real-CVE directories (October 2026, excluding the
+`CVE-0000-*` synthetic fixtures), of which 118 carry a `bundle.json` evidence
 bundle and the rest are staged or single-role fixtures. The Reviewer runs a LoRA
 adapter on `Qwen2.5-Coder-14B-Instruct`; its pilot corpus is 84 cert-green
 positives and 55 negatives (27 July 2026 snapshot), and the adapter passes its
