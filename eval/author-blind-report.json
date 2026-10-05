@@ -1,5 +1,6 @@
 {
   "model": "claude-sonnet-4-5-20250929",
+  "superseded_by": "data/reports/authoring-accuracy-vs-human-2026-09-04.json",
   "n": 23,
   "counts": {
     "skip": 10,
