@@ -15,6 +15,59 @@ from unittest import mock
 import pytest
 
 from tools.trace_cli import pr as pr_mod
+from tools.trace_cli import verify as verify_mod
+
+
+import shutil as _real_shutil
+import subprocess as _real_subprocess
+
+# Captured BEFORE the autouse fixture monkeypatches `.run` / `.which` on the
+# shared module objects: `verify_mod.subprocess` IS the `subprocess` module,
+# so patching its attribute mutates the one module every importer sees, and
+# re-reading `_real_subprocess.run` after that would just recurse into the
+# fake forever.
+_ORIGINAL_SUBPROCESS_RUN = _real_subprocess.run
+_ORIGINAL_SHUTIL_WHICH = _real_shutil.which
+
+
+class _FakeCosignProc:
+    def __init__(self, returncode: int = 0, stdout: str = "", stderr: str = ""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _fake_cosign_ok(cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
+    # verify_mod and pr.py both call the process-wide `subprocess` module,
+    # so this must fall through to the real implementation for every git/gh
+    # invocation the suite's other tests make, and only fake cosign itself.
+    if cmd and "cosign" in str(cmd[0]):
+        return _FakeCosignProc(0)
+    return _ORIGINAL_SUBPROCESS_RUN(cmd, *args, **kwargs)
+
+
+def _fake_which(name):  # type: ignore[no-untyped-def]
+    if name == "cosign":
+        return "/fake/cosign"
+    return _ORIGINAL_SHUTIL_WHICH(name)
+
+
+@pytest.fixture(autouse=True)
+def _mock_cosign(monkeypatch):
+    """`trace pr` now verifies bundle.canonical.json's signature before
+    staging a patch (S4 fable audit 2026-10-06); fake cosign specifically
+    (not the whole subprocess/shutil module) so these unit tests stay
+    offline without disturbing the suite's real git/gh subprocess calls."""
+    monkeypatch.setattr(verify_mod.subprocess, "run", _fake_cosign_ok)
+    monkeypatch.setattr(verify_mod.shutil, "which", _fake_which)
+
+
+def _sign_bundle(d: Path) -> None:
+    """Write bundle.canonical.json + a dummy bundle.sig mirroring the
+    current bundle.json, so trace pr's canonical-reconciliation check
+    passes (cosign itself is mocked by _mock_cosign above)."""
+    (d / "bundle.canonical.json").write_text((d / "bundle.json").read_text())
+    (d / "bundle.sig").write_bytes(b"fake-sig")
 
 
 # ─── fixture helpers ─────────────────────────────────────────────────────────
@@ -88,6 +141,7 @@ def _bundle_dir(
     )
     if with_patch_diff:
         (d / "patch.diff").write_text(patch_text)
+    _sign_bundle(d)
     return d
 
 
@@ -285,9 +339,13 @@ def test_dry_run_aborts_if_apply_check_fails(tmp_path: Path, capsys) -> None:
     (pkg_dir / "package.nix").write_text('{ version = "4.7.0"; }')
 
     with mock.patch("subprocess.run") as mock_run:
-        mock_run.return_value = mock.MagicMock(
-            returncode=1, stdout="", stderr="hunk failed"
-        )
+
+        def _fake(cmd, *a, **k):
+            if cmd and "cosign" in str(cmd[0]):
+                return mock.MagicMock(returncode=0, stdout="", stderr="")
+            return mock.MagicMock(returncode=1, stdout="", stderr="hunk failed")
+
+        mock_run.side_effect = _fake
 
         rc = pr_mod.run(_args(bd, pp, dry_run=True, nixpkgs_checkout=nixpkgs_dir))
 
@@ -414,6 +472,9 @@ def test_push_url_rejects_non_fork_targets(tmp_path: Path, capsys, bad: str) -> 
     nixpkgs_dir = _mk_nixpkgs(tmp_path)
 
     with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = lambda cmd, *a, **k: mock.MagicMock(
+            returncode=0, stdout="", stderr=""
+        )
         rc = pr_mod.run(_args(bd, pp, nixpkgs_checkout=nixpkgs_dir, push_url=bad))
 
     assert rc != 0, f"{bad!r} should be rejected"
@@ -540,6 +601,7 @@ def _backport_bundle(
             "replay_critical": False,
         }
     (d / "bundle.json").write_text(json.dumps(b))
+    _sign_bundle(d)
     (d / "upstream-ref.json").write_text(
         json.dumps(
             {

@@ -857,6 +857,7 @@ def finalize_bundle(
     gate_sourceroot: bool = False,
     gate_source_tree: Path | None = None,
     gate_patch_flags: list[str] | None = None,
+    supersede_signature: bool = False,
 ) -> FinalizeResult:
     """Compute file hashes + write bundle.json + replay.json.
 
@@ -882,11 +883,57 @@ def finalize_bundle(
     rather than after. Writes `patch-diff-preflight.json` either way.
     ``gate_source_tree`` supplies an already-unpacked EFFECTIVE root (skips
     the nix unpack; offline use).
+
+    ``supersede_signature`` (opt-in, default False): a bundle carrying
+    `bundle.sig` has already had its bytes attested; finalize refuses to
+    silently rewrite that manifest underneath the signature (the libressl
+    incident, S4 fable audit 2026-10-06, was exactly this — a live Patcher
+    run overwrote patch.diff on an already-signed bundle with no record).
+    Passing this flag archives the existing bundle.canonical.json's Rekor
+    coordinates into `superseded-signatures.json` before proceeding, so the
+    old attestation stays discoverable; the bundle is unsigned again until
+    Steward re-signs it.
     """
     import hashlib
 
     if not bundle_dir.is_dir():
         raise FileNotFoundError(f"bundle_dir does not exist: {bundle_dir}")
+
+    existing_sig = bundle_dir / "bundle.sig"
+    existing_canonical = bundle_dir / "bundle.canonical.json"
+    if existing_sig.is_file():
+        if not supersede_signature:
+            raise BundleSchemaError(
+                f"{bundle_dir} is already signed (bundle.sig present); "
+                "finalize refuses to rewrite the manifest underneath an "
+                "existing signature. Pass supersede_signature=True "
+                "(--supersede-signature) if the bytes genuinely need to "
+                "change and a new Steward signing run will follow, or "
+                "restore the signed bytes from git history instead."
+            )
+        superseded_entry: dict[str, Any] = {
+            "superseded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        if existing_canonical.is_file():
+            try:
+                old_canonical = json.loads(existing_canonical.read_text())
+                old_sm = old_canonical.get("signed_manifest", {})
+                superseded_entry["rekor_log_index"] = old_sm.get("rekor_log_index")
+                superseded_entry["identity_subject"] = old_sm.get("identity_subject")
+                superseded_entry["canonical_sha256"] = hashlib.sha256(
+                    existing_canonical.read_bytes()
+                ).hexdigest()
+            except json.JSONDecodeError:
+                pass
+        log_path = bundle_dir / "superseded-signatures.json"
+        log: list[dict[str, Any]] = []
+        if log_path.is_file():
+            try:
+                log = json.loads(log_path.read_text())
+            except json.JSONDecodeError:
+                log = []
+        log.append(superseded_entry)
+        log_path.write_text(json.dumps(log, indent=2) + "\n")
 
     # Guardrail: refuse to finalize a bundle whose resolver-side documents fail
     # policy-schema validation. Catches the recurring prefetch-pin defect
@@ -1231,9 +1278,14 @@ def finalize_bundle(
             "algorithm": "sigstore-cosign-v1",
             "signer": "trace-dev@adastracomputing.com",
             "signed_files": [
+                # bundle.json mutates post-sign; a placeholder entry claims
+                # bytes that don't exist. Both are excluded (S4, 2026-10-06).
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
                 for fname, _, replay_critical in _CANONICAL_FILES
-                if replay_critical and fname != "bundle.sig" and fname in files_block
+                if replay_critical
+                and fname not in ("bundle.sig", "bundle.json")
+                and fname in files_block
+                and files_block[fname]["sha256"] != _PLACEHOLDER_HASH
             ]
             + [
                 # Optional replay-critical artifacts present on disk (e.g.

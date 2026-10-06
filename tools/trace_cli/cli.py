@@ -346,6 +346,14 @@ def main(argv: list[str]) -> int:
         "Without it a supplied tree is gated at -p1; ignored "
         "on the nix-unpack path (evaluated patchFlags win).",
     )
+    b_fin.add_argument(
+        "--supersede-signature",
+        action="store_true",
+        help="allow finalize to rewrite the manifest of an already-signed "
+        "bundle (bundle.sig present). Archives the current signature's "
+        "Rekor coordinates into superseded-signatures.json first; the "
+        "bundle is unsigned again until Steward re-signs it.",
+    )
     b_fin.add_argument("--format", choices=("human", "json"), default="human")
 
     from tools.trace_cli import verify as _verify_module
@@ -1121,6 +1129,7 @@ def _cmd_bundle_finalize(args: argparse.Namespace) -> int:
                 if (_gpf := getattr(args, "gate_patch_flags", None))
                 else None
             ),
+            supersede_signature=getattr(args, "supersede_signature", False),
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)

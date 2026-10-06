@@ -223,6 +223,17 @@ def run(args: argparse.Namespace) -> int:
         )
         return EXIT_INVALID
 
+    # S4 (fable audit 2026-10-06): bundle.json is mutable after signing
+    # (Steward writes signer/rekor fields back into it), so trusting its
+    # own hash fields lets an edited bundle.json + swapped patch.diff pass
+    # together. Verify the cosign signature over bundle.canonical.json and
+    # reconcile both the trust-critical top-level fields and every payload
+    # byte against what was actually signed, before anything is staged.
+    canonical_err = _verify_against_canonical(bundle_dir, bundle)
+    if canonical_err:
+        print(f"error: {canonical_err}", file=sys.stderr)
+        return EXIT_INVALID
+
     patch_diff_path = bundle_dir / "patch.diff"
     if not patch_diff_path.is_file():
         print(
@@ -561,6 +572,53 @@ def run(args: argparse.Namespace) -> int:
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
+
+
+def _verify_against_canonical(bundle_dir: Path, bundle: dict[str, Any]) -> str | None:
+    """Verify bundle.canonical.json's signature and reconcile bundle.json
+    against it (S4 fable audit 2026-10-06). Returns an error string, or
+    None if the signed canonical covers exactly what is about to be used.
+
+    `build.json` is deliberately not reconciled here: on a Tier-B bundle
+    it is installed AFTER signing (the recipe's "install build.json, then
+    bundle finalize again" step), so it is absent from the originally
+    signed manifest by design and is bound to the cert run URL, not the
+    signature.
+    """
+    from tools.trace_cli import verify as _verify_module
+
+    canonical_path = bundle_dir / "bundle.canonical.json"
+    sig_path = bundle_dir / "bundle.sig"
+    if not canonical_path.is_file() or not sig_path.is_file():
+        return (
+            f"bundle.canonical.json and bundle.sig are both required under "
+            f"{bundle_dir}; trace pr verifies the signed manifest, not "
+            f"bundle.json's own (mutable) hash fields"
+        )
+    repo_root = Path(__file__).resolve().parents[2]
+    policy_path = repo_root / "policy" / "signing-identity.json"
+    ok, err = _verify_module.verify_signature(canonical_path, sig_path, policy_path)
+    if not ok:
+        return f"signature verification failed: {err}"
+
+    try:
+        canonical = json.loads(canonical_path.read_text())
+    except json.JSONDecodeError as exc:
+        return f"bundle.canonical.json is not valid JSON: {exc}"
+
+    for field in ("bundle_id", "cve_id", "nixpkgs_rev", "kind", "kind_reason"):
+        if bundle.get(field) != canonical.get(field):
+            return (
+                f"{field} differs between bundle.json ({bundle.get(field)!r}) and "
+                f"the signed bundle.canonical.json ({canonical.get(field)!r}) — "
+                f"bundle.json was modified after signing"
+            )
+
+    mismatches = _verify_module._check_payload(canonical_path, bundle_dir)
+    if mismatches:
+        detail = "; ".join(f"{m['path']}: {m['reason']}" for m in mismatches)
+        return f"payload bytes do not match the signed manifest: {detail}"
+    return None
 
 
 def _load_bundle(bundle_dir: Path) -> tuple[dict[str, Any] | None, str | None]:

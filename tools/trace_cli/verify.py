@@ -110,11 +110,23 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
     return p
 
 
+_SENTINEL_HASH = "d" * 64
+
+
 def _check_payload(canonical: Path, payload_dir: Path) -> list[dict[str, str]]:
     """Re-hash signed_manifest.signed_files against payload_dir.
 
     Returns a list of mismatch records ({path, reason}); empty means every
     signed file's on-disk bytes match the hash that was actually signed.
+
+    Two grandfathered cases (S4 fable audit 2026-10-06, pre-fix `finalize`
+    signed both of these): a `bundle.json` self-entry is skipped outright,
+    since Steward mutates that file (signer, rekor coordinates) after
+    signing it, so it can never match by construction; and an entry whose
+    expected hash is the sentinel placeholder (`"d" * 64`, written for a
+    replay-critical file that did not exist yet) is skipped when the file
+    is still absent, since the signature was never a claim about real
+    bytes there. Either case present on disk is checked normally.
     """
     doc = json.loads(canonical.read_text())
     signed_files = doc.get("signed_manifest", {}).get("signed_files", [])
@@ -122,6 +134,8 @@ def _check_payload(canonical: Path, payload_dir: Path) -> list[dict[str, str]]:
     for entry in signed_files:
         rel_path = entry.get("path", "")
         expected = entry.get("sha256", "")
+        if rel_path == "bundle.json":
+            continue
         target = (payload_dir / rel_path).resolve()
         if (
             payload_dir.resolve() not in target.parents
@@ -130,6 +144,8 @@ def _check_payload(canonical: Path, payload_dir: Path) -> list[dict[str, str]]:
             mismatches.append({"path": rel_path, "reason": "escapes payload_dir"})
             continue
         if not target.is_file():
+            if expected == _SENTINEL_HASH:
+                continue
             mismatches.append({"path": rel_path, "reason": "missing"})
             continue
         actual = hashlib.sha256(target.read_bytes()).hexdigest()
@@ -141,6 +157,41 @@ def _check_payload(canonical: Path, payload_dir: Path) -> list[dict[str, str]]:
                 }
             )
     return mismatches
+
+
+def verify_signature(
+    canonical: Path, sig: Path, policy_path: Path
+) -> tuple[bool, str | None]:
+    """Run `cosign verify-blob` for `canonical` against `sig` under the
+    identity locked in `policy_path`. Returns (True, None) on success or
+    (False, error-message). Shared with `trace pr`, which must verify the
+    SIGNED canonical rather than trusting bundle.json's own hash fields
+    (S4 fable audit 2026-10-06)."""
+    try:
+        policy = json.loads(policy_path.read_text())
+        active = policy["paths"][policy["active_path"]]
+        subject_regex = active["subject_regex"]
+        oidc_issuer = active["oidc_issuer"]
+    except (KeyError, json.JSONDecodeError, FileNotFoundError) as exc:
+        return False, f"signing-identity policy malformed: {exc}"
+    cosign = shutil.which("cosign")
+    if not cosign:
+        return False, "cosign not found on PATH"
+    cmd = [
+        cosign,
+        "verify-blob",
+        "--certificate-identity-regexp",
+        subject_regex,
+        "--certificate-oidc-issuer",
+        oidc_issuer,
+        "--bundle",
+        str(sig),
+        str(canonical),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return False, f"cosign verify-blob failed: {proc.stderr.strip()}"
+    return True, None
 
 
 def run(args: argparse.Namespace, repo_root: Path) -> int:
