@@ -6,6 +6,8 @@ The synthetic `CVE-0000-*` fixtures are not catalogued here; they exist to exerc
 
 Authoring-LoRA training supplements are not catalogued here either. These are `traces/example/CVE-*/` dirs that carry only an `authoring-example.json` and `upstream-ref.json` (no `bundle.json`, no `expect.json`); they hold a (vulnerability -> upstream-fix) training pair, not an evidence bundle. They are validated by `tests/schema/test_authoring_examples.py`, not by the bundle expect.json / SEED_INDEX contract.
 
+**Signature reconciliation, 2026-10-06.** A full sweep of every signed bundle's payload against `bundle.canonical.json` (docs/SIGNING_V1.md §9) found 27 reconcile cleanly, 36 carry drift (mostly stale `replay.json` / `review.md`, five with the patch or reproducer itself drifted after signing: `CVE-2021-41581--libressl-x509-mailbox-backport`, `CVE-2026-40198--netcidrlite-uncompressed-ipv6-backport`, `CVE-2026-40199--netcidrlite-ipv4mapped-backport`, `CVE-2026-45190--netcidrlite-unicode-newline-backport`, `CVE-2026-45191--netcidrlite-cidrmask-backport`), and 3 are synthetic fixtures with no real signature. None of the drifted bundles are re-signed yet; `trace pr` now refuses all of them until a Steward run covers the current bytes.
+
 ## At a glance
 
 | bundle | kind | provenance family | what it demonstrates |
