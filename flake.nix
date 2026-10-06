@@ -48,6 +48,16 @@
       {
         formatter = treefmtEval.config.build.wrapper;
 
+        # The CLI the docs call `trace` was never packaged, so every real
+        # invocation (CI, README examples) resorted to spelling out
+        # `python3 -m tools.trace_cli`. This wraps that exact invocation,
+        # pinned to this flake's own source tree for provenance, so `nix
+        # build` and `nix run` produce the binary the docs already name.
+        packages.default = pkgs.writeShellScriptBin "trace" ''
+          export PYTHONPATH="${self}:$PYTHONPATH"
+          exec ${pythonEnv}/bin/python3 -m tools.trace_cli "$@"
+        '';
+
         checks.formatting = treefmtEval.config.build.check self;
 
         checks.eval-fixtures = pkgs.runCommand "eval-fixtures" { } ''
