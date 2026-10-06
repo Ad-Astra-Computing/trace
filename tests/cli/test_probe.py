@@ -323,6 +323,41 @@ def test_check_binds_the_patch_and_package_too(tmp_path):
     assert not ok and "patch.diff" in why
 
 
+def test_probe_binds_repro_fixtures(tmp_path):
+    """S5 (fable audit 2026-10-06): the PoC fixtures under repro/ (e.g. a
+    crash input reproducer.nix feeds the target) must be hash-bound by the
+    probe like reproducer.nix itself, not left out of what it describes."""
+    b = _bundle(tmp_path)
+    (b / "repro").mkdir()
+    (b / "repro" / "crash_poc.bin").write_bytes(b"\x00\x01\x02\x03")
+    probe_bundle(b, build_runner=_discriminating_runner(), nixpkgs_checkout=None)
+    saved = json.loads((b / "probe.json").read_text())
+    assert saved["repro_files_sha256"] == {
+        "crash_poc.bin": _sha(b / "repro" / "crash_poc.bin")
+    }
+    ok, _ = check_probe(b)
+    assert ok
+
+
+def test_check_fails_when_a_repro_fixture_changes(tmp_path):
+    b = _bundle(tmp_path)
+    (b / "repro").mkdir()
+    (b / "repro" / "crash_poc.bin").write_bytes(b"\x00\x01\x02\x03")
+    probe_bundle(b, build_runner=_discriminating_runner(), nixpkgs_checkout=None)
+    (b / "repro" / "crash_poc.bin").write_bytes(b"\xff\xff\xff\xff")
+    ok, why = check_probe(b)
+    assert not ok and "repro/" in why
+
+
+def test_check_fails_when_a_repro_fixture_is_added_after_probing(tmp_path):
+    b = _bundle(tmp_path)
+    probe_bundle(b, build_runner=_discriminating_runner(), nixpkgs_checkout=None)
+    (b / "repro").mkdir()
+    (b / "repro" / "crash_poc.bin").write_bytes(b"\x00\x01\x02\x03")
+    ok, why = check_probe(b)
+    assert not ok and "repro/" in why
+
+
 def test_probe_build_record_is_redacted(tmp_path):
     """The arms' output is committed to a public repository. Secret-shaped
     tokens that reach it, whatever the route, must not be written verbatim."""

@@ -82,6 +82,20 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _repro_file_hashes(bundle_dir: Path) -> dict[str, str]:
+    """Hash every file under `repro/` (the PoC fixture `reproducer.nix`
+    feeds the target). `_BOUND` binds single named files; repro/ holds
+    a variable set, so it gets its own dict-shaped binding."""
+    root = bundle_dir / "repro"
+    if not root.is_dir():
+        return {}
+    return {
+        p.relative_to(root).as_posix(): _sha256(p)
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
+
+
 def _pinned_rev(bundle_dir: Path) -> str | None:
     for name in ("bundle.json", "finding.json"):
         p = bundle_dir / name
@@ -193,6 +207,11 @@ def probe_bundle(
             for key, name in _BOUND.items()
             if (bundle_dir / name).is_file()
         },
+        **(
+            {"repro_files_sha256": repro_hashes}
+            if (repro_hashes := _repro_file_hashes(bundle_dir))
+            else {}
+        ),
         "nixpkgs_rev": _pinned_rev(bundle_dir),
         "discriminates": _honest(verdict, hygiene, override_reason),
         "signal_unpatched_present": verdict.signal_unpatched_present,
@@ -248,6 +267,14 @@ def check_probe(bundle_dir: Path) -> tuple[bool, str]:
             continue
         if _sha256(f) != record.get(key):
             return False, f"{name} changed since the probe; re-run `trace bundle probe`"
+
+    current_repro = _repro_file_hashes(bundle_dir)
+    recorded_repro = record.get("repro_files_sha256") or {}
+    if current_repro != recorded_repro:
+        return (
+            False,
+            "repro/ fixtures changed since the probe; re-run `trace bundle probe`",
+        )
 
     from agents.scorers.reproducer_scorers import (
         ReproPatchedPassesScorer,

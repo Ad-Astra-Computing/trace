@@ -522,6 +522,36 @@ def _collect_source_context(bundle_dir: Path) -> list[str]:
     return sorted(rels)
 
 
+def _collect_repro_files(bundle_dir: Path) -> list[str]:
+    """Return the sorted relative paths of files under ``<bundle>/repro``.
+
+    These are the Reproducer's PoC fixtures (e.g. a crash input
+    `reproducer.nix` feeds to the target) — the single most
+    security-relevant bytes in the bundle, so they are hashed, signed and
+    replay-critical exactly like `source-context/`. Same symlink refusal:
+    a repro fixture must be a real, hashable byte sequence. Empty list
+    when the dir is absent.
+    """
+    root = bundle_dir / "repro"
+    if root.is_symlink():
+        raise BundleSchemaError(
+            f"repro root is a symlink ({root}); refusing to hash/sign "
+            "through it (external files must not enter the signed manifest)."
+        )
+    if not root.is_dir():
+        return []
+    rels: list[str] = []
+    for p in root.rglob("*"):
+        if p.is_symlink():
+            raise BundleSchemaError(
+                f"repro contains a symlink ({p.relative_to(root)}); only "
+                "regular files are allowed as signed replay inputs."
+            )
+        if p.is_file():
+            rels.append(p.relative_to(root).as_posix())
+    return sorted(rels)
+
+
 def _gmv_failure_to_prefetch_failures_entry(failure: GoModVendorFailure) -> dict:
     """Translate a GoModVendorFailure into a schema-shape prefetch_failures[]
     entry. Preserves attempted_command + attempted_at + required_for_patch,
@@ -572,6 +602,7 @@ _CANONICAL_FILES: list[tuple[str, str, bool]] = [
     ("reproducer.nix", "reproducer", True),
     ("reproducer-log.txt", "reproducer", False),
     ("reproducer-refusal.json", "reproducer", True),
+    ("repro-scoring-report.json", "reproducer", True),
     ("build.json", "builder", False),
     ("review.md", "reviewer", True),
     ("review-refusal.json", "reviewer", True),
@@ -1093,6 +1124,25 @@ def finalize_bundle(
             real_hash_names.append(key)
         source_context_manifest.sort(key=lambda e: e["path"])
 
+    # repro/ manifest: the Reproducer's PoC fixtures (S5, fable audit
+    # 2026-10-06). Always signed when present; unlike source-context this
+    # carries no schema-version gating, since it's valid on any lane.
+    repro_files = _collect_repro_files(bundle_dir)
+    repro_manifest: list[dict[str, Any]] = []
+    for rel in repro_files:
+        key = f"repro/{rel}"
+        data = (bundle_dir / "repro" / rel).read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        files_block[key] = {
+            "sha256": digest,
+            "bytes": len(data),
+            "producer_role": "reproducer",
+            "replay_critical": True,
+        }
+        repro_manifest.append({"path": key, "sha256": digest})
+        real_hash_names.append(key)
+    repro_manifest.sort(key=lambda e: e["path"])
+
     # bundle.json's own entry is necessarily a placeholder — the file we
     # are about to write doesn't exist on disk yet, and self-hashing is
     # not meaningful.
@@ -1198,6 +1248,11 @@ def finalize_bundle(
                 # matches the sorted manifest so signed_files is deterministic.
                 {"path": e["path"], "sha256": e["sha256"]}
                 for e in source_context_manifest
+            ]
+            + [
+                # repro/ fixtures are replay-critical inputs → signed.
+                {"path": e["path"], "sha256": e["sha256"]}
+                for e in repro_manifest
             ],
         },
     }
