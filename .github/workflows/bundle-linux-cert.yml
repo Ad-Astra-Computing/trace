@@ -66,16 +66,22 @@ jobs:
 
       - name: Resolve bundle metadata
         id: meta
+        env:
+          BUNDLE_INPUT: ${{ inputs.bundle }}
         run: |
           set -euo pipefail
-          BUNDLE_PATH="traces/example/${{ inputs.bundle }}"
+          if ! printf '%s' "${BUNDLE_INPUT}" | grep -qE '^CVE-[0-9]{4}-[0-9]+--[A-Za-z0-9_.-]+$'; then
+            echo "::error::bundle ${BUNDLE_INPUT} must match CVE-YYYY-NNNN--<attr> (no path separators)"
+            exit 64
+          fi
+          BUNDLE_PATH="traces/example/${BUNDLE_INPUT}"
           if [[ ! -d "${BUNDLE_PATH}" ]]; then
             echo "::error::bundle directory not found: ${BUNDLE_PATH}"
             exit 64
           fi
-          NIXPKGS_REV=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json'))['nixpkgs_rev'])")
-          KIND=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json'))['kind'])")
-          EVIDENCE_PATH=$(python3 -c "import json; print(json.load(open('${BUNDLE_PATH}/bundle.json')).get('auto_merge_evidence_path','reproducer'))")
+          NIXPKGS_REV=$(BUNDLE_PATH="${BUNDLE_PATH}" python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['BUNDLE_PATH'],'bundle.json')))['nixpkgs_rev'])")
+          KIND=$(BUNDLE_PATH="${BUNDLE_PATH}" python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['BUNDLE_PATH'],'bundle.json')))['kind'])")
+          EVIDENCE_PATH=$(BUNDLE_PATH="${BUNDLE_PATH}" python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['BUNDLE_PATH'],'bundle.json'))).get('auto_merge_evidence_path','reproducer'))")
           if [[ -z "${NIXPKGS_REV}" ]]; then
             echo "::error::could not read nixpkgs_rev from ${BUNDLE_PATH}/bundle.json"
             exit 64
@@ -307,14 +313,17 @@ jobs:
         # Plain python3 (stdlib-only renderer) — NOT `nix develop --command`,
         # whose startup banner would contaminate the step summary. Run as a
         # standalone file so the package __init__ isn't imported.
+        env:
+          BUNDLE_INPUT: ${{ inputs.bundle }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           python3 "${GITHUB_WORKSPACE}/tools/trace_cli/ci_summary.py" \
             --mode cert \
             --bundle-dir "${RUNNER_TEMP}/bundle" \
-            --bundle-name "${{ inputs.bundle }}" \
+            --bundle-name "${BUNDLE_INPUT}" \
             --kind "${{ steps.meta.outputs.kind }}" \
             --decision "${RUNNER_TEMP}/opa-decision.json" \
-            --artifact-name "bundle-linux-cert-${{ inputs.bundle }}-${{ github.run_id }}" \
+            --artifact-name "bundle-linux-cert-${BUNDLE_INPUT}-${RUN_ID}" \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload bundle artifacts
