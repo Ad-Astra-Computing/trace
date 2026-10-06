@@ -146,8 +146,20 @@ def prefetch_fetchzip(
     )
 
 
-_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)*$")
+_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_-]*(\.[a-zA-Z_][a-zA-Z0-9_-]*)*$")
 _REV_SAFE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+def _nix_string(s: str) -> str:
+    """Quote `s` as a Nix double-quoted string literal.
+
+    `json.dumps` escapes `"` and `\\` but not Nix's `${...}` antiquotation,
+    so it is not safe to interpolate on its own. Escape backslash first,
+    then the quote, then `${`.
+    """
+    escaped = s.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
+    return f'"{escaped}"'
+
 
 _PREFETCH_NIXPKGS_CONFIG = "{ config.allowUnsupportedSystem = true; }"
 """Nixpkgs config for the fetchzip-prefetch evaluator import.
@@ -243,8 +255,8 @@ def _build_expression(request: FetchzipRequest) -> str:
     # the original args; we substitute the version substring within
     # whichever of `tag` or `rev` the fetcher used, then pin hash to
     # fakeHash to force an FOD mismatch and recover the real hash.
-    current_json = json.dumps(request.current_version)
-    target_json = json.dumps(request.target_version)
+    current_json = _nix_string(request.current_version)
+    target_json = _nix_string(request.target_version)
     parts.append(
         f"({pkg_expr}.override {{}}).overrideAttrs (old: {{\n"
         f"  version = {target_json};\n"

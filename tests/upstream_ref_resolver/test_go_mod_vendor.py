@@ -191,17 +191,57 @@ def test_expression_rejects_nix_metacharacters_in_feed_sourced_fields() -> None:
 
 
 def test_expression_escapes_quotes_in_target_version() -> None:
-    import json
-
-    from agents.upstream_ref_resolver.go_mod_vendor import _build_expression
+    from agents.upstream_ref_resolver.go_mod_vendor import (
+        _build_expression,
+        _nix_string,
+    )
 
     poisoned = '3.6.8"; } // { pwned = true; } // { x = "'
     request = GoModVendorRequest(attr_path="traefik", target_version=poisoned)
     expr = _build_expression(request)
     # the escaped form is present (inert string content); the raw,
     # syntax-breaking form is not.
-    assert json.dumps(poisoned) in expr
+    assert _nix_string(poisoned) in expr
     assert f'version = "{poisoned}"' not in expr
+
+
+def test_expression_escapes_nix_antiquotation_in_target_version() -> None:
+    """json.dumps escapes `"` and `\\` but NOT Nix's `${...}` antiquotation,
+    so a version string containing it must not reach the expression able
+    to interpolate: `nix-instantiate --eval` on `"1.0${builtins.readFile
+    /etc/hostname}"` actually reads the file (confirmed empirically,
+    fable audit 2026-10-06 second pass)."""
+    from agents.upstream_ref_resolver.go_mod_vendor import _build_expression
+
+    poisoned = "1.0${builtins.readFile /etc/hostname}"
+    request = GoModVendorRequest(attr_path="traefik", target_version=poisoned)
+    expr = _build_expression(request)
+    assert "\\${builtins.readFile" in expr
+    assert expr.count("${builtins.readFile") == expr.count("\\${builtins.readFile")
+
+
+def test_nix_string_antiquotation_is_actually_inert_under_real_nix() -> None:
+    """Belt-and-braces: confirm against the real evaluator, not just string
+    inspection, that the escaped form does not read the file."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    from agents.upstream_ref_resolver.go_mod_vendor import _nix_string
+
+    if shutil.which("nix-instantiate") is None:
+        pytest.skip("nix-instantiate not on PATH")
+
+    quoted = _nix_string("1.0${builtins.readFile /etc/hostname}")
+    proc = subprocess.run(
+        ["nix-instantiate", "--eval", "--expr", f"let v = {quoted}; in v"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0
+    assert "builtins.readFile" in proc.stdout or "${builtins.readFile" in proc.stdout
 
 
 def test_expression_pins_nixpkgs_rev_when_supplied() -> None:

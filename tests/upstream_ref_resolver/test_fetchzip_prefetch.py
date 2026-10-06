@@ -211,17 +211,34 @@ def test_expression_rejects_nix_metacharacters_in_feed_sourced_fields() -> None:
 
 
 def test_expression_escapes_quotes_in_versions() -> None:
-    import json
-
-    from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
+    from agents.upstream_ref_resolver.fetchzip_prefetch import (
+        _build_expression,
+        _nix_string,
+    )
 
     poisoned = '1.0.0"; } // { pwned = true; } // { x = "'
     request = FetchzipRequest(
         attr_path="uriparser", target_version=poisoned, current_version="0.9.9"
     )
     expr = _build_expression(request)
-    assert json.dumps(poisoned) in expr
+    assert _nix_string(poisoned) in expr
     assert f'version = "{poisoned}"' not in expr
+
+
+def test_expression_escapes_nix_antiquotation_in_versions() -> None:
+    """json.dumps escapes `"` and `\\` but NOT Nix's `${...}` antiquotation
+    (confirmed empirically against nix-instantiate, fable audit 2026-10-06
+    second pass): a target/current_version carrying it must not reach the
+    expression able to interpolate."""
+    from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
+
+    poisoned = "1.0${builtins.readFile /etc/hostname}"
+    request = FetchzipRequest(
+        attr_path="uriparser", target_version=poisoned, current_version="0.9.9"
+    )
+    expr = _build_expression(request)
+    assert "\\${builtins.readFile" in expr
+    assert expr.count("${builtins.readFile") == expr.count("\\${builtins.readFile")
 
 
 def test_expression_pins_nixpkgs_rev_when_supplied() -> None:

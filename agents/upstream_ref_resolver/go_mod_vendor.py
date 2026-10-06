@@ -154,8 +154,20 @@ def prefetch_go_mod_vendor(
     )
 
 
-_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)*$")
+_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_-]*(\.[a-zA-Z_][a-zA-Z0-9_-]*)*$")
 _REV_SAFE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+def _nix_string(s: str) -> str:
+    """Quote `s` as a Nix double-quoted string literal.
+
+    `json.dumps` escapes `"` and `\\` but not Nix's `${...}` antiquotation,
+    so `json.dumps("1.0${builtins.readFile /etc/hostname}")` is NOT safe to
+    interpolate: Nix still expands the antiquote. Escape backslash first,
+    then the quote, then `${`.
+    """
+    escaped = s.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
+    return f'"{escaped}"'
 
 
 def _build_expression(request: GoModVendorRequest) -> str:
@@ -192,7 +204,7 @@ def _build_expression(request: GoModVendorRequest) -> str:
         parts.append("let pkgs = import <nixpkgs> {}; in")
 
     overrides_lines: list[str] = [
-        f"  version = {json.dumps(request.target_version)};",
+        f"  version = {_nix_string(request.target_version)};",
         "  vendorHash = pkgs.lib.fakeHash;",
     ]
     if request.src_hash is not None:
@@ -206,7 +218,7 @@ def _build_expression(request: GoModVendorRequest) -> str:
         )
         overrides_lines.append(
             f"  src = ({pkg_expr}.src.overrideAttrs "
-            f"(_: {{ outputHash = {json.dumps(request.src_hash)}; }}));"
+            f"(_: {{ outputHash = {_nix_string(request.src_hash)}; }}));"
         )
 
     overrides = "\n".join(overrides_lines)
