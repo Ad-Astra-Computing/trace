@@ -172,6 +172,7 @@ def run_builder(
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
             timeout_seconds=timeout_seconds_per_build,
             instrumentation=instrumentation,
+            allowed_roots=_repro_allowed_roots(bundle_dir, nixpkgs_checkout),
         )
         unpatched_phase, unpatched_full = _build_phase_block(
             unpatched_outcome,
@@ -233,12 +234,14 @@ def run_builder(
                 nix_expression=_no_check_expression(attr),
                 cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
                 timeout_seconds=timeout_seconds_per_build,
+                allowed_roots=_repro_allowed_roots(bundle_dir, nixpkgs_checkout),
             )
         else:
             patched_outcome = build_runner.run(
                 attr=attr,
                 cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
                 timeout_seconds=timeout_seconds_per_build,
+                allowed_roots=_repro_allowed_roots(bundle_dir, nixpkgs_checkout),
             )
     else:
         patched_outcome = _no_attr_outcome()
@@ -259,6 +262,7 @@ def run_builder(
             cwd=nixpkgs_checkout if nixpkgs_checkout else bundle_dir,
             timeout_seconds=timeout_seconds_per_build,
             instrumentation=instrumentation,
+            allowed_roots=_repro_allowed_roots(bundle_dir, nixpkgs_checkout),
         )
         patched_repro_phase, patched_repro_full = _build_phase_block(
             patched_repro_outcome,
@@ -1361,6 +1365,7 @@ def _enumerate_passthru_tests(
         nix_expression=expr,
         cwd=cwd,
         timeout_seconds=timeout_seconds,
+        allowed_roots=[cwd],
     )
     if outcome.exit_code != 0 or not outcome.out_path:
         return []
@@ -1436,6 +1441,21 @@ def _repro_nix_expression(
             f"((import {abs_path} {{ pkgs = import {pin_abs} {{}}; }}).{attr_in_repro})"
         )
     return f"((import {abs_path} {{}}).{attr_in_repro})"
+
+
+def _repro_allowed_roots(
+    bundle_dir: Path, nixpkgs_checkout: Path | None
+) -> list[Path]:
+    """Roots a reproducer.nix eval may read from under restrict-eval.
+
+    `bundle_dir` covers `reproducer.nix` itself and any bundle-relative
+    fixture it reads (`./repro/...`, `./reproducer-fixtures/...`); the
+    nixpkgs checkout, when pinned, covers the `pkgs` override.
+    """
+    roots = [bundle_dir]
+    if nixpkgs_checkout is not None:
+        roots.append(nixpkgs_checkout)
+    return roots
 
 
 # ─── small utilities ─────────────────────────────────────────────────────

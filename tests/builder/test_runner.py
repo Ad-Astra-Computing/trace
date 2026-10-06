@@ -1441,6 +1441,7 @@ def test_unpatched_test_runs_before_patch_apply(tmp_path: Path) -> None:
             cwd,
             timeout_seconds,
             instrumentation=None,
+            allowed_roots=None,
         ):
             seen_content.append(pkg_path.read_text())
             self.calls.append(

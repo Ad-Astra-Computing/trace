@@ -33,7 +33,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Any, Callable, Protocol
+from typing import Mapping, Any, Callable, Protocol, Sequence
 
 
 # Per `docs/BUILDER_V1.md` §3: stdout_stderr is truncated to the trailing
@@ -83,6 +83,7 @@ class BuildRunner(Protocol):
         cwd: Path,
         timeout_seconds: int = 1800,
         instrumentation: str | None = None,
+        allowed_roots: Sequence[Path] | None = None,
     ) -> BuildOutcome:
         """Invoke nix-build with `-E <nix_expression>` OR `-A <attr>`.
 
@@ -91,6 +92,10 @@ class BuildRunner(Protocol):
         expression-mode the caller passes the expression literal, for
         attr-mode the caller passes the attr to evaluate against the
         current default.nix in cwd.
+
+        `allowed_roots` bounds eval-time filesystem reads under
+        `--option restrict-eval true` (see `LocalNixBuildRunner.run`).
+        Defaults to `[cwd]` when omitted.
 
         `instrumentation` opts the invocation into an instrumented
         compilation mode supplied out-of-band by the bundle's
@@ -146,6 +151,7 @@ class FakeBuildRunner:
         cwd: Path,
         timeout_seconds: int = 1800,
         instrumentation: str | None = None,
+        allowed_roots: Sequence[Path] | None = None,
     ) -> BuildOutcome:
         if (nix_expression is None) == (attr is None):
             raise ValueError(
@@ -158,6 +164,9 @@ class FakeBuildRunner:
                 "cwd": str(cwd),
                 "timeout_seconds": timeout_seconds,
                 "instrumentation": instrumentation,
+                "allowed_roots": [str(r) for r in allowed_roots]
+                if allowed_roots is not None
+                else None,
             }
         )
         if self._single is not None:
@@ -282,6 +291,7 @@ class LocalNixBuildRunner:
         cwd: Path,
         timeout_seconds: int = 1800,
         instrumentation: str | None = None,
+        allowed_roots: Sequence[Path] | None = None,
     ) -> BuildOutcome:
         if not self.is_available:
             return BuildOutcome(
@@ -301,6 +311,14 @@ class LocalNixBuildRunner:
             cmd += ["-E", nix_expression]
         else:
             cmd += ["-A", str(attr)]
+        # reproducer.nix is model output from untrusted advisory text;
+        # restrict-eval bounds eval-time reads/fetches to these roots
+        # (see agents/reproducer/parser.py _validate_fetcher_usage).
+        roots = list(allowed_roots) if allowed_roots is not None else [cwd]
+        cmd += ["--option", "restrict-eval", "true"]
+        cmd += ["--option", "allowed-uris", ""]
+        for root in roots:
+            cmd += ["-I", str(Path(root).resolve())]
         import os as _os
 
         env = build_environment(_os.environ, instrumentation=instrumentation)

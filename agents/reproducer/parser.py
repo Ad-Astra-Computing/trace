@@ -674,6 +674,15 @@ def _validate_fetcher_usage(nix_body: str) -> None:
        version-bump-shaped patches without giving up the no-network-at-
        runtime guarantee: the FOD content is pinned at expression time
        and the Nix builder rejects mismatches before any phase runs.
+
+    This is a lexical pre-filter, not the trust boundary: it is bypassable
+    by aliasing (`let b = builtins; in b.fetchurl ...`), and even a
+    hash-pinned fetch makes its HTTP request before the hash mismatch
+    fires. The actual boundary is `--option restrict-eval true` on every
+    `LocalNixBuildRunner.run` invocation (`agents/builder/protocol.py`),
+    which blocks any fetch URI outside `allowed-uris` regardless of how
+    the fetcher is spelled. This check stays as defense-in-depth and as
+    a fast, readable rejection for the common case.
     """
     hard = _NIX_HARD_FORBIDDEN_FETCHERS_RE.search(nix_body)
     if hard:
