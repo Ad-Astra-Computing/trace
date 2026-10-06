@@ -1278,14 +1278,15 @@ def finalize_bundle(
             "algorithm": "sigstore-cosign-v1",
             "signer": "trace-dev@adastracomputing.com",
             "signed_files": [
-                # bundle.json mutates post-sign; a placeholder entry claims
-                # bytes that don't exist. Both are excluded (S4, 2026-10-06).
+                # policy/steward.rego rule-4 requires every replay-critical
+                # file name present here, placeholder or not; a bundle.json
+                # self-entry and placeholder-hash entries are unverifiable
+                # payload bytes (S4, 2026-10-06) but excluding them from
+                # this list fails the Steward gate (run 37534349188), so
+                # that exclusion lives in verify.py's comparator instead.
                 {"path": fname, "sha256": files_block[fname]["sha256"]}
                 for fname, _, replay_critical in _CANONICAL_FILES
-                if replay_critical
-                and fname not in ("bundle.sig", "bundle.json")
-                and fname in files_block
-                and files_block[fname]["sha256"] != _PLACEHOLDER_HASH
+                if replay_critical and fname != "bundle.sig" and fname in files_block
             ]
             + [
                 # Optional replay-critical artifacts present on disk (e.g.
