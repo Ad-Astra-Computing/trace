@@ -210,9 +210,7 @@ def _build_expression(request: GoModVendorRequest) -> str:
         )
 
     overrides = "\n".join(overrides_lines)
-    parts.append(
-        f"({pkg_expr}.override {{}}).overrideAttrs (old: {{\n" f"{overrides}\n" f"}})"
-    )
+    parts.append(f"({pkg_expr}.override {{}}).overrideAttrs (old: {{\n{overrides}\n}})")
     return "\n".join(parts)
 
 

@@ -31,7 +31,10 @@ def policy_path() -> Path:
 
 
 def _args(
-    artifact_dir: Path, fmt: str = "json", policy: Path | None = None
+    artifact_dir: Path,
+    fmt: str = "json",
+    policy: Path | None = None,
+    payload_dir: Path | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         cmd="bundle",
@@ -39,6 +42,7 @@ def _args(
         artifact_dir=artifact_dir,
         policy=policy,
         format=fmt,
+        payload_dir=payload_dir,
     )
 
 
@@ -167,3 +171,148 @@ def test_cosign_missing_returns_not_found(tmp_path: Path, capsys) -> None:
     assert rc == v.EXIT_NOT_FOUND
     payload = json.loads(capsys.readouterr().out)
     assert "cosign not found on PATH" in payload["error"]
+
+
+def _fake_cosign_ok(cmd, capture_output, text):  # type: ignore[no-untyped-def]
+    class _R:
+        returncode = 0
+        stdout = "Verified OK\n"
+        stderr = ""
+
+    return _R()
+
+
+def test_payload_dir_mismatch_fails_even_with_valid_signature(
+    tmp_path: Path, capsys
+) -> None:
+    """S4 (fable audit 2026-10-06): cosign only proves bundle.canonical.json
+    itself was signed. A payload file whose bytes diverge from the hash
+    that was actually signed must fail verification even though the
+    signature on the manifest is valid."""
+    import hashlib
+
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    canonical = {
+        "signed_manifest": {
+            "signed_files": [
+                {
+                    "path": "patch.diff",
+                    "sha256": hashlib.sha256(b"the real signed patch\n").hexdigest(),
+                }
+            ]
+        }
+    }
+    (artifact / "bundle.canonical.json").write_text(json.dumps(canonical))
+    (artifact / "bundle.sig").write_text("{}")
+
+    payload_dir = tmp_path / "payload"
+    payload_dir.mkdir()
+    (payload_dir / "patch.diff").write_text("a swapped, different patch\n")
+
+    with (
+        mock.patch.object(v.subprocess, "run", _fake_cosign_ok),
+        mock.patch.object(v.shutil, "which", return_value="/fake/cosign"),
+    ):
+        rc = v.run(
+            _args(artifact, fmt="json", payload_dir=payload_dir), repo_root=REPO_ROOT
+        )
+
+    assert rc == v.EXIT_VERIFY_FAILED
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verified"] is False
+    assert payload["mismatches"][0]["path"] == "patch.diff"
+    assert "sha256 mismatch" in payload["mismatches"][0]["reason"]
+
+
+def test_payload_dir_missing_file_fails(tmp_path: Path, capsys) -> None:
+    import hashlib
+
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    canonical = {
+        "signed_manifest": {
+            "signed_files": [
+                {"path": "reproducer.nix", "sha256": hashlib.sha256(b"x").hexdigest()}
+            ]
+        }
+    }
+    (artifact / "bundle.canonical.json").write_text(json.dumps(canonical))
+    (artifact / "bundle.sig").write_text("{}")
+
+    payload_dir = tmp_path / "payload"
+    payload_dir.mkdir()
+    # reproducer.nix deliberately absent
+
+    with (
+        mock.patch.object(v.subprocess, "run", _fake_cosign_ok),
+        mock.patch.object(v.shutil, "which", return_value="/fake/cosign"),
+    ):
+        rc = v.run(
+            _args(artifact, fmt="json", payload_dir=payload_dir), repo_root=REPO_ROOT
+        )
+
+    assert rc == v.EXIT_VERIFY_FAILED
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mismatches"][0]["reason"] == "missing"
+
+
+def test_payload_dir_path_traversal_is_refused(tmp_path: Path, capsys) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    canonical = {
+        "signed_manifest": {
+            "signed_files": [{"path": "../../etc/passwd", "sha256": "0" * 64}]
+        }
+    }
+    (artifact / "bundle.canonical.json").write_text(json.dumps(canonical))
+    (artifact / "bundle.sig").write_text("{}")
+
+    payload_dir = tmp_path / "payload"
+    payload_dir.mkdir()
+
+    with (
+        mock.patch.object(v.subprocess, "run", _fake_cosign_ok),
+        mock.patch.object(v.shutil, "which", return_value="/fake/cosign"),
+    ):
+        rc = v.run(
+            _args(artifact, fmt="json", payload_dir=payload_dir), repo_root=REPO_ROOT
+        )
+
+    assert rc == v.EXIT_VERIFY_FAILED
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mismatches"][0]["reason"] == "escapes payload_dir"
+
+
+def test_payload_dir_matching_files_succeeds(tmp_path: Path, capsys) -> None:
+    import hashlib
+
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    content = b"the real signed patch\n"
+    canonical = {
+        "signed_manifest": {
+            "signed_files": [
+                {"path": "patch.diff", "sha256": hashlib.sha256(content).hexdigest()}
+            ]
+        }
+    }
+    (artifact / "bundle.canonical.json").write_text(json.dumps(canonical))
+    (artifact / "bundle.sig").write_text("{}")
+
+    payload_dir = tmp_path / "payload"
+    payload_dir.mkdir()
+    (payload_dir / "patch.diff").write_bytes(content)
+
+    with (
+        mock.patch.object(v.subprocess, "run", _fake_cosign_ok),
+        mock.patch.object(v.shutil, "which", return_value="/fake/cosign"),
+    ):
+        rc = v.run(
+            _args(artifact, fmt="json", payload_dir=payload_dir), repo_root=REPO_ROOT
+        )
+
+    assert rc == v.EXIT_OK
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verified"] is True
+    assert payload["payload_dir"] == str(payload_dir)

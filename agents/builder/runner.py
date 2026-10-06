@@ -1443,9 +1443,7 @@ def _repro_nix_expression(
     return f"((import {abs_path} {{}}).{attr_in_repro})"
 
 
-def _repro_allowed_roots(
-    bundle_dir: Path, nixpkgs_checkout: Path | None
-) -> list[Path]:
+def _repro_allowed_roots(bundle_dir: Path, nixpkgs_checkout: Path | None) -> list[Path]:
     """Roots a reproducer.nix eval may read from under restrict-eval.
 
     `bundle_dir` covers `reproducer.nix` itself and any bundle-relative

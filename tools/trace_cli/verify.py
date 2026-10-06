@@ -34,11 +34,22 @@ field.
   * Does not query Rekor directly. cosign verify-blob includes Rekor
     inclusion proof verification inline; an explicit Rekor lookup
     would be redundant for correctness.
+
+# Payload reconciliation (--payload-dir)
+
+cosign only proves `bundle.canonical.json` itself was signed; the Steward
+artifact doesn't carry the payload files (`patch.diff`, `reproducer.nix`,
+etc.) it describes, so a VERIFIED signature says nothing about whether a
+given directory's bytes (e.g. the bundle committed under
+`traces/example/<CVE>/`) are the ones that were actually signed. Passing
+`--payload-dir` re-hashes every entry in `signed_manifest.signed_files`
+against that directory and fails closed on any mismatch or missing file.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -82,11 +93,54 @@ def add_parser(subs: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "policy/signing-identity.json relative to repo root)",
     )
     p.add_argument(
+        "--payload-dir",
+        type=Path,
+        default=None,
+        help="directory holding the bundle's payload files (patch.diff, "
+        "reproducer.nix, etc. — e.g. traces/example/<CVE>/); when given, "
+        "every entry in signed_manifest.signed_files is re-hashed against "
+        "it and a mismatch or missing file fails verification even if "
+        "the cosign signature itself is valid",
+    )
+    p.add_argument(
         "--format",
         choices=("human", "json"),
         default="human",
     )
     return p
+
+
+def _check_payload(canonical: Path, payload_dir: Path) -> list[dict[str, str]]:
+    """Re-hash signed_manifest.signed_files against payload_dir.
+
+    Returns a list of mismatch records ({path, reason}); empty means every
+    signed file's on-disk bytes match the hash that was actually signed.
+    """
+    doc = json.loads(canonical.read_text())
+    signed_files = doc.get("signed_manifest", {}).get("signed_files", [])
+    mismatches: list[dict[str, str]] = []
+    for entry in signed_files:
+        rel_path = entry.get("path", "")
+        expected = entry.get("sha256", "")
+        target = (payload_dir / rel_path).resolve()
+        if (
+            payload_dir.resolve() not in target.parents
+            and target != payload_dir.resolve()
+        ):
+            mismatches.append({"path": rel_path, "reason": "escapes payload_dir"})
+            continue
+        if not target.is_file():
+            mismatches.append({"path": rel_path, "reason": "missing"})
+            continue
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        if actual != expected:
+            mismatches.append(
+                {
+                    "path": rel_path,
+                    "reason": f"sha256 mismatch (expected {expected}, got {actual})",
+                }
+            )
+    return mismatches
 
 
 def run(args: argparse.Namespace, repo_root: Path) -> int:
@@ -166,6 +220,22 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
             cosign_stdout=proc.stdout,
         )
 
+    payload_mismatches: list[dict[str, str]] | None = None
+    if args.payload_dir is not None:
+        payload_dir: Path = args.payload_dir.resolve()
+        if not payload_dir.is_dir():
+            return _emit_error(
+                args.format, EXIT_NOT_FOUND, f"payload dir not found: {payload_dir}"
+            )
+        payload_mismatches = _check_payload(canonical, payload_dir)
+        if payload_mismatches:
+            return _emit_payload_mismatch(
+                args.format,
+                artifact_dir=artifact_dir,
+                payload_dir=payload_dir,
+                mismatches=payload_mismatches,
+            )
+
     return _emit_success(
         args.format,
         artifact_dir=artifact_dir,
@@ -173,6 +243,7 @@ def run(args: argparse.Namespace, repo_root: Path) -> int:
         oidc_issuer=oidc_issuer,
         canonical_path=canonical,
         sig_path=sig,
+        payload_dir=args.payload_dir,
     )
 
 
@@ -213,6 +284,31 @@ def _emit_failure(fmt: str, **kwargs: Any) -> int:
     return EXIT_VERIFY_FAILED
 
 
+def _emit_payload_mismatch(fmt: str, **kwargs: Any) -> int:
+    payload = {
+        "verified": False,
+        "artifact_dir": str(kwargs["artifact_dir"]),
+        "payload_dir": str(kwargs["payload_dir"]),
+        "reason": "signature valid but payload bytes do not match signed_manifest",
+        "mismatches": kwargs["mismatches"],
+    }
+    if fmt == "json":
+        json.dump(payload, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    else:
+        print("VERIFY FAILED (payload mismatch)", file=sys.stderr)
+        print(f"  artifact:        {payload['artifact_dir']}", file=sys.stderr)
+        print(f"  payload dir:     {payload['payload_dir']}", file=sys.stderr)
+        print(
+            "  the cosign signature is valid, but these files do not match",
+            file=sys.stderr,
+        )
+        print("  the bytes it actually signed:", file=sys.stderr)
+        for m in payload["mismatches"]:
+            print(f"    {m['path']}: {m['reason']}", file=sys.stderr)
+    return EXIT_VERIFY_FAILED
+
+
 def _emit_success(fmt: str, **kwargs: Any) -> int:
     payload = {
         "verified": True,
@@ -221,6 +317,9 @@ def _emit_success(fmt: str, **kwargs: Any) -> int:
         "oidc_issuer": kwargs["oidc_issuer"],
         "canonical_path": str(kwargs["canonical_path"]),
         "sig_path": str(kwargs["sig_path"]),
+        "payload_dir": str(kwargs["payload_dir"])
+        if kwargs.get("payload_dir")
+        else None,
     }
     if fmt == "json":
         json.dump(payload, sys.stdout, indent=2)
@@ -232,4 +331,8 @@ def _emit_success(fmt: str, **kwargs: Any) -> int:
         print(f"  signature:       {payload['sig_path']}")
         print(f"  subject regex:   {payload['subject_regex']}")
         print(f"  oidc issuer:     {payload['oidc_issuer']}")
+        if payload["payload_dir"]:
+            print(
+                f"  payload dir:     {payload['payload_dir']} (all signed files match)"
+            )
     return EXIT_OK
