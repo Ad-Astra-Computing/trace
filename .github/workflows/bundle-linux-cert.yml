@@ -68,12 +68,18 @@ jobs:
         id: meta
         env:
           BUNDLE_INPUT: ${{ inputs.bundle }}
+          TIMEOUT_INPUT: ${{ inputs.builder_timeout_seconds }}
         run: |
           set -euo pipefail
           if ! printf '%s' "${BUNDLE_INPUT}" | grep -qE '^CVE-[0-9]{4}-[0-9]+--[A-Za-z0-9_.-]+$'; then
             echo "::error::bundle ${BUNDLE_INPUT} must match CVE-YYYY-NNNN--<attr> (no path separators)"
             exit 64
           fi
+          if ! printf '%s' "${TIMEOUT_INPUT}" | grep -qE '^[0-9]+$'; then
+            echo "::error::builder_timeout_seconds ${TIMEOUT_INPUT} must be a bare integer"
+            exit 64
+          fi
+          echo "builder_timeout_seconds=${TIMEOUT_INPUT}" >> "$GITHUB_OUTPUT"
           BUNDLE_PATH="traces/example/${BUNDLE_INPUT}"
           if [[ ! -d "${BUNDLE_PATH}" ]]; then
             echo "::error::bundle directory not found: ${BUNDLE_PATH}"
@@ -84,6 +90,14 @@ jobs:
           EVIDENCE_PATH=$(BUNDLE_PATH="${BUNDLE_PATH}" python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['BUNDLE_PATH'],'bundle.json'))).get('auto_merge_evidence_path','reproducer'))")
           if [[ -z "${NIXPKGS_REV}" ]]; then
             echo "::error::could not read nixpkgs_rev from ${BUNDLE_PATH}/bundle.json"
+            exit 64
+          fi
+          if ! printf '%s' "${NIXPKGS_REV}" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::nixpkgs_rev in bundle.json is not a 40-char hex sha: ${NIXPKGS_REV}"
+            exit 64
+          fi
+          if ! printf '%s' "${KIND}" | grep -qE '^(auto-merge|advisory-only|human-review-required)$'; then
+            echo "::error::kind in bundle.json is not a recognised bundle kind: ${KIND}"
             exit 64
           fi
           echo "bundle_path=${BUNDLE_PATH}" >> "$GITHUB_OUTPUT"
@@ -136,12 +150,14 @@ jobs:
           ls -la "${RUNNER_TEMP}/bundle"
 
       - name: Run Builder against pinned nixpkgs
+        env:
+          TIMEOUT_SECONDS: ${{ steps.meta.outputs.builder_timeout_seconds }}
         run: |
           set -euo pipefail
           nix develop --command python -m tools.trace_cli replay \
             --execute --role builder \
             --nixpkgs-checkout "${RUNNER_TEMP}/nixpkgs" \
-            --builder-timeout ${{ inputs.builder_timeout_seconds }} \
+            --builder-timeout "${TIMEOUT_SECONDS}" \
             --no-verify \
             "${RUNNER_TEMP}/bundle" \
             > "${RUNNER_TEMP}/builder-output.json" \
