@@ -184,6 +184,46 @@ def test_expression_includes_target_version_and_fakeHash() -> None:
     assert 'replaceStrings ["0.9.9"] ["1.0.0"]' in expr
 
 
+def test_expression_rejects_nix_metacharacters_in_feed_sourced_fields() -> None:
+    """attr_path and nixpkgs_rev come from the CVE feed / candidate row;
+    a value carrying Nix syntax must be rejected, not interpolated."""
+    import pytest
+
+    from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
+
+    with pytest.raises(ValueError):
+        _build_expression(
+            FetchzipRequest(
+                attr_path='uriparser"; } // { x = import <foo>; }; y = "',
+                target_version="1.0.0",
+                current_version="0.9.9",
+            )
+        )
+    with pytest.raises(ValueError):
+        _build_expression(
+            FetchzipRequest(
+                attr_path="uriparser",
+                target_version="1.0.0",
+                current_version="0.9.9",
+                nixpkgs_rev='abc"); in builtins.exec',
+            )
+        )
+
+
+def test_expression_escapes_quotes_in_versions() -> None:
+    import json
+
+    from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
+
+    poisoned = '1.0.0"; } // { pwned = true; } // { x = "'
+    request = FetchzipRequest(
+        attr_path="uriparser", target_version=poisoned, current_version="0.9.9"
+    )
+    expr = _build_expression(request)
+    assert json.dumps(poisoned) in expr
+    assert f'version = "{poisoned}"' not in expr
+
+
 def test_expression_pins_nixpkgs_rev_when_supplied() -> None:
     from agents.upstream_ref_resolver.fetchzip_prefetch import _build_expression
 

@@ -38,6 +38,7 @@ parameter so tests can inject a fake. The default runner shells out to
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -153,6 +154,10 @@ def prefetch_go_mod_vendor(
     )
 
 
+_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)*$")
+_REV_SAFE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
 def _build_expression(request: GoModVendorRequest) -> str:
     """Construct the Nix expression that triggers Go vendoring with a fake hash.
 
@@ -161,9 +166,23 @@ def _build_expression(request: GoModVendorRequest) -> str:
     against the supplied nixpkgs_rev (or the ambient one). Building
     `pkg.goModules` directly is the cheapest way to trigger ONLY the
     vendor step without compiling the package itself.
+
+    `attr_path`, `nixpkgs_rev`, `target_version` and `src_hash` all
+    originate from the CVE feed / candidate row, not from a trusted
+    caller, so each is validated or escaped before entering the
+    expression rather than f-string-interpolated raw.
     """
+    if not _ATTR_SAFE_RE.match(request.attr_path):
+        raise ValueError(f"unsafe attr_path: {request.attr_path!r}")
+    attr_path_list = (
+        "[" + " ".join(json.dumps(seg) for seg in request.attr_path.split(".")) + "]"
+    )
+    pkg_expr = f"(pkgs.lib.attrByPath {attr_path_list} pkgs)"
+
     parts: list[str] = []
     if request.nixpkgs_rev:
+        if not _REV_SAFE_RE.match(request.nixpkgs_rev):
+            raise ValueError(f"unsafe nixpkgs_rev: {request.nixpkgs_rev!r}")
         parts.append(
             f"let pkgs = import (fetchTarball "
             f'"https://github.com/NixOS/nixpkgs/archive/{request.nixpkgs_rev}.tar.gz") '
@@ -173,7 +192,7 @@ def _build_expression(request: GoModVendorRequest) -> str:
         parts.append("let pkgs = import <nixpkgs> {}; in")
 
     overrides_lines: list[str] = [
-        f'  version = "{request.target_version}";',
+        f"  version = {json.dumps(request.target_version)};",
         "  vendorHash = pkgs.lib.fakeHash;",
     ]
     if request.src_hash is not None:
@@ -186,15 +205,13 @@ def _build_expression(request: GoModVendorRequest) -> str:
             f"  # but lets the build proceed past the source-fetch FOD."
         )
         overrides_lines.append(
-            f"  src = (pkgs.{request.attr_path}.src.overrideAttrs "
-            f'(_: {{ outputHash = "{request.src_hash}"; }}));'
+            f"  src = ({pkg_expr}.src.overrideAttrs "
+            f"(_: {{ outputHash = {json.dumps(request.src_hash)}; }}));"
         )
 
     overrides = "\n".join(overrides_lines)
     parts.append(
-        f"(pkgs.{request.attr_path}.override {{}}).overrideAttrs (old: {{\n"
-        f"{overrides}\n"
-        f"}})"
+        f"({pkg_expr}.override {{}}).overrideAttrs (old: {{\n" f"{overrides}\n" f"}})"
     )
     return "\n".join(parts)
 

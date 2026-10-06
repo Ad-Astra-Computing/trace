@@ -166,6 +166,44 @@ def test_expression_includes_target_version_and_fakeHash() -> None:
     assert "traefik" in expr
 
 
+def test_expression_rejects_nix_metacharacters_in_feed_sourced_fields() -> None:
+    """attr_path and nixpkgs_rev come from the CVE feed / candidate row;
+    a value carrying Nix syntax must be rejected, not interpolated."""
+    import pytest
+
+    from agents.upstream_ref_resolver.go_mod_vendor import _build_expression
+
+    with pytest.raises(ValueError):
+        _build_expression(
+            GoModVendorRequest(
+                attr_path='traefik"; } // { x = import <foo>; }; y = "',
+                target_version="3.6.8",
+            )
+        )
+    with pytest.raises(ValueError):
+        _build_expression(
+            GoModVendorRequest(
+                attr_path="traefik",
+                target_version="3.6.8",
+                nixpkgs_rev='abc"); in builtins.exec',
+            )
+        )
+
+
+def test_expression_escapes_quotes_in_target_version() -> None:
+    import json
+
+    from agents.upstream_ref_resolver.go_mod_vendor import _build_expression
+
+    poisoned = '3.6.8"; } // { pwned = true; } // { x = "'
+    request = GoModVendorRequest(attr_path="traefik", target_version=poisoned)
+    expr = _build_expression(request)
+    # the escaped form is present (inert string content); the raw,
+    # syntax-breaking form is not.
+    assert json.dumps(poisoned) in expr
+    assert f'version = "{poisoned}"' not in expr
+
+
 def test_expression_pins_nixpkgs_rev_when_supplied() -> None:
     from agents.upstream_ref_resolver.go_mod_vendor import _build_expression
 

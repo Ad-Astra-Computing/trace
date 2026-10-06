@@ -26,6 +26,7 @@ parameter is swappable so tests inject a fake.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -145,6 +146,9 @@ def prefetch_fetchzip(
     )
 
 
+_ATTR_SAFE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)*$")
+_REV_SAFE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
 _PREFETCH_NIXPKGS_CONFIG = "{ config.allowUnsupportedSystem = true; }"
 """Nixpkgs config for the fetchzip-prefetch evaluator import.
 
@@ -215,8 +219,17 @@ def _build_expression(request: FetchzipRequest) -> str:
     we only need the fetcher's FOD value, which is platform-
     independent. See the docstring on `_PREFETCH_NIXPKGS_CONFIG`.
     """
+    if not _ATTR_SAFE_RE.match(request.attr_path):
+        raise ValueError(f"unsafe attr_path: {request.attr_path!r}")
+    attr_path_list = (
+        "[" + " ".join(json.dumps(seg) for seg in request.attr_path.split(".")) + "]"
+    )
+    pkg_expr = f"(pkgs.lib.attrByPath {attr_path_list} pkgs)"
+
     parts: list[str] = []
     if request.nixpkgs_rev:
+        if not _REV_SAFE_RE.match(request.nixpkgs_rev):
+            raise ValueError(f"unsafe nixpkgs_rev: {request.nixpkgs_rev!r}")
         parts.append(
             f"let pkgs = import (fetchTarball "
             f'"https://github.com/NixOS/nixpkgs/archive/{request.nixpkgs_rev}.tar.gz") '
@@ -230,14 +243,16 @@ def _build_expression(request: FetchzipRequest) -> str:
     # the original args; we substitute the version substring within
     # whichever of `tag` or `rev` the fetcher used, then pin hash to
     # fakeHash to force an FOD mismatch and recover the real hash.
+    current_json = json.dumps(request.current_version)
+    target_json = json.dumps(request.target_version)
     parts.append(
-        f"(pkgs.{request.attr_path}.override {{}}).overrideAttrs (old: {{\n"
-        f'  version = "{request.target_version}";\n'
+        f"({pkg_expr}.override {{}}).overrideAttrs (old: {{\n"
+        f"  version = {target_json};\n"
         f"  src = old.src.override (orig:\n"
         f"    (if orig ? tag then {{ tag = pkgs.lib.replaceStrings "
-        f'["{request.current_version}"] ["{request.target_version}"] orig.tag; }} else {{}}) //\n'
+        f"[{current_json}] [{target_json}] orig.tag; }} else {{}}) //\n"
         f"    (if orig ? rev then {{ rev = pkgs.lib.replaceStrings "
-        f'["{request.current_version}"] ["{request.target_version}"] orig.rev; }} else {{}}) //\n'
+        f"[{current_json}] [{target_json}] orig.rev; }} else {{}}) //\n"
         f"    {{ hash = pkgs.lib.fakeHash; }}\n"
         f"  );\n"
         f"}})"
