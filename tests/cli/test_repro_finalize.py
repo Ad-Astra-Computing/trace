@@ -88,6 +88,22 @@ def test_repro_fixtures_survive_a_re_finalize_byte_identical(tmp_path):
         assert key in {e["path"] for e in after["signed_manifest"]["signed_files"]}
 
 
+def test_reproducer_fixtures_dir_is_also_hashed_and_signed(tmp_path):
+    """Second pass (fable audit 2026-10-06): the first fix only covered
+    repro/; reproducer-fixtures/ is the more common name across the
+    corpus (14 bundles vs. 6) and must be bound too."""
+    bd = _seed(tmp_path)
+    (bd / "reproducer-fixtures").mkdir()
+    (bd / "reproducer-fixtures" / "input.xml").write_bytes(b"<a/>")
+    _finalize(bd)
+    b = json.loads((bd / "bundle.json").read_text())
+    key = "reproducer-fixtures/input.xml"
+    assert key in b["files"]
+    assert b["files"][key]["producer_role"] == "reproducer"
+    assert b["files"][key]["replay_critical"] is True
+    assert key in {e["path"] for e in b["signed_manifest"]["signed_files"]}
+
+
 def test_absent_repro_dir_is_a_no_op(tmp_path):
     bd = tmp_path / "bundle"
     bd.mkdir()

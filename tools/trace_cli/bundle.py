@@ -522,20 +522,25 @@ def _collect_source_context(bundle_dir: Path) -> list[str]:
     return sorted(rels)
 
 
-def _collect_repro_files(bundle_dir: Path) -> list[str]:
-    """Return the sorted relative paths of files under ``<bundle>/repro``.
+# Both directory names are used across the corpus for the Reproducer's PoC
+# fixtures (crash inputs, binary blobs `reproducer.nix` feeds the target):
+# `repro/` on 6 bundles, `reproducer-fixtures/` on 14 (fable audit
+# 2026-10-06, second pass: the first fix only covered `repro/`).
+_REPRO_DIR_NAMES = ("repro", "reproducer-fixtures")
 
-    These are the Reproducer's PoC fixtures (e.g. a crash input
-    `reproducer.nix` feeds to the target) — the single most
-    security-relevant bytes in the bundle, so they are hashed, signed and
-    replay-critical exactly like `source-context/`. Same symlink refusal:
-    a repro fixture must be a real, hashable byte sequence. Empty list
-    when the dir is absent.
+
+def _collect_repro_files(bundle_dir: Path, dirname: str) -> list[str]:
+    """Return the sorted relative paths of files under ``<bundle>/<dirname>``.
+
+    These are the single most security-relevant bytes in the bundle, so
+    they are hashed, signed and replay-critical exactly like
+    `source-context/`. Same symlink refusal: a fixture must be a real,
+    hashable byte sequence. Empty list when the dir is absent.
     """
-    root = bundle_dir / "repro"
+    root = bundle_dir / dirname
     if root.is_symlink():
         raise BundleSchemaError(
-            f"repro root is a symlink ({root}); refusing to hash/sign "
+            f"{dirname} root is a symlink ({root}); refusing to hash/sign "
             "through it (external files must not enter the signed manifest)."
         )
     if not root.is_dir():
@@ -544,7 +549,7 @@ def _collect_repro_files(bundle_dir: Path) -> list[str]:
     for p in root.rglob("*"):
         if p.is_symlink():
             raise BundleSchemaError(
-                f"repro contains a symlink ({p.relative_to(root)}); only "
+                f"{dirname} contains a symlink ({p.relative_to(root)}); only "
                 "regular files are allowed as signed replay inputs."
             )
         if p.is_file():
@@ -1124,23 +1129,24 @@ def finalize_bundle(
             real_hash_names.append(key)
         source_context_manifest.sort(key=lambda e: e["path"])
 
-    # repro/ manifest: the Reproducer's PoC fixtures (S5, fable audit
-    # 2026-10-06). Always signed when present; unlike source-context this
-    # carries no schema-version gating, since it's valid on any lane.
-    repro_files = _collect_repro_files(bundle_dir)
+    # repro/ + reproducer-fixtures/ manifest: the Reproducer's PoC fixtures
+    # (S5, fable audit 2026-10-06). Always signed when present; unlike
+    # source-context this carries no schema-version gating, since it's
+    # valid on any lane.
     repro_manifest: list[dict[str, Any]] = []
-    for rel in repro_files:
-        key = f"repro/{rel}"
-        data = (bundle_dir / "repro" / rel).read_bytes()
-        digest = hashlib.sha256(data).hexdigest()
-        files_block[key] = {
-            "sha256": digest,
-            "bytes": len(data),
-            "producer_role": "reproducer",
-            "replay_critical": True,
-        }
-        repro_manifest.append({"path": key, "sha256": digest})
-        real_hash_names.append(key)
+    for dirname in _REPRO_DIR_NAMES:
+        for rel in _collect_repro_files(bundle_dir, dirname):
+            key = f"{dirname}/{rel}"
+            data = (bundle_dir / dirname / rel).read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            files_block[key] = {
+                "sha256": digest,
+                "bytes": len(data),
+                "producer_role": "reproducer",
+                "replay_critical": True,
+            }
+            repro_manifest.append({"path": key, "sha256": digest})
+            real_hash_names.append(key)
     repro_manifest.sort(key=lambda e: e["path"])
 
     # bundle.json's own entry is necessarily a placeholder — the file we

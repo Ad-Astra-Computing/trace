@@ -82,18 +82,25 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+_REPRO_DIR_NAMES = ("repro", "reproducer-fixtures")
+
+
 def _repro_file_hashes(bundle_dir: Path) -> dict[str, str]:
-    """Hash every file under `repro/` (the PoC fixture `reproducer.nix`
-    feeds the target). `_BOUND` binds single named files; repro/ holds
-    a variable set, so it gets its own dict-shaped binding."""
-    root = bundle_dir / "repro"
-    if not root.is_dir():
-        return {}
-    return {
-        p.relative_to(root).as_posix(): _sha256(p)
-        for p in sorted(root.rglob("*"))
-        if p.is_file()
-    }
+    """Hash every file under `repro/` and `reproducer-fixtures/` (the PoC
+    fixtures `reproducer.nix` feeds the target). `_BOUND` binds single
+    named files; these dirs hold a variable set, so they get their own
+    dict-shaped binding, keyed by `<dirname>/<relpath>`. A symlink is
+    excluded (never trusted as fixture content), not followed."""
+    hashes: dict[str, str] = {}
+    for dirname in _REPRO_DIR_NAMES:
+        root = bundle_dir / dirname
+        if not root.is_dir():
+            continue
+        for p in sorted(root.rglob("*")):
+            if p.is_symlink() or not p.is_file():
+                continue
+            hashes[f"{dirname}/{p.relative_to(root).as_posix()}"] = _sha256(p)
+    return hashes
 
 
 def _pinned_rev(bundle_dir: Path) -> str | None:

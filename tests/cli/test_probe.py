@@ -333,7 +333,23 @@ def test_probe_binds_repro_fixtures(tmp_path):
     probe_bundle(b, build_runner=_discriminating_runner(), nixpkgs_checkout=None)
     saved = json.loads((b / "probe.json").read_text())
     assert saved["repro_files_sha256"] == {
-        "crash_poc.bin": _sha(b / "repro" / "crash_poc.bin")
+        "repro/crash_poc.bin": _sha(b / "repro" / "crash_poc.bin")
+    }
+    ok, _ = check_probe(b)
+    assert ok
+
+
+def test_probe_binds_reproducer_fixtures_dir_too(tmp_path):
+    """Second pass (fable audit 2026-10-06): the first fix only covered
+    repro/; reproducer-fixtures/ is the more common name across the
+    corpus (14 bundles vs. 6) and must be bound too."""
+    b = _bundle(tmp_path)
+    (b / "reproducer-fixtures").mkdir()
+    (b / "reproducer-fixtures" / "input.xml").write_bytes(b"<a/>")
+    probe_bundle(b, build_runner=_discriminating_runner(), nixpkgs_checkout=None)
+    saved = json.loads((b / "probe.json").read_text())
+    assert saved["repro_files_sha256"] == {
+        "reproducer-fixtures/input.xml": _sha(b / "reproducer-fixtures" / "input.xml")
     }
     ok, _ = check_probe(b)
     assert ok
