@@ -24,7 +24,7 @@ A Patcher → Reviewer → Reproducer → Builder → Steward pipeline reliably 
 | **Retired** (filter passed, chain refused honestly) | **8** | wget2, libtasn1, django, uriparser, libpng, lrzip, quickjs-ng, mupdf |
 | Retention rate | ~50% | |
 
-Cost (v0.5.0 baseline, N=3 sandbox-positive cohort): **~$0.39 mean per merge-ready bundle**; Patcher (opus) is 68% of spend. Sunk cost on the 9 bootstrap-retired candidates: ~$3.47 total (~$0.39/bundle). See [`COST_REPORT_v0.5.0.md`](COST_REPORT_v0.5.0.md).
+Cost (v0.5.0 baseline, N=3 sandbox-positive cohort): **~$0.39 mean per merge-ready bundle**; Patcher (opus) is 68% of spend. That same v0.5.0 baseline counted 9 bootstrap-retired candidates, sunk cost ~$3.47 total (~$0.39/bundle); one of those nine, proxychains-ng, closed cert-green in a later session, leaving the 8 retired named above as the final count this page reports. See [`COST_REPORT_v0.5.0.md`](COST_REPORT_v0.5.0.md).
 
 > The ~50% retention rate is not a defect — it is the result. The retirements map the boundary of what agents can certify, and the framework's refusal to fake them is the evidence that the trust layer holds.
 
