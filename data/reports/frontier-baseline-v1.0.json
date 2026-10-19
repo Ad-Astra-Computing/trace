@@ -4,7 +4,7 @@
   "model_id": "claude-sonnet-4-5-20250929",
   "reviewer_prompt_sha": "ef53ac5a2cd7e6ced3f0b96fd922690abe892d8498aec214df693d058f832937",
   "corpus_freeze_sha": "bebb64b1a2303e93cf9482342e73430bf3a41eed",
-  "export_path": "/home/agent/code/trace/exports/reviewer-v1.0/reviewer.jsonl",
+  "export_path": "exports/reviewer-v1.0/reviewer.jsonl",
   "split": "test",
   "methodology": "embedded-jsonl-system-prompt",
   "dry_run": false,

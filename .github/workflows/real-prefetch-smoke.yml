@@ -75,7 +75,7 @@ jobs:
             echo "re-run with run_patcher=false to exercise the resolver-only path."
             exit 64
           fi
-          echo "ANTHROPIC_API_KEY is present (length=${#ANTHROPIC_API_KEY})"
+          echo "ANTHROPIC_API_KEY is present"
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
@@ -102,9 +102,10 @@ jobs:
 
       - name: Set bundle paths
         id: paths
+        env:
+          BUNDLE: ${{ inputs.bundle }}
         run: |
           set -euo pipefail
-          BUNDLE="${{ inputs.bundle }}"
           OUT="${RUNNER_TEMP}/real-ci-smoke/${BUNDLE}"
           mkdir -p "$OUT"
           echo "out=$OUT" >> "$GITHUB_OUTPUT"

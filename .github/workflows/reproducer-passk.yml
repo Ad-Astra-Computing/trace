@@ -63,7 +63,7 @@ jobs:
             echo "::error::ANTHROPIC_API_KEY secret is required."
             exit 1
           fi
-          echo "ANTHROPIC_API_KEY is present (length=${#ANTHROPIC_API_KEY})"
+          echo "ANTHROPIC_API_KEY is present"
 
       - name: Resolve bundle metadata
         id: meta

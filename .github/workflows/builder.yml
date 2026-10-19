@@ -69,9 +69,10 @@ jobs:
 
       - name: Set bundle paths
         id: paths
+        env:
+          BUNDLE: ${{ inputs.bundle }}
         run: |
           set -euo pipefail
-          BUNDLE="${{ inputs.bundle }}"
           OUT="${RUNNER_TEMP}/builder-smoke/${BUNDLE}"
           mkdir -p "$OUT"
           # Copy the staged fixture into a fresh runner-temp directory

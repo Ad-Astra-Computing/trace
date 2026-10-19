@@ -62,9 +62,11 @@ jobs:
 
       - name: Resolve in-tree bundle paths + nixpkgs_rev
         id: resolve
+        env:
+          BUNDLE: ${{ inputs.bundle }}
         run: |
           set -euo pipefail
-          case "${{ inputs.bundle }}" in
+          case "$BUNDLE" in
             traefik) DIR="traces/example/CVE-2026-25949--traefik" ;;
             mbedtls) DIR="traces/example/CVE-2024-49195--mbedtls" ;;
             bind)    DIR="traces/example/CVE-2025-13878--bind" ;;
@@ -79,9 +81,10 @@ jobs:
 
       - name: Stage bundle
         id: paths
+        env:
+          BUNDLE: ${{ inputs.bundle }}
         run: |
           set -euo pipefail
-          BUNDLE="${{ inputs.bundle }}"
           OUT="${RUNNER_TEMP}/builder-fork/${BUNDLE}"
           mkdir -p "$OUT"
           cp -R "${{ steps.resolve.outputs.bundle_dir }}/." "$OUT/"

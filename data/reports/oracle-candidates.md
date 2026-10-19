@@ -1,6 +1,6 @@
 # Adaptation-oracle candidates
 
-nixpkgs: `/home/agent/code/nixpkgs`
+nixpkgs: `<nixpkgs-checkout>`
 nixpkgs_ref: `nixpkgs`
 total patches scanned: 252
 wired: 189 / unwired: 63 (unwired = orphaned patch, no derivation applies it → not oracle-viable)

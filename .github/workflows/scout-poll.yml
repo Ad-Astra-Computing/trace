@@ -58,26 +58,31 @@ jobs:
           determinate: true
 
       - name: Validate inputs
+        env:
+          CVE_ID: ${{ inputs.cve_id }}
+          GRAPH_SNAPSHOT: ${{ inputs.graph_snapshot }}
         run: |
           set -euo pipefail
-          if [[ ! "${{ inputs.cve_id }}" =~ ^CVE-[0-9]{4}-[0-9]{4,19}$ ]]; then
-            echo "::error::cve_id must match CVE-YYYY-NNNN+: got '${{ inputs.cve_id }}'"
+          if [[ ! "$CVE_ID" =~ ^CVE-[0-9]{4}-[0-9]{4,19}$ ]]; then
+            echo "::error::cve_id must match CVE-YYYY-NNNN+: got '$CVE_ID'"
             exit 64
           fi
-          if [[ ! -f "${{ inputs.graph_snapshot }}" ]]; then
-            echo "::error::graph snapshot not found at ${{ inputs.graph_snapshot }}"
+          if [[ ! -f "$GRAPH_SNAPSHOT" ]]; then
+            echo "::error::graph snapshot not found at $GRAPH_SNAPSHOT"
             exit 64
           fi
 
       - name: Run Scout poller
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          CVE_ID: ${{ inputs.cve_id }}
+          GRAPH_SNAPSHOT: ${{ inputs.graph_snapshot }}
         run: |
           set -euo pipefail
           mkdir -p inbox
           nix develop --command python -m agents.scout.poll_cli \
-            "${{ inputs.cve_id }}" \
-            --graph-snapshot "${{ inputs.graph_snapshot }}" \
+            "$CVE_ID" \
+            --graph-snapshot "$GRAPH_SNAPSHOT" \
             --inbox inbox \
             | tee scout-poll.json
           jq -e '.action != null' scout-poll.json > /dev/null
