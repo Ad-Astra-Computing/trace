@@ -87,8 +87,7 @@ Where the pipeline stands on running without a human:
   manifest.
 - **The Reproducer authors its behavioral test without a human** with Sonnet or
   Haiku as of August 2026. Earlier this stage needed a human because the model
-  output failed to parse; that was a format-handling limit, now fixed. See
-  `docs/DECISIONS.md`.
+  output failed to parse; that was a format-handling limit, now fixed.
 - **Corpus-wide auto-merge is ongoing, not finished.** A bundle reaches
   auto-merge on one of two paths: a cert-green sandbox Reproducer, or a
   reviewer-attested route where the CVE class admits no sandbox reproducer and
@@ -126,8 +125,6 @@ What trace deliberately does not do:
   calls are research spend.
 - **Hydra integration and a UI.** Both deferred.
 
-The full non-goal list is in [`docs/DECISIONS.md`](docs/DECISIONS.md).
-
 ## Reading order
 
 - [`docs/CONCEPTS.md`](docs/CONCEPTS.md): what trace is, and the core ideas
@@ -138,8 +135,6 @@ The full non-goal list is in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 - [`SPEC.md`](SPEC.md): the v0 design.
 - Per-role contracts under [`docs/`](docs/): `BUILDER_V1.md`, `REPRODUCER_V1.md`,
   `STEWARD_V1.md`, `SIGNING_V1.md`.
-- [`docs/DECISIONS.md`](docs/DECISIONS.md): an append-only log of why the project
-  looks the way it does.
 - [`CHANGELOG.md`](CHANGELOG.md): tagged release notes.
 
 ## Development
