@@ -48,7 +48,9 @@ NIX_TO_SPDX = {
 }
 
 NIXPKGS_MIT = "MIT"
-NIXPKGS_COPYRIGHT = "NixOS/nixpkgs contributors (package.nix is a verbatim nixpkgs file)"
+NIXPKGS_COPYRIGHT = (
+    "NixOS/nixpkgs contributors (package.nix is a verbatim nixpkgs file)"
+)
 
 THIRD_PARTY_FALLBACK = "LicenseRef-third-party-varies"
 UNKNOWN_CELL = "unknown, see upstream"
@@ -69,7 +71,9 @@ def bundle_root_for(path: Path) -> Path | None:
     for parent in path.parents:
         if parent == ROOT:
             return None
-        if (parent / "upstream-ref.json").is_file() or (parent / "finding.json").is_file():
+        if (parent / "upstream-ref.json").is_file() or (
+            parent / "finding.json"
+        ).is_file():
             return parent
     return None
 
@@ -167,7 +171,9 @@ def main() -> None:
             )
         return bundle_cache[bundle]
 
-    def declare(path: Path, bundle: Path, label: str, override_license: str | None = None) -> None:
+    def declare(
+        path: Path, bundle: Path, label: str, override_license: str | None = None
+    ) -> None:
         rel = path.relative_to(ROOT).as_posix()
         if rel in seen_paths:
             return
@@ -186,12 +192,19 @@ def main() -> None:
             bundle = bundle_root_for(f)
             if not bundle:
                 continue
-            if name == "upstream-fix.patch" and "negatives" in f.relative_to(ROOT).parts:
+            if (
+                name == "upstream-fix.patch"
+                and "negatives" in f.relative_to(ROOT).parts
+            ):
                 # traces/negatives/: this file is a deliberately mutated
                 # corruption of the real upstream fix (see the sibling
                 # upstream-fix.original.patch), not the fix itself. Still
                 # third-party-derived text, worth a label that says so.
-                declare(f, bundle, "mutated negative fixture (derived from the upstream fix)")
+                declare(
+                    f,
+                    bundle,
+                    "mutated negative fixture (derived from the upstream fix)",
+                )
             else:
                 declare(f, bundle, "upstream fix patch")
             continue
@@ -208,13 +221,22 @@ def main() -> None:
         if name == "package.nix":
             bundle = bundle_root_for(f)
             if bundle:
-                declare(f, bundle, "nixpkgs package expression", override_license=NIXPKGS_MIT)
+                declare(
+                    f,
+                    bundle,
+                    "nixpkgs package expression",
+                    override_license=NIXPKGS_MIT,
+                )
             continue
 
         if name == "authoring-example.json":
             bundle = bundle_root_for(f)
             if bundle and authoring_example_sizeable(f):
-                declare(f, bundle, "embedded upstream source/diff (pre_fix_source, fix_diff)")
+                declare(
+                    f,
+                    bundle,
+                    "embedded upstream source/diff (pre_fix_source, fix_diff)",
+                )
             continue
 
     for f in all_tracked:
@@ -223,7 +245,11 @@ def main() -> None:
             bundle = bundle_root_for(f)
             if bundle:
                 declare(f, bundle, "staged upstream source")
-        elif "reproducer-fixtures" in parts and f.name.count(".") >= 2 and ".prefix." in f.name:
+        elif (
+            "reproducer-fixtures" in parts
+            and f.name.count(".") >= 2
+            and ".prefix." in f.name
+        ):
             bundle = bundle_root_for(f)
             if bundle:
                 declare(f, bundle, "upstream source excerpt (reproducer fixture)")
@@ -244,7 +270,11 @@ def main() -> None:
             continue
         for fixture in sorted(rf.rglob("*")):
             if fixture.is_file():
-                declare(fixture, bundle, "upstream regression-test asset (co-landed with the fix)")
+                declare(
+                    fixture,
+                    bundle,
+                    "upstream regression-test asset (co-landed with the fix)",
+                )
 
     # Any tracked *.jsonl that embeds a real unified-diff hunk: LoRA export
     # files aggregating many bundles, no single upstream to resolve against,
@@ -258,7 +288,14 @@ def main() -> None:
         text = f.read_text(errors="ignore")
         if "@@ -" in text and "+++" in text:
             seen_paths.add(rel)
-            entries.append((rel, "LoRA export aggregating multiple upstream diffs/sources", None, None))
+            entries.append(
+                (
+                    rel,
+                    "LoRA export aggregating multiple upstream diffs/sources",
+                    None,
+                    None,
+                )
+            )
 
     entries.sort()
 
@@ -329,7 +366,9 @@ def main() -> None:
 
     print(f"{len(entries)} third-party files declared across {len(by_bundle)} bundles")
     resolved = sum(1 for _, _, lic, _ in entries if lic)
-    print(f"{resolved} with a known single SPDX license, {len(entries) - resolved} marked unknown")
+    print(
+        f"{resolved} with a known single SPDX license, {len(entries) - resolved} marked unknown"
+    )
 
     # Every resolved id needs a license text on disk, or reuse lint would
     # flag it the day a bundle first resolves to it, however cleanly the
