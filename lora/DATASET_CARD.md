@@ -102,8 +102,8 @@ The split is grouped by `split_family` (the package attribute path), so every CV
 
 The data trains and evaluates the trace Reviewer. It is tied to trace's prompt contract and is not a general code-review corpus.
 
-- **Small.** 92 examples, 11 of them held out. Useful for a focused role adapter, not for broad capability claims.
-- **Synthetic negatives.** The 25 negatives are mechanical mutations. They cover a defined defect set and do not represent the full distribution of real-world bad patches.
+- **Small.** 109 examples, 11 of them held out. Useful for a focused role adapter, not for broad capability claims.
+- **Synthetic negatives.** The 32 labeled negatives (train + dev) are mechanical mutations. They cover a defined defect set and do not represent the full distribution of real-world bad patches.
 - **Mutation families are shared across splits.** The split holds out CVEs, not defect types. Every mutation family present in the test negatives also appears in train. An evaluation on this split measures detection of a known defect family on an unseen CVE, not detection of an unseen defect family. A harder split would hold out a whole mutation family.
 - **Positive-class skew.** Roughly 70% of the positives are version-bump fixes. Rebalancing toward more source-backport positives is the planned next step.
 - **Model-authored verdicts.** The assistant turns were produced by the trace Reviewer agent during cert runs, then gated. They reflect that agent's reasoning and the trace review rules in force at freeze time.
