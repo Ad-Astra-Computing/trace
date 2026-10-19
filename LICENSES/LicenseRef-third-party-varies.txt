@@ -1,0 +1,8 @@
+This marker means the file is a verbatim upstream security patch (or a
+transcription of one) whose originating project's license could not be
+resolved automatically from that bundle's package.nix.
+
+Check traces/THIRD_PARTY_NOTICES.md for the upstream repository this file
+came from, and consult that project directly for its actual license before
+reusing the file. It is not trace's own content and is not covered by
+trace's Apache-2.0 license.

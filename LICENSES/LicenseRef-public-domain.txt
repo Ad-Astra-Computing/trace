@@ -1,0 +1,5 @@
+The originating project's package.nix declares this file's license as
+public domain (nixpkgs' lib.licenses.publicDomain). Check the upstream
+project itself for the specific public-domain dedication or waiver it
+uses, since the term covers more than one legal mechanism depending on
+jurisdiction.

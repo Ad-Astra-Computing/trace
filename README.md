@@ -157,8 +157,20 @@ are signed and reviewed.
 
 ## License and signing identity
 
-Apache-2.0. See [`LICENSE`](LICENSE) and [`CONTRIBUTING.md`](CONTRIBUTING.md) for
-inbound terms.
+Apache-2.0 covers trace's own content: the pipeline code, schemas, docs,
+prose, and most of the JSON evidence a bundle writes. It does not cover
+every file under `traces/`: a bundle's `package.nix` is copied verbatim
+from nixpkgs and stays MIT, nixpkgs' own license, and a bundle's own
+upstream-fix patch, source excerpts and co-landed test assets are
+verbatim records of the upstream project's own code or security fix,
+kept under that project's own license. [`REUSE.toml`](REUSE.toml)
+declares the license for every such file, built by
+[`scripts/gen_third_party_notices.py`](scripts/gen_third_party_notices.py)
+from what is actually on disk rather than a hand-maintained list;
+[`traces/THIRD_PARTY_NOTICES.md`](traces/THIRD_PARTY_NOTICES.md) is the
+same information read as a table. See [`LICENSE`](LICENSE) and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for inbound terms on trace's own
+content.
 
 Every signed bundle anchors a Rekor transparency-log entry to a locked workflow
 identity. The verifier-side identity (issuer, subject regex, expected workflow

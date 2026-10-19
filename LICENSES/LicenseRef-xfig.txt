@@ -1,0 +1,4 @@
+The originating project (fig2dev) uses the historical xfig license
+(nixpkgs' lib.licenses.xfig), a permissive license predating SPDX's
+standard list. See the fig2dev project's own COPYRIGHT file for its
+exact terms.
