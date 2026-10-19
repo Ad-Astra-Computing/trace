@@ -1093,8 +1093,14 @@ def _find_nixfmt() -> list[str] | None:
 
 
 def _nixfmt_modified(nixpkgs: Path, package_dir: str, patch_text: str) -> int:
-    """Run nixfmt on the .nix file(s) the patch modifies. Best-effort: a missing
-    nixfmt warns + proceeds rather than blocking the PR."""
+    """Run nixfmt on the .nix file(s) the patch modifies, but only when the
+    file is already nixfmt-formatted. nixfmt has no partial-file mode: on a
+    file nixpkgs hasn't treewide-reformatted yet, running it rewrites the
+    whole file, burying a one-line patch inside tens of thousands of lines
+    of unrelated reformatting. `--check` first tells us which case we're in,
+    so an already-formatted file still gets formatted (effectively a no-op)
+    and an unformatted legacy file is left exactly as the patch left it.
+    Best-effort throughout: a missing nixfmt warns + proceeds."""
     nixfmt = _find_nixfmt()
     if nixfmt is None:
         print(
@@ -1111,6 +1117,17 @@ def _nixfmt_modified(nixpkgs: Path, package_dir: str, patch_text: str) -> int:
     for nf in sorted(nix_files):
         target = nixpkgs / package_dir / nf
         if not target.is_file():
+            continue
+        check = subprocess.run(
+            [*nixfmt, "--check", str(target)], capture_output=True, text=True
+        )
+        if check.returncode != 0:
+            print(
+                f"  note: {nf} predates nixpkgs' own nixfmt-rfc-style pass; "
+                "leaving its formatting as the patch left it rather than "
+                "rewriting the whole file.",
+                file=sys.stderr,
+            )
             continue
         r = subprocess.run([*nixfmt, str(target)], capture_output=True, text=True)
         if r.returncode != 0:

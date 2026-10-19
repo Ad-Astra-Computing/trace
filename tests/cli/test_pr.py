@@ -955,6 +955,37 @@ def test_nixfmt_missing_warns_not_fails(tmp_path, monkeypatch, capsys):
     assert "nixfmt not found" in capsys.readouterr().err
 
 
+def test_nixfmt_skips_unformatted_legacy_file(tmp_path, monkeypatch, capsys):
+    """A file that fails `nixfmt --check` (not yet on nixpkgs' own
+    nixfmt-rfc-style pass) is left alone rather than whole-file reformatted:
+    reformatting it would bury a one-line patch inside an unrelated,
+    tens-of-thousands-of-line diff (the pr#40-44 bug)."""
+    import subprocess as sp
+
+    pkgdir = tmp_path / "pkgs" / "top-level"
+    pkgdir.mkdir(parents=True)
+    (pkgdir / "big-legacy.nix").write_text("{ }: { }\n")
+    patch = "+++ b/big-legacy.nix\n"
+
+    def fake_nixfmt():
+        return ["fake-nixfmt"]
+
+    monkeypatch.setattr(pr_mod, "_find_nixfmt", fake_nixfmt)
+    calls = []
+
+    def spy(cmd, *a, **k):
+        calls.append(cmd)
+        # --check fails (unformatted); the bare format call must never run.
+        returncode = 1 if "--check" in cmd else 0
+        return sp.CompletedProcess(cmd, returncode, stdout="", stderr="")
+
+    monkeypatch.setattr(pr_mod.subprocess, "run", spy)
+    pr_mod._nixfmt_modified(tmp_path, "pkgs/top-level", patch)
+    assert len(calls) == 1  # only the --check call, no reformat call
+    assert "--check" in calls[0]
+    assert "predates nixpkgs' own nixfmt-rfc-style pass" in capsys.readouterr().err
+
+
 # ── apply-plan from the signed build.json (by-name / remap / repo-root) ──────
 
 
