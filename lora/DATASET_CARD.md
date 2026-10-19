@@ -39,33 +39,48 @@ trace builds merge-ready CVE evidence bundles for an agent-owned nixpkgs fork. T
 
 ## Composition
 
-92 examples, frozen at trace `e70b3ff`.
+109 examples. The train and dev files have been refreshed more than once since
+this dataset's initial freeze as the corpus grew; the counts below are the
+file content live on the Hub, not a historical snapshot.
 
 | split | examples |
 |---|---|
-| train | 69 |
-| dev | 12 |
+| train | 88 |
+| dev | 10 |
 | test | 11 |
-| total | 92 |
+| total | 109 |
 
-By label: 67 positives (accept) and 25 negatives (reject).
+By label, train + dev (98 examples; test carries no label field, see below):
+66 positives (accept) and 32 negatives (reject).
 
 ## Where the examples come from
 
-**Positives (67).** Real trace bundles the Reviewer accepted: 22 auto-merge bundles gated on a signed cert build (patch applied and built on x86_64-linux, then Steward-signed) and 45 human-review-required bundles where acceptance rests on the Reviewer verdict. The assistant turn is the actual Reviewer verdict recorded during that bundle's run. The positive class currently leans toward version-bump fixes, with 20 source-backport fixes where the agent authored the code change.
+**Positives.** Real trace bundles the Reviewer accepted: a signed cert build
+(patch applied and built on x86_64-linux, then Steward-signed) for an
+auto-merge bundle, or the Reviewer's own verdict for a human-review-required
+bundle. The assistant turn is the actual Reviewer verdict recorded during
+that bundle's run.
 
-**Negatives (25).** Minted by `trace mutate reviewer-negative`. A known-good bundle is mechanically corrupted in one specific way, then a real Reviewer pass runs against the corrupted bundle and confirms the reject. The recorded assistant turn is that genuine rejection, with reasoning grounded in the injected defect, not a synthetic label. The eight mutation types are:
+**Negatives.** Minted by `trace mutate reviewer-negative`. A known-good
+bundle is mechanically corrupted in one specific way, then a real Reviewer
+pass runs against the corrupted bundle and confirms the reject. The recorded
+assistant turn is that genuine rejection, with reasoning grounded in the
+injected defect, not a synthetic label. Mutation types present in train + dev:
 
 | mutation type | count |
 |---|---|
-| wrong-target-version | 6 |
-| extra-unrelated-hunk | 6 |
+| extra-unrelated-hunk | 7 |
+| wrong-target-version | 5 |
 | rationale-cites-wrong-version | 4 |
-| patch-touches-unrelated-file | 3 |
 | wrong-src-hash | 3 |
+| source-backport-condition-mutation | 2 |
+| source-backport-missing-hunk | 2 |
+| source-backport-partial-hunk | 2 |
+| source-backport-reversed-hunk | 2 |
 | hash-from-other-bundle | 1 |
 | rationale-cites-wrong-hash | 1 |
 | version-without-hash | 1 |
+| patch-touches-unrelated-file | 1 |
 
 ## Record schema
 
