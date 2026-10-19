@@ -170,7 +170,7 @@ from what is actually on disk rather than a hand-maintained list;
 [`traces/THIRD_PARTY_NOTICES.md`](traces/THIRD_PARTY_NOTICES.md) is the
 same information read as a table. See [`LICENSE`](LICENSE) and
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for inbound terms on trace's own
-content.
+content. Citing trace in your own work: see [`CITATION.cff`](CITATION.cff).
 
 Every signed bundle anchors a Rekor transparency-log entry to a locked workflow
 identity. The verifier-side identity (issuer, subject regex, expected workflow

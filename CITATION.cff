@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use trace or its corpus, please cite it as below."
+title: "trace: an agent-owned nixpkgs fork for merge-ready CVE evidence bundles"
+type: software
+authors:
+  - name: "Ad Astra Computing, Inc."
+    website: "https://adastracomputing.com"
+repository-code: "https://github.com/Ad-Astra-Computing/trace"
+license: Apache-2.0
+version: "0.7.0"
+date-released: "2026-07-21"
+abstract: >-
+  trace turns known upstream security fixes into signed, auditable nixpkgs
+  evidence bundles. A Patcher drafts a fix, a cross-family Reviewer critiques
+  it cold, a Builder compiles the package twice (once without the fix, once
+  with it) in a hermetic Nix sandbox, and a Steward signs the result only
+  when the evidence supports it. Model output is never trusted by itself;
+  schemas, hash-bound replay records, and signed canonical manifests carry
+  the evidence.
