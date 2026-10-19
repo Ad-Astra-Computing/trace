@@ -11,14 +11,12 @@ tags:
   - code-review
   - nixpkgs
   - security
-license: other
-license_name: ad-astra-internal-research
-license_link: LICENSE
+license: apache-2.0
 ---
 
 # Reviewer-LoRA v1.1
 
-This repository is private to Ad Astra Computing. The card is published for internal reproducibility, not public use.
+v1.1 is an intermediate, retired version; its weights are not separately hosted. The current adapter is [`reviewer-lora-v1.10`](https://huggingface.co/adastracomputing/reviewer-lora-v1.10), public under Apache-2.0. This card is kept for the lineage: the two false rejects v1.1 fixed and how.
 
 A LoRA adapter for `Qwen/Qwen2.5-Coder-14B-Instruct` that plays the **Reviewer** role in the [trace](https://github.com/Ad-Astra-Computing/trace) pipeline. Given a candidate nixpkgs CVE-fix bundle, it emits an accept or reject verdict, with reasoning, findings and cited evidence, in trace's `review.md` format.
 
@@ -149,4 +147,4 @@ Gate pilot responses are archived at `gate_pilot_responses/responses.jsonl` in t
 
 ## License
 
-The base model is released by Alibaba under the Apache 2.0 license. The adapter weights are an internal Ad Astra Computing research artifact and are not offered for redistribution.
+Apache-2.0, matching the base model's own license. The v1.1 weights described here are retired and not separately hosted; the current adapter is public at [`reviewer-lora-v1.10`](https://huggingface.co/adastracomputing/reviewer-lora-v1.10).

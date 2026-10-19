@@ -1,7 +1,5 @@
 ---
-license: other
-license_name: ad-astra-internal-research
-license_link: LICENSE
+license: apache-2.0
 task_categories:
   - text-generation
 language:
@@ -27,11 +25,11 @@ configs:
 
 # Reviewer-LoRA training data
 
-This repository is private to Ad Astra Computing. The card is published for internal reproducibility, not public use.
+Published at [huggingface.co/datasets/adastracomputing/reviewer-lora-data](https://huggingface.co/datasets/adastracomputing/reviewer-lora-data), under Apache-2.0.
 
 Instruction-tuning data for the **Reviewer** role in the [trace](https://github.com/Ad-Astra-Computing/trace) pipeline. Each example is a single chat-format turn: trace presents a candidate nixpkgs CVE-fix bundle, and the assistant answers with an accept or reject verdict in trace's `review.md` format.
 
-trace builds merge-ready CVE evidence bundles for an agent-owned nixpkgs fork. The Reviewer decides whether a proposed `patch.diff` is correct, minimal and grounded in the cited upstream fix. This dataset is the supervised signal for fine-tuning that judgment. It trained `adastracomputing/reviewer-lora-v1.0`.
+trace builds merge-ready CVE evidence bundles for an agent-owned nixpkgs fork. The Reviewer decides whether a proposed `patch.diff` is correct, minimal and grounded in the cited upstream fix. This dataset is the supervised signal for fine-tuning that judgment. It trained the first Reviewer-LoRA adapter and every version since, through the current [`reviewer-lora-v1.10`](https://huggingface.co/adastracomputing/reviewer-lora-v1.10).
 
 ## Composition
 
@@ -98,4 +96,4 @@ The data trains and evaluates the trace Reviewer. It is tied to trace's prompt c
 
 ## License
 
-An internal Ad Astra Computing research artifact. Not offered for redistribution.
+Apache-2.0.
