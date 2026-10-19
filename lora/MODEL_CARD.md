@@ -63,7 +63,7 @@ The split is grouped by `split_family` (the package attribute path): 69 train, 1
 
 ## Training procedure
 
-QLoRA over the 4-bit nf4 double-quantized base. The full configuration is recorded in `run_manifest.json` in this repo.
+QLoRA over the 4-bit nf4 double-quantized base. The full configuration is recorded in `run_manifest.json`, preserved in the trace git repository alongside this card.
 
 | setting | value |
 |---|---|
@@ -117,7 +117,7 @@ Four CVEs appear in the fold as both a clean positive and a mutated negative (CV
 | trace commit | `8453ca7` |
 | seed | 42 |
 
-Held-out responses are archived at `eval/responses.jsonl` in this repo. The local scorer and the comparison report live in the trace repository (`eval/score_lora_responses.py`, `data/reports/lora-eval-v1.0.json`).
+Held-out responses are archived at `eval/responses.jsonl`, preserved in the trace git repository alongside this card. The local scorer and the comparison report live in the trace repository (`eval/score_lora_responses.py`, `data/reports/lora-eval-v1.0.json`).
 
 ## License
 

@@ -73,7 +73,7 @@ The split uses `data/splits/reviewer-v1.1.json` (versioned manifest) to override
 
 ## Training procedure
 
-QLoRA over the 4-bit nf4 double-quantized base. Full configuration in `run_manifest.json` in this repo.
+QLoRA over the 4-bit nf4 double-quantized base. Full configuration in `run_manifest.json`, preserved in the trace git repository alongside this card.
 
 | setting | value |
 |---|---|
@@ -143,7 +143,7 @@ Results are in `data/reports/lora-shadow-pilot-v1.0.json` in the trace repositor
 | split manifest | `data/splits/reviewer-v1.1.json` |
 | seed | 42 |
 
-Gate pilot responses are archived at `gate_pilot_responses/responses.jsonl` in this repo. The local scorer and reports live in the trace repository (`eval/score_gate_pilot.py`, `data/reports/lora-gate-pilot-v1.1.json`).
+Gate pilot responses are archived at `gate_pilot_responses/responses.jsonl`, preserved in the trace git repository alongside this card. The local scorer and reports live in the trace repository (`eval/score_gate_pilot.py`, `data/reports/lora-gate-pilot-v1.1.json`).
 
 ## License
 
