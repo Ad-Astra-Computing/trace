@@ -1,8 +1,23 @@
-# trace
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/trace-mark.svg">
+    <img src="docs/assets/trace-mark-light.svg" alt="trace" width="340">
+  </picture>
+</p>
 
-An agent-owned nixpkgs fork that turns known upstream security fixes into
-signed, merge-ready CVE evidence bundles. Findings, cost numbers and the
-corpus browser live at [trace.adastra.computer](https://trace.adastra.computer).
+<p align="center">
+  An agent-owned nixpkgs fork that turns known upstream security fixes into<br>
+  signed, merge-ready CVE evidence bundles.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Ad-Astra-Computing/trace/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/Ad-Astra-Computing/trace/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+</p>
+
+---
+
+Findings, cost numbers and the corpus browser live at
+[trace.adastra.computer](https://trace.adastra.computer).
 
 trace is a research artifact, not a product. It tests one question: can an agent
 system take a disclosed CVE and a known upstream fix and produce a maintainer
@@ -72,13 +87,16 @@ entry that anyone can check with `trace bundle verify` or `cosign verify-blob`.
 
 ## Status
 
-Latest tag: [v0.7.0](CHANGELOG.md) (21 July 2026). The corpus in
-`traces/example/` holds 184 real-CVE directories (October 2026, excluding the
-`CVE-0000-*` synthetic fixtures), of which 118 carry a `bundle.json` evidence
-bundle and the rest are staged or single-role fixtures. The Reviewer runs a LoRA
-adapter on `Qwen2.5-Coder-14B-Instruct`; its pilot corpus is 84 cert-green
-positives and 55 negatives (27 July 2026 snapshot), and the adapter passes its
-gate. This is not a benchmark result and makes no frontier-parity claim.
+Latest tag: [v1.0.0](CHANGELOG.md) (20 October 2026). The corpus in
+`traces/example/` holds 184 real-CVE directories (excluding the `CVE-0000-*`
+synthetic fixtures), of which 137 carry a `bundle.json` evidence bundle and
+the rest are staged or single-role fixtures; 113 of those are tracked on the
+[bundle browser](https://trace.adastra.computer/bundles), 86 of them
+cert-green. Every bundle in the current corpus was reviewed by a frontier
+model. A Reviewer-LoRA adapter on `Qwen2.5-Coder-14B-Instruct` passed its own
+pilot gate (84 cert-green positives, 55 negatives) and is kept on record as a
+cost-reduction experiment, but it is not in the production path and makes no
+frontier-parity claim.
 
 Where the pipeline stands on running without a human:
 
@@ -98,9 +116,10 @@ Where the pipeline stands on running without a human:
   rebuild closures, or a CVE class with no sandbox reproducer. That routing is
   the policy working as designed.
 
-Bundles live as files; review happens in pull requests against the fork. There is
-no UI. Frozen scope: nixpkgs `nixos-unstable`, derivations with `passthru.tests`,
-upstream fixes that ship in a release or tag, and a rebuild closure under 500.
+Bundles live as files; review happens in pull requests against the fork. The
+site is a read-only view of the corpus, not a way to run the pipeline. Frozen
+scope: nixpkgs `nixos-unstable`, derivations with `passthru.tests`, upstream
+fixes that ship in a release or tag, and a rebuild closure under 500.
 
 ## Fork PRs are accuracy artifacts
 
