@@ -123,7 +123,7 @@ fixes that ship in a release or tag, and a rebuild closure under 500.
 
 ## Fork PRs are accuracy artifacts
 
-trace opens pull requests against its own `Ad-Astra-Computing/nixpkgs` fork from
+trace opens pull requests against its own [`Ad-Astra-Computing/nixpkgs`](https://github.com/Ad-Astra-Computing/nixpkgs) fork from
 cert-green bundles. These measure how close the pipeline's output lands to the
 human upstream fix. They are not merge candidates and are never submitted to
 nixpkgs. The fork is the staging ground; the signed bundles are the artifact.
