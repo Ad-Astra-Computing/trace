@@ -6,7 +6,7 @@ The set of CVE bundles under `traces/example/` is the corpus trace ships as evid
 > 2026-05-13 snapshot and are no longer current — the corpus has grown well
 > beyond the bundles listed here. For the current per-bundle map see
 > [`SEED_INDEX.md`](SEED_INDEX.md); for corpus-state changes see
-> [`DECISIONS.md`](DECISIONS.md); for adaptation-lane capability see
+> `DECISIONS.md` (kept alongside the repo, not tracked in git); for adaptation-lane capability see
 > [`ADAPTATION_CAPABILITY.md`](ADAPTATION_CAPABILITY.md). The curation-filter
 > rationale (why the corpus is intentionally small, which contract dimension each
 > shape exercises) remains valid as design intent.

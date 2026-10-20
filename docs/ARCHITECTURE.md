@@ -297,6 +297,6 @@ A short closure of "if you change X you must change Y" relationships:
 * [`SEED_INDEX.md`](SEED_INDEX.md), one-page map of the real-CVE corpus.
 * [`SPEC.md`](../SPEC.md), v0 framing, kind taxonomy, role boundaries.
 * [`BUILDER_V1.md`](BUILDER_V1.md), [`REPRODUCER_V1.md`](REPRODUCER_V1.md), [`STEWARD_V1.md`](STEWARD_V1.md), [`SIGNING_V1.md`](SIGNING_V1.md), per-role contracts.
-* [`DECISIONS.md`](DECISIONS.md), append-only decision log.
+* `DECISIONS.md` (kept alongside the repo, not tracked in git), append-only decision log.
 * [`MODEL_EVAL_PLAN.md`](MODEL_EVAL_PLAN.md), model qualification methodology.
 * [`SECURITY_CI_SUPPLY_CHAIN.md`](SECURITY_CI_SUPPLY_CHAIN.md), [`SECURITY_PROMPT_INJECTION.md`](SECURITY_PROMPT_INJECTION.md), threat models.

@@ -2,7 +2,7 @@
 
 Append-only release notes. Tagged releases land at the top; unreleased work accumulates under a `Unreleased` heading until a tag cuts.
 
-The decision log at [`docs/DECISIONS.md`](docs/DECISIONS.md) is the *why* and the running story; this file is the *what shipped*. They reference each other where useful but do not duplicate.
+The decision log kept alongside the repo (`docs/DECISIONS.md`, not tracked in git) is the *why* and the running story; this file is the *what shipped*.
 
 ---
 
@@ -189,7 +189,7 @@ The v0.2.0 boundaries hold. Two are sharpened by the cohort-split work:
 * **Auto-merge real-CVE-signed bundle.** Still gated. v0.3.0's reviewer-attested path is the implemented model-attested route to auto-merge, but the corpus has no real-CVE bundle that clears every gate in production: wget2 cleared Patcher + Reviewer but hit the Reproducer contract limit; traefik cleared Patcher + Reviewer but hit a Go-toolchain dependency outside the Patcher contract; bind + mbedtls have no Reviewer evidence at all in the current corpus state. A clean reviewer-attested allow anchor needs a candidate with all three signals coherent at the pinned rev.
 * **Sandbox-positive model-attested Reproducer.** Documented as deferred to v0.1. The two real-CVE sandbox-positive bundles (libtiff, mruby) remain deterministic-no-model evidence of the deterministic path. The model-attested sandbox-positive path needs either resolver relaxation or parser relaxation; both are v0.1 design branches.
 
-Full v0 non-goal list: [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Full v0 non-goal list: `docs/DECISIONS.md` (kept alongside the repo, not tracked in git).
 
 ---
 
@@ -374,8 +374,8 @@ Builder saturation graduation), no live-API CI on every push (gated on
 per-workspace budget caps), no Hydra integration, no novel-vuln
 discovery, no UI, no direct upstreaming. Kernel CVEs route to
 human-review-required by design as documented above. Full list:
-[`docs/DECISIONS.md`](docs/DECISIONS.md) section
-*Deliberate non-goals for v0*.
+`docs/DECISIONS.md` section
+*Deliberate non-goals for v0* (kept alongside the repo, not tracked in git).
 
 ---
 
@@ -431,4 +431,4 @@ What this milestone deliberately does **not** ship:
 * UI. Bundles live as files; review happens in GitHub PRs against the fork.
 * ASAN-aware Builder profile. Required to reproduce mruby-class CVEs sandbox-positively. Out of v0; mruby ships as a deterministic-no-model `human-review-required` seed in the meantime.
 
-Full v0 non-goal list: [`docs/DECISIONS.md`](docs/DECISIONS.md) section *Deliberate non-goals for v0*.
+Full v0 non-goal list: `docs/DECISIONS.md` section *Deliberate non-goals for v0* (kept alongside the repo, not tracked in git).

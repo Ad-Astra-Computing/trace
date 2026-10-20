@@ -1,6 +1,6 @@
 # Can a small fine-tuned model author CVE fixes? Result, lever, and ceiling
 
-**Status:** investigation concluded, 20 July 2026 (extends the 14 July lever/ceiling result with the edit-shape training arc). Self-contained external summary; the running record and per-claim confidence live in [`FINDINGS_LORA.md`](FINDINGS_LORA.md), the raw decisions in [`DECISIONS.md`](DECISIONS.md).
+**Status:** investigation concluded, 20 July 2026 (extends the 14 July lever/ceiling result with the edit-shape training arc). Self-contained external summary; the running record and per-claim confidence live in [`FINDINGS_LORA.md`](FINDINGS_LORA.md), the raw decisions in `DECISIONS.md` (kept alongside the repo, not tracked in git).
 
 ---
 

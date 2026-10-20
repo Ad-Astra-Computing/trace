@@ -4,7 +4,7 @@ Thanks for thinking about contributing. trace is a small, opinionated security-r
 
 ## Before you open a PR
 
-1. **Read the contracts.** [`docs/CONCEPTS.md`](docs/CONCEPTS.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) cover the *what* and *where*. Per-role contracts (`docs/BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`) cover *how each role behaves*. The append-only [`docs/DECISIONS.md`](docs/DECISIONS.md) covers *why each lock was set*. Most surprises in the codebase are documented there.
+1. **Read the contracts.** [`docs/CONCEPTS.md`](docs/CONCEPTS.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) cover the *what* and *where*. Per-role contracts (`docs/BUILDER_V1.md`, `REPRODUCER_V1.md`, `STEWARD_V1.md`, `SIGNING_V1.md`) cover *how each role behaves*. The append-only `docs/DECISIONS.md` (kept alongside the repo, not tracked in git) covers *why each lock was set*. Most surprises in the codebase are documented there.
 2. **Tests are the contract.** Every behavioural change ships with tests in `tests/` mirroring the agents/ or tools/ subdir you touched. `nix develop --command python3 -m pytest` should be green before you push.
 3. **Schema and policy are first-class.** If you change a JSON file's shape, the matching schema in `policy/<file>-schema.json` changes too. If you change a Steward rule, the test in `tests/steward/` changes too.
 
@@ -23,7 +23,7 @@ Open an issue or a discussion before writing the code if you want to:
 
 * Change the locked routing config (`policy/routing-config.json`). Models there are pinned and changing them affects every replay.
 * Change the signing identity (`policy/signing-identity.json`). The regex and the OIDC issuer are load-bearing for every existing signed bundle.
-* Touch [`docs/DECISIONS.md`](docs/DECISIONS.md). It's append-only; corrections are amendments, not rewrites.
+* Touch `docs/DECISIONS.md` (kept alongside the repo, not tracked in git). It's append-only; corrections are amendments, not rewrites.
 * Add a new model adapter to `agents/patcher/adapter.py`. Sampling defaults are deliberate.
 * Add or remove a Steward rule. The rule numbering is stable; new rules get the next number, removed rules stay deprecated rather than vanish.
 

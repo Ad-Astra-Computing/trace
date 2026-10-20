@@ -138,7 +138,7 @@ libtiff `fax2ps` null-pointer dereference under `TIFFTAG_FAXFILLFUNC`. The bundl
 
 * **What's load-bearing**: `patch.diff` is byte-equivalent to the nixpkgs backport at `372f8113f50783002c77f1490aae98ce888608d2` (PR [#436742](https://github.com/NixOS/nixpkgs/pull/436742)). Two upstream fix commits, both libtiff-master, both upstream-signed. The PoC is the same artifact upstream attached to its own bug tracker.
 * **What's pre-baked**: `patch-rationale.md`, `review.md`, `reproducer-log.txt`, `build.json`, the scoring reports. None of those came out of a model invocation; each carries an explicit "not produced by a model invocation" provenance preface. CI Builder overwrites `build.json` at dispatch time.
-* **Notable property**: this bundle is the v0 Hydra-graduation criterion *concrete*. Run [25077946199](https://github.com/Ad-Astra-Computing/trace/actions/runs/25077946199) timed out on `patched_build`, producing a clean rule-8 deny with skip-sign. The architecture worked: no false signature, no time-budget-bypass shortcuts, the deny is the milestone. See [DECISIONS.md](DECISIONS.md) entry "libtiff CVE-2024-13978 dispatch".
+* **Notable property**: this bundle is the v0 Hydra-graduation criterion *concrete*. Run [25077946199](https://github.com/Ad-Astra-Computing/trace/actions/runs/25077946199) timed out on `patched_build`, producing a clean rule-8 deny with skip-sign. The architecture worked: no false signature, no time-budget-bypass shortcuts, the deny is the milestone. See the `DECISIONS.md` entry "libtiff CVE-2024-13978 dispatch" (kept alongside the repo, not tracked in git).
 
 ### `CVE-2024-41254--litestream-sftp-hostkey` · human-review-required · source-backport
 
@@ -460,4 +460,4 @@ The bundles below are authoring-corpus-only: they contain `authoring-example.jso
 
 ## How to verify any claim in this index
 
-Each bundle's `README.md` and `expect.json:notes` carry the public-source citation table for every load-bearing claim. The signed bundles' Rekor log indices in [`DECISIONS.md`](DECISIONS.md) (search for "v0 ledger" + "Signing row") are checkable via `cosign verify-blob` against the locked workflow identity in [`policy/signing-identity.json`](../policy/signing-identity.json). If anything in this index is found to be inaccurate, the bundle is wrong; open an issue.
+Each bundle's `README.md` and `expect.json:notes` carry the public-source citation table for every load-bearing claim. The signed bundles' Rekor log indices in `DECISIONS.md` (kept alongside the repo, not tracked in git; search for "v0 ledger" + "Signing row") are checkable via `cosign verify-blob` against the locked workflow identity in [`policy/signing-identity.json`](../policy/signing-identity.json). If anything in this index is found to be inaccurate, the bundle is wrong; open an issue.
