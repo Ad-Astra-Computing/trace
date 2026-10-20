@@ -7,8 +7,8 @@ authors:
     website: "https://adastracomputing.com"
 repository-code: "https://github.com/Ad-Astra-Computing/trace"
 license: Apache-2.0
-version: "0.7.0"
-date-released: "2026-07-21"
+version: "1.0.0"
+date-released: "2026-10-20"
 abstract: >-
   trace turns known upstream security fixes into signed, auditable nixpkgs
   evidence bundles. A Patcher drafts a fix, a cross-family Reviewer critiques
