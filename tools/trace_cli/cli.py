@@ -118,8 +118,10 @@ def main(argv: list[str]) -> int:
         "--execute",
         action="store_true",
         help=(
-            "actually run the stub role against frozen inputs (deterministic roles "
-            "only: scout, cartographer, upstream-ref-resolver). Requires --role."
+            "actually run the role against frozen inputs: scout, cartographer and "
+            "upstream-ref-resolver run in-process with no model call; patcher, "
+            "reviewer and reproducer require --model and dispatch a live call; "
+            "builder shells out to nix-build. Requires --role."
         ),
     )
     r.add_argument(
