@@ -53,10 +53,15 @@
         # `python3 -m tools.trace_cli`. This wraps that exact invocation,
         # pinned to this flake's own source tree for provenance, so `nix
         # build` and `nix run` produce the binary the docs already name.
-        packages.default = pkgs.writeShellScriptBin "trace" ''
-          export PYTHONPATH="${self}:$PYTHONPATH"
-          exec ${pythonEnv}/bin/python3 -m tools.trace_cli "$@"
-        '';
+        packages.default =
+          (pkgs.writeShellScriptBin "trace" ''
+            export PYTHONPATH="${self}:$PYTHONPATH"
+            exec ${pythonEnv}/bin/python3 -m tools.trace_cli "$@"
+          '').overrideAttrs
+            (_: {
+              meta.homepage = "https://trace.adastra.computer";
+              meta.description = "Agent-owned nixpkgs fork for merge-ready CVE evidence bundles";
+            });
 
         checks.formatting = treefmtEval.config.build.check self;
 

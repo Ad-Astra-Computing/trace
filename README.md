@@ -1,7 +1,8 @@
 # trace
 
 An agent-owned nixpkgs fork that turns known upstream security fixes into
-signed, merge-ready CVE evidence bundles.
+signed, merge-ready CVE evidence bundles. Findings, cost numbers and the
+corpus browser live at [trace.adastra.computer](https://trace.adastra.computer).
 
 trace is a research artifact, not a product. It tests one question: can an agent
 system take a disclosed CVE and a known upstream fix and produce a maintainer
